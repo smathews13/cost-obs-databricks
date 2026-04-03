@@ -39,7 +39,6 @@ app.*.yaml
 
 # Build artifacts
 static/
-requirements.txt
 
 # Logs
 *.log
