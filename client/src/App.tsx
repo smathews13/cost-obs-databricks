@@ -408,24 +408,26 @@ function Dashboard() {
     );
   };
 
-  if (showSetupWizard === "pending") {
+  if (showSetupWizard === "pending" || showSetupWizard === true) {
     return (
       <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: '#F9F7F4' }}>
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full" style={{ border: '3px solid #e5e7eb', borderTopColor: '#FF3621' }} />
-          <p className="text-sm text-gray-500">Loading...</p>
-        </div>
+        {showSetupWizard === true && (
+          <SetupWizard onComplete={handleSetupComplete} onClose={() => setShowSetupWizard(false)} />
+        )}
+        {showSetupWizard === "pending" && (
+          <div className="flex flex-col items-center gap-3">
+            <div className="h-8 w-8 animate-spin rounded-full" style={{ border: '3px solid #e5e7eb', borderTopColor: '#FF3621' }} />
+            <p className="text-sm text-gray-500">Loading...</p>
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: appSettings.darkMode ? '#1B1F23' : '#F9F7F4' }}>
-      {/* Setup Wizard (shown on first deploy when tables don't exist) */}
-      {showSetupWizard === true && <SetupWizard onComplete={handleSetupComplete} onClose={() => setShowSetupWizard(false)} />}
-
-      {/* Permissions Check Dialog — suppressed during setup */}
-      {showSetupWizard === false && <PermissionsDialog />}
+      {/* Permissions Check Dialog */}
+      <PermissionsDialog />
 
       {/* Account Info Banner */}
       <div className="text-white" style={{ backgroundColor: '#1B3139' }}>
