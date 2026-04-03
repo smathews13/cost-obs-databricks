@@ -222,6 +222,13 @@ Before deploying, confirm the following are in place:
 
 Deploy directly from this repository using Databricks Apps' built-in Git integration. No local clone or file sync required.
 
+> **Enable the Deploy from Git preview first**
+> If you don't see a **Git repository** option when creating an app, you need to enable the beta feature in your workspace:
+> 1. Sign in as a workspace admin
+> 2. Go to **Settings → Workspace Previews** (see [Databricks docs](https://docs.databricks.com/en/admin/workspace-settings/previews.html) for navigation steps)
+> 3. Find **"Deploy Databricks apps from Git repositories (Beta)"** under the Databricks Apps section
+> 4. Toggle it **ON** and save
+
 #### Step 1 — Create the app
 
 1. In your Databricks workspace, go to **Apps → Create App**
