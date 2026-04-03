@@ -125,7 +125,18 @@ function Dashboard() {
     }
   };
 
-  // Setup wizard is only shown when triggered from Settings → Experimental
+  // Auto-launch setup wizard on first deploy if materialized views don't exist yet
+  useEffect(() => {
+    if (localStorage.getItem("coc-setup-complete") === "true") return;
+    fetch("/api/setup/status")
+      .then((r) => r.json())
+      .then((status) => {
+        if (status?.status === "setup_required") {
+          setShowSetupWizard(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSetupComplete = () => {
     localStorage.setItem("coc-setup-complete", "true");

@@ -206,64 +206,83 @@ All billing and compute data is **account-level** — queries run against Unity 
 
 ### Deploy from Git
 
-The recommended deployment method is to deploy directly from this Git repository using Databricks Apps' built-in Git integration. No local clone or file sync required — Databricks pulls the source code and pre-built assets directly from GitHub.
+Deploy directly from this repository using Databricks Apps' built-in Git integration. No local clone or file sync required.
 
-> See [docs/PRE_DEPLOYMENT_CHECKLIST.md](docs/PRE_DEPLOYMENT_CHECKLIST.md) for required permissions and environment prerequisites before deploying.
+> See [docs/PRE_DEPLOYMENT_CHECKLIST.md](docs/PRE_DEPLOYMENT_CHECKLIST.md) for required permissions and prerequisites.
 
 **Steps:**
 
 1. In your Databricks workspace, go to **Apps → Create App → Deploy from Git**
 2. Enter the repo URL: `https://github.com/smathews13/cost-obs-databricks`
-3. **Git reference:** `main` (or a release tag e.g. `v1.0.0`)
-4. **Reference type:** `Branch` (or `Tag` if pinning to a release)
-5. **Source code path:** leave empty (the entire project is at the repo root)
-6. Fill in the required environment variables (see `app.yaml` for the full list)
+3. **Git reference:** `main`
+4. **Reference type:** `Branch`
+5. **Source code path:** leave empty
+6. Add your environment variables (see below — only 3 are required to get started)
+7. Click **Deploy**
 
-Or click the **Deploy to Databricks** button at the top of this README to launch directly into your workspace.
+Or click the **Deploy to Databricks** button at the top of this README.
 
-Databricks Apps supports GitHub, GitLab, Bitbucket, and other providers. You can pin to a branch, tag, or specific commit SHA. Private repositories require Git credentials configured on the app's service principal.
+### Environment Variables
 
-### Required Environment Variables
+Only three variables are needed to get started. Everything else has defaults or is auto-configured by the setup wizard.
 
-| Variable | Required | Description |
+| Variable | Required | Value |
 |---|---|---|
-| `DATABRICKS_HOST` | Yes | Workspace URL, e.g. `https://abc.cloud.databricks.com` |
-| `DATABRICKS_TOKEN` | Yes | Personal access token or service principal secret |
-| `DATABRICKS_HTTP_PATH` | Yes | SQL warehouse path, or `auto` to create one automatically |
-| `COST_OBS_CATALOG` | No | Unity Catalog for materialized views (default: `main`) |
-| `COST_OBS_SCHEMA` | No | Schema name (default: `cost_obs`) |
-| `GENIE_SPACE_ID` | No | Genie Space ID for AI cost chat |
-| `AZURE_SUBSCRIPTION_ID` | No | Azure subscription ID (shown in account banner on Azure workspaces) |
-| `SMTP_HOST` / `SMTP_*` | No | Email alert configuration |
-| `ENDPOINT_NAME` | No | Lakebase endpoint name (optional — app falls back to Delta tables if not set) |
-| `PGHOST` | No | Lakebase PostgreSQL hostname (optional — app falls back to Delta tables if not set) |
-| `AWS_COST_CATALOG` | No | Catalog for AWS CUR tables (default: `billing`) |
-| `AWS_COST_SCHEMA` | No | Schema for AWS CUR tables (default: `aws`) |
-| `AZURE_COST_CATALOG` | No | Catalog for Azure cost tables (default: `billing`) |
-| `AZURE_COST_SCHEMA` | No | Schema for Azure cost tables (default: `azure`) |
+| `DATABRICKS_HOST` | Yes | Your workspace URL — e.g. `https://adb-1234567890.azuredatabricks.net` |
+| `DATABRICKS_TOKEN` | Yes | A personal access token — see [Generate a token](#generate-a-token) below |
+| `DATABRICKS_HTTP_PATH` | Yes | Set to `auto` to create a dedicated warehouse automatically |
+
+**Optional variables** (all have defaults):
+
+| Variable | Default | Description |
+|---|---|---|
+| `COST_OBS_CATALOG` | `main` | Unity Catalog for materialized views |
+| `COST_OBS_SCHEMA` | `cost_obs` | Schema name |
+| `GENIE_SPACE_ID` | — | Genie Space ID for AI cost chat |
+| `AZURE_SUBSCRIPTION_ID` | — | Azure subscription ID (shown in account banner on Azure) |
+| `SMTP_HOST` / `SMTP_*` | — | Email alert configuration |
+| `ENDPOINT_NAME` + `PGHOST` | — | Lakebase connection (app falls back to Delta tables if not set) |
+| `AWS_COST_CATALOG` / `AWS_COST_SCHEMA` | `billing` / `aws` | AWS CUR actual cost tables |
+| `AZURE_COST_CATALOG` / `AZURE_COST_SCHEMA` | `billing` / `azure` | Azure cost export tables |
+
+### Generate a Token
+
+The token authenticates the app to your Databricks workspace for querying system tables. The user who generates the token needs `SELECT` access on `system.billing.*` and `system.query.history` (the setup wizard will show you exactly what's missing).
+
+1. In your Databricks workspace, click your profile icon (top right) → **Settings**
+2. Go to **Developer → Access Tokens → Generate New Token**
+3. Set a description (e.g. `cost-obs-app`) and an expiry — 90 days is a reasonable starting point
+4. Click **Generate** and copy the token immediately (it won't be shown again)
+5. Paste it as the value for `DATABRICKS_TOKEN` in your app's environment variables
+
+> **Service principal (recommended for production):** Create a service principal in your Databricks account console, generate a client secret, and set `DATABRICKS_TOKEN` to the client secret. This avoids the token expiring when a user leaves.
 
 ### First-Run Setup Wizard
 
-On first deploy, the app automatically launches a 4-step setup wizard to configure your environment:
+On first deploy, the app automatically detects that materialized views haven't been created yet and launches a setup wizard:
 
 **Step 1 — Environment**
-Detects cloud provider (AWS/Azure), warehouse status, authenticated identity, and catalog/schema configuration.
+Confirms your workspace host, cloud provider (AWS/Azure), authenticated identity, warehouse, and catalog/schema.
 
 **Step 2 — Permissions**
-Checks system table access. Displays exact `GRANT` statements for any missing permissions:
+Checks system table access. If anything is missing, the wizard shows the exact `GRANT` statements to run as an account admin:
 ```sql
-GRANT SELECT ON system.billing.usage TO `app-service-principal@...`;
-GRANT SELECT ON system.billing.list_prices TO `app-service-principal@...`;
--- etc.
+GRANT SELECT ON system.billing.usage TO `app-service-principal@domain.com`;
+GRANT SELECT ON system.billing.list_prices TO `app-service-principal@domain.com`;
+-- (plus any others that are missing)
 ```
+Run these in your workspace SQL editor, then click **Re-check** to confirm.
 
 **Step 3 — Create Tables**
-Creates materialized views pre-aggregating 365 days of billing history (typically 2–5 minutes).
+Creates materialized views aggregating your billing history (typically 2–5 minutes on first run).
 
-**Step 4 — Complete**
-Click **Go to Dashboard** to start exploring.
+**Step 4 — Genie Assistant** *(optional)*
+Creates a Genie Space pre-loaded with cost analytics context for natural language cost queries.
 
-The wizard can be re-launched at any time from **Settings → General → Rerun Setup Wizard**.
+**Step 5 — Complete**
+Click **Go to Dashboard**.
+
+The wizard can be re-launched at any time from **Settings → General → Re-run Setup Wizard**.
 
 ---
 
