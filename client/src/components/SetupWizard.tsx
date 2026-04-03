@@ -147,10 +147,11 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
           clearInterval(poll);
           setCreating(false);
           setError(`Table creation failed: ${status.task.error}`);
-        } else if (status?.task?.status === "done" && !status.all_tables_exist) {
+        } else if (status?.task?.status === "error" || (status?.task?.status === "done" && !status.all_tables_exist)) {
           clearInterval(poll);
           setCreating(false);
-          setError("Table creation completed but some tables are still missing. Check that the warehouse has SELECT access to system.billing tables and retry.");
+          const detail = status?.task?.error || "unknown error";
+          setError(`Table creation failed: ${detail}`);
         }
       }, 5000);
 

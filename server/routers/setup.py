@@ -100,9 +100,17 @@ def _create_tables_task(catalog: str, schema: str):
     logger.info(f"Starting background table creation for {catalog}.{schema}")
     try:
         results = create_materialized_views(catalog, schema)
-        _create_task_state["status"] = "done"
-        _create_task_state["error"] = None
         logger.info(f"Table creation completed: {results}")
+
+        # create_materialized_views swallows errors internally — check results for failures
+        errors = {k: v for k, v in results.items() if isinstance(v, str) and v.startswith("error:")}
+        if errors:
+            first_error = next(iter(errors.values()))
+            _create_task_state["status"] = "error"
+            _create_task_state["error"] = first_error.replace("error: ", "", 1)
+        else:
+            _create_task_state["status"] = "done"
+            _create_task_state["error"] = None
     except Exception as e:
         _create_task_state["status"] = "error"
         _create_task_state["error"] = str(e)
