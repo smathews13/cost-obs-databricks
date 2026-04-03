@@ -1,62 +1,33 @@
-name: cost-obs
-description: Cost Observability & Control - Databricks compute consumption and spend analytics
-
-# =============================================================================
-# No configuration is required to get started.
-#
-# Databricks Apps injects OAuth credentials and the workspace host automatically.
-# On first startup, the app auto-creates a dedicated SQL warehouse if none is
-# configured, and the setup wizard guides you through the rest.
-#
-# All variables below are optional overrides.
-# =============================================================================
+command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 env:
-  # Override the workspace URL if not auto-detected (usually not needed).
-  # - name: DATABRICKS_HOST
-  #   value: https://adb-1234567890.azuredatabricks.net
-
-  # Override the SQL warehouse. Omit to let the app create one automatically.
-  # - name: DATABRICKS_HTTP_PATH
-  #   value: /sql/1.0/warehouses/<your-warehouse-id>
-
-  # Unity Catalog name containing system tables and materialized views
+  # Unity Catalog and schema for materialized views (defaults: main / cost_obs)
   - name: COST_OBS_CATALOG
     value: main
-
-  # Schema within COST_OBS_CATALOG for materialized views
   - name: COST_OBS_SCHEMA
     value: cost_obs
 
-  # (Optional) Genie Space ID for AI cost queries
+  # Optional overrides — host and warehouse are auto-detected when running as a Databricks App
+  # - name: DATABRICKS_HOST
+  #   value: https://adb-1234567890.azuredatabricks.net
+  # - name: DATABRICKS_HTTP_PATH
+  #   value: /sql/1.0/warehouses/<id>   # omit to auto-create a dedicated warehouse
+
+  # Genie Space for AI cost queries
   # - name: GENIE_SPACE_ID
-  #   value: <your-genie-space-id>
+  #   value: <genie-space-id>
 
-  # (Optional) Azure subscription ID — shown in the account info banner
+  # Azure subscription ID (shown in account banner on Azure workspaces)
   # - name: AZURE_SUBSCRIPTION_ID
-  #   value: <your-azure-subscription-id>
+  #   value: <subscription-id>
 
-  # ── Lakebase (PostgreSQL) for persistent app state ──────────────────────────
-  # Add a Lakebase resource to the app in the Databricks UI, or let the deploy
-  # script (dba_deploy.sh) provision it automatically.
-  # Once provisioned, inject PGHOST and ENDPOINT_NAME:
-  # - name: PGHOST
-  #   value: <lakebase-endpoint-hostname>
-  # - name: PGDATABASE
-  #   value: databricks_postgres
-  # - name: PGUSER
-  #   value: <app-service-principal-client-id>
-  # - name: PGPORT
-  #   value: "5432"
-  # - name: PGSSLMODE
-  #   value: require
+  # Lakebase — optional, app falls back to Delta tables if not set
   # - name: ENDPOINT_NAME
-  #   value: projects/<project-id>/branches/<branch-id>/endpoints/<endpoint-id>
+  #   value: projects/<project>/branches/<branch>/endpoints/<endpoint>
+  # - name: PGHOST
+  #   value: <lakebase-hostname>
 
-  # ── Cloud Cost Integration ─────────────────────────────────────────────────
-  # Set these if your cloud-infra-costs bundle uses a non-default catalog/schema.
-  # Defaults: AWS_COST_CATALOG=billing, AWS_COST_SCHEMA=aws
-  #           AZURE_COST_CATALOG=billing, AZURE_COST_SCHEMA=azure
+  # AWS / Azure actual cost tables (defaults: billing.aws / billing.azure)
   # - name: AWS_COST_CATALOG
   #   value: billing
   # - name: AWS_COST_SCHEMA
@@ -65,5 +36,3 @@ env:
   #   value: billing
   # - name: AZURE_COST_SCHEMA
   #   value: azure
-
-command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]

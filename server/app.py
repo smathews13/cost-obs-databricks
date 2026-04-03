@@ -356,7 +356,24 @@ def startup_tasks():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    # Run all startup tasks in background thread (don't block startup)
+    # Warehouse setup runs synchronously before accepting requests so the
+    # setup wizard immediately shows the correct warehouse on first load.
+    # Everything else (MV creation, job scheduling, cache prewarm) runs in
+    # the background and does not block the app from starting.
+    try:
+        from server.db import setup_warehouse_connection
+        from server.routers.settings import _load_warehouse_settings
+        current = os.environ.get("DATABRICKS_HTTP_PATH", "")
+        if current and current != "auto":
+            saved = _load_warehouse_settings()
+            saved_path = saved.get("http_path")
+            if saved_path and saved_path != current:
+                os.environ["DATABRICKS_HTTP_PATH"] = saved_path
+        setup_warehouse_connection()
+    except Exception as e:
+        logger.warning(f"Warehouse setup during lifespan failed (non-fatal): {e}")
+
+    # Remaining startup tasks run in background
     asyncio.get_event_loop().run_in_executor(None, startup_tasks)
     yield
 

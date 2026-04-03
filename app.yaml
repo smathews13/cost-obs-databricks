@@ -1,7 +1,38 @@
 command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 env:
+  # Unity Catalog and schema for materialized views (defaults: main / cost_obs)
   - name: COST_OBS_CATALOG
     value: main
   - name: COST_OBS_SCHEMA
     value: cost_obs
+
+  # Optional overrides — host and warehouse are auto-detected when running as a Databricks App
+  # - name: DATABRICKS_HOST
+  #   value: https://adb-1234567890.azuredatabricks.net
+  # - name: DATABRICKS_HTTP_PATH
+  #   value: /sql/1.0/warehouses/<id>   # omit to auto-create a dedicated warehouse
+
+  # Genie Space for AI cost queries
+  # - name: GENIE_SPACE_ID
+  #   value: <genie-space-id>
+
+  # Azure subscription ID (shown in account banner on Azure workspaces)
+  # - name: AZURE_SUBSCRIPTION_ID
+  #   value: <subscription-id>
+
+  # Lakebase — optional, app falls back to Delta tables if not set
+  # - name: ENDPOINT_NAME
+  #   value: projects/<project>/branches/<branch>/endpoints/<endpoint>
+  # - name: PGHOST
+  #   value: <lakebase-hostname>
+
+  # AWS / Azure actual cost tables (defaults: billing.aws / billing.azure)
+  # - name: AWS_COST_CATALOG
+  #   value: billing
+  # - name: AWS_COST_SCHEMA
+  #   value: aws
+  # - name: AZURE_COST_CATALOG
+  #   value: billing
+  # - name: AZURE_COST_SCHEMA
+  #   value: azure
