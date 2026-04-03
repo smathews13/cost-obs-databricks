@@ -901,7 +901,6 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
         ("sql_tool_attribution", CREATE_SQL_TOOL_ATTRIBUTION),
         ("daily_query_stats", CREATE_QUERY_STATS),
         ("dbsql_cost_per_query", CREATE_DBSQL_COST_PER_QUERY),
-        ("dbsql_cost_per_query_prpr", CREATE_DBSQL_COST_PER_QUERY_PRPR),
     ]
 
     for table_name, create_sql in tables:
@@ -934,7 +933,6 @@ _MV_TABLES = [
     "sql_tool_attribution",
     "daily_query_stats",
     "dbsql_cost_per_query",
-    "dbsql_cost_per_query_prpr",
 ]
 
 
@@ -1009,7 +1007,6 @@ def check_materialized_views_exist(catalog: str | None = None, schema: str | Non
         "sql_tool_attribution",
         "daily_query_stats",
         "dbsql_cost_per_query",
-        "dbsql_cost_per_query_prpr",
     ]
 
     results = {}
