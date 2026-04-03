@@ -2,26 +2,23 @@ name: cost-obs
 description: Cost Observability & Control - Databricks compute consumption and spend analytics
 
 # =============================================================================
-# Fill in DATABRICKS_HOST and DATABRICKS_HTTP_PATH before deploying.
-# Databricks Apps provides OAuth credentials automatically — no token needed.
+# No configuration is required to get started.
+#
+# Databricks Apps injects OAuth credentials and the workspace host automatically.
+# On first startup, the app auto-creates a dedicated SQL warehouse if none is
+# configured, and the setup wizard guides you through the rest.
+#
+# All variables below are optional overrides.
 # =============================================================================
 
-resources:
-  - name: sql-warehouse
-    description: SQL Warehouse for cost observability queries
-    sql_warehouse:
-      id: <your-sql-warehouse-id>   # e.g. abc123def456
-      permission: CAN_USE
-
 env:
-  # Your workspace URL, e.g. https://adb-1234567890.azuredatabricks.net
-  - name: DATABRICKS_HOST
-    value: <your-workspace-url>
+  # Override the workspace URL if not auto-detected (usually not needed).
+  # - name: DATABRICKS_HOST
+  #   value: https://adb-1234567890.azuredatabricks.net
 
-  # SQL warehouse HTTP path.
-  # Set to "auto" to let the app create a dedicated serverless warehouse automatically.
-  - name: DATABRICKS_HTTP_PATH
-    value: auto
+  # Override the SQL warehouse. Omit to let the app create one automatically.
+  # - name: DATABRICKS_HTTP_PATH
+  #   value: /sql/1.0/warehouses/<your-warehouse-id>
 
   # Unity Catalog name containing system tables and materialized views
   - name: COST_OBS_CATALOG

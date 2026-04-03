@@ -230,33 +230,29 @@ Deploy directly from this repository using Databricks Apps' built-in Git integra
 3. **Git reference:** `main`
 4. **Reference type:** `Branch`
 5. **Source code path:** leave empty
-6. Add your environment variables (see below — only 3 are required to get started)
-7. Click **Deploy**
+6. Click **Deploy** — no environment variables required to get started
 
 Or click the **Deploy to Databricks** button at the top of this README.
 
 ### Environment Variables
 
-The app uses Databricks OAuth automatically when deployed — **no token required**. Only two variables are needed to get started:
+**No environment variables are required to deploy.** Databricks Apps injects OAuth credentials and the workspace host automatically. On first startup the app auto-creates a dedicated SQL warehouse, and the setup wizard handles the rest.
 
-| Variable | Required | Value |
-|---|---|---|
-| `DATABRICKS_HOST` | Yes | Your workspace URL — e.g. `https://adb-1234567890.azuredatabricks.net` |
-| `DATABRICKS_HTTP_PATH` | Yes | Set to `auto` to create a dedicated warehouse automatically |
-
-**Optional variables** (all have defaults):
+All variables below are optional overrides:
 
 | Variable | Default | Description |
 |---|---|---|
+| `DATABRICKS_HOST` | Auto-detected | Override the workspace URL if not picked up automatically |
+| `DATABRICKS_HTTP_PATH` | Auto-created | Point to an existing warehouse, or omit to auto-create one |
 | `COST_OBS_CATALOG` | `main` | Unity Catalog for materialized views |
 | `COST_OBS_SCHEMA` | `cost_obs` | Schema name |
 | `GENIE_SPACE_ID` | — | Genie Space ID for AI cost chat |
 | `AZURE_SUBSCRIPTION_ID` | — | Azure subscription ID (shown in account banner on Azure) |
 | `SMTP_HOST` / `SMTP_*` | — | Email alert configuration |
-| `ENDPOINT_NAME` + `PGHOST` | — | Lakebase connection (app falls back to Delta tables if not set) |
+| `ENDPOINT_NAME` + `PGHOST` | — | Lakebase connection (falls back to Delta tables if not set) |
 | `AWS_COST_CATALOG` / `AWS_COST_SCHEMA` | `billing` / `aws` | AWS CUR actual cost tables |
 | `AZURE_COST_CATALOG` / `AZURE_COST_SCHEMA` | `billing` / `azure` | Azure cost export tables |
-| `DATABRICKS_TOKEN` | No | Only needed for **local development** — the setup wizard can generate one for you |
+| `DATABRICKS_TOKEN` | — | Only needed for **local development** — the setup wizard can generate one for you |
 
 ### First-Run Setup Wizard
 
