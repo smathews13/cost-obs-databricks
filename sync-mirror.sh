@@ -40,6 +40,7 @@ rsync -a \
     --exclude='app.*.yaml' \
     --exclude='.settings' \
     --exclude='requirements.txt' \
+    --exclude='.github' \
     --delete \
     "$INTERNAL/" "$MIRROR/"
 
