@@ -424,8 +424,8 @@ function Dashboard() {
       {/* Setup Wizard (shown on first deploy when tables don't exist) */}
       {showSetupWizard === true && <SetupWizard onComplete={handleSetupComplete} onClose={() => setShowSetupWizard(false)} />}
 
-      {/* Permissions Check Dialog */}
-      <PermissionsDialog />
+      {/* Permissions Check Dialog — suppressed during setup */}
+      {showSetupWizard === false && <PermissionsDialog />}
 
       {/* Account Info Banner */}
       <div className="text-white" style={{ backgroundColor: '#1B3139' }}>
