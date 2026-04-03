@@ -1941,10 +1941,14 @@ async def get_kpis_bundle(
     WHERE start_time >= :start_date AND start_time < DATE_ADD(CAST(:end_date AS DATE), 1)
     """
 
+    # Direct Delta query for query stats — used as fallback if Lakebase daily_query_stats is empty
+    delta_query_stats_sql = MV_PLATFORM_KPIS.format(catalog=catalog, schema=schema)
+
     # Build parallel query list
     parallel_queries: list[tuple[str, Any]] = [
         ("kpis", lambda: execute_query(kpi_query, params)),
         ("anomalies", lambda: execute_query(SPEND_ANOMALIES, params)),
+        ("delta_query_stats", lambda: execute_query(delta_query_stats_sql, params)),
     ]
 
     # Add MV query if available
@@ -1969,15 +1973,23 @@ async def get_kpis_bundle(
         "start_date": params["start_date"], "end_date": params["end_date"],
     }
 
-    # Apply MV results for query stats if available
+    # Apply query stats: MV (Lakebase) first, fall back to Delta if result is empty/zero
+    def _apply_query_stats(row: dict) -> None:
+        kpis_response["total_queries"] = int(row.get("total_queries") or 0)
+        kpis_response["unique_query_users"] = int(row.get("unique_query_users") or 0)
+        kpis_response["total_rows_read"] = int(row.get("total_rows_read") or 0)
+        kpis_response["total_bytes_read"] = int(row.get("total_bytes_read") or 0)
+        kpis_response["total_compute_seconds"] = float(row.get("total_compute_seconds") or 0)
+
     mv_results = query_results.get("mv_kpis")
-    if mv_results and len(mv_results) > 0:
-        mv_row = mv_results[0]
-        kpis_response["total_queries"] = int(mv_row.get("total_queries") or 0)
-        kpis_response["unique_query_users"] = int(mv_row.get("unique_query_users") or 0)
-        kpis_response["total_rows_read"] = int(mv_row.get("total_rows_read") or 0)
-        kpis_response["total_bytes_read"] = int(mv_row.get("total_bytes_read") or 0)
-        kpis_response["total_compute_seconds"] = float(mv_row.get("total_compute_seconds") or 0)
+    mv_has_data = mv_results and len(mv_results) > 0 and int(mv_results[0].get("total_queries") or 0) > 0
+    if mv_has_data:
+        _apply_query_stats(mv_results[0])
+    else:
+        # Lakebase daily_query_stats may be empty — use Delta copy directly
+        delta_qs = query_results.get("delta_query_stats")
+        if delta_qs and len(delta_qs) > 0:
+            _apply_query_stats(delta_qs[0])
 
     kpi_results = query_results.get("kpis")
     if kpi_results and len(kpi_results) > 0:

@@ -73,7 +73,7 @@ WHERE u.usage_date BETWEEN :start_date AND :end_date
   AND (u.custom_tags IS NULL OR size(u.custom_tags) = 0)
 GROUP BY u.usage_metadata.cluster_id
 ORDER BY total_spend DESC
-LIMIT 100
+LIMIT 500
 """
 
 UNTAGGED_CLUSTERS_ENRICHED = """
@@ -108,7 +108,7 @@ WHERE u.usage_date BETWEEN :start_date AND :end_date
   AND (u.custom_tags IS NULL OR size(u.custom_tags) = 0)
 GROUP BY u.usage_metadata.cluster_id, ci.cluster_name, ci.cluster_source, ci.owned_by
 ORDER BY total_spend DESC
-LIMIT 100
+LIMIT 500
 """
 
 UNTAGGED_JOBS = """
@@ -142,7 +142,7 @@ SELECT
 FROM job_usage
 GROUP BY job_id
 ORDER BY total_spend DESC
-LIMIT 100
+LIMIT 500
 """
 
 UNTAGGED_JOBS_ENRICHED = """
@@ -184,7 +184,7 @@ FROM job_usage ju
 INNER JOIN job_info ji ON CAST(ju.job_id AS STRING) = CAST(ji.job_id AS STRING)
 GROUP BY ju.job_id, ji.job_name
 ORDER BY total_spend DESC
-LIMIT 100
+LIMIT 500
 """
 
 UNTAGGED_PIPELINES = """
@@ -206,7 +206,7 @@ WHERE u.usage_date BETWEEN :start_date AND :end_date
   AND (u.custom_tags IS NULL OR size(u.custom_tags) = 0)
 GROUP BY u.usage_metadata.dlt_pipeline_id
 ORDER BY total_spend DESC
-LIMIT 100
+LIMIT 500
 """
 
 UNTAGGED_PIPELINES_ENRICHED = """
@@ -248,7 +248,7 @@ FROM pipeline_usage pu
 INNER JOIN pipeline_info pi ON pu.pipeline_id = pi.pipeline_id
 GROUP BY pu.pipeline_id, pi.pipeline_name
 ORDER BY total_spend DESC
-LIMIT 100
+LIMIT 500
 """
 
 UNTAGGED_WAREHOUSES = """
@@ -270,7 +270,7 @@ WHERE u.usage_date BETWEEN :start_date AND :end_date
   AND (u.custom_tags IS NULL OR size(u.custom_tags) = 0)
 GROUP BY u.usage_metadata.warehouse_id
 ORDER BY total_spend DESC
-LIMIT 100
+LIMIT 500
 """
 
 UNTAGGED_WAREHOUSES_ENRICHED = """
@@ -301,7 +301,7 @@ WHERE u.usage_date BETWEEN :start_date AND :end_date
   AND (u.custom_tags IS NULL OR size(u.custom_tags) = 0)
 GROUP BY u.usage_metadata.warehouse_id, wi.warehouse_name
 ORDER BY total_spend DESC
-LIMIT 100
+LIMIT 500
 """
 
 UNTAGGED_ENDPOINTS = """
@@ -333,7 +333,7 @@ SELECT
 FROM endpoint_usage
 GROUP BY endpoint_name
 ORDER BY total_spend DESC
-LIMIT 100
+LIMIT 500
 """
 
 COST_BY_TAG = """
@@ -376,7 +376,7 @@ SELECT
 FROM exploded_tags
 GROUP BY tag_key, tag_value
 ORDER BY total_spend DESC
-LIMIT 100
+LIMIT 500
 """
 
 COST_BY_TAG_KEY = """
