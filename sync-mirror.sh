@@ -27,6 +27,10 @@ cp client/public/dbfavicon.png static/ 2>/dev/null || true
 cp thumbnail.png static/ 2>/dev/null || true
 echo "[INFO] Frontend built"
 
+# Copy app.yaml.example → app.yaml in the mirror so git deployments
+# pre-populate env var fields automatically (no secrets — just structure)
+cp "$INTERNAL/app.yaml.example" "$MIRROR/app.yaml"
+
 # Ensure mirror clone exists
 if [ ! -d "$MIRROR/.git" ]; then
     echo "[INFO] Cloning mirror repo..."
@@ -54,7 +58,6 @@ rsync -a \
     --exclude='app.yaml' \
     --exclude='app.*.yaml' \
     --exclude='.settings' \
-    --exclude='requirements.txt' \
     --exclude='.github' \
     --delete \
     "$INTERNAL/" "$MIRROR/"
