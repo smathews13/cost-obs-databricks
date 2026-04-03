@@ -225,11 +225,15 @@ Deploy directly from this repository using Databricks Apps' built-in Git integra
 
 **Steps:**
 
-1. In your Databricks workspace, go to **Apps → Create App → Deploy from Git**
-2. Enter the repo URL: `https://github.com/smathews13/cost-obs-databricks`
-3. **Git reference:** `main`
-4. **Reference type:** `Branch`
-5. **Source code path:** leave empty
+1. In your Databricks workspace, go to **Apps → Create App**
+2. Choose **Git repository** as the source, enter the repo URL:
+   `https://github.com/smathews13/cost-obs-databricks`
+3. Give the app a name and click **Create**
+4. Once the app is created, click **Deploy**
+5. Set the git reference fields:
+   - **Git reference:** `main`
+   - **Reference type:** `Branch`
+   - **Source code path:** leave empty
 6. Click **Deploy** — no environment variables required to get started
 
 Or click the **Deploy to Databricks** button at the top of this README.
