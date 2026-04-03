@@ -357,7 +357,14 @@ function WelcomeStep({ config, cloud, loading, onWarehouseSelected }: { config: 
       const res = await fetch(`/api/setup/create-warehouse?name=${encodeURIComponent(name)}`, { method: "POST", signal: AbortSignal.timeout(120000) });
       const data = await res.json();
       if (data.status === "ok") onWarehouseSelected();
-      else setWarehouseError(data.message || "Failed to create warehouse");
+      else {
+        const msg = data.message || "";
+        if (msg.includes("not authorized") || msg.includes("create SQL Endpoint")) {
+          setWarehouseError("The app's service principal doesn't have permission to create warehouses. Select an existing warehouse above, or ask an admin to grant warehouse creation rights to the service principal.");
+        } else {
+          setWarehouseError(msg || "Failed to create warehouse");
+        }
+      }
     } catch (e) {
       setWarehouseError(`Request failed: ${e}`);
     } finally {
