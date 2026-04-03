@@ -304,7 +304,7 @@ function Dashboard() {
   const { data: dbsqlData, isLoading: dbsqlLoading } = useDBSQLQueryCosts(dateRange, true);
 
   // Users & Groups tab data - prefetch for fast tab switching
-  useUsersGroupsBundle(dateRange, true);
+  const { data: usersGroupsData } = useUsersGroupsBundle(dateRange, true);
 
   // Use Cases tab data - only fetch when feature is enabled
   const useCasesEnabled = appSettings.enableUseCaseTracking;
@@ -398,6 +398,7 @@ function Dashboard() {
         tagging: taggingData,
         platformKPIs,
         query360: dbsqlData,
+        users: usersGroupsData,
         useCases: useCasesSummaryData,
         alerts: alertsData,
         dateRange: {

@@ -210,12 +210,13 @@ Before deploying, confirm the following are in place:
 
 | Requirement | Why |
 |---|---|
-| **Workspace Admin** (at minimum) | Required to grant the app's service principal access to system tables; also needed to grant CAN USE on a SQL warehouse if auto-creation fails |
+| **A running Serverless Pro SQL Warehouse** | **Required before deploying.** The app cannot create a warehouse on your behalf (the service principal lacks that permission by default). Create one in **SQL → SQL Warehouses → Create Warehouse** before running the setup wizard. |
+| **Workspace Admin** (at minimum) | Required to grant the app's service principal `SELECT` on system tables |
 | **Unity Catalog enabled** | All billing data is in `system.*` tables under UC — the app will not function without it |
 | **System tables enabled** | Contact your Databricks account team if `system.billing.usage` is not accessible in your workspace |
 | **Databricks Apps enabled** | Available on Premium plan and above |
 
-> If you are not a workspace admin, have your admin run the `GRANT` statements shown in the setup wizard after the app is deployed.
+> The setup wizard will show all available warehouses in a picker. In rare cases (typically Azure) where no warehouses appear, it will display the exact `GRANT USE ON WAREHOUSE` statement to run as a workspace admin.
 
 ### Deploy from Git
 

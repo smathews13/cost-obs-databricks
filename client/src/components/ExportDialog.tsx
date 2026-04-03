@@ -16,6 +16,7 @@ export interface ExportSections {
   tagging: boolean;
   platformKPIs: boolean;
   query360: boolean;
+  users: boolean;
   useCases: boolean;
   alerts: boolean;
 }
@@ -42,6 +43,7 @@ const sectionToTab: Record<keyof ExportSections, keyof TabVisibility | null> = {
   query360: "sql",
   apps: "apps",
   tagging: "tagging",
+  users: "users-groups",
   useCases: "use-cases",
   alerts: "alerts",
 };
@@ -61,6 +63,7 @@ const sectionLabels: Record<keyof ExportSections, { label: string; description: 
   apps: { label: "Apps", description: "Databricks Apps compute costs and per-app breakdown" },
   query360: { label: "Query", description: "SQL warehouse efficiency and query costs" },
   tagging: { label: "Tagging", description: "Tag coverage and untagged resources" },
+  users: { label: "Users", description: "Top users by spend and product breakdown" },
   useCases: { label: "Use Cases", description: "Use case spend attribution and go-live tracking" },
   alerts: { label: "Alerts", description: "Cost anomaly alerts and thresholds" },
 };

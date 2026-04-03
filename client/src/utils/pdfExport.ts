@@ -20,6 +20,7 @@ import type {
   QueryCostByUser,
   ExpensiveQuery,
 } from "@/types/billing";
+import type { UsersGroupsBundle } from "@/hooks/useBillingData";
 import type { ExportSections } from "@/components/ExportDialog";
 import { formatCurrency, formatNumber } from "./formatters";
 
@@ -78,6 +79,7 @@ export interface ExportData {
   tagging: TaggingDashboardBundle | undefined;
   platformKPIs: PlatformKPIsResponse | undefined;
   query360: DBSQLDashboardBundle | undefined;
+  users: UsersGroupsBundle | undefined;
   useCases: UseCaseSummaryExport | undefined;
   alerts: RecentAlertsExport | undefined;
   dateRange: { start: string; end: string };
@@ -103,6 +105,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     tagging: true,
     platformKPIs: true,
     query360: true,
+    users: true,
     useCases: true,
     alerts: true,
   };
@@ -1053,6 +1056,63 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         margin: { left: 14, right: 14 },
         columnStyles: {
           1: { cellWidth: 75 },
+        },
+      });
+
+      yPos = getLastTableY(doc) + 12;
+    }
+  }
+
+  // Users
+  if (includeSections.users && data.users) {
+    doc.addPage();
+    yPos = 20;
+
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Users", 14, yPos);
+    yPos += 8;
+
+    const usersSummary = data.users.summary;
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Total Spend: ${formatCurrency(usersSummary.total_spend)}`, 14, yPos);
+    yPos += 5;
+    doc.text(`Total DBUs: ${formatNumber(usersSummary.total_dbus)}`, 14, yPos);
+    yPos += 5;
+    doc.text(`Active Users: ${usersSummary.user_count}`, 14, yPos);
+    yPos += 5;
+    doc.text(`Avg Spend per User: ${formatCurrency(usersSummary.avg_spend_per_user)}`, 14, yPos);
+    yPos += 12;
+
+    if (data.users.top_users && data.users.top_users.length > 0) {
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
+      doc.text("Top 20 Users by Spend", 14, yPos);
+      yPos += 6;
+
+      const usersRows = data.users.top_users.slice(0, 20).map((u) => [
+        (u.user_email || "Unknown").length > 30
+          ? (u.user_email || "Unknown").substring(0, 27) + "..."
+          : u.user_email || "Unknown",
+        u.primary_product || "-",
+        formatNumber(u.total_dbus),
+        formatCurrency(u.total_spend),
+        `${u.percentage.toFixed(1)}%`,
+        u.active_days.toString(),
+      ]);
+
+      autoTable(doc, {
+        startY: yPos,
+        head: [["User", "Primary Product", "DBUs", "Spend", "%", "Active Days"]],
+        body: usersRows,
+        theme: "striped",
+        headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        bodyStyles: { fontSize: 7 },
+        margin: { left: 14, right: 14 },
+        columnStyles: {
+          0: { cellWidth: 55 },
+          1: { cellWidth: 35 },
         },
       });
 

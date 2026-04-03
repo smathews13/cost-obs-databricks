@@ -1100,7 +1100,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
               <select
                 value={healthIssueFilter}
                 onChange={(e) => { setHealthIssueFilter(e.target.value); setHealthPage(1); }}
-                className="rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 shadow-sm focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-[#FF3621] focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
               >
                 <option value="">All Issues</option>
                 <option value="IDLE_RUNNING">Idle Running</option>
