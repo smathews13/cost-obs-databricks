@@ -404,7 +404,22 @@ app.include_router(users_groups.router, prefix="/api/users-groups", tags=["users
 app.include_router(query_origin.router, prefix="/api/sql/query-origin", tags=["query-origin"])
 app.include_router(warehouse_health.router, prefix="/api/sql/warehouse-health", tags=["warehouse-health"])
 
-# Serve static files in production
+# Serve static files in production.
+# index.html gets Cache-Control: no-cache so browsers always fetch the latest
+# after a deploy (prevents "Failed to fetch dynamically imported module" errors
+# when Vite content-hashed chunk filenames change between deploys).
+# JS/CSS assets under /assets/ are served as-is — their filenames are content-
+# hashed so they can be cached indefinitely by the browser.
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 if os.path.exists(static_dir):
+
+    class NoCacheHTMLMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request: Request, call_next):
+            response = await call_next(request)
+            content_type = response.headers.get("content-type", "")
+            if "text/html" in content_type:
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return response
+
+    app.add_middleware(NoCacheHTMLMiddleware)
     app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
