@@ -324,6 +324,7 @@ function WelcomeStep({ config, cloud, loading, onWarehouseSelected }: { config: 
   const [creatingWarehouse, setCreatingWarehouse] = useState(false);
   const [warehouseError, setWarehouseError] = useState<string | null>(null);
   const [newWarehouseName, setNewWarehouseName] = useState("Cost Observability App");
+  const [warehouseSearch, setWarehouseSearch] = useState("");
 
   useEffect(() => {
     if (!config || config.warehouse) return;
@@ -444,17 +445,32 @@ function WelcomeStep({ config, cloud, loading, onWarehouseSelected }: { config: 
               </div>
             ) : (
               <div className="space-y-1.5">
-                {warehouses.map(wh => (
-                  <button
-                    key={wh.id}
-                    onClick={() => handleSelectWarehouse(wh.id)}
-                    disabled={selectingWarehouse || creatingWarehouse}
-                    className="flex w-full items-center justify-between rounded-lg border border-amber-200 bg-white px-3 py-2 text-left text-sm hover:bg-amber-50 disabled:opacity-50 transition-colors"
-                  >
-                    <span className="font-medium text-gray-800">{wh.name}</span>
-                    <span className="text-xs text-gray-500">{wh.size} · {wh.state}</span>
-                  </button>
-                ))}
+                <input
+                  type="text"
+                  value={warehouseSearch}
+                  onChange={e => setWarehouseSearch(e.target.value)}
+                  placeholder="Search warehouses..."
+                  className="w-full rounded border border-amber-200 bg-white px-2 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                />
+                <div className="max-h-[180px] overflow-y-auto space-y-1">
+                  {warehouses
+                    .filter(wh => wh.name.toLowerCase().includes(warehouseSearch.toLowerCase()))
+                    .slice(0, 5)
+                    .map(wh => (
+                    <button
+                      key={wh.id}
+                      onClick={() => handleSelectWarehouse(wh.id)}
+                      disabled={selectingWarehouse || creatingWarehouse}
+                      className="flex w-full items-center justify-between rounded-lg border border-amber-200 bg-white px-3 py-2 text-left text-sm hover:bg-amber-50 disabled:opacity-50 transition-colors"
+                    >
+                      <span className="font-medium text-gray-800">{wh.name}</span>
+                      <span className="text-xs text-gray-500">{wh.size} · {wh.state}</span>
+                    </button>
+                  ))}
+                  {warehouses.filter(wh => wh.name.toLowerCase().includes(warehouseSearch.toLowerCase())).length === 0 && (
+                    <p className="text-xs text-gray-500 px-2 py-1">No warehouses match "{warehouseSearch}"</p>
+                  )}
+                </div>
                 <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 space-y-2">
                   <p className="text-xs text-amber-700 font-medium">Create a new serverless Pro warehouse</p>
                   <div className="flex gap-2">
