@@ -356,31 +356,15 @@ Open http://localhost:5173
 
 ## Cloud Cost Integration
 
-The Cloud Costs tab can display **actual** AWS or Azure billing data alongside estimated costs. This requires deploying the [cloud-infra-costs](https://github.com/databricks-solutions/cloud-infra-costs) project separately.
+The Cloud Costs tab displays estimated infrastructure costs out of the box. It can also show **actual** AWS or Azure billing data when configured. Full step-by-step setup instructions for both clouds are built into the app — open the Cloud Costs tab and click **Set Up Actual Costs** to launch the in-app wizard.
 
 ### AWS (CUR 2.0)
 
-The app reads from `billing.aws.actuals_gold` — the output of the `cloud-infra-costs/aws` Declarative Automation Bundle. Setup steps (also available in the in-app wizard):
-
-1. Create an S3 bucket in your AWS payer account
-2. Configure a CUR 2.0 Standard Data Export (Hourly, Parquet, include resource IDs)
-3. Create a Unity Catalog Storage Credential + External Location pointing to the S3 bucket
-4. Clone `cloud-infra-costs/aws`, set `catalog=billing`, `schema=aws`, `storage_location=<s3-path>`, and deploy the bundle
-5. Verify `billing.aws.actuals_gold` populates and toggle "Actual Costs" in the Cloud Costs tab
-
-Override table location via env vars: `AWS_COST_CATALOG`, `AWS_COST_SCHEMA`.
+The app reads from `billing.aws.actuals_gold`. Setup steps are available in the in-app wizard, and the table location can be overridden via `AWS_COST_CATALOG` / `AWS_COST_SCHEMA`.
 
 ### Azure (Cost Management Export)
 
-The app reads from `billing.azure.actuals_gold` — the output of the `cloud-infra-costs/azure` project. Setup steps:
-
-1. Run Terraform from `cloud-infra-costs/azure/terraform` to provision the Storage Account, External Location, catalog, schema, and volume
-2. Create Actuals (required), Amortized, and FOCUS cost exports in the Azure Portal → Cost Exports, pointing to the Terraform-provisioned container
-3. Configure `databricks.yml` with `catalog=billing`, `schema=azure`, `warehouse_id=<id>`
-4. Authenticate and deploy the bundle: `databricks bundle deploy --target dev`
-5. Verify `billing.azure.actuals_gold` populates
-
-Override table location via env vars: `AZURE_COST_CATALOG`, `AZURE_COST_SCHEMA`.
+The app reads from `billing.azure.actuals_gold`. Setup steps are available in the in-app wizard, and the table location can be overridden via `AZURE_COST_CATALOG` / `AZURE_COST_SCHEMA`.
 
 ---
 
