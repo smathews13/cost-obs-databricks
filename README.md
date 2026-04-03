@@ -281,7 +281,7 @@ Confirms your workspace host, cloud provider (AWS/Azure/GCP), authenticated iden
 GRANT USE ON WAREHOUSE <warehouse-name> TO `<app-service-principal>`;
 ```
 
-Run this in your workspace SQL editor, restart the app, and the warehouse will appear in the picker. Alternatively, you can create a new serverless Pro warehouse directly from the wizard.
+Run this in your workspace SQL editor, restart the app, and the warehouse will appear in the picker.
 
 #### Step 2 — Permissions
 
