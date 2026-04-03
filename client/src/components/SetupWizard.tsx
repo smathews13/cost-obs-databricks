@@ -430,6 +430,17 @@ function WelcomeStep({ config, cloud, loading, onWarehouseSelected }: { config: 
             )}
             {warehousesLoading ? (
               <p className="text-xs text-amber-600">Loading warehouses...</p>
+            ) : warehouses.length === 0 ? (
+              <div className="space-y-2">
+                <p className="text-xs text-red-700 font-medium">No warehouses visible to this app.</p>
+                <p className="text-xs text-amber-700">A workspace admin needs to grant the app's service principal <span className="font-mono font-semibold">CAN USE</span> on at least one SQL warehouse.</p>
+                {config?.identity?.user_name && (
+                  <div className="rounded bg-gray-800 px-3 py-2 font-mono text-xs text-green-400">
+                    GRANT USE ON WAREHOUSE &lt;name&gt; TO `{config.identity.user_name}`;
+                  </div>
+                )}
+                <p className="text-xs text-amber-600">After granting access, restart the app and try again. Alternatively, set <span className="font-mono">DATABRICKS_HTTP_PATH</span> directly in app.yaml.</p>
+              </div>
             ) : (
               <div className="space-y-1.5">
                 {warehouses.map(wh => (
