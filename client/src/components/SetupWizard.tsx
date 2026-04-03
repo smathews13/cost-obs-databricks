@@ -275,21 +275,23 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
                 Go to Dashboard
               </button>
             ) : step === "create-tables" ? (
-              !creating && setupStatus && !setupStatus.all_tables_exist ? (
-                <button
-                  onClick={handleCreateTables}
-                  className="btn-brand rounded-lg px-6 py-2 text-sm font-bold text-white transition-colors"
-                >
-                  Create Tables
-                </button>
-              ) : setupStatus?.all_tables_exist ? (
+              creating ? null
+              : setupStatus?.all_tables_exist ? (
                 <button
                   onClick={goNext}
                   className="btn-brand rounded-lg px-6 py-2 text-sm font-bold text-white transition-colors"
                 >
                   Next
                 </button>
-              ) : null
+              ) : (
+                <button
+                  onClick={handleCreateTables}
+                  disabled={!setupStatus}
+                  className="btn-brand rounded-lg px-6 py-2 text-sm font-bold text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Create Tables
+                </button>
+              )
             ) : step === "permissions" ? (
               <button
                 onClick={goNext}
