@@ -455,7 +455,6 @@ function WelcomeStep({ config, cloud, loading, onWarehouseSelected }: { config: 
                 <div className="max-h-[180px] overflow-y-auto space-y-1">
                   {warehouses
                     .filter(wh => wh.name.toLowerCase().includes(warehouseSearch.toLowerCase()))
-                    .slice(0, 5)
                     .map(wh => (
                     <button
                       key={wh.id}
