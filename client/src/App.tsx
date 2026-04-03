@@ -141,8 +141,9 @@ function Dashboard() {
 
   const handleSetupComplete = () => {
     localStorage.setItem("coc-setup-complete", "true");
+    // Save the deploying user as admin (fire-and-forget)
+    fetch("/api/setup/bootstrap-admin", { method: "POST" }).catch(() => {});
     setShowSetupWizard(false);
-    // Invalidate all queries to reload fresh data
     queryClient.invalidateQueries();
   };
 

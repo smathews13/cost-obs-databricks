@@ -55,7 +55,10 @@ def _get_user_role(email: str) -> str:
         return "admin"
     if email in perms.get("consumers", []):
         return "consumer"
-    # Default: consumer (least-privilege — must be explicitly added to admins list)
+    # No admins configured yet (fresh deploy) — default everyone to admin
+    # so the person who set up the app can immediately configure it.
+    if not perms.get("admins"):
+        return "admin"
     return "consumer"
 
 
