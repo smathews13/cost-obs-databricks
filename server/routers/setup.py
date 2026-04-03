@@ -455,51 +455,43 @@ async def bootstrap_admin(request: Request) -> dict[str, Any]:
     if not user_email:
         return {"status": "skipped", "reason": "no user email available"}
 
-    storage_used = []
-
-    # 1. Write to Lakebase if available
+    # Use settings module's own load/save functions so storage backend and
+    # table schema are consistent with what the Settings UI reads.
     try:
-        from server.postgres import load_permissions as lb_load, save_permissions as lb_save
-        perms = lb_load() or {"admins": [], "consumers": []}
-        if user_email not in perms.get("admins", []):
-            perms.setdefault("admins", []).append(user_email)
-            lb_save(perms["admins"], perms.get("consumers", []))
-        storage_used.append("lakebase")
-        logger.info(f"Bootstrapped admin in Lakebase: {user_email}")
+        from server.routers.settings import _load_user_permissions, _save_user_permissions_to_table
+        from server.postgres import save_permissions as lb_save, load_permissions as lb_load
+
+        perms = _load_user_permissions()
+        if user_email in perms.get("admins", []):
+            return {"status": "ok", "email": user_email, "role": "admin", "note": "already admin"}
+
+        admins = perms.get("admins", []) + [user_email]
+        consumers = perms.get("consumers", [])
+
+        # Try Lakebase first
+        saved = False
+        try:
+            lb_save(admins, consumers)
+            saved = True
+            logger.info(f"Bootstrapped admin in Lakebase: {user_email}")
+        except Exception as e:
+            logger.warning(f"Lakebase bootstrap failed (non-fatal): {e}")
+
+        # Always write to Delta too (fallback storage)
+        try:
+            _save_user_permissions_to_table(admins, consumers)
+            saved = True
+            logger.info(f"Bootstrapped admin in Delta table: {user_email}")
+        except Exception as e:
+            logger.warning(f"Delta bootstrap failed (non-fatal): {e}")
+
+        if saved:
+            return {"status": "ok", "email": user_email, "role": "admin"}
+        return {"status": "error", "message": "Could not persist admin to any storage backend"}
+
     except Exception as e:
-        logger.warning(f"Could not bootstrap admin in Lakebase (non-fatal): {e}")
-
-    # 2. Write to Delta table (fallback for when Lakebase isn't available)
-    try:
-        from server.db import execute_query, get_catalog_schema
-        catalog, schema = get_catalog_schema()
-        table = f"`{catalog}`.`{schema}`.`app_user_permissions`"
-        execute_query(f"""
-            CREATE TABLE IF NOT EXISTS {table} (
-                email STRING,
-                role STRING,
-                added_at TIMESTAMP
-            )
-        """)
-        existing = execute_query(
-            f"SELECT email FROM {table} WHERE email = :email",
-            {"email": user_email},
-            no_cache=True,
-        )
-        if not existing:
-            execute_query(
-                f"INSERT INTO {table} VALUES (:email, 'admin', current_timestamp())",
-                {"email": user_email},
-            )
-        storage_used.append("delta")
-        logger.info(f"Bootstrapped admin in Delta table: {user_email}")
-    except Exception as e:
-        logger.warning(f"Could not bootstrap admin in Delta table (non-fatal): {e}")
-
-    if storage_used:
-        return {"status": "ok", "email": user_email, "role": "admin", "storage": storage_used}
-
-    return {"status": "error", "message": "Could not persist admin to any storage backend"}
+        logger.error(f"Bootstrap admin failed: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 # ============================================================================
