@@ -352,9 +352,12 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
             else:
                 cursor.execute(query)
 
-            columns = [desc[0] for desc in cursor.description]
-            rows = cursor.fetchall()
-            result = [dict(zip(columns, row)) for row in rows]
+            if cursor.description is not None:
+                columns = [desc[0] for desc in cursor.description]
+                rows = cursor.fetchall()
+                result = [dict(zip(columns, row)) for row in rows]
+            else:
+                result = []  # DDL statement (CREATE/DROP/etc.) — no result set
 
     # Cache the result (TTLCache handles expiration automatically)
     if not no_cache:

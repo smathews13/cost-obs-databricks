@@ -96,7 +96,10 @@ function Dashboard() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [tabVisibility, setTabVisibility] = useState<TabVisibility>(loadTabVisibility);
-  const [showSetupWizard, setShowSetupWizard] = useState(false);
+  // "pending" while we check setup status, true = show wizard, false = show dashboard
+  const [showSetupWizard, setShowSetupWizard] = useState<boolean | "pending">(
+    localStorage.getItem("coc-setup-complete") === "true" ? false : "pending"
+  );
   const rqClient = useQueryClient();
 
   // Per-tab query key prefixes — used by the refresh button to invalidate only
@@ -131,11 +134,9 @@ function Dashboard() {
     fetch("/api/setup/status")
       .then((r) => r.json())
       .then((status) => {
-        if (status?.status === "setup_required") {
-          setShowSetupWizard(true);
-        }
+        setShowSetupWizard(status?.status === "setup_required" ? true : false);
       })
-      .catch(() => {});
+      .catch(() => { setShowSetupWizard(false); });
   }, []);
 
   const handleSetupComplete = () => {
@@ -407,10 +408,21 @@ function Dashboard() {
     );
   };
 
+  if (showSetupWizard === "pending") {
+    return (
+      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: '#F9F7F4' }}>
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full" style={{ border: '3px solid #e5e7eb', borderTopColor: '#FF3621' }} />
+          <p className="text-sm text-gray-500">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: appSettings.darkMode ? '#1B1F23' : '#F9F7F4' }}>
       {/* Setup Wizard (shown on first deploy when tables don't exist) */}
-      {showSetupWizard && <SetupWizard onComplete={handleSetupComplete} onClose={() => setShowSetupWizard(false)} />}
+      {showSetupWizard === true && <SetupWizard onComplete={handleSetupComplete} onClose={() => setShowSetupWizard(false)} />}
 
       {/* Permissions Check Dialog */}
       <PermissionsDialog />

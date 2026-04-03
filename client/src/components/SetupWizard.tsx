@@ -147,6 +147,10 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
           clearInterval(poll);
           setCreating(false);
           setError(`Table creation failed: ${status.task.error}`);
+        } else if (status?.task?.status === "done" && !status.all_tables_exist) {
+          clearInterval(poll);
+          setCreating(false);
+          setError("Table creation completed but some tables are still missing. Check that the warehouse has SELECT access to system.billing tables and retry.");
         }
       }, 5000);
 
@@ -682,7 +686,7 @@ function CompleteStep() {
 function LoadingSpinner({ text }: { text: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-12">
-      <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-gray-200 border-t-[#FF3621]" />
+      <div className="h-8 w-8 animate-spin rounded-full" style={{ border: '3px solid #e5e7eb', borderTopColor: '#FF3621' }} />
       <p className="mt-3 text-sm text-gray-500">{text}</p>
     </div>
   );
