@@ -1,0 +1,13 @@
+{
+  "name": "cost-observability-control",
+  "description": "Cost Observability & Control Dashboard",
+  "resources": [
+    {
+      "name": "sql-warehouse",
+      "description": "SQL Warehouse for queries",
+      "sql_warehouse": {
+        "id": "dde448100db8752a"
+      }
+    }
+  ]
+}

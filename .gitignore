@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.uv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+client/node_modules/
+client/dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+.env.*
+
+# Deployment configs (contain workspace-specific IDs — copy from app.yaml.example)
+app.yaml
+app.*.yaml
+
+# App settings (contains secrets)
+.settings/
+
+# Databricks local state
+.databricks/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Build artifacts
+static/
+requirements.txt
+
+# Logs
+*.log
+/tmp/
+
+# PID files
+*.pid

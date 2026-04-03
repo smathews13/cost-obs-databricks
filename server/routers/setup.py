@@ -1,0 +1,499 @@
+"""Setup API endpoints for initializing materialized views and jobs."""
+
+import json
+import logging
+import os
+from typing import Any
+
+from fastapi import APIRouter, BackgroundTasks, Query
+
+from server.materialized_views import (
+    check_materialized_views_exist,
+    create_materialized_views,
+    get_catalog_schema,
+    refresh_materialized_views,
+)
+from server.jobs import (
+    create_or_update_refresh_job,
+    run_refresh_job_now,
+    get_job_status,
+)
+from server.db import get_workspace_client
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+SETTINGS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", ".settings")
+GENIE_SETTINGS_FILE = os.path.join(SETTINGS_DIR, "genie_settings.json")
+
+
+@router.get("/status")
+async def get_setup_status() -> dict[str, Any]:
+    """Check the status of materialized views.
+
+    Returns which tables exist and are ready for use.
+    """
+    catalog, schema = get_catalog_schema()
+    tables = check_materialized_views_exist(catalog, schema)
+
+    all_exist = all(tables.values())
+    missing = [name for name, exists in tables.items() if not exists]
+
+    return {
+        "catalog": catalog,
+        "schema": schema,
+        "tables": tables,
+        "all_tables_exist": all_exist,
+        "missing_tables": missing,
+        "status": "ready" if all_exist else "setup_required",
+    }
+
+
+@router.post("/create-tables")
+async def create_tables(
+    background_tasks: BackgroundTasks,
+    catalog: str = Query(default=None, description="Target catalog"),
+    schema: str = Query(default=None, description="Target schema"),
+    run_in_background: bool = Query(default=True, description="Run in background"),
+) -> dict[str, Any]:
+    """Create all materialized view tables.
+
+    This will create pre-aggregated tables from system tables for fast queries.
+    Tables are created with 365 days of historical data.
+
+    WARNING: This operation can take several minutes on large accounts.
+    Set run_in_background=true (default) to run asynchronously.
+    """
+    cat, sch = get_catalog_schema()
+    target_catalog = catalog or cat
+    target_schema = schema or sch
+
+    if run_in_background:
+        # Run in background
+        background_tasks.add_task(
+            _create_tables_task, target_catalog, target_schema
+        )
+        return {
+            "status": "started",
+            "message": "Table creation started in background. Check /api/setup/status for progress.",
+            "catalog": target_catalog,
+            "schema": target_schema,
+        }
+    else:
+        # Run synchronously (blocking)
+        results = create_materialized_views(target_catalog, target_schema)
+        return {
+            "status": "completed",
+            "catalog": target_catalog,
+            "schema": target_schema,
+            "results": results,
+        }
+
+
+def _create_tables_task(catalog: str, schema: str):
+    """Background task to create tables."""
+    logger.info(f"Starting background table creation for {catalog}.{schema}")
+    try:
+        results = create_materialized_views(catalog, schema)
+        logger.info(f"Table creation completed: {results}")
+    except Exception as e:
+        logger.error(f"Table creation failed: {e}")
+
+
+@router.post("/refresh-tables")
+async def refresh_tables(
+    background_tasks: BackgroundTasks,
+    catalog: str = Query(default=None, description="Target catalog"),
+    schema: str = Query(default=None, description="Target schema"),
+    run_in_background: bool = Query(default=True, description="Run in background"),
+) -> dict[str, Any]:
+    """Refresh all materialized view tables with latest data.
+
+    This rebuilds all tables from scratch with current data.
+    Should be run daily to keep data fresh.
+    """
+    cat, sch = get_catalog_schema()
+    target_catalog = catalog or cat
+    target_schema = schema or sch
+
+    if run_in_background:
+        background_tasks.add_task(
+            _refresh_tables_task, target_catalog, target_schema
+        )
+        return {
+            "status": "started",
+            "message": "Table refresh started in background. Check /api/setup/status for progress.",
+            "catalog": target_catalog,
+            "schema": target_schema,
+        }
+    else:
+        results = refresh_materialized_views(target_catalog, target_schema)
+        return {
+            "status": "completed",
+            "catalog": target_catalog,
+            "schema": target_schema,
+            "results": results,
+        }
+
+
+def _refresh_tables_task(catalog: str, schema: str):
+    """Background task to refresh tables."""
+    logger.info(f"Starting background table refresh for {catalog}.{schema}")
+    try:
+        results = refresh_materialized_views(catalog, schema)
+        logger.info(f"Table refresh completed: {results}")
+    except Exception as e:
+        logger.error(f"Table refresh failed: {e}")
+
+
+# ============================================================================
+# Job Management Endpoints
+# ============================================================================
+
+
+@router.get("/job/status")
+async def get_refresh_job_status() -> dict[str, Any]:
+    """Get the status of the daily refresh job.
+
+    Returns job details and recent run history.
+    """
+    return get_job_status()
+
+
+@router.post("/job/create")
+async def create_refresh_job() -> dict[str, Any]:
+    """Create or update the daily refresh job.
+
+    This creates a Databricks job that runs daily at 6 AM UTC to refresh
+    all materialized view tables.
+    """
+    return create_or_update_refresh_job()
+
+
+@router.post("/job/run-now")
+async def trigger_refresh_job() -> dict[str, Any]:
+    """Trigger the refresh job to run immediately.
+
+    This is useful for manual refreshes or initial setup.
+    If the job doesn't exist, it will be created first.
+    """
+    return run_refresh_job_now()
+
+
+# ============================================================================
+# AWS CUR Setup Endpoints
+# ============================================================================
+
+@router.get("/aws-cur/status")
+async def get_aws_cur_status() -> dict[str, Any]:
+    """Check the status of AWS CUR integration.
+
+    Returns information about:
+    - Available external locations that might contain CUR data
+    - Existing CUR tables (bronze/silver/gold)
+    - Whether the system is ready for CUR setup
+    """
+    from server.aws_cur_setup import check_cur_prerequisites, get_catalog_schema
+
+    catalog, schema = get_catalog_schema()
+    prerequisites = check_cur_prerequisites(catalog, schema)
+
+    return {
+        "catalog": catalog,
+        "schema": schema,
+        "external_locations": prerequisites["external_locations"],
+        "existing_tables": prerequisites["existing_tables"],
+        "tables_exist": len(prerequisites["existing_tables"]) == 3,
+        "ready_for_setup": prerequisites["ready"],
+        "status": "configured" if len(prerequisites["existing_tables"]) == 3 else "not_configured",
+    }
+
+
+@router.post("/aws-cur/create-tables")
+async def create_aws_cur_tables(
+    background_tasks: BackgroundTasks,
+    s3_path: str = Query(default=None, description="S3 path to CUR data (e.g., s3://bucket/cur-reports/)"),
+    catalog: str = Query(default=None, description="Target catalog"),
+    schema: str = Query(default=None, description="Target schema"),
+    load_data: bool = Query(default=False, description="Load data from S3 after creating tables"),
+    run_in_background: bool = Query(default=True, description="Run in background"),
+) -> dict[str, Any]:
+    """Create AWS CUR medallion tables (bronze/silver/gold).
+
+    This creates the table structure for processing AWS Cost and Usage Reports.
+
+    Prerequisites:
+    1. CUR 2.0 must be enabled in AWS Billing Console
+    2. CUR data must be exported to S3 (Parquet format)
+    3. Unity Catalog External Location must exist pointing to the CUR bucket
+    4. Storage Credential must have read access to the S3 bucket
+
+    Args:
+        s3_path: S3 path where CUR data is stored (required if load_data=True)
+        catalog: Target catalog for tables
+        schema: Target schema for tables
+        load_data: If True, also loads data from S3 into bronze table
+        run_in_background: Run table creation in background
+    """
+    from server.aws_cur_setup import create_cur_tables, get_catalog_schema
+
+    cat, sch = get_catalog_schema()
+    target_catalog = catalog or cat
+    target_schema = schema or sch
+
+    if load_data and not s3_path:
+        return {
+            "status": "error",
+            "message": "s3_path is required when load_data=True",
+        }
+
+    if run_in_background:
+        background_tasks.add_task(
+            _create_cur_tables_task, target_catalog, target_schema, s3_path, load_data
+        )
+        return {
+            "status": "started",
+            "message": "AWS CUR table creation started in background. Check /api/setup/aws-cur/status for progress.",
+            "catalog": target_catalog,
+            "schema": target_schema,
+        }
+    else:
+        results = create_cur_tables(target_catalog, target_schema, s3_path, load_data)
+        return {
+            "status": "completed",
+            "catalog": target_catalog,
+            "schema": target_schema,
+            "results": results,
+        }
+
+
+def _create_cur_tables_task(catalog: str, schema: str, s3_path: str | None, load_data: bool):
+    """Background task to create CUR tables."""
+    from server.aws_cur_setup import create_cur_tables
+
+    logger.info(f"Starting background CUR table creation for {catalog}.{schema}")
+    try:
+        results = create_cur_tables(catalog, schema, s3_path, load_data)
+        logger.info(f"CUR table creation completed: {results}")
+    except Exception as e:
+        logger.error(f"CUR table creation failed: {e}")
+
+
+@router.post("/aws-cur/refresh")
+async def refresh_aws_cur_tables(
+    background_tasks: BackgroundTasks,
+    s3_path: str = Query(default=None, description="S3 path to CUR data"),
+    catalog: str = Query(default=None, description="Target catalog"),
+    schema: str = Query(default=None, description="Target schema"),
+    run_in_background: bool = Query(default=True, description="Run in background"),
+) -> dict[str, Any]:
+    """Refresh AWS CUR tables with latest data.
+
+    This incrementally loads new CUR data from S3 and refreshes
+    the silver and gold tables.
+    """
+    from server.aws_cur_setup import refresh_cur_tables, get_catalog_schema
+
+    cat, sch = get_catalog_schema()
+    target_catalog = catalog or cat
+    target_schema = schema or sch
+
+    if run_in_background:
+        background_tasks.add_task(
+            _refresh_cur_tables_task, target_catalog, target_schema, s3_path
+        )
+        return {
+            "status": "started",
+            "message": "AWS CUR table refresh started in background.",
+            "catalog": target_catalog,
+            "schema": target_schema,
+        }
+    else:
+        results = refresh_cur_tables(target_catalog, target_schema, s3_path)
+        return {
+            "status": "completed",
+            "catalog": target_catalog,
+            "schema": target_schema,
+            "results": results,
+        }
+
+
+def _refresh_cur_tables_task(catalog: str, schema: str, s3_path: str | None):
+    """Background task to refresh CUR tables."""
+    from server.aws_cur_setup import refresh_cur_tables
+
+    logger.info(f"Starting background CUR table refresh for {catalog}.{schema}")
+    try:
+        results = refresh_cur_tables(catalog, schema, s3_path)
+        logger.info(f"CUR table refresh completed: {results}")
+    except Exception as e:
+        logger.error(f"CUR table refresh failed: {e}")
+
+
+# ============================================================================
+# Genie Space Setup
+# ============================================================================
+
+
+def _load_genie_settings() -> dict:
+    """Load Genie settings from file."""
+    if os.path.exists(GENIE_SETTINGS_FILE):
+        with open(GENIE_SETTINGS_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+
+def _save_genie_settings(settings: dict) -> None:
+    """Save Genie settings to file."""
+    os.makedirs(SETTINGS_DIR, exist_ok=True)
+    with open(GENIE_SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=2)
+
+
+@router.get("/genie-space/status")
+async def get_genie_space_status() -> dict[str, Any]:
+    """Check if a Genie Space has been created for this app."""
+    settings = _load_genie_settings()
+    space_id = settings.get("space_id", "") or os.getenv("GENIE_SPACE_ID", "")
+    return {
+        "configured": bool(space_id),
+        "space_id": space_id or None,
+    }
+
+
+@router.post("/create-genie-space")
+async def create_genie_space() -> dict[str, Any]:
+    """Create a Genie Space for cost analytics during first-time setup.
+
+    Uses the pre-configured genie_space_config.json to create a space
+    via the Databricks Genie API. Stores the resulting space_id in
+    .settings/genie_settings.json for the genie router to use.
+    """
+    # Check if already created
+    settings = _load_genie_settings()
+    existing_id = settings.get("space_id", "") or os.getenv("GENIE_SPACE_ID", "")
+    if existing_id:
+        return {
+            "status": "already_exists",
+            "space_id": existing_id,
+            "message": "Genie Space already configured.",
+        }
+
+    # Load genie space config
+    config_path = os.path.join(os.path.dirname(__file__), "..", "..", "genie_space_config.json")
+    config_path = os.path.normpath(config_path)
+    if not os.path.exists(config_path):
+        return {
+            "status": "error",
+            "message": "genie_space_config.json not found. Cannot create Genie Space.",
+        }
+
+    with open(config_path, "r") as f:
+        genie_config = json.load(f)
+
+    # Get auth from workspace client
+    try:
+        w = get_workspace_client()
+        host = w.config.host or ""
+        header = w.config.authenticate()
+        token = header.get("Authorization", "").replace("Bearer ", "")
+    except Exception as e:
+        logger.error(f"Failed to get workspace client for Genie setup: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to authenticate with workspace: {e}",
+        }
+
+    if not host.startswith("http"):
+        host = f"https://{host}"
+
+    # Get a warehouse ID
+    try:
+        warehouses = list(w.warehouses.list())
+        if not warehouses:
+            return {
+                "status": "error",
+                "message": "No SQL warehouses found. A warehouse is required for the Genie Space.",
+            }
+        warehouse_id = warehouses[0].id
+        logger.info(f"Using warehouse {warehouses[0].name} ({warehouse_id}) for Genie Space")
+    except Exception as e:
+        logger.error(f"Failed to list warehouses: {e}")
+        return {
+            "status": "error",
+            "message": f"Failed to list SQL warehouses: {e}",
+        }
+
+    # Add warehouse_id to config
+    genie_config["warehouse_id"] = warehouse_id
+
+    # Create the Genie Space
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{host}/api/2.0/genie/spaces",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                json=genie_config,
+            )
+
+            if response.status_code not in (200, 201):
+                logger.error(f"Genie API error: {response.text}")
+                return {
+                    "status": "error",
+                    "message": f"Genie API error ({response.status_code}): {response.text[:200]}",
+                }
+
+            space_data = response.json()
+            space_id = space_data.get("space_id", "")
+
+            if not space_id:
+                return {
+                    "status": "error",
+                    "message": "Genie API returned success but no space_id.",
+                }
+
+            # Save to settings file
+            _save_genie_settings({"space_id": space_id, "warehouse_id": warehouse_id})
+            logger.info(f"Genie Space created: {space_id}")
+
+            # Grant the app's service principal CAN_RUN on the Genie Space
+            try:
+                sp_client_id = w.config.client_id or os.getenv("DATABRICKS_CLIENT_ID", "")
+                if sp_client_id:
+                    perm_response = await client.patch(
+                        f"{host}/api/2.0/permissions/genie/{space_id}",
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "access_control_list": [{
+                                "service_principal_name": sp_client_id,
+                                "permission_level": "CAN_RUN",
+                            }]
+                        },
+                    )
+                    if perm_response.status_code == 200:
+                        logger.info(f"Granted CAN_RUN to service principal {sp_client_id}")
+                    else:
+                        logger.warning(f"Failed to grant Genie permissions: {perm_response.text[:200]}")
+            except Exception as perm_err:
+                logger.warning(f"Could not grant Genie permissions to service principal: {perm_err}")
+
+            return {
+                "status": "created",
+                "space_id": space_id,
+                "message": "Genie Space created successfully.",
+            }
+
+    except httpx.RequestError as e:
+        logger.error(f"Failed to create Genie Space: {e}")
+        return {
+            "status": "error",
+            "message": f"Request to Genie API failed: {e}",
+        }

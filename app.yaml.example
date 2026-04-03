@@ -1,0 +1,71 @@
+name: cost-obs
+description: Cost Observability & Control - Databricks compute consumption and spend analytics
+
+# =============================================================================
+# Copy this file to app.yaml and fill in your values before deploying.
+# The deploy script (dba_deploy.sh) will use app.yaml automatically.
+# =============================================================================
+
+resources:
+  - name: sql-warehouse
+    description: SQL Warehouse for cost observability queries
+    sql_warehouse:
+      id: <your-sql-warehouse-id>   # e.g. abc123def456
+      permission: CAN_USE
+
+env:
+  # NOTE: Do NOT set DATABRICKS_HOST or DATABRICKS_TOKEN here.
+  # Databricks Apps provides OAuth credentials automatically.
+
+  # SQL warehouse HTTP path. Use "auto" to let the app create a dedicated
+  # Large serverless warehouse on first startup (recommended).
+  - name: DATABRICKS_HTTP_PATH
+    value: /sql/1.0/warehouses/<your-sql-warehouse-id>
+
+  # Unity Catalog name containing system tables and materialized views
+  - name: COST_OBS_CATALOG
+    value: main
+
+  # Schema within COST_OBS_CATALOG for materialized views
+  - name: COST_OBS_SCHEMA
+    value: cost_obs
+
+  # (Optional) Genie Space ID for AI cost queries
+  # - name: GENIE_SPACE_ID
+  #   value: <your-genie-space-id>
+
+  # (Optional) Azure subscription ID — shown in the account info banner
+  # - name: AZURE_SUBSCRIPTION_ID
+  #   value: <your-azure-subscription-id>
+
+  # ── Lakebase (PostgreSQL) for persistent app state ──────────────────────────
+  # Add a Lakebase resource to the app in the Databricks UI, or let the deploy
+  # script (dba_deploy.sh) provision it automatically.
+  # Once provisioned, inject PGHOST and ENDPOINT_NAME:
+  # - name: PGHOST
+  #   value: <lakebase-endpoint-hostname>
+  # - name: PGDATABASE
+  #   value: databricks_postgres
+  # - name: PGUSER
+  #   value: <app-service-principal-client-id>
+  # - name: PGPORT
+  #   value: "5432"
+  # - name: PGSSLMODE
+  #   value: require
+  # - name: ENDPOINT_NAME
+  #   value: projects/<project-id>/branches/<branch-id>/endpoints/<endpoint-id>
+
+  # ── Cloud Cost Integration ─────────────────────────────────────────────────
+  # Set these if your cloud-infra-costs bundle uses a non-default catalog/schema.
+  # Defaults: AWS_COST_CATALOG=billing, AWS_COST_SCHEMA=aws
+  #           AZURE_COST_CATALOG=billing, AZURE_COST_SCHEMA=azure
+  # - name: AWS_COST_CATALOG
+  #   value: billing
+  # - name: AWS_COST_SCHEMA
+  #   value: aws
+  # - name: AZURE_COST_CATALOG
+  #   value: billing
+  # - name: AZURE_COST_SCHEMA
+  #   value: azure
+
+command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,14 @@
+name: cost-obs
+description: Cost Observability & Control - Databricks compute consumption and spend analytics
+
+env:
+  - name: DATABRICKS_HTTP_PATH
+    value: /sql/1.0/warehouses/__SQL_WAREHOUSE_ID__
+  - name: COST_OBS_CATALOG
+    value: __COST_OBS_CATALOG__
+  - name: COST_OBS_SCHEMA
+    value: __COST_OBS_SCHEMA__
+  - name: GENIE_SPACE_ID
+    value: __GENIE_SPACE_ID__
+
+command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

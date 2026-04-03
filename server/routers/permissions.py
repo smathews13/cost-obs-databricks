@@ -1,0 +1,197 @@
+"""Permissions check endpoints for system table access verification."""
+
+import asyncio
+import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
+
+from databricks.sdk.errors import NotFound, PermissionDenied
+from fastapi import APIRouter
+
+from server.db import get_workspace_client
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# Dedicated executor so permissions checks don't contend with startup tasks
+_permissions_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="permissions")
+
+# Simple in-process cache so repeated wizard loads are instant (5-min TTL)
+_permissions_cache: dict[str, Any] | None = None
+_permissions_cache_ts: float = 0.0
+_PERMISSIONS_CACHE_TTL = 300  # 5 minutes
+
+# Required system tables and their descriptions
+REQUIRED_PERMISSIONS = [
+    {
+        "table": "system.billing.usage",
+        "name": "Billing Usage",
+        "description": "Core billing and DBU consumption data",
+        "required": True,
+    },
+    {
+        "table": "system.billing.list_prices",
+        "name": "List Prices",
+        "description": "SKU pricing for cost calculations",
+        "required": True,
+    },
+    {
+        "table": "system.query.history",
+        "name": "Query History",
+        "description": "DBSQL query analytics and cost attribution",
+        "required": False,
+    },
+    {
+        "table": "system.compute.clusters",
+        "name": "Clusters",
+        "description": "Cluster metadata for interactive workloads",
+        "required": False,
+    },
+    {
+        "table": "system.lakeflow.pipelines",
+        "name": "SDP Pipelines",
+        "description": "SDP pipeline names and metadata",
+        "required": False,
+    },
+    {
+        "table": "system.serving.served_entities",
+        "name": "Model Serving",
+        "description": "Model serving endpoint information",
+        "required": False,
+    },
+    {
+        "table": "system.access.audit",
+        "name": "Audit Logs",
+        "description": "Workspace audit events (optional)",
+        "required": False,
+    },
+]
+
+
+def check_table_access(table: str) -> bool:
+    """Check if the current identity has access to a system table.
+
+    Uses the Unity Catalog tables API — a direct REST call with no warehouse
+    needed. Returns True if the table is readable, False if PermissionDenied
+    or NotFound.
+    """
+    try:
+        w = get_workspace_client()
+        w.tables.get(full_name=table)
+        return True
+    except (PermissionDenied, NotFound):
+        return False
+    except Exception as e:
+        logger.debug(f"Unexpected error checking access to {table}: {e}")
+        return False
+
+
+def _get_current_user() -> tuple[str, str]:
+    """Return (email, display_name) for the current identity."""
+    try:
+        w = get_workspace_client()
+        current_user = w.current_user.me()
+        email = current_user.user_name or "unknown"
+        name = current_user.display_name or email
+        return email, name
+    except Exception as e:
+        logger.warning(f"Could not get current user: {e}")
+        return "unknown", "Unknown User"
+
+
+def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
+    """Run all permission checks and user lookup in parallel.
+
+    Results are cached for _PERMISSIONS_CACHE_TTL seconds to avoid hitting
+    the UC REST API on every wizard page load. Pass bypass_cache=True to force
+    a fresh check (e.g. after the user grants new permissions).
+    """
+    global _permissions_cache, _permissions_cache_ts
+
+    if not bypass_cache and _permissions_cache is not None:
+        age = time.monotonic() - _permissions_cache_ts
+        if age < _PERMISSIONS_CACHE_TTL:
+            logger.debug(f"Returning cached permissions result (age: {age:.0f}s)")
+            return _permissions_cache
+
+    from concurrent.futures import as_completed
+
+    # Fire table checks + user lookup all in parallel
+    with ThreadPoolExecutor(max_workers=len(REQUIRED_PERMISSIONS) + 1) as pool:
+        future_to_table = {
+            pool.submit(check_table_access, perm["table"]): perm["table"]
+            for perm in REQUIRED_PERMISSIONS
+        }
+        user_future = pool.submit(_get_current_user)
+
+        access_results: dict[str, bool] = {}
+        for future in as_completed(future_to_table):
+            table = future_to_table[future]
+            access_results[table] = future.result()
+
+        user_email, user_name = user_future.result()
+
+    # Assemble results
+    results = []
+    granted_count = 0
+    required_granted = 0
+    required_count = 0
+
+    for perm in REQUIRED_PERMISSIONS:
+        has_access = access_results[perm["table"]]
+
+        if has_access:
+            granted_count += 1
+            if perm["required"]:
+                required_granted += 1
+
+        if perm["required"]:
+            required_count += 1
+
+        results.append({
+            "table": perm["table"],
+            "name": perm["name"],
+            "description": perm["description"],
+            "required": perm["required"],
+            "granted": has_access,
+        })
+
+    # Determine overall status
+    all_required_granted = required_granted == required_count
+
+    result = {
+        "permissions": results,
+        "summary": {
+            "total": len(results),
+            "granted": granted_count,
+            "required_count": required_count,
+            "required_granted": required_granted,
+            "all_required_granted": all_required_granted,
+            "ready_to_use": all_required_granted,
+        },
+        "user": {
+            "email": user_email,
+            "name": user_name,
+        },
+        "help_url": "https://docs.databricks.com/en/admin/system-tables/index.html",
+    }
+
+    _permissions_cache = result
+    _permissions_cache_ts = time.monotonic()
+    return result
+
+
+@router.get("/check")
+async def check_permissions(refresh: bool = False) -> dict[str, Any]:
+    """
+    Check user's access to required system tables.
+
+    Cached for 5 minutes per process. Pass ?refresh=true to force a live re-check
+    (e.g. after granting new permissions in the setup wizard).
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        _permissions_executor,
+        lambda: _check_permissions_sync(bypass_cache=refresh),
+    )

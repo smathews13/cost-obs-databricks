@@ -1,0 +1,211 @@
+"""Health check endpoints with actual service verification."""
+
+import asyncio
+import logging
+import time
+from typing import Any
+
+from fastapi import APIRouter, BackgroundTasks
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+@router.get("/health")
+async def health_check() -> dict[str, Any]:
+    """Basic health check endpoint - fast response for load balancers."""
+    return {"status": "healthy", "service": "cost-observability-control"}
+
+
+@router.get("/health/detailed")
+async def detailed_health_check() -> dict[str, Any]:
+    """Detailed health check with database connectivity and cache stats.
+
+    This endpoint performs actual service verification:
+    - Database connectivity test
+    - Query cache statistics
+    - Memory usage info
+    """
+    checks: dict[str, Any] = {
+        "status": "healthy",
+        "service": "cost-observability-control",
+        "checks": {},
+    }
+
+    # Check database connectivity
+    db_status = await _check_database()
+    checks["checks"]["database"] = db_status
+
+    # Get cache statistics
+    cache_status = _get_cache_stats()
+    checks["checks"]["cache"] = cache_status
+
+    # Get memory info
+    memory_status = _get_memory_info()
+    checks["checks"]["memory"] = memory_status
+
+    # Determine overall health
+    all_healthy = all(
+        check.get("status") == "healthy"
+        for check in checks["checks"].values()
+    )
+    checks["status"] = "healthy" if all_healthy else "degraded"
+
+    return checks
+
+
+async def _check_database() -> dict[str, Any]:
+    """Test database connectivity."""
+    try:
+        from server.db import execute_query
+
+        start_time = time.time()
+        # Simple query to test connectivity
+        result = execute_query("SELECT 1 as test")
+        latency_ms = (time.time() - start_time) * 1000
+
+        return {
+            "status": "healthy",
+            "latency_ms": round(latency_ms, 2),
+            "message": "Database connection successful",
+        }
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "message": "Database connection failed",
+        }
+
+
+def _get_cache_stats() -> dict[str, Any]:
+    """Get query cache statistics."""
+    try:
+        from server.db import _query_cache, _CACHE_MAX_SIZE, _CACHE_TTL
+
+        current_size = len(_query_cache)
+
+        return {
+            "status": "healthy",
+            "current_entries": current_size,
+            "max_entries": _CACHE_MAX_SIZE,
+            "ttl_seconds": _CACHE_TTL,
+            "utilization_percent": round((current_size / _CACHE_MAX_SIZE) * 100, 1),
+        }
+    except Exception as e:
+        logger.error(f"Cache stats check failed: {e}")
+        return {
+            "status": "unknown",
+            "error": str(e),
+        }
+
+
+def _get_memory_info() -> dict[str, Any]:
+    """Get memory usage information."""
+    try:
+        import os
+        import resource
+
+        # Get memory usage in MB
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        memory_mb = usage.ru_maxrss / (1024 * 1024) if os.name != 'nt' else usage.ru_maxrss / 1024
+
+        return {
+            "status": "healthy",
+            "rss_mb": round(memory_mb, 2),
+        }
+    except Exception as e:
+        logger.error(f"Memory info check failed: {e}")
+        return {
+            "status": "unknown",
+            "error": str(e),
+        }
+
+
+def _run_prewarm():
+    """Run cache prewarm in background."""
+    from server.app import prewarm_cache_sync, prewarm_all_tabs
+    logger.info("Starting manual cache prewarm...")
+    prewarm_cache_sync()
+    prewarm_all_tabs()
+    logger.info("Manual cache prewarm complete")
+
+
+@router.post("/cache/clear")
+async def clear_cache(tab: str | None = None) -> dict[str, Any]:
+    """Clear server-side query cache for a specific tab or all tabs.
+
+    Tab patterns:
+      dbu          → clears billing/dashboard-bundle queries
+      infra        → clears infra-bundle and aws-actual queries
+      kpis         → clears kpis-bundle queries
+      aiml         → clears aiml queries
+      apps         → clears apps queries
+      tagging      → clears tagging queries
+      sql          → clears dbsql and sql-breakdown queries
+      users-groups → clears users-groups queries
+      use-cases    → clears use-cases queries
+      alerts       → clears alerts queries
+      (none)       → clears entire cache
+    """
+    from server.db import clear_query_cache
+
+    TAB_PATTERNS: dict[str, list[str]] = {
+        "dbu":          ["dashboard-bundle-fast"],
+        "infra":        ["infra-bundle", "infra-costs", "aws-actual", "aws-costs"],
+        "kpis":         ["kpis-bundle", "spend-anomalies", "platform-kpis"],
+        "aiml":         ["aiml"],
+        "apps":         ["apps"],
+        "tagging":      ["tagging"],
+        "sql":          ["dbsql", "sql-breakdown"],
+        "users-groups": ["users-groups"],
+        "use-cases":    ["use-cases", "use_case", "monthly-consumption"],
+        "alerts":       ["alerts"],
+    }
+
+    if tab and tab in TAB_PATTERNS:
+        cleared = 0
+        for pattern in TAB_PATTERNS[tab]:
+            cleared += clear_query_cache(pattern)
+        return {"status": "ok", "tab": tab, "cleared": cleared}
+    else:
+        cleared = clear_query_cache()
+        return {"status": "ok", "tab": "all", "cleared": cleared}
+
+
+@router.post("/prewarm")
+async def trigger_cache_prewarm(background_tasks: BackgroundTasks) -> dict[str, Any]:
+    """Trigger cache pre-warming for all dashboard queries.
+
+    This runs in the background and returns immediately.
+    Use /api/health/detailed to check cache status.
+    """
+    background_tasks.add_task(_run_prewarm)
+    return {
+        "status": "started",
+        "message": "Cache pre-warming started in background. Check /api/health/detailed for cache stats."
+    }
+
+
+@router.get("/debug-env")
+async def debug_env():
+    """Debug: show detected environment (temporary)."""
+    import os
+    from server.db import get_host_url
+    host = get_host_url()
+    cloud = None
+    if host:
+        h = host.lower()
+        if "azuredatabricks.net" in h:
+            cloud = "AZURE"
+        elif "gcp.databricks.com" in h:
+            cloud = "GCP"
+        elif "cloud.databricks.com" in h:
+            cloud = "AWS"
+    return {
+        "host": host,
+        "cloud": cloud,
+        "DATABRICKS_HOST": os.getenv("DATABRICKS_HOST", "NOT SET"),
+        "DATABRICKS_HTTP_PATH": os.getenv("DATABRICKS_HTTP_PATH", "NOT SET"),
+    }
