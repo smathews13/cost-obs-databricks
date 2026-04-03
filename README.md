@@ -277,16 +277,35 @@ Open http://localhost:5173
 
 ## Deployment
 
-### Deploy Script (recommended)
+### Option 1 — Deploy from Git (recommended)
 
-`dba_deploy.sh` handles everything end-to-end: frontend build, requirements generation, workspace file sync, Lakebase config injection, deployment trigger, SP permission grants, and post-deploy verification.
+The preferred deployment method is to deploy directly from this Git repository. Databricks Apps pulls the source code from GitHub on each deployment — no local clone or file sync required.
+
+> See [docs/PRE_DEPLOYMENT_CHECKLIST.md](docs/PRE_DEPLOYMENT_CHECKLIST.md) for required permissions and environment prerequisites before deploying.
+
+**Steps:**
+
+1. In your Databricks workspace, go to **Apps → Create App → Deploy from Git**
+2. Enter the repo URL: `https://github.com/smathews13/cost-obs-databricks`
+3. **Git reference:** `main` (or a release tag e.g. `v1.0.0`)
+4. **Reference type:** `Branch` (or `Tag` if pinning to a release)
+5. **Source code path:** leave empty (the entire project is at the repo root)
+6. Fill in the required environment variables from `app.yaml.example`
+
+Or use the Deploy button at the top of this README to launch directly into your workspace.
+
+Databricks Apps supports GitHub, GitLab, Bitbucket, and other providers. You can pin to a branch, tag, or specific commit SHA. Private repositories require Git credentials configured on the app's service principal.
+
+### Option 2 — Deploy Script
+
+For deployments that need Lakebase provisioning, automated permission grants, and post-deploy verification, use `dba_deploy.sh`. This is the recommended path for field deployments where Lakebase is required.
 
 ```bash
 # First-time setup: copy and fill in your credentials
-cp .env.example .env.local
+cp app.yaml.example app.yaml
 # Set DATABRICKS_HOST and DATABRICKS_TOKEN in .env.local
 
-# Deploy to default target (AWS)
+# Deploy to AWS
 bash dba_deploy.sh
 
 # Deploy to Azure
@@ -308,30 +327,7 @@ The deploy script automatically:
 | `.env.local` | Default / AWS deployment |
 | `.env.azure-field-eng` | Azure field engineering deployment |
 
-Each target uses its own `.env.*` file and corresponding `app.yaml` / `app.azure-field-eng.yaml`.
-
-### Declarative Automation Bundle
-
-The repo includes a `databricks.yml` [Declarative Automation Bundle](https://docs.databricks.com/aws/en/dev-tools/bundles/) for repeatable multi-environment deployments.
-
-```bash
-# Authenticate
-databricks configure
-
-# Deploy to a new workspace
-databricks bundle deploy --target dev \
-  --var sql_warehouse_id=your-warehouse-id \
-  --var cost_obs_catalog=main
-
-# Run the app
-databricks bundle run --target dev cost-obs
-```
-
-See [Databricks Apps documentation](https://docs.databricks.com/en/dev-tools/databricks-apps/index.html) for required workspace permissions.
-
-### Deploy from a Git Repository
-
-Databricks Apps supports [deploying directly from a Git repository](https://docs.databricks.com/aws/en/dev-tools/databricks-apps/deploy#deploy-from-a-git-repository) — GitHub, GitLab, Bitbucket, and other providers. You can pin to a branch, tag, or specific commit SHA. Private repositories require Git credentials configured on the app's service principal. This is the recommended path for keeping customer deployments in sync with upstream releases.
+Each target uses its own `.env.*` file and corresponding `app.yaml`.
 
 ---
 

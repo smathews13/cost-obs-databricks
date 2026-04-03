@@ -38,7 +38,6 @@ app.*.yaml
 .DS_Store
 
 # Build artifacts
-static/
 
 # Logs
 *.log

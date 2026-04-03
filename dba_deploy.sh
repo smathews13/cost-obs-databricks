@@ -659,71 +659,37 @@ fi
 step_complete 2 "Generate requirements.txt"
 
 # =============================================================================
-# Step 3: Clean workspace (remove problematic files)
+# Step 3: Clean workspace (remove legacy/problematic files)
 # =============================================================================
 step_start 3 "Clean workspace"
 
-# Remove .venv if it exists (causes permission errors)
 databricks workspace delete "${WORKSPACE_PATH}/.venv" --recursive $CLI_ARGS 2>/dev/null || true
-# Remove node_modules if it exists
 databricks workspace delete "${WORKSPACE_PATH}/node_modules" --recursive $CLI_ARGS 2>/dev/null || true
-# Remove __pycache__ directories
 databricks workspace delete "${WORKSPACE_PATH}/.git" --recursive $CLI_ARGS 2>/dev/null || true
 
 log_success "Workspace cleaned"
-
 step_complete 3 "Clean workspace"
 
 # =============================================================================
-# Step 4: Sync files to workspace (selective - no .venv, node_modules, etc.)
+# Step 4: Sync repo to workspace using databricks sync (git-aware)
 # =============================================================================
 step_start 4 "Sync files to workspace"
 
-# Essential directories to sync
-DIRS_TO_SYNC="server static"
+log_info "  Syncing repo to ${WORKSPACE_PATH}..."
 
-for dir in $DIRS_TO_SYNC; do
-    if [ -d "$dir" ]; then
-        log_info "  Syncing $dir/..."
-        databricks workspace import-dir "$dir" "${WORKSPACE_PATH}/$dir" --overwrite $CLI_ARGS 2>&1 || {
-            log_warn "  Failed to sync $dir, trying delete first..."
-            databricks workspace delete "${WORKSPACE_PATH}/$dir" --recursive $CLI_ARGS 2>/dev/null || true
-            databricks workspace import-dir "$dir" "${WORKSPACE_PATH}/$dir" --overwrite $CLI_ARGS 2>&1 || {
-                log_error "Failed to sync $dir"
-                exit 1
-            }
-        }
-    fi
-done
+# Sync app.yaml from the Lakebase-injected temp file
+cp "$DEPLOY_YAML" app.yaml.deploy-tmp
 
-# Essential files to sync
-FILES_TO_SYNC="requirements.txt pyproject.toml"
-
-for file in $FILES_TO_SYNC; do
-    if [ -f "$file" ]; then
-        log_info "  Syncing $file..."
-        databricks workspace import "${WORKSPACE_PATH}/$file" --file "$file" --format AUTO --overwrite $CLI_ARGS 2>&1 || {
-            log_warn "  Retry without overwrite..."
-            databricks workspace delete "${WORKSPACE_PATH}/$file" $CLI_ARGS 2>/dev/null || true
-            databricks workspace import "${WORKSPACE_PATH}/$file" --file "$file" --format AUTO $CLI_ARGS 2>&1 || {
-                log_error "Failed to sync $file"
-                exit 1
-            }
-        }
-    fi
-done
-
-# Sync app.yaml — use DEPLOY_YAML (temp file with Lakebase env vars injected)
-log_info "  Syncing app.yaml (from $DEPLOY_YAML)..."
-databricks workspace import "${WORKSPACE_PATH}/app.yaml" --file "$DEPLOY_YAML" --format AUTO --overwrite $CLI_ARGS 2>&1 || {
-    log_warn "  Retry without overwrite..."
-    databricks workspace delete "${WORKSPACE_PATH}/app.yaml" $CLI_ARGS 2>/dev/null || true
-    databricks workspace import "${WORKSPACE_PATH}/app.yaml" --file "$DEPLOY_YAML" --format AUTO $CLI_ARGS 2>&1 || {
-        log_error "Failed to sync app.yaml"
-        exit 1
-    }
+databricks sync . "${WORKSPACE_PATH}" --full $CLI_ARGS 2>&1 || {
+    log_error "Failed to sync repo to workspace"
+    rm -f app.yaml.deploy-tmp
+    exit 1
 }
 
+# Overwrite app.yaml in workspace with Lakebase-injected version
+databricks workspace import "${WORKSPACE_PATH}/app.yaml" --file "$DEPLOY_YAML" --format AUTO --overwrite $CLI_ARGS 2>&1 || true
+
+rm -f app.yaml.deploy-tmp
 log_success "Files synced to workspace"
 
 step_complete 4 "Sync files to workspace"

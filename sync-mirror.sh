@@ -12,6 +12,21 @@ MIRROR_REMOTE="https://github.com/smathews13/cost-obs-databricks.git"
 
 echo "[INFO] Syncing to public mirror..."
 
+# Build frontend so static/ assets are always up to date in the public repo
+echo "[INFO] Building frontend..."
+cd "$INTERNAL/client"
+if command -v bun &> /dev/null; then
+    bun run build 2>&1 | tail -3
+elif command -v npm &> /dev/null; then
+    npm run build 2>&1 | tail -3
+fi
+cd "$INTERNAL"
+cp -r client/dist/* static/
+cp client/public/databricks.svg static/ 2>/dev/null || true
+cp client/public/dbfavicon.png static/ 2>/dev/null || true
+cp thumbnail.png static/ 2>/dev/null || true
+echo "[INFO] Frontend built"
+
 # Ensure mirror clone exists
 if [ ! -d "$MIRROR/.git" ]; then
     echo "[INFO] Cloning mirror repo..."
