@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import type { UseMutationResult } from "@tanstack/react-query";
+import { useQuery, type UseMutationResult } from "@tanstack/react-query";
 import type { AppSettings } from "../SettingsDialog";
 import { usePricing } from "@/context/PricingContext";
 
@@ -54,7 +54,7 @@ export function SettingsConfig({
   const [telemetryLoading, setTelemetryLoading] = useState(true);
   const [telemetrySaving, setTelemetrySaving] = useState(false);
   const [telemetryStatus, setTelemetryStatus] = useState<string | null>(null);
-  const [lakebaseStatus, setLakebaseStatus] = useState<{
+  const { data: lakebaseStatus = null, isLoading: lakebaseLoading } = useQuery<{
     configured: boolean;
     connected?: boolean;
     endpoint_name?: string;
@@ -62,16 +62,22 @@ export function SettingsConfig({
     database?: string;
     user?: string;
     missing_vars?: string[];
-  } | null>(null);
-  const [lakebaseLoading, setLakebaseLoading] = useState(true);
-  const [accountPrices, setAccountPrices] = useState<{
+  } | null>({
+    queryKey: ["settings-lakebase-status"],
+    queryFn: () => fetch("/api/settings/lakebase-status").then(r => r.json()).catch(() => ({ configured: false })),
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: accountPrices = null, isLoading: accountPricesLoading } = useQuery<{
     available: boolean;
     prices: Array<{ sku_name: string; cloud: string; currency_code: string; usage_unit: string; list_price: number; effective_list_price: number; start_time: string | null; end_time: string | null }>;
     source: string | null;
     count: number;
     message?: string;
-  } | null>(null);
-  const [accountPricesLoading, setAccountPricesLoading] = useState(true);
+  } | null>({
+    queryKey: ["settings-account-prices"],
+    queryFn: () => fetch("/api/settings/account-prices").then(r => r.json()).catch(() => ({ available: false, prices: [], source: null, count: 0 })),
+    staleTime: 5 * 60 * 1000,
+  });
   const [priceSearch, setPriceSearch] = useState("");
   const [genieCreating, setGenieCreating] = useState(false);
   const [genieCreateStatus, setGenieCreateStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -85,21 +91,6 @@ export function SettingsConfig({
       .finally(() => setTelemetryLoading(false));
   }, []);
 
-  useEffect(() => {
-    fetch("/api/settings/lakebase-status")
-      .then((r) => r.json())
-      .then((d) => setLakebaseStatus(d))
-      .catch(() => setLakebaseStatus({ configured: false }))
-      .finally(() => setLakebaseLoading(false));
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/settings/account-prices")
-      .then(r => r.json())
-      .then(d => setAccountPrices(d))
-      .catch(() => setAccountPrices({ available: false, prices: [], source: null, count: 0 }))
-      .finally(() => setAccountPricesLoading(false));
-  }, []);
 
   const saveTelemetry = async () => {
     setTelemetrySaving(true);

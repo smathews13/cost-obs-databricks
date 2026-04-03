@@ -304,6 +304,15 @@ function Dashboard() {
   const { data: alertsData } = useQuery({ queryKey: ["alerts", "recent", 30], queryFn: async () => { const r = await fetch("/api/alerts/recent?days_back=30"); if (!r.ok) throw new Error("Failed"); return r.json(); } });
   useQuery({ queryKey: ["alerts", "databricks"], queryFn: async () => { const r = await fetch("/api/alerts/databricks-alerts"); if (!r.ok) throw new Error("Failed"); return r.json(); } });
 
+  // Settings data - prefetch in background so permissions/config tabs load instantly
+  useQuery({ queryKey: ["user-permissions"], queryFn: async () => { const r = await fetch("/api/settings/user-permissions"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 5 * 60 * 1000 });
+  useQuery({ queryKey: ["app-config"], queryFn: async () => { const r = await fetch("/api/settings/config"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 5 * 60 * 1000 });
+  useQuery({ queryKey: ["warehouses"], queryFn: async () => { const r = await fetch("/api/settings/warehouses"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 5 * 60 * 1000 });
+  useQuery({ queryKey: ["cloud-provider"], queryFn: async () => { const r = await fetch("/api/settings/cloud-provider"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 30 * 60 * 1000 });
+  useQuery({ queryKey: ["cloud-connections"], queryFn: async () => { const r = await fetch("/api/settings/cloud-connections"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 5 * 60 * 1000 });
+  useQuery({ queryKey: ["settings-lakebase-status"], queryFn: async () => { const r = await fetch("/api/settings/lakebase-status"); return r.ok ? r.json() : { configured: false }; }, staleTime: 5 * 60 * 1000 });
+  useQuery({ queryKey: ["settings-account-prices"], queryFn: async () => { const r = await fetch("/api/settings/account-prices"); return r.ok ? r.json() : { available: false, prices: [], source: null, count: 0 }; }, staleTime: 5 * 60 * 1000 });
+
   // Memoize infra data transformations to avoid re-creating arrays on every render
   const infraViewData = useMemo(() => infraCosts ? {
     clusters: (infraCosts.clusters || []).map(c => ({

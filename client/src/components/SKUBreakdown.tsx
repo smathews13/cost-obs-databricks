@@ -191,15 +191,15 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange }: SKUBrea
         {workspaceSelector}
       </div>
       <ResponsiveContainer width="100%" height={320}>
-        <BarChart data={barData} layout="vertical" margin={{ left: 0, right: 70 }}>
+        <BarChart data={barData} layout="vertical" margin={{ left: -10, right: 70 }}>
           <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} stroke="#9ca3af" fontSize={12} tickMargin={8} />
           <YAxis
             type="category"
             dataKey="name"
-            width={240}
+            width={200}
             stroke="#9ca3af"
             fontSize={11}
-            tickMargin={2}
+            tickMargin={4}
             tickFormatter={(v: string) => v}
           />
           <Tooltip
