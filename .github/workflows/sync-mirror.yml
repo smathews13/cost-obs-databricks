@@ -1,0 +1,56 @@
+name: Sync to Public Mirror
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout internal repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone public mirror
+        run: |
+          git clone https://smathews13:${{ secrets.MIRROR_PAT }}@github.com/smathews13/cost-obs-databricks.git /tmp/mirror
+          cd /tmp/mirror
+          git config user.email "sync-bot@databricks.com"
+          git config user.name "Mirror Sync"
+
+      - name: Sync files to mirror
+        run: |
+          rsync -a \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='client/node_modules' \
+            --exclude='.venv' \
+            --exclude='venv' \
+            --exclude='static' \
+            --exclude='*.pid' \
+            --exclude='*.deploy-bak' \
+            --exclude='.databricks' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='app.yaml' \
+            --exclude='app.*.yaml' \
+            --exclude='.settings' \
+            --exclude='requirements.txt' \
+            --delete \
+            ./ /tmp/mirror/
+
+      - name: Commit and push to mirror
+        run: |
+          cd /tmp/mirror
+          git add -A
+          # Only commit if there are changes
+          if git diff --cached --quiet; then
+            echo "No changes to sync."
+          else
+            COMMIT_MSG=$(git -C $GITHUB_WORKSPACE log -1 --pretty=format:"%s")
+            git commit -m "sync: ${COMMIT_MSG}"
+            git push origin main
+          fi

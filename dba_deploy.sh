@@ -617,8 +617,12 @@ step_start 1 "Build frontend"
 if [ -d "client" ]; then
     cd client
     if command -v bun &> /dev/null; then
+        log_info "  Installing frontend dependencies (bun)..."
+        bun install 2>&1 || { log_error "bun install failed"; exit 1; }
         bun run build 2>&1 || { log_error "Frontend build failed"; exit 1; }
     elif command -v npm &> /dev/null; then
+        log_info "  Installing frontend dependencies (npm)..."
+        npm install 2>&1 || { log_error "npm install failed"; exit 1; }
         npm run build 2>&1 || { log_error "Frontend build failed"; exit 1; }
     else
         log_error "Neither bun nor npm found for frontend build"
