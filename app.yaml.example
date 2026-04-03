@@ -2,8 +2,8 @@ name: cost-obs
 description: Cost Observability & Control - Databricks compute consumption and spend analytics
 
 # =============================================================================
-# Copy this file to app.yaml and fill in your values before deploying.
-# The deploy script (dba_deploy.sh) will use app.yaml automatically.
+# Fill in DATABRICKS_HOST and DATABRICKS_HTTP_PATH before deploying.
+# Databricks Apps provides OAuth credentials automatically — no token needed.
 # =============================================================================
 
 resources:
@@ -14,13 +14,14 @@ resources:
       permission: CAN_USE
 
 env:
-  # NOTE: Do NOT set DATABRICKS_HOST or DATABRICKS_TOKEN here.
-  # Databricks Apps provides OAuth credentials automatically.
+  # Your workspace URL, e.g. https://adb-1234567890.azuredatabricks.net
+  - name: DATABRICKS_HOST
+    value: <your-workspace-url>
 
-  # SQL warehouse HTTP path. Use "auto" to let the app create a dedicated
-  # Large serverless warehouse on first startup (recommended).
+  # SQL warehouse HTTP path.
+  # Set to "auto" to let the app create a dedicated serverless warehouse automatically.
   - name: DATABRICKS_HTTP_PATH
-    value: /sql/1.0/warehouses/<your-sql-warehouse-id>
+    value: auto
 
   # Unity Catalog name containing system tables and materialized views
   - name: COST_OBS_CATALOG

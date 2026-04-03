@@ -204,11 +204,24 @@ All billing and compute data is **account-level** — queries run against Unity 
 
 ## Deployment
 
+### Prerequisites
+
+Before deploying, confirm the following are in place:
+
+| Requirement | Why |
+|---|---|
+| **Workspace Admin** (at minimum) | Required to grant the app's service principal access to system tables and to create SQL warehouses |
+| **Unity Catalog enabled** | All billing data is in `system.*` tables under UC — the app will not function without it |
+| **System tables enabled** | Contact your Databricks account team if `system.billing.usage` is not accessible in your workspace |
+| **Databricks Apps enabled** | Available on Premium plan and above |
+
+> If you are not a workspace admin, have your admin run the `GRANT` statements shown in Step 2 of the setup wizard after the app is deployed.
+
 ### Deploy from Git
 
 Deploy directly from this repository using Databricks Apps' built-in Git integration. No local clone or file sync required.
 
-> See [docs/PRE_DEPLOYMENT_CHECKLIST.md](docs/PRE_DEPLOYMENT_CHECKLIST.md) for required permissions and prerequisites.
+> See [docs/PRE_DEPLOYMENT_CHECKLIST.md](docs/PRE_DEPLOYMENT_CHECKLIST.md) for a detailed checklist before deploying.
 
 **Steps:**
 
@@ -224,12 +237,11 @@ Or click the **Deploy to Databricks** button at the top of this README.
 
 ### Environment Variables
 
-Only three variables are needed to get started. Everything else has defaults or is auto-configured by the setup wizard.
+The app uses Databricks OAuth automatically when deployed — **no token required**. Only two variables are needed to get started:
 
 | Variable | Required | Value |
 |---|---|---|
 | `DATABRICKS_HOST` | Yes | Your workspace URL — e.g. `https://adb-1234567890.azuredatabricks.net` |
-| `DATABRICKS_TOKEN` | Yes | A personal access token — see [Generate a token](#generate-a-token) below |
 | `DATABRICKS_HTTP_PATH` | Yes | Set to `auto` to create a dedicated warehouse automatically |
 
 **Optional variables** (all have defaults):
@@ -244,18 +256,7 @@ Only three variables are needed to get started. Everything else has defaults or 
 | `ENDPOINT_NAME` + `PGHOST` | — | Lakebase connection (app falls back to Delta tables if not set) |
 | `AWS_COST_CATALOG` / `AWS_COST_SCHEMA` | `billing` / `aws` | AWS CUR actual cost tables |
 | `AZURE_COST_CATALOG` / `AZURE_COST_SCHEMA` | `billing` / `azure` | Azure cost export tables |
-
-### Generate a Token
-
-The token authenticates the app to your Databricks workspace for querying system tables. The user who generates the token needs `SELECT` access on `system.billing.*` and `system.query.history` (the setup wizard will show you exactly what's missing).
-
-1. In your Databricks workspace, click your profile icon (top right) → **Settings**
-2. Go to **Developer → Access Tokens → Generate New Token**
-3. Set a description (e.g. `cost-obs-app`) and an expiry — 90 days is a reasonable starting point
-4. Click **Generate** and copy the token immediately (it won't be shown again)
-5. Paste it as the value for `DATABRICKS_TOKEN` in your app's environment variables
-
-> **Service principal (recommended for production):** Create a service principal in your Databricks account console, generate a client secret, and set `DATABRICKS_TOKEN` to the client secret. This avoids the token expiring when a user leaves.
+| `DATABRICKS_TOKEN` | No | Only needed for **local development** — the setup wizard can generate one for you |
 
 ### First-Run Setup Wizard
 

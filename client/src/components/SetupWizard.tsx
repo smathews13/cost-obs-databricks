@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 
 interface SetupWizardProps {
@@ -376,7 +376,44 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
 }
 
 function WelcomeStep({ config, cloud, loading }: { config: ConfigData | null; cloud: CloudData | null; loading: boolean }) {
+  const [devOpen, setDevOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generatedToken, setGeneratedToken] = useState<{ token: string; host: string } | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<"token" | "host" | "env" | null>(null);
+  const copyTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleCopy = (text: string, key: "token" | "host" | "env") => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key);
+      if (copyTimeout.current) clearTimeout(copyTimeout.current);
+      copyTimeout.current = setTimeout(() => setCopied(null), 2000);
+    });
+  };
+
+  const handleGenerateToken = async () => {
+    setGenerating(true);
+    setTokenError(null);
+    try {
+      const res = await fetch("/api/setup/generate-token", { method: "POST" });
+      const data = await res.json();
+      if (data.status === "created") {
+        setGeneratedToken({ token: data.token, host: data.host });
+      } else {
+        setTokenError(data.message || "Failed to generate token");
+      }
+    } catch (e) {
+      setTokenError(`Request failed: ${e}`);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   if (loading) return <LoadingSpinner text="Detecting environment..." />;
+
+  const envFileContent = generatedToken
+    ? `DATABRICKS_HOST=${generatedToken.host}\nDATABRICKS_TOKEN=${generatedToken.token}\nDATABRICKS_HTTP_PATH=auto`
+    : "";
 
   return (
     <div className="space-y-4">
@@ -410,6 +447,58 @@ function WelcomeStep({ config, cloud, loading }: { config: ConfigData | null; cl
           label="Schema"
           value={config?.storage_location?.schema || "Not configured"}
         />
+      </div>
+
+      {/* Local development token section */}
+      <div className="rounded-lg border border-gray-200">
+        <button
+          onClick={() => setDevOpen(!devOpen)}
+          className="flex w-full items-center justify-between px-4 py-3 text-left"
+        >
+          <span className="text-sm font-medium text-gray-700">Local development setup</span>
+          <svg className={`h-4 w-4 text-gray-400 transition-transform ${devOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        {devOpen && (
+          <div className="border-t border-gray-200 px-4 pb-4 pt-3 space-y-3">
+            <p className="text-xs text-gray-500">
+              The deployed app uses OAuth automatically — no token needed here. If you want to run this app locally, generate a token to use in your <span className="font-mono">.env.local</span> file.
+            </p>
+            {!generatedToken ? (
+              <button
+                onClick={handleGenerateToken}
+                disabled={generating}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                {generating ? (
+                  <><div className="h-3 w-3 animate-spin rounded-full border border-gray-400 border-t-transparent" /> Generating...</>
+                ) : (
+                  <><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>Generate Token</>
+                )}
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <div className="rounded-lg bg-green-50 px-3 py-2 text-xs text-green-700">
+                  Token generated — valid for 90 days. Copy the env block below into your <span className="font-mono">.env.local</span>.
+                </div>
+                <div className="relative rounded-lg bg-gray-900 px-4 py-3">
+                  <pre className="text-xs text-green-400 overflow-x-auto whitespace-pre">{envFileContent}</pre>
+                  <button
+                    onClick={() => handleCopy(envFileContent, "env")}
+                    className="absolute right-2 top-2 rounded px-2 py-1 text-xs text-gray-400 hover:bg-white/10 hover:text-white transition-colors"
+                  >
+                    {copied === "env" ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400">Keep this token secure — treat it like a password.</p>
+              </div>
+            )}
+            {tokenError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{tokenError}</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

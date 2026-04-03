@@ -331,6 +331,38 @@ def _refresh_cur_tables_task(catalog: str, schema: str, s3_path: str | None):
 
 
 # ============================================================================
+# Token Generation (for local development)
+# ============================================================================
+
+
+@router.post("/generate-token")
+async def generate_token() -> dict[str, Any]:
+    """Generate a Databricks PAT using the app's OAuth credentials.
+
+    Useful for local development: once the app is running with OAuth,
+    generate a token to use as DATABRICKS_TOKEN in a local .env file.
+    """
+    try:
+        w = get_workspace_client()
+        host = w.config.host or os.getenv("DATABRICKS_HOST", "")
+        response = w.tokens.create(
+            comment="cost-obs local development",
+            lifetime_seconds=7776000,  # 90 days
+        )
+        token_value = response.token_value
+        expiry = response.token_info.expiry_time if response.token_info else None
+        return {
+            "status": "created",
+            "token": token_value,
+            "host": host,
+            "expiry_time": expiry,
+        }
+    except Exception as e:
+        logger.error(f"Failed to generate token: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+# ============================================================================
 # Genie Space Setup
 # ============================================================================
 
