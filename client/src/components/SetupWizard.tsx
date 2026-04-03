@@ -46,6 +46,7 @@ interface SetupStatus {
   all_tables_exist: boolean;
   missing_tables: string[];
   status: "ready" | "setup_required";
+  task?: { status: string; error: string | null };
 }
 
 type WizardStep = "welcome" | "permissions" | "create-tables" | "complete";
@@ -142,6 +143,10 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
           clearInterval(poll);
           setCreating(false);
           setStep("complete");
+        } else if (status?.task?.status === "error" && status.task.error) {
+          clearInterval(poll);
+          setCreating(false);
+          setError(`Table creation failed: ${status.task.error}`);
         }
       }, 5000);
 
@@ -677,7 +682,7 @@ function CompleteStep() {
 function LoadingSpinner({ text }: { text: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-12">
-      <div className="h-8 w-8 animate-spin rounded-full border-3 border-gray-200 border-t-[#FF3621]" />
+      <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-gray-200 border-t-[#FF3621]" />
       <p className="mt-3 text-sm text-gray-500">{text}</p>
     </div>
   );

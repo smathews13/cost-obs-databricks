@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 SETTINGS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", ".settings")
 GENIE_SETTINGS_FILE = os.path.join(SETTINGS_DIR, "genie_settings.json")
 
+# Simple in-process state for the background create-tables task
+_create_task_state: dict = {"status": "idle", "error": None}  # idle | running | done | error
+
 
 @router.get("/status")
 async def get_setup_status() -> dict[str, Any]:
@@ -46,6 +49,7 @@ async def get_setup_status() -> dict[str, Any]:
         "all_tables_exist": all_exist,
         "missing_tables": missing,
         "status": "ready" if all_exist else "setup_required",
+        "task": _create_task_state.copy(),
     }
 
 
@@ -69,7 +73,8 @@ async def create_tables(
     target_schema = schema or sch
 
     if run_in_background:
-        # Run in background
+        _create_task_state["status"] = "running"
+        _create_task_state["error"] = None
         background_tasks.add_task(
             _create_tables_task, target_catalog, target_schema
         )
@@ -95,8 +100,12 @@ def _create_tables_task(catalog: str, schema: str):
     logger.info(f"Starting background table creation for {catalog}.{schema}")
     try:
         results = create_materialized_views(catalog, schema)
+        _create_task_state["status"] = "done"
+        _create_task_state["error"] = None
         logger.info(f"Table creation completed: {results}")
     except Exception as e:
+        _create_task_state["status"] = "error"
+        _create_task_state["error"] = str(e)
         logger.error(f"Table creation failed: {e}")
 
 
@@ -344,13 +353,20 @@ async def select_warehouse(warehouse_id: str = Query(..., description="Warehouse
     the user pick an existing warehouse to proceed with setup.
     """
     try:
+        from databricks.sdk.service.sql import State as WHState
+        from server.routers.settings import _save_warehouse_settings
+
         w = get_workspace_client()
         wh = w.warehouses.get(warehouse_id)
         http_path = f"/sql/1.0/warehouses/{warehouse_id}"
         os.environ["DATABRICKS_HTTP_PATH"] = http_path
 
+        # Start the warehouse if it's stopped so it's ready for queries
+        if wh.state in (WHState.STOPPED, WHState.STOPPING):
+            logger.info(f"Starting stopped warehouse {warehouse_id}...")
+            w.warehouses.start(warehouse_id)
+
         # Persist so it survives restarts
-        from server.routers.settings import _save_warehouse_settings
         _save_warehouse_settings({"warehouse_id": warehouse_id, "http_path": http_path, "warehouse_name": wh.name})
 
         return {
