@@ -210,37 +210,38 @@ Before deploying, confirm the following are in place:
 
 | Requirement | Why |
 |---|---|
-| **Workspace Admin** (at minimum) | Required to grant the app's service principal access to system tables and to create SQL warehouses |
+| **Workspace Admin** (at minimum) | Required to grant the app's service principal access to system tables; also needed to grant CAN USE on a SQL warehouse if auto-creation fails |
 | **Unity Catalog enabled** | All billing data is in `system.*` tables under UC — the app will not function without it |
 | **System tables enabled** | Contact your Databricks account team if `system.billing.usage` is not accessible in your workspace |
 | **Databricks Apps enabled** | Available on Premium plan and above |
 
-> If you are not a workspace admin, have your admin run the `GRANT` statements shown in Step 2 of the setup wizard after the app is deployed.
+> If you are not a workspace admin, have your admin run the `GRANT` statements shown in the setup wizard after the app is deployed.
 
 ### Deploy from Git
 
 Deploy directly from this repository using Databricks Apps' built-in Git integration. No local clone or file sync required.
 
-> See [docs/PRE_DEPLOYMENT_CHECKLIST.md](docs/PRE_DEPLOYMENT_CHECKLIST.md) for a detailed checklist before deploying.
-
-**Steps:**
+#### Step 1 — Create the app
 
 1. In your Databricks workspace, go to **Apps → Create App**
-2. Choose **Git repository** as the source, enter the repo URL:
-   `https://github.com/smathews13/cost-obs-databricks`
-3. Give the app a name and click **Create**
-4. Once the app is created, click **Deploy**
-5. Set the git reference fields:
-   - **Git reference:** `main`
+2. Choose **Git repository** as the source
+3. Enter the repo URL: `https://github.com/smathews13/cost-obs-databricks`
+4. Give the app a name and click **Create**
+
+#### Step 2 — Deploy
+
+1. Once the app is created, click **Deploy**
+2. Set the git reference:
+   - **Branch:** `main`
    - **Reference type:** `Branch`
    - **Source code path:** leave empty
-6. Click **Deploy** — no environment variables required to get started
+3. Click **Deploy** — no environment variables required
 
 Or click the **Deploy to Databricks** button at the top of this README.
 
 ### Environment Variables
 
-**No environment variables are required to deploy.** Databricks Apps injects OAuth credentials and the workspace host automatically. On first startup the app auto-creates a dedicated SQL warehouse, and the setup wizard handles the rest.
+**No environment variables are required to deploy.** Databricks Apps injects OAuth credentials and the workspace host automatically. On first startup the app attempts to auto-create a dedicated SQL warehouse; if that fails (the app's service principal lacks warehouse creation permissions), the setup wizard will prompt you to select or create one.
 
 All variables below are optional overrides:
 
@@ -248,8 +249,8 @@ All variables below are optional overrides:
 |---|---|---|
 | `DATABRICKS_HOST` | Auto-detected | Override the workspace URL if not picked up automatically |
 | `DATABRICKS_HTTP_PATH` | Auto-created | Point to an existing warehouse, or omit to auto-create one |
-| `COST_OBS_CATALOG` | `main` | Unity Catalog for materialized views |
-| `COST_OBS_SCHEMA` | `cost_obs` | Schema name |
+| `COST_OBS_CATALOG` | `main` | Unity Catalog catalog for materialized views |
+| `COST_OBS_SCHEMA` | `cost_obs` | Schema name for materialized views |
 | `GENIE_SPACE_ID` | — | Genie Space ID for AI cost chat |
 | `AZURE_SUBSCRIPTION_ID` | — | Azure subscription ID (shown in account banner on Azure) |
 | `SMTP_HOST` / `SMTP_*` | — | Email alert configuration |
@@ -260,30 +261,41 @@ All variables below are optional overrides:
 
 ### First-Run Setup Wizard
 
-On first deploy, the app automatically detects that materialized views haven't been created yet and launches a setup wizard:
+On first deploy, the app automatically detects that materialized views haven't been created yet and launches a 4-step setup wizard. The dashboard does not render until setup is complete.
 
-**Step 1 — Environment**
-Confirms your workspace host, cloud provider (AWS/Azure), authenticated identity, warehouse, and catalog/schema.
+#### Step 1 — Environment
 
-**Step 2 — Permissions**
-Checks system table access. If anything is missing, the wizard shows the exact `GRANT` statements to run as an account admin:
+Confirms your workspace host, cloud provider (AWS/Azure/GCP), authenticated identity, catalog, and schema.
+
+**SQL Warehouse configuration:** The app tries to auto-create a dedicated serverless warehouse on startup. If the app's service principal doesn't have warehouse creation permissions, this step shows a searchable list of existing warehouses to choose from. If no warehouses are visible, the wizard displays the exact `GRANT` statement needed:
+
+```sql
+GRANT USE ON WAREHOUSE <warehouse-name> TO `<app-service-principal>`;
+```
+
+Run this in your workspace SQL editor, restart the app, and the warehouse will appear in the picker. Alternatively, you can create a new serverless Pro warehouse directly from the wizard.
+
+#### Step 2 — Permissions
+
+Checks SELECT access to system tables. If anything is missing, the wizard shows the exact `GRANT` statements to run as a workspace admin:
+
 ```sql
 GRANT SELECT ON system.billing.usage TO `app-service-principal@domain.com`;
 GRANT SELECT ON system.billing.list_prices TO `app-service-principal@domain.com`;
 -- (plus any others that are missing)
 ```
-Run these in your workspace SQL editor, then click **Re-check** to confirm.
 
-**Step 3 — Create Tables**
-Creates materialized views aggregating your billing history (typically 2–5 minutes on first run).
+Run these in your workspace SQL editor, then click **Re-check** to confirm before proceeding.
 
-**Step 4 — Genie Assistant** *(optional)*
-Creates a Genie Space pre-loaded with cost analytics context for natural language cost queries.
+#### Step 3 — Create Tables
 
-**Step 5 — Complete**
-Click **Go to Dashboard**.
+Creates 8 pre-aggregated materialized views from your billing history. This typically takes 2–5 minutes depending on data volume. Progress is shown in real time; errors are surfaced immediately if a step fails (e.g. missing system table permissions).
 
-The wizard can be re-launched at any time from **Settings → General → Re-run Setup Wizard**.
+#### Step 4 — Complete
+
+Click **Go to Dashboard**. The user who completes setup is automatically added as an app admin.
+
+The wizard can be re-launched at any time from **Settings → Re-run Setup Wizard**.
 
 ---
 
