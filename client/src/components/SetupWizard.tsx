@@ -48,15 +48,14 @@ interface SetupStatus {
   status: "ready" | "setup_required";
 }
 
-type WizardStep = "welcome" | "permissions" | "create-tables" | "genie-setup" | "complete";
+type WizardStep = "welcome" | "permissions" | "create-tables" | "complete";
 
-const STEPS: WizardStep[] = ["welcome", "permissions", "create-tables", "genie-setup", "complete"];
+const STEPS: WizardStep[] = ["welcome", "permissions", "create-tables", "complete"];
 
 const STEP_LABELS: Record<WizardStep, string> = {
   welcome: "Environment",
   permissions: "Permissions",
   "create-tables": "Create Tables",
-  "genie-setup": "Genie Assistant",
   complete: "Complete",
 };
 
@@ -74,8 +73,6 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [genieStatus, setGenieStatus] = useState<{ configured: boolean; space_id: string | null } | null>(null);
-  const [creatingGenie, setCreatingGenie] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Load initial data
@@ -144,8 +141,7 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
         if (status?.all_tables_exist) {
           clearInterval(poll);
           setCreating(false);
-          setStep("genie-setup");
-          checkGenieStatus();
+          setStep("complete");
         }
       }, 5000);
 
@@ -161,42 +157,6 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
     }
   };
 
-  const checkGenieStatus = useCallback(async () => {
-    try {
-      const res = await fetch("/api/setup/genie-space/status");
-      if (res.ok) {
-        const data = await res.json();
-        setGenieStatus(data);
-        return data;
-      }
-    } catch {
-      // ignore
-    }
-    return null;
-  }, []);
-
-  const handleCreateGenieSpace = async () => {
-    setCreatingGenie(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/setup/create-genie-space", { method: "POST", signal: AbortSignal.timeout(60000) });
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`HTTP ${res.status}: ${body}`);
-      }
-      const data = await res.json();
-      if (data.status === "error") {
-        setError(data.message);
-      } else {
-        setGenieStatus({ configured: true, space_id: data.space_id });
-      }
-    } catch (e) {
-      setError(`Failed to create Genie Space: ${e}`);
-    } finally {
-      setCreatingGenie(false);
-    }
-  };
-
   const goNext = () => {
     const idx = STEPS.indexOf(step);
     if (idx < STEPS.length - 1) {
@@ -204,7 +164,6 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
       setStep(next);
       if (next === "permissions") loadPermissions();
       if (next === "create-tables") pollSetupStatus();
-      if (next === "genie-setup") checkGenieStatus();
     }
   };
 
@@ -264,7 +223,11 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
           )}
 
           {step === "welcome" && (
-            <WelcomeStep config={config} cloud={cloud} loading={loading} />
+            <WelcomeStep config={config} cloud={cloud} loading={loading} onWarehouseSelected={() => {
+              setConfig(null);
+              setLoading(true);
+              fetch("/api/settings/config").then(r => r.json()).then(d => { setConfig(d); setLoading(false); }).catch(() => setLoading(false));
+            }} />
           )}
 
           {step === "permissions" && (
@@ -275,13 +238,6 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
             <CreateTablesStep
               setupStatus={setupStatus}
               creating={creating}
-            />
-          )}
-
-          {step === "genie-setup" && (
-            <GenieSetupStep
-              genieStatus={genieStatus}
-              creating={creatingGenie}
             />
           )}
 
@@ -308,31 +264,6 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
               >
                 Go to Dashboard
               </button>
-            ) : step === "genie-setup" ? (
-              creatingGenie ? null :
-              genieStatus?.configured ? (
-                <button
-                  onClick={() => setStep("complete")}
-                  className="btn-brand rounded-lg px-6 py-2 text-sm font-bold text-white transition-colors"
-                >
-                  Next
-                </button>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setStep("complete")}
-                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-                  >
-                    Skip for now
-                  </button>
-                  <button
-                    onClick={handleCreateGenieSpace}
-                    className="btn-brand rounded-lg px-6 py-2 text-sm font-bold text-white transition-colors"
-                  >
-                    Create Genie Space
-                  </button>
-                </div>
-              )
             ) : step === "create-tables" ? (
               !creating && setupStatus && !setupStatus.all_tables_exist ? (
                 <button
@@ -375,8 +306,53 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
   );
 }
 
-function WelcomeStep({ config, cloud, loading }: { config: ConfigData | null; cloud: CloudData | null; loading: boolean }) {
+function WelcomeStep({ config, cloud, loading, onWarehouseSelected }: { config: ConfigData | null; cloud: CloudData | null; loading: boolean; onWarehouseSelected: () => void }) {
   const [devOpen, setDevOpen] = useState(false);
+  const [warehouses, setWarehouses] = useState<{id: string; name: string; size: string | null; state: string}[]>([]);
+  const [warehousesLoading, setWarehousesLoading] = useState(false);
+  const [selectingWarehouse, setSelectingWarehouse] = useState(false);
+  const [creatingWarehouse, setCreatingWarehouse] = useState(false);
+  const [warehouseError, setWarehouseError] = useState<string | null>(null);
+  const [newWarehouseName, setNewWarehouseName] = useState("Cost Observability App");
+
+  useEffect(() => {
+    if (!config || config.warehouse) return;
+    setWarehousesLoading(true);
+    fetch("/api/settings/warehouses")
+      .then(r => r.json())
+      .then(data => { setWarehouses(data); setWarehousesLoading(false); })
+      .catch(() => setWarehousesLoading(false));
+  }, [config]);
+
+  const handleSelectWarehouse = async (warehouseId: string) => {
+    setSelectingWarehouse(true);
+    setWarehouseError(null);
+    try {
+      const res = await fetch(`/api/setup/select-warehouse?warehouse_id=${warehouseId}`, { method: "POST" });
+      const data = await res.json();
+      if (data.status === "ok") onWarehouseSelected();
+      else setWarehouseError(data.message || "Failed to select warehouse");
+    } finally {
+      setSelectingWarehouse(false);
+    }
+  };
+
+  const handleCreateWarehouse = async () => {
+    setCreatingWarehouse(true);
+    setWarehouseError(null);
+    try {
+      const name = newWarehouseName.trim() || "Cost Observability App";
+      const res = await fetch(`/api/setup/create-warehouse?name=${encodeURIComponent(name)}`, { method: "POST", signal: AbortSignal.timeout(120000) });
+      const data = await res.json();
+      if (data.status === "ok") onWarehouseSelected();
+      else setWarehouseError(data.message || "Failed to create warehouse");
+    } catch (e) {
+      setWarehouseError(`Request failed: ${e}`);
+    } finally {
+      setCreatingWarehouse(false);
+    }
+  };
+
   const [generating, setGenerating] = useState(false);
   const [generatedToken, setGeneratedToken] = useState<{ token: string; host: string } | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
@@ -430,11 +406,60 @@ function WelcomeStep({ config, cloud, loading }: { config: ConfigData | null; cl
           label="Workspace"
           value={cloud?.host || "Unknown"}
         />
-        <InfoRow
-          label="SQL Warehouse"
-          value={config?.warehouse ? `${config.warehouse.name || config.warehouse.id} (${config.warehouse.state})` : "Not configured"}
-          status={config?.warehouse?.state === "RUNNING" ? "ok" : config?.warehouse ? "warn" : "error"}
-        />
+        {config?.warehouse ? (
+          <InfoRow
+            label="SQL Warehouse"
+            value={`${config.warehouse.name || config.warehouse.id} (${config.warehouse.state})`}
+            status={config.warehouse.state === "RUNNING" ? "ok" : "warn"}
+          />
+        ) : (
+          <div className="rounded-lg bg-amber-50 px-4 py-3">
+            <p className="text-sm font-medium text-amber-800 mb-2">No SQL warehouse configured</p>
+            <p className="text-xs text-amber-700 mb-3">Select an existing warehouse or create a new one to continue.</p>
+            {warehouseError && (
+              <p className="text-xs text-red-600 mb-2">{warehouseError}</p>
+            )}
+            {warehousesLoading ? (
+              <p className="text-xs text-amber-600">Loading warehouses...</p>
+            ) : (
+              <div className="space-y-1.5">
+                {warehouses.map(wh => (
+                  <button
+                    key={wh.id}
+                    onClick={() => handleSelectWarehouse(wh.id)}
+                    disabled={selectingWarehouse || creatingWarehouse}
+                    className="flex w-full items-center justify-between rounded-lg border border-amber-200 bg-white px-3 py-2 text-left text-sm hover:bg-amber-50 disabled:opacity-50 transition-colors"
+                  >
+                    <span className="font-medium text-gray-800">{wh.name}</span>
+                    <span className="text-xs text-gray-500">{wh.size} · {wh.state}</span>
+                  </button>
+                ))}
+                <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 space-y-2">
+                  <p className="text-xs text-amber-700 font-medium">Create a new serverless Pro warehouse</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newWarehouseName}
+                      onChange={e => setNewWarehouseName(e.target.value)}
+                      placeholder="Warehouse name"
+                      disabled={creatingWarehouse}
+                      className="flex-1 rounded border border-amber-200 bg-white px-2 py-1 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-400 disabled:opacity-50"
+                    />
+                    <button
+                      onClick={handleCreateWarehouse}
+                      disabled={selectingWarehouse || creatingWarehouse || !newWarehouseName.trim()}
+                      className="inline-flex items-center gap-1.5 rounded px-3 py-1 text-sm font-medium text-amber-900 bg-amber-200 hover:bg-amber-300 disabled:opacity-50 transition-colors"
+                    >
+                      {creatingWarehouse ? (
+                        <><div className="h-3.5 w-3.5 animate-spin rounded-full border border-amber-700 border-t-transparent" /> Creating...</>
+                      ) : "Create"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <InfoRow
           label="Identity"
           value={config?.identity ? `${config.identity.display_name} (${config.identity.user_name})` : "Unknown"}
@@ -627,61 +652,6 @@ function CreateTablesStep({ setupStatus, creating }: {
       <p className="text-xs text-gray-500">
         This typically takes 2-5 minutes depending on data volume.
         Click "Create Tables" to begin.
-      </p>
-    </div>
-  );
-}
-
-function GenieSetupStep({ genieStatus, creating }: {
-  genieStatus: { configured: boolean; space_id: string | null } | null;
-  creating: boolean;
-}) {
-  if (creating) {
-    return <LoadingSpinner text="Creating Genie Space... This may take a moment." />;
-  }
-
-  if (genieStatus?.configured) {
-    return (
-      <div className="space-y-4">
-        <div className="rounded-lg bg-green-50 p-3 text-sm text-green-700">
-          Genie Assistant is ready.
-        </div>
-        <p className="text-sm text-gray-600">
-          Your Genie Space has been created and configured with access to your billing system tables.
-          You can use the Genie Assistant tab to ask natural language questions about your costs.
-        </p>
-        <div className="rounded-lg bg-gray-50 px-4 py-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-500">Space ID</span>
-            <span className="font-mono text-xs text-gray-700">{genieStatus.space_id}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <p className="text-sm text-gray-600">
-        The Genie Assistant lets you ask natural language questions about your Databricks costs.
-        This step creates a pre-configured Genie Space with access to your billing data.
-      </p>
-      <div className="space-y-2">
-        <div className="flex items-start gap-2 text-sm text-gray-600">
-          <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span>Pre-configured with system.billing tables, sample questions, and cost analytics instructions.</span>
-        </div>
-        <div className="flex items-start gap-2 text-sm text-gray-600">
-          <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span>Uses your first available SQL warehouse for query execution.</span>
-        </div>
-      </div>
-      <p className="text-xs text-gray-500">
-        Click "Create Genie Space" to set up the assistant.
       </p>
     </div>
   );
