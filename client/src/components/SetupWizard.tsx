@@ -286,8 +286,7 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
               ) : (
                 <button
                   onClick={handleCreateTables}
-                  disabled={!setupStatus}
-                  className="btn-brand rounded-lg px-6 py-2 text-sm font-bold text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="btn-brand rounded-lg px-6 py-2 text-sm font-bold text-white transition-colors"
                 >
                   Create Tables
                 </button>
