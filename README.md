@@ -457,22 +457,6 @@ Full interactive API docs at `http://localhost:8000/docs` (FastAPI Swagger UI).
 
 ---
 
-## Cost Reconciliation
-
-The app includes 9 automated billing accuracy checks:
-
-1. **Ground truth baseline** — raw billing totals
-2. **Product completeness** — product sum must equal ground truth (≤0.01% tolerance)
-3. **Workspace completeness** — workspace sum must equal ground truth
-4. **Price coverage** — % of billing rows with no matching list price
-5. **Null attribution** — % of spend with no cluster/warehouse/job/pipeline ID
-6. **Price uniqueness** — detect duplicate active prices per SKU
-7. **SQL attribution** — `billing.usage` SQL spend vs `query.history` proportional allocation
-8. **Query history duplicates** — detect duplicate rows in `system.query.history`
-9. **MV vs live** — materialized view totals vs live query (staleness detection)
-
----
-
 ## Tech Stack
 
 | Layer | Technology |
