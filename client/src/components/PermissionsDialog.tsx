@@ -111,7 +111,7 @@ export function PermissionsDialog() {
             <Shield className="mx-auto h-10 w-10 text-gray-400 mb-4" />
           )}
           <p className="text-lg font-medium text-gray-700">
-            {isLoading ? "Checking permissions and setting up — this could take a minute" : "Unable to check permissions"}
+            {isLoading ? "Finishing first time setup — this could take a few minutes" : "Unable to check permissions"}
           </p>
           {(error || !data) && !isLoading && (
             <button
