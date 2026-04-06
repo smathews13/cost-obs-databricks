@@ -242,7 +242,7 @@ Deploy directly from this repository using Databricks Apps' built-in Git integra
 > **Enable the Deploy from Git preview first**
 > If you don't see a **Git repository** option when creating an app, you need to enable the beta feature in your workspace:
 > 1. Sign in as a workspace admin
-> 2. Go to **Settings → Workspace Previews** (see [Databricks docs](https://docs.databricks.com/en/admin/workspace-settings/previews.html) for navigation steps)
+> 2. Go to **Settings → Workspace Previews** (see [Databricks docs](https://docs.databricks.com/aws/en/admin/workspace-settings/manage-previews#-manage-workspace-level-previews) for navigation steps)
 > 3. Find **"Deploy Databricks apps from Git repositories (Beta)"** under the Databricks Apps section
 > 4. Toggle it **ON** and save
 
