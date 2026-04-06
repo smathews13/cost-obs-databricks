@@ -101,7 +101,7 @@ export function PermissionsDialog() {
   if (isLoading || error || !data) {
     return createPortal(
       <div
-        className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        className="fixed inset-0 z-[100] flex items-start justify-center pt-24 p-4"
         style={{ backgroundColor: "rgba(0, 0, 0, 0.6)" }}
       >
         <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow-2xl">
