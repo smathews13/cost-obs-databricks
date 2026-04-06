@@ -159,7 +159,7 @@ sql_usage AS (
     u.usage_metadata.warehouse_id as warehouse_id,
     SUM(u.usage_quantity) as total_dbus,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend,
-    SUM(u.usage_quantity * COALESCE(p.pricing.effective_list.default, p.pricing.default, 0)) as effective_list_spend
+    SUM(u.usage_quantity * COALESCE(TRY(p.pricing.effective_list.default), p.pricing.default, 0)) as effective_list_spend
   FROM system.billing.usage u
   LEFT JOIN system.billing.list_prices p
     ON u.sku_name = p.sku_name
@@ -228,7 +228,7 @@ warehouse_hourly_usage AS (
     u.usage_metadata.warehouse_id AS warehouse_id,
     SUM(u.usage_quantity) AS hourly_dbus,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS hourly_dollars,
-    SUM(u.usage_quantity * COALESCE(p.pricing.effective_list.default, p.pricing.default, 0)) AS hourly_dollars_effective
+    SUM(u.usage_quantity * COALESCE(TRY(p.pricing.effective_list.default), p.pricing.default, 0)) AS hourly_dollars_effective
   FROM system.billing.usage u
   LEFT JOIN system.billing.list_prices p
     ON u.sku_name = p.sku_name
