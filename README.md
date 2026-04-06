@@ -229,6 +229,9 @@ Before deploying, confirm the following are in place:
 | **Unity Catalog enabled** | All billing data is in `system.*` tables under UC — the app will not function without it |
 | **System tables enabled** | Contact your Databricks account team if `system.billing.usage` is not accessible in your workspace |
 | **Databricks Apps enabled** | Available on Premium plan and above |
+| **Deploy from Git preview** *(recommended)* | Enables deploying directly from this GitHub repo — no file uploads needed. Enable in **Settings → Workspace Previews → "Deploy Databricks apps from Git repositories (Beta)"** |
+| **User authorization preview + `sql` scope** *(recommended)* | Runs queries as the logged-in user instead of the service principal — system table access is automatic for workspace admins. Enable the preview in **Settings → Workspace Previews**, then add the `sql` scope in your app's **Configure** settings. |
+| **Account Tables (`system.billing.account_prices`)** *(optional)* | Unlocks the Account Prices toggle for negotiated pricing. Private preview — contact your Databricks account team to request access. |
 
 > The setup wizard will show all available warehouses in a picker. In rare cases (typically Azure) where no warehouses appear, it will display the exact `GRANT USE ON WAREHOUSE` statement to run as a workspace admin.
 
