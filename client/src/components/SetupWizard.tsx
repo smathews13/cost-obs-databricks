@@ -226,11 +226,27 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
 
         {/* Body */}
         <div className="min-h-[320px] px-8 py-6">
-          {error && (
-            <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
-              {error}
-            </div>
-          )}
+          {error && (() => {
+            // If the error contains GRANT SQL, split it out into a code block
+            const grantMatch = error.match(/^(.*?)(GRANT [^.]+(?:;\s*GRANT [^.]+)*)$/s);
+            if (grantMatch) {
+              const [, msg, grants] = grantMatch;
+              return (
+                <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 space-y-2">
+                  <p>{msg.trim()}</p>
+                  <pre className="rounded bg-gray-800 px-3 py-2 font-mono text-xs text-green-400 whitespace-pre-wrap overflow-x-auto">
+                    {grants.trim().replace(/;\s*/g, ';\n')}
+                  </pre>
+                  <p className="text-xs">Run these in your workspace SQL editor as a catalog owner or metastore admin, then click <strong>Create Tables</strong> again.</p>
+                </div>
+              );
+            }
+            return (
+              <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                {error}
+              </div>
+            );
+          })()}
 
           {step === "welcome" && (
             <WelcomeStep config={config} cloud={cloud} loading={loading} onWarehouseSelected={() => {

@@ -828,8 +828,25 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
         execute_query(CREATE_SCHEMA_SQL.format(catalog=catalog, schema=schema))
         results["schema"] = "created"
     except Exception as e:
-        logger.error(f"Failed to create schema: {e}")
-        results["schema"] = f"error: {e}"
+        err_str = str(e)
+        err_lower = err_str.lower()
+        if any(kw in err_lower for kw in ("insufficient_privileges", "does not have", "permission", "unauthorized", "error during request")):
+            from server.db import get_workspace_client
+            try:
+                sp = get_workspace_client().current_user.me().user_name or "<app-service-principal>"
+            except Exception:
+                sp = "<app-service-principal>"
+            friendly = (
+                f"The app service principal `{sp}` needs CREATE SCHEMA permission on the `{catalog}` catalog. "
+                f"A catalog owner or metastore admin must run: "
+                f"GRANT USE CATALOG ON CATALOG {catalog} TO `{sp}`; "
+                f"GRANT CREATE SCHEMA ON CATALOG {catalog} TO `{sp}`"
+            )
+            logger.error(f"Failed to create schema (permission error): {err_str}")
+            results["schema"] = f"error: {friendly}"
+        else:
+            logger.error(f"Failed to create schema: {e}")
+            results["schema"] = f"error: {err_str}"
         return results  # Can't continue without schema
 
     # List of tables to create

@@ -211,6 +211,25 @@ def setup_system_table_grants():
 
         logger.info(f"System table grants complete: {succeeded} ok, {failed} failed")
 
+        # Also grant the SP itself permission to create the app schema.
+        # Needed when sql scope is not configured and the SP runs DDL.
+        # Fails silently if the SP isn't a catalog owner/metastore admin.
+        from server.db import get_catalog_schema
+        catalog, schema = get_catalog_schema()
+        for catalog_grant in [
+            f"GRANT USE CATALOG ON CATALOG {catalog} TO `{principal}`",
+            f"GRANT CREATE SCHEMA ON CATALOG {catalog} TO `{principal}`",
+        ]:
+            try:
+                execute_query(catalog_grant, no_cache=True)
+                logger.info(f"Catalog grant succeeded: {catalog_grant}")
+            except Exception as e:
+                err = str(e).lower()
+                if "already" in err or "not found" in err or "does not exist" in err:
+                    pass
+                else:
+                    logger.debug(f"Catalog grant failed (non-fatal — SP may not own catalog): {e}")
+
     except Exception as e:
         logger.warning(f"System table grant setup failed (non-fatal): {e}")
 
