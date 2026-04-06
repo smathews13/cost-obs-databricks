@@ -148,6 +148,40 @@ def setup_and_check_warehouse():
         raise  # This is critical - we can't proceed without a warehouse
 
 
+def setup_system_access_schema():
+    """Enable system.access schema so workspace names resolve in billing views.
+
+    Calls the Unity Catalog SystemSchemas API to enable the 'access' schema on
+    the current metastore. This is idempotent — safe to call if already enabled.
+    Requires the SP to be a metastore admin or account admin; fails silently
+    otherwise (workspace data will still show, just without names).
+    """
+    try:
+        from server.db import get_workspace_client
+        w = get_workspace_client()
+
+        # Get the current metastore ID
+        metastore = w.metastores.current()
+        metastore_id = metastore.metastore_id
+        if not metastore_id:
+            logger.warning("Could not determine metastore ID — skipping system.access setup")
+            return
+
+        # Enable the access schema (idempotent)
+        w.system_schemas.enable(metastore_id=metastore_id, schema_name="access")
+        logger.info("system.access schema enabled (or already enabled)")
+
+    except Exception as e:
+        err = str(e).lower()
+        if "already enabled" in err or "already exists" in err:
+            logger.info("system.access schema already enabled")
+        else:
+            logger.warning(
+                f"Could not enable system.access schema (non-fatal — workspace names will not resolve): "
+                f"{type(e).__name__}: {e}"
+            )
+
+
 def setup_materialized_views():
     """Create materialized views if they don't exist."""
     try:
@@ -308,6 +342,9 @@ def startup_tasks():
 
     # Step 0: Set up dedicated warehouse (creates Large serverless warehouse if needed)
     setup_and_check_warehouse()
+
+    # Step 0b: Enable system.access schema for workspace name resolution
+    setup_system_access_schema()
 
     # Step 1: Create materialized views if needed
     setup_materialized_views()
