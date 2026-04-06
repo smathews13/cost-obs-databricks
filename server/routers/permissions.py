@@ -237,5 +237,10 @@ async def check_permissions(request: Request, refresh: bool = False) -> dict[str
     finally:
         _user_token.reset(ctx_tok)
 
-    result["auth_mode"] = "user" if using_user_auth else "service_principal"
+    from server.db import _auth_mode
+    # Report the locked mode if known, otherwise fall back to header presence
+    if _auth_mode in ("user", "sp"):
+        result["auth_mode"] = _auth_mode
+    else:
+        result["auth_mode"] = "user" if using_user_auth else "service_principal"
     return result

@@ -45,9 +45,12 @@ class UserAuthMiddleware:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
-            from server.db import _user_token
+            from server.db import _user_token, _auth_mode
             headers = {k.lower(): v for k, v in scope.get("headers", [])}
-            token = headers.get(b"x-forwarded-access-token", b"").decode()
+            raw_token = headers.get(b"x-forwarded-access-token", b"").decode()
+            # If auth mode is locked to SP, never use the user token — every query
+            # in every request uses the service principal identity consistently.
+            token = "" if _auth_mode == "sp" else raw_token
             ctx_token = _user_token.set(token)
             try:
                 await self.app(scope, receive, send)
@@ -146,6 +149,70 @@ def setup_and_check_warehouse():
     except Exception as e:
         logger.error(f"Warehouse setup failed: {e}")
         raise  # This is critical - we can't proceed without a warehouse
+
+
+def setup_system_table_grants():
+    """Grant the active identity access to all required system tables.
+
+    Runs at startup as a non-fatal step. Assumes the first user to deploy
+    the app is a workspace admin. If user auth (sql scope) is active the
+    grants run as the workspace admin user; otherwise they run as the SP.
+
+    Grants cover every system table the app queries so no manual GRANT
+    statements are ever needed after deployment.
+    """
+    from server.db import execute_query, get_workspace_client
+
+    SYSTEM_TABLES = [
+        ("CATALOG", "system"),
+        ("SCHEMA",  "system.billing"),
+        ("TABLE",   "system.billing.usage"),
+        ("TABLE",   "system.billing.list_prices"),
+        ("TABLE",   "system.billing.account_prices"),
+        ("SCHEMA",  "system.query"),
+        ("TABLE",   "system.query.history"),
+        ("SCHEMA",  "system.compute"),
+        ("TABLE",   "system.compute.clusters"),
+        ("SCHEMA",  "system.lakeflow"),
+        ("TABLE",   "system.lakeflow.pipelines"),
+        ("SCHEMA",  "system.serving"),
+        ("TABLE",   "system.serving.served_entities"),
+        ("SCHEMA",  "system.access"),
+        ("TABLE",   "system.access.audit"),
+        ("TABLE",   "system.access.workspaces_latest"),
+    ]
+
+    try:
+        w = get_workspace_client()
+        principal = (w.current_user.me().user_name or "").strip()
+        if not principal:
+            logger.warning("Could not determine principal for system table grants — skipping")
+            return
+
+        logger.info(f"Granting system table access to: {principal}")
+        succeeded = failed = 0
+
+        for obj_type, obj_name in SYSTEM_TABLES:
+            privilege = "USE CATALOG" if obj_type == "CATALOG" else (
+                "USE SCHEMA" if obj_type == "SCHEMA" else "SELECT"
+            )
+            sql = f"GRANT {privilege} ON {obj_type} {obj_name} TO `{principal}`"
+            try:
+                execute_query(sql, no_cache=True)
+                succeeded += 1
+            except Exception as e:
+                err = str(e).lower()
+                # Already granted or object doesn't exist yet — both are non-fatal
+                if "already" in err or "not found" in err or "does not exist" in err:
+                    succeeded += 1
+                else:
+                    logger.warning(f"Grant failed (non-fatal): {sql} — {e}")
+                    failed += 1
+
+        logger.info(f"System table grants complete: {succeeded} ok, {failed} failed")
+
+    except Exception as e:
+        logger.warning(f"System table grant setup failed (non-fatal): {e}")
 
 
 def setup_system_access_schema():
@@ -345,6 +412,9 @@ def startup_tasks():
 
     # Step 0b: Enable system.access schema for workspace name resolution
     setup_system_access_schema()
+
+    # Step 0c: Grant the active identity access to all required system tables
+    setup_system_table_grants()
 
     # Step 1: Create materialized views if needed
     setup_materialized_views()

@@ -14,6 +14,22 @@ from typing import Any, Callable, Generator
 # is present (Databricks Apps user authorization preview). Empty string = use SP.
 _user_token: ContextVar[str] = ContextVar("_user_token", default="")
 
+# App-level auth mode. Starts as "unknown". Locked to "user" or "sp" on first
+# successful or failed SQL query. Once locked, UserAuthMiddleware respects it so
+# every query in every request uses the same identity.
+_auth_mode: str = "unknown"  # "unknown" | "user" | "sp"
+
+
+def _lock_auth_mode(mode: str) -> None:
+    """Lock the auth mode for the lifetime of this process."""
+    global _auth_mode
+    if _auth_mode != mode:
+        _auth_mode = mode
+        if mode == "user":
+            logger.info("SQL auth mode locked to: user (x-forwarded-access-token with sql scope)")
+        else:
+            logger.info("SQL auth mode locked to: service principal (no sql scope or no user token)")
+
 from cachetools import TTLCache
 from databricks import sql
 from databricks.sdk import WorkspaceClient
@@ -406,11 +422,11 @@ def execute_write(query: str, params: dict[str, Any] | None = None) -> int:
 
     try:
         affected_rows = _run()
+        if _user_token.get() and _auth_mode == "unknown":
+            _lock_auth_mode("user")
     except Exception as exc:
         if _is_scope_error(exc) and _user_token.get():
-            logger.warning(
-                "User token lacks sql scope — falling back to service principal for write query"
-            )
+            _lock_auth_mode("sp")
             affected_rows = _run(force_sp=True)
         else:
             raise
@@ -439,7 +455,7 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
             return _query_cache[cache_key]
 
     def _run(force_sp: bool = False) -> list[dict[str, Any]]:
-        """Execute the query. force_sp=True clears user token to use SP auth."""
+        """Execute the query. force_sp=True forces SP identity for this call."""
         ctx_tok = _user_token.set("") if force_sp else None
         try:
             with get_connection() as conn:
@@ -457,14 +473,16 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
             if ctx_tok is not None:
                 _user_token.reset(ctx_tok)
 
-    # Execute query with proper parameterized queries to prevent SQL injection
+    # Execute query — detect and lock auth mode on first use.
     try:
         result = _run()
+        # Lock to user mode on first successful user-token query
+        if _user_token.get() and _auth_mode == "unknown":
+            _lock_auth_mode("user")
     except Exception as exc:
         if _is_scope_error(exc) and _user_token.get():
-            logger.warning(
-                "User token lacks sql scope — falling back to service principal for SQL query"
-            )
+            # Token present but lacks sql scope — lock to SP for all future requests
+            _lock_auth_mode("sp")
             result = _run(force_sp=True)
         else:
             raise
