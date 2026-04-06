@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, XCircle, AlertTriangle, Shield, ExternalLink, Copy, Check, Eye, X, Loader2 } from "lucide-react";
