@@ -1,19 +1,44 @@
 command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]
 
+# =============================================================================
+# Setup: configure in the Databricks Apps UI before deploying
+# =============================================================================
+#
+# 1. App resources → + Add resource → SQL warehouse
+#    Pick your existing Serverless Pro warehouse, set permission to "Can use",
+#    leave the resource key as "sql-warehouse".
+#    The app reads DATABRICKS_WAREHOUSE_ID (injected automatically) to connect.
+#
+# 2. User authorization → + Add scope → sql   (optional but recommended)
+#    Allows the app to run queries as the logged-in user rather than the SP.
+#    Workspace admins get system table access automatically — no GRANT needed.
+#    Users will see a one-time consent prompt on first open.
+#
+# =============================================================================
+
+resources:
+  - name: sql-warehouse
+    description: SQL Warehouse for cost observability queries
+    sql_warehouse:
+      permission: CAN_USE
+
 env:
-  # Unity Catalog and schema for materialized views (defaults: main / cost_obs)
+  # Injected automatically by Databricks Apps from the sql-warehouse resource above.
+  # Do not set this manually if you configured a warehouse resource in the UI.
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+
+  # Unity Catalog location for materialized views (defaults: main / cost_obs)
   - name: COST_OBS_CATALOG
     value: main
   - name: COST_OBS_SCHEMA
     value: cost_obs
 
-  # Optional overrides — host and warehouse are auto-detected when running as a Databricks App
-  # - name: DATABRICKS_HOST
-  #   value: https://adb-1234567890.azuredatabricks.net
+  # Optional: uncomment to point at a specific warehouse instead of the resource above
   # - name: DATABRICKS_HTTP_PATH
-  #   value: /sql/1.0/warehouses/<id>   # omit to auto-create a dedicated warehouse
+  #   value: /sql/1.0/warehouses/<id>
 
-  # Genie Space for AI cost queries
+  # Genie Space for AI cost queries (optional)
   # - name: GENIE_SPACE_ID
   #   value: <genie-space-id>
 
