@@ -265,13 +265,28 @@ def setup_materialized_views():
         tables = check_materialized_views_exist(catalog, schema)
         missing = [name for name, exists in tables.items() if not exists]
 
+        # Also recreate if core tables exist but are empty (e.g. from a previous
+        # failed build where CREATE OR REPLACE left an empty shell).
+        if not missing:
+            from server.db import execute_query
+            try:
+                result = execute_query(
+                    f"SELECT COUNT(*) as cnt FROM {catalog}.{schema}.daily_usage_summary LIMIT 1",
+                    no_cache=True,
+                )
+                if not result or int(result[0].get("cnt", 0)) == 0:
+                    logger.info("daily_usage_summary exists but is empty — forcing MV rebuild")
+                    missing = ["daily_usage_summary"]
+            except Exception:
+                pass  # if we can't check, proceed as normal
+
         if missing:
             logger.info(f"Creating missing materialized views: {missing}")
             results = create_materialized_views(catalog, schema)
             success = sum(1 for v in results.values() if v == "created")
             logger.info(f"Materialized views setup complete: {success}/{len(results)} tables created")
         else:
-            logger.info("All materialized views already exist")
+            logger.info("All materialized views already exist and have data")
 
     except Exception as e:
         logger.warning(f"Materialized views setup failed (non-fatal): {e}")
