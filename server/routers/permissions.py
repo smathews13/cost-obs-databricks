@@ -73,15 +73,36 @@ def check_table_access(table: str) -> tuple[bool, str]:
 
     Returns (granted, error_message). error_message is empty string on success.
 
-    Runs SELECT 1 FROM <table> LIMIT 1 via the configured SQL warehouse —
-    the same path the app uses at runtime. This is more reliable than the
-    UC metadata API (tables.get), which requires USE CATALOG + USE SCHEMA
-    grants in addition to SELECT and can return false negatives even when
-    the table is fully queryable.
+    Tries two approaches in order:
+    1. SELECT 1 FROM <table> LIMIT 1 via the SQL warehouse — the most accurate
+       check because it uses the same path as the app at runtime.
+    2. SDK tables.get() — fallback when no warehouse is configured yet (e.g.
+       first-run setup wizard before the user has picked a warehouse).
+
+    If both fail the table is reported as inaccessible.
     """
+    import os
     from server.db import execute_query
+
+    http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
+    if http_path and http_path.lower() != "auto":
+        try:
+            execute_query(f"SELECT 1 FROM {table} LIMIT 1", no_cache=True)
+            return True, ""
+        except Exception as e:
+            err = str(e)
+            # If the error is clearly a permission denial, no need to try SDK fallback
+            if any(kw in err.lower() for kw in ("permission", "denied", "unauthorized", "not authorized", "does not exist", "not found")):
+                logger.warning(f"Access check failed for {table}: {type(e).__name__}: {e}")
+                return False, err
+            # Otherwise (warehouse error, timeout, etc.) fall through to SDK check
+            logger.debug(f"Warehouse check failed for {table}, trying SDK fallback: {e}")
+
+    # SDK fallback — works without a warehouse; may have false negatives for
+    # SELECT-only grants but avoids false positives from warehouse config issues.
     try:
-        execute_query(f"SELECT 1 FROM {table} LIMIT 1", no_cache=True)
+        w = get_workspace_client()
+        w.tables.get(table)
         return True, ""
     except Exception as e:
         logger.warning(f"Access check failed for {table}: {type(e).__name__}: {e}")
