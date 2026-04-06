@@ -686,7 +686,7 @@ SELECT
   currency_code,
   usage_unit,
   pricing.default        AS list_price,
-  pricing.effective_list.default AS effective_list_price,
+  TRY(pricing.effective_list.default) AS effective_list_price,
   price_start_time       AS start_time,
   price_end_time         AS end_time
 FROM system.billing.account_prices
@@ -702,7 +702,7 @@ SELECT
   currency_code,
   usage_unit,
   pricing.default        AS list_price,
-  pricing.effective_list.default AS effective_list_price,
+  TRY(pricing.effective_list.default) AS effective_list_price,
   price_start_time       AS start_time,
   price_end_time         AS end_time
 FROM system.billing.list_prices

@@ -37,7 +37,7 @@ WITH usage_with_price AS (
     u.billing_origin_product,
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu,
-    COALESCE(p.pricing.effective_list.default, p.pricing.default, 0) as effective_price_per_dbu
+    COALESCE(TRY(p.pricing.effective_list.default), p.pricing.default, 0) as effective_price_per_dbu
   FROM system.billing.usage u
   LEFT JOIN system.billing.list_prices p
     ON u.sku_name = p.sku_name
@@ -69,7 +69,7 @@ WITH usage_with_price AS (
     u.usage_quantity,
     u.usage_metadata,
     COALESCE(p.pricing.default, 0) as price_per_dbu,
-    COALESCE(p.pricing.effective_list.default, p.pricing.default, 0) as effective_price_per_dbu,
+    COALESCE(TRY(p.pricing.effective_list.default), p.pricing.default, 0) as effective_price_per_dbu,
     CASE
       WHEN u.billing_origin_product = 'SQL' THEN 'SQL'
       WHEN u.billing_origin_product = 'DLT' OR u.usage_metadata.dlt_pipeline_id IS NOT NULL THEN 'ETL - Streaming'
@@ -115,7 +115,7 @@ WITH usage_with_price AS (
     u.sku_name,
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu,
-    COALESCE(p.pricing.effective_list.default, p.pricing.default, 0) as effective_price_per_dbu
+    COALESCE(TRY(p.pricing.effective_list.default), p.pricing.default, 0) as effective_price_per_dbu
   FROM system.billing.usage u
   LEFT JOIN system.billing.list_prices p
     ON u.sku_name = p.sku_name

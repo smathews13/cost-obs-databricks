@@ -323,7 +323,7 @@ top_users AS (
 )
 SELECT
   wt.workspace_id,
-  ws.workspace_name,
+  CAST(NULL AS STRING) as workspace_name,
   wt.total_dbus,
   wt.total_spend,
   tp.products as top_products,
@@ -331,7 +331,6 @@ SELECT
 FROM workspace_totals wt
 LEFT JOIN top_products tp ON wt.workspace_id = tp.workspace_id
 LEFT JOIN top_users tu ON wt.workspace_id = tu.workspace_id
-LEFT JOIN system.access.workspaces_latest ws ON wt.workspace_id = ws.workspace_id
 ORDER BY wt.total_spend DESC
 """
 
