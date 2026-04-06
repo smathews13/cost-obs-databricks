@@ -32,12 +32,8 @@ const STORAGE_KEY = "coc-permissions-dont-show-again";
 
 export function PermissionsDialog() {
   // Check if user previously selected "don't show again"
-  // Also clear stale localStorage on mount so dialog always shows on fresh load
   const [dismissed, setDismissed] = useState(() => {
-    if (localStorage.getItem(STORAGE_KEY) === "true") {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-    return false;
+    return localStorage.getItem(STORAGE_KEY) === "true";
   });
 
   // Checkbox state for acknowledgment (required)
@@ -68,15 +64,6 @@ export function PermissionsDialog() {
       // Clipboard API may not be available in all contexts
     }
   };
-
-  // One-time migration: clear stale localStorage from old behavior
-  // Only run if NOT dismissed (prevents resetting on every mount)
-  useEffect(() => {
-    const storedValue = localStorage.getItem(STORAGE_KEY);
-    if (storedValue === "true" && !dismissed) {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }, []);
 
   const { data, isLoading, error } = useQuery<PermissionsResponse>({
     queryKey: ["permissions-check"],
