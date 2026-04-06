@@ -205,16 +205,40 @@ def ensure_dedicated_warehouse() -> tuple[str, str]:
         raise
 
 
+def _load_saved_warehouse_http_path() -> str:
+    """Read the warehouse HTTP path persisted by the settings UI, if any."""
+    import json
+    settings_file = os.path.join(
+        os.path.dirname(__file__), "..", ".settings", "warehouse_settings.json"
+    )
+    try:
+        with open(settings_file) as f:
+            data = json.load(f)
+        return data.get("http_path", "")
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return ""
+
+
 def setup_warehouse_connection() -> str:
     """Set up the warehouse connection for the app.
 
-    If DATABRICKS_HTTP_PATH is not set or set to 'auto', creates/uses a dedicated warehouse.
-    Otherwise uses the configured warehouse.
+    Priority:
+    1. DATABRICKS_HTTP_PATH env var (explicit config in app.yaml)
+    2. Warehouse saved via the in-app settings UI (warehouse_settings.json)
+    3. Auto-create/find a dedicated warehouse (last resort)
 
     Returns:
         The HTTP path being used
     """
     http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
+
+    # Fall back to warehouse saved via the in-app settings UI
+    if not http_path or http_path.lower() == "auto":
+        saved = _load_saved_warehouse_http_path()
+        if saved:
+            os.environ["DATABRICKS_HTTP_PATH"] = saved
+            logger.info(f"Restored warehouse from saved settings: {saved}")
+            return saved
 
     # If no HTTP path or set to 'auto', try to create/use a dedicated warehouse
     if not http_path or http_path.lower() == "auto":
