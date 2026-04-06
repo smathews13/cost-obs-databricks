@@ -156,7 +156,7 @@ Built on FastAPI + React, deployed as a [Databricks App](https://docs.databricks
                       │   │  system.lakeflow.*           │ │
                       │   │  system.serving.*            │ │
                       │   │  system.access.*             │ │
-                      │   │  Materialized Views          │ │
+                      │   │  6 Materialized Views (MV)   │ │
                       │   └──────────────────────────────┘ │
                       │         Databricks                 │
                       └────────────────────────────────────┘
@@ -312,7 +312,7 @@ Run these in your workspace SQL editor, then click **Re-check** to confirm befor
 
 #### Step 3 — Create Tables
 
-Creates 8 pre-aggregated materialized views from your billing history. This typically takes 2–5 minutes depending on data volume. Progress is shown in real time; errors are surfaced immediately if a step fails (e.g. missing system table permissions).
+Creates 6 pre-aggregated materialized views from your billing history. This typically takes 2–5 minutes depending on data volume. Progress is shown in real time; errors are surfaced immediately if a step fails (e.g. missing system table permissions).
 
 #### Step 4 — Complete
 
