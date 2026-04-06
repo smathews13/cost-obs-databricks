@@ -302,7 +302,7 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
             ) : (
               <button
                 onClick={goNext}
-                disabled={loading}
+                disabled={loading || (config !== null && !config.warehouse)}
                 className="btn-brand rounded-lg px-6 py-2 text-sm font-bold text-white transition-colors disabled:opacity-50"
               >
                 Next
