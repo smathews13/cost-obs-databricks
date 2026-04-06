@@ -6,7 +6,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from databricks.sdk.errors import NotFound, PermissionDenied
 from fastapi import APIRouter
 
 from server.db import get_workspace_client
@@ -70,20 +69,20 @@ REQUIRED_PERMISSIONS = [
 
 
 def check_table_access(table: str) -> bool:
-    """Check if the current identity has access to a system table.
+    """Check if the app can query a system table.
 
-    Uses the Unity Catalog tables API — a direct REST call with no warehouse
-    needed. Returns True if the table is readable, False if PermissionDenied
-    or NotFound.
+    Runs SELECT 1 FROM <table> LIMIT 1 via the configured SQL warehouse —
+    the same path the app uses at runtime. This is more reliable than the
+    UC metadata API (tables.get), which requires USE CATALOG + USE SCHEMA
+    grants in addition to SELECT and can return false negatives even when
+    the table is fully queryable.
     """
+    from server.db import execute_query
     try:
-        w = get_workspace_client()
-        w.tables.get(full_name=table)
+        execute_query(f"SELECT 1 FROM {table} LIMIT 1", no_cache=True)
         return True
-    except (PermissionDenied, NotFound):
-        return False
     except Exception as e:
-        logger.debug(f"Unexpected error checking access to {table}: {e}")
+        logger.debug(f"Access check failed for {table}: {e}")
         return False
 
 
