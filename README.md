@@ -123,7 +123,6 @@ Built on FastAPI + React, deployed as a [Databricks App](https://docs.databricks
 | **Configuration** | Warehouse, catalog, schema, and Genie Space configuration |
 | **Connections** | Shows the default Databricks workspace environment (cloud provider + host) |
 | **User Permissions** | Admin-only management of who has admin vs. read-only access to the app |
-| **Accuracy Checks** | 9-check billing reconciliation with pass/fail status |
 | **Account Pricing** | Toggle between standard list prices and negotiated account prices |
 
 ---
@@ -322,6 +321,48 @@ The wizard can be re-launched at any time from **Settings → Re-run Setup Wizar
 
 ---
 
+## Databricks Preview Features
+
+The following workspace previews unlock additional functionality in this app. Enable any that are available in your workspace — the app gracefully falls back when a preview is not enabled. All are enabled per workspace by a workspace admin via **Settings → Workspace Previews**.
+
+### 1. Deploy from Git (Beta)
+
+Enables deploying this app directly from GitHub — no file uploads or local tooling required. This is the recommended deployment path.
+
+**To enable:**
+
+1. Sign in as a workspace admin
+2. Go to **Settings → Workspace Previews**
+3. Find **"Deploy Databricks apps from Git repositories (Beta)"** and toggle it **ON**
+
+Once enabled, go to **Apps → Create App** and choose **Git repository** as the source. Enter `https://github.com/smathews13/cost-obs-databricks` and deploy from the `main` branch.
+
+### 2. Authenticate as User (User Authorization)
+
+When enabled, the app runs SQL queries as the logged-in user's identity rather than the shared app service principal. Benefits:
+
+- System table queries respect each user's individual permissions
+- Audit logs show the real user, not the service principal
+- Workspace admins get system table access automatically — no manual GRANTs needed for them
+- The app automatically grants required permissions to the SP on startup for non-admin users
+
+**To enable:**
+
+1. Sign in as a workspace admin
+2. Go to **Settings → Workspace Previews**
+3. Find **"User authorization for Databricks Apps"** and toggle it **ON**
+4. In your app configuration (Apps UI), go to **Configure → Add scope → `sql`**
+
+When the `sql` scope is configured, the app automatically uses user authentication for all SQL queries. If the scope is not configured, it falls back to the service principal seamlessly.
+
+### 3. Account Tables (Private Preview)
+
+Enables the **Account Prices** toggle in the DBU Overview tab. When toggled on, the app reads from `system.billing.account_prices` to show your negotiated/discounted prices instead of standard list prices.
+
+This system table is a private preview. Contact your Databricks account team to request access. When available, the app automatically grants the required permissions on startup — no manual `GRANT` statements needed.
+
+---
+
 ## Local Development
 
 ### Prerequisites
@@ -436,8 +477,7 @@ cost-obs-databricks/
 │   ├── alert_manager.py         # Alert persistence and delivery
 │   ├── cloud_pricing.py         # EC2 / Azure VM pricing for cost estimates
 │   ├── queries/
-│   │   ├── __init__.py          # Core billing SQL
-│   │   └── reconciliation.py   # Billing accuracy cross-checks
+│   │   └── __init__.py          # Core billing SQL
 │   └── routers/                 # 18 API route handlers
 │       ├── billing.py           # Core spend, KPIs, user/product breakdowns
 │       ├── dbsql.py             # SQL tab bundle
@@ -488,7 +528,6 @@ The backend exposes a REST API at `/api/`. Key endpoints:
 | `GET /api/tagging/dashboard-bundle` | Tagging hub data |
 | `GET /api/billing/platform-kpis-bundle` | Platform KPIs and anomalies |
 | `GET /api/users-groups/bundle` | User spend analytics |
-| `GET /api/reconciliation/run` | Run all 9 billing accuracy checks |
 | `POST /api/genie/message` | Natural language cost query via Genie |
 | `GET /api/health` | Health check |
 
