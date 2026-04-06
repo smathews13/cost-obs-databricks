@@ -188,6 +188,21 @@ All billing and compute data is **account-level** — queries run against Unity 
 | `system.serving.served_entities` | ML endpoint metadata |
 | `system.access.workspaces_latest` | Workspace name resolution |
 
+### Materialized Views
+
+The setup wizard creates **6 pre-aggregated Delta tables** in your Unity Catalog (`main.cost_obs` by default). These are the only persistent objects the app creates in your environment.
+
+| Table | What it stores | Rows (est.) |
+|---|---|---|
+| `daily_usage_summary` | Total DBUs + spend per day | ~365 |
+| `daily_product_breakdown` | DBUs + spend per day × product category (SQL, ETL, Interactive, etc.) | ~3,600 |
+| `daily_workspace_breakdown` | DBUs + spend per day × workspace | ~3,600–36,000 |
+| `sql_tool_attribution` | Genie vs DBSQL spend split per day × warehouse | ~730–7,000 |
+| `daily_query_stats` | Query count, rows read, compute time per day | ~365 |
+| `dbsql_cost_per_query` | Per-query cost attribution for the last 90 days | ~90k–900k |
+
+All tables are refreshed by clicking **Refresh** in the app settings, or by re-running the setup wizard. They can be dropped and recreated at any time with no data loss — all source data lives in `system.*` tables.
+
 ### Performance Optimizations
 
 | Optimization | Detail |

@@ -199,65 +199,6 @@ JOIN warehouse_totals w ON q.usage_date = w.usage_date AND q.warehouse_id = w.wa
 LEFT JOIN sql_usage s ON q.usage_date = s.usage_date AND q.warehouse_id = s.warehouse_id
 """
 
-# ETL breakdown table
-CREATE_ETL_BREAKDOWN = """
-CREATE OR REPLACE TABLE {catalog}.{schema}.daily_etl_breakdown AS
-WITH usage_with_price AS (
-  SELECT
-    u.usage_date,
-    u.sku_name,
-    u.billing_origin_product,
-    u.usage_quantity,
-    u.usage_metadata,
-    COALESCE(p.pricing.default, 0) as price_per_dbu,
-    COALESCE(p.pricing.effective_list.default, p.pricing.default, 0) as effective_price_per_dbu,
-    CASE
-      WHEN u.billing_origin_product = 'DLT' THEN 'Streaming (SDP)'
-      WHEN u.billing_origin_product = 'JOBS' THEN 'Batch Jobs'
-      ELSE NULL
-    END as etl_type
-  FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
-  WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), 365)
-    AND u.usage_quantity > 0
-    AND u.billing_origin_product IN ('JOBS', 'DLT')
-)
-SELECT
-  usage_date,
-  etl_type,
-  SUM(usage_quantity) as total_dbus,
-  SUM(usage_quantity * price_per_dbu) as total_spend,
-  SUM(usage_quantity * effective_price_per_dbu) as effective_list_spend
-FROM usage_with_price
-WHERE etl_type IS NOT NULL
-GROUP BY usage_date, etl_type
-ORDER BY usage_date, etl_type
-"""
-
-# SKU breakdown table
-CREATE_SKU_BREAKDOWN = """
-CREATE OR REPLACE TABLE {catalog}.{schema}.daily_sku_breakdown AS
-SELECT
-  u.usage_date,
-  u.sku_name as product,
-  COUNT(DISTINCT u.workspace_id) as workspaces_using,
-  SUM(u.usage_quantity) as total_dbus,
-  SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend,
-  SUM(u.usage_quantity * COALESCE(p.pricing.effective_list.default, p.pricing.default, 0)) as effective_list_spend
-FROM system.billing.usage u
-LEFT JOIN system.billing.list_prices p
-  ON u.sku_name = p.sku_name
-  AND u.cloud = p.cloud
-  AND p.price_end_time IS NULL
-WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), 365)
-  AND u.usage_quantity > 0
-GROUP BY u.usage_date, u.sku_name
-ORDER BY u.usage_date, total_spend DESC
-"""
-
 # Platform KPIs from query.history (pre-computed daily)
 CREATE_QUERY_STATS = """
 CREATE OR REPLACE TABLE {catalog}.{schema}.daily_query_stats AS
@@ -896,8 +837,6 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
         ("daily_usage_summary", CREATE_DAILY_USAGE_SUMMARY),
         ("daily_product_breakdown", CREATE_DAILY_PRODUCT_BREAKDOWN),
         ("daily_workspace_breakdown", CREATE_DAILY_WORKSPACE_BREAKDOWN),
-        ("daily_etl_breakdown", CREATE_ETL_BREAKDOWN),
-        ("daily_sku_breakdown", CREATE_SKU_BREAKDOWN),
         ("sql_tool_attribution", CREATE_SQL_TOOL_ATTRIBUTION),
         ("daily_query_stats", CREATE_QUERY_STATS),
         ("dbsql_cost_per_query", CREATE_DBSQL_COST_PER_QUERY),
@@ -928,8 +867,6 @@ _MV_TABLES = [
     "daily_usage_summary",
     "daily_product_breakdown",
     "daily_workspace_breakdown",
-    "daily_etl_breakdown",
-    "daily_sku_breakdown",
     "sql_tool_attribution",
     "daily_query_stats",
     "dbsql_cost_per_query",
@@ -1002,8 +939,6 @@ def check_materialized_views_exist(catalog: str | None = None, schema: str | Non
         "daily_usage_summary",
         "daily_product_breakdown",
         "daily_workspace_breakdown",
-        "daily_etl_breakdown",
-        "daily_sku_breakdown",
         "sql_tool_attribution",
         "daily_query_stats",
         "dbsql_cost_per_query",
@@ -1081,27 +1016,17 @@ ORDER BY total_spend DESC
 
 MV_ETL_BREAKDOWN = """
 SELECT
-  etl_type,
+  CASE
+    WHEN product_category = 'ETL - Streaming' THEN 'Streaming (SDP)'
+    WHEN product_category = 'ETL - Batch' THEN 'Batch Jobs'
+  END as etl_type,
   SUM(total_dbus) as total_dbus,
   SUM(total_spend) as total_spend
-FROM {catalog}.{schema}.daily_etl_breakdown
+FROM {catalog}.{schema}.daily_product_breakdown
 WHERE usage_date BETWEEN :start_date AND :end_date
-GROUP BY etl_type
+  AND product_category IN ('ETL - Streaming', 'ETL - Batch')
+GROUP BY product_category
 ORDER BY total_spend DESC
-"""
-
-MV_SKU_BREAKDOWN = """
-SELECT
-  product,
-  SUM(workspaces_using) as workspaces_using,
-  SUM(total_dbus) as total_dbus,
-  SUM(total_spend) as total_spend,
-  ROUND(100.0 * SUM(total_spend) / SUM(SUM(total_spend)) OVER (), 2) as percentage
-FROM {catalog}.{schema}.daily_sku_breakdown
-WHERE usage_date BETWEEN :start_date AND :end_date
-GROUP BY product
-ORDER BY total_spend DESC
-LIMIT 100
 """
 
 MV_PLATFORM_KPIS = """

@@ -238,25 +238,6 @@ _DDL_STATEMENTS = [
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS daily_etl_breakdown (
-        usage_date  DATE   NOT NULL,
-        etl_type    TEXT   NOT NULL,
-        total_dbus  FLOAT8,
-        total_spend FLOAT8,
-        PRIMARY KEY (usage_date, etl_type)
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS daily_sku_breakdown (
-        usage_date       DATE   NOT NULL,
-        product          TEXT   NOT NULL,
-        workspaces_using BIGINT,
-        total_dbus       FLOAT8,
-        total_spend      FLOAT8,
-        PRIMARY KEY (usage_date, product)
-    )
-    """,
-    """
     CREATE TABLE IF NOT EXISTS sql_tool_attribution (
         sql_product      TEXT   NOT NULL,
         usage_date       DATE   NOT NULL,
@@ -339,8 +320,6 @@ _DDL_STATEMENTS = [
     "ALTER TABLE daily_usage_summary ADD COLUMN IF NOT EXISTS effective_list_spend FLOAT8",
     "ALTER TABLE daily_product_breakdown ADD COLUMN IF NOT EXISTS effective_list_spend FLOAT8",
     "ALTER TABLE daily_workspace_breakdown ADD COLUMN IF NOT EXISTS effective_list_spend FLOAT8",
-    "ALTER TABLE daily_etl_breakdown ADD COLUMN IF NOT EXISTS effective_list_spend FLOAT8",
-    "ALTER TABLE daily_sku_breakdown ADD COLUMN IF NOT EXISTS effective_list_spend FLOAT8",
     "ALTER TABLE sql_tool_attribution ADD COLUMN IF NOT EXISTS attributed_effective_list_spend FLOAT8",
     "ALTER TABLE dbsql_cost_per_query ADD COLUMN IF NOT EXISTS query_attributed_dollars_effective FLOAT8",
     "ALTER TABLE dbsql_cost_per_query_prpr ADD COLUMN IF NOT EXISTS query_attributed_dollars_effective FLOAT8",

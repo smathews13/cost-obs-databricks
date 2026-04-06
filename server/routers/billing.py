@@ -46,7 +46,6 @@ from server.materialized_views import (
     MV_BILLING_TIMESERIES,
     MV_ETL_BREAKDOWN,
     MV_PLATFORM_KPIS,
-    MV_SKU_BREAKDOWN,
     MV_SQL_TOOL_ATTRIBUTION,
     check_materialized_views_exist,
 )
