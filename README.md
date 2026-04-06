@@ -229,9 +229,9 @@ Before deploying, confirm the following are in place:
 | **Unity Catalog enabled** | All billing data is in `system.*` tables under UC — the app will not function without it |
 | **System tables enabled** | Contact your Databricks account team if `system.billing.usage` is not accessible in your workspace |
 | **Databricks Apps enabled** | Available on Premium plan and above |
-| **Deploy from Git preview** *(recommended)* | Enables deploying directly from this GitHub repo — no file uploads needed. Enable in **Settings → Workspace Previews → "Deploy Databricks apps from Git repositories (Beta)"** |
-| **User authorization preview + `sql` scope** *(recommended)* | Runs queries as the logged-in user instead of the service principal — system table access is automatic for workspace admins. Enable the preview in **Settings → Workspace Previews**, then add the `sql` scope in your app's **Configure** settings. |
-| **Account Tables (`system.billing.account_prices`)** *(optional)* | Unlocks the Account Prices toggle for negotiated pricing. Private preview — contact your Databricks account team to request access. |
+| **Deploy from Git preview** *(recommended)* | Enables deploying directly from this GitHub repo — no file uploads needed. Enable in **Settings → Workspace Previews → "Deploy Databricks apps from Git repositories (Beta)"** — see [Deploy from Git](#1-deploy-from-git-beta) below. |
+| **User authorization preview + `sql` scope** *(recommended)* | Runs queries as the logged-in user instead of the service principal — system table access is automatic for workspace admins. See [Authenticate as User](#2-authenticate-as-user-user-authorization) below. |
+| **Account Tables (`system.billing.account_prices`)** *(optional)* | Unlocks the Account Prices toggle for negotiated pricing. Private preview — contact your Databricks account team. See [Account Tables](#3-account-tables-private-preview) below. |
 
 > The setup wizard will show all available warehouses in a picker. In rare cases (typically Azure) where no warehouses appear, it will display the exact `GRANT USE ON WAREHOUSE` statement to run as a workspace admin.
 
@@ -286,37 +286,40 @@ All variables below are optional overrides:
 
 ### First-Run Setup Wizard
 
-On first deploy, the app automatically detects that materialized views haven't been created yet and launches a 4-step setup wizard. The dashboard does not render until setup is complete.
+On first deploy, the app detects that materialized views haven't been created yet and launches a 3-step setup wizard. The dashboard does not render until setup is complete.
 
 #### Step 1 — Environment
 
 Confirms your workspace host, cloud provider (AWS/Azure/GCP), authenticated identity, catalog, and schema.
 
-**SQL Warehouse configuration:** The app tries to auto-create a dedicated serverless warehouse on startup. If the app's service principal doesn't have warehouse creation permissions, this step shows a searchable list of existing warehouses to choose from. If no warehouses are visible, the wizard displays the exact `GRANT` statement needed:
+**SQL Warehouse:** The recommended setup is to add a `sql-warehouse` resource in your app configuration (Apps UI → Configure → Add resource → SQL warehouse) and set it to `CAN USE`. The app reads the warehouse from this resource automatically — no environment variables needed.
+
+If no warehouse resource is configured, this step shows a searchable list of existing warehouses to select from, plus an option to create a new serverless Pro warehouse. If no warehouses are visible at all, the app displays the exact `GRANT` statement to run as a workspace admin:
 
 ```sql
 GRANT USE ON WAREHOUSE <warehouse-name> TO `<app-service-principal>`;
 ```
 
-Run this in your workspace SQL editor, restart the app, and the warehouse will appear in the picker.
-
 #### Step 2 — Permissions
 
-Checks SELECT access to system tables. If anything is missing, the wizard shows the exact `GRANT` statements to run as a workspace admin:
+Checks access to the required system tables. On first deploy, the app automatically attempts to grant the necessary permissions to the service principal and (when the `sql` scope is configured) to the authenticated user.
+
+If any permissions are still missing after the auto-grant, the wizard shows the exact statements to run:
 
 ```sql
-GRANT SELECT ON system.billing.usage TO `app-service-principal@domain.com`;
-GRANT SELECT ON system.billing.list_prices TO `app-service-principal@domain.com`;
--- (plus any others that are missing)
+GRANT USE CATALOG ON CATALOG system TO `<service-principal>`;
+GRANT USE SCHEMA ON SCHEMA system.billing TO `<service-principal>`;
+GRANT SELECT ON TABLE system.billing.usage TO `<service-principal>`;
+-- (plus any others shown as missing)
 ```
 
-Run these in your workspace SQL editor, then click **Re-check** to confirm before proceeding.
+Click **Re-check** after running any manual grants to confirm before proceeding.
 
 #### Step 3 — Create Tables
 
-Creates 6 pre-aggregated materialized views from your billing history. This typically takes 2–5 minutes depending on data volume. Progress is shown in real time; errors are surfaced immediately if a step fails (e.g. missing system table permissions).
+Creates 6 pre-aggregated Delta tables from your billing history. This typically takes 2–5 minutes depending on data volume. Progress is shown in real time.
 
-#### Step 4 — Complete
+#### Complete
 
 Click **Go to Dashboard**. The user who completes setup is automatically added as an app admin.
 
