@@ -16,206 +16,6 @@ Built on FastAPI + React, deployed as a [Databricks App](https://docs.databricks
 
 ---
 
-## What It Does
-
-### DBU Overview
-| Feature | Description |
-|---|---|
-| **Spend Over Time** | Daily spend timeseries by product category |
-| **Spend by Product** | Horizontal bar chart with workspace filter — SQL, ETL, Interactive, Model Serving, Vector Search, Fine-Tuning, AI Functions, Serverless |
-| **Spend by SKU** | Top 10 SKUs with workspace filter |
-| **Spend by User** | Top spenders by DBU cost |
-| **Workspace Table** | Per-workspace cost breakdown with top products/users |
-| **Interactive Compute** | All-purpose cluster usage by user, cluster, or notebook with historical toggle |
-| **ETL Breakdown** | Jobs and SDP pipeline spend with type filters, pagination, and historical toggle |
-| **Account Prices Toggle** | Switch between list prices and negotiated account prices (from `system.billing.account_prices`, private preview) |
-
-### KPIs & Trends
-| Feature | Description |
-|---|---|
-| **Platform KPIs** | Total spend, DBUs, successful runs, active clusters, workspaces, models served |
-| **KPI Drill-Downs** | Click any KPI to see daily/monthly trend lines in a modal |
-| **Spend Anomalies** | Largest day-over-day spend changes with date search and AI analysis |
-
-### SQL
-| Feature | Description |
-|---|---|
-| **Query Spend by Source** | Daily cost timeseries by query source type (DBSQL, Genie, Dashboard, etc.) |
-| **Warehouse Spend by Type** | Daily spend area chart segmented by Serverless/Pro/Classic |
-| **Warehouses by Size** | Distribution of warehouses by size with workspace filter |
-| **Top Users** | Highest-cost SQL users |
-| **Query Source Breakdown** | Drill-down table by source type |
-| **Most Expensive Queries** | Top queries with historical toggle, pagination, and query profile links |
-| **Warehouse Rightsizing** | Automated recommendations to right-size overprovisioned warehouses based on `system.query.history` utilization heuristics |
-
-### Cloud Costs
-| Feature | Description |
-|---|---|
-| **Multi-Cloud Support** | Auto-detects AWS or Azure from workspace URL; displays cloud-specific logos, instance types, pricing links, and setup guides |
-| **Infrastructure KPIs** | Total cloud cost, DBU hours, avg active clusters/day, avg cluster cost — all derived from billing data |
-| **Cost Over Time** | Area chart of estimated infrastructure costs with instance family filter bubbles |
-| **Instance Family Usage** | DBU hours by EC2 (AWS) or VM series (Azure) instance family |
-| **Cluster Table** | Per-cluster cost attribution with instance types, pricing links, pagination, and historical toggle |
-| **Actual Costs Integration** | Toggle between estimated and actual costs when AWS CUR 2.0 or Azure Cost Management Export is configured |
-| **Cloud Integration Wizard** | In-app 5-step setup guide for both AWS and Azure actual cost integration |
-| **2025 Pricing** | Updated EC2 and Azure VM pricing covering: AWS m7i, r7i, c7i, i4i, g6; Azure Dv6, Ev5/v6, NC A100 v4, ND A100 v4, NVadsA10 v5 |
-
-### AI/ML
-| Feature | Description |
-|---|---|
-| **AI/ML Spend Over Time** | Stacked area chart by AI/ML category |
-| **Cost by Category** | Donut chart of spend distribution |
-| **Top Serverless Endpoints** | Highest-cost inference endpoints |
-| **ML Runtime Clusters** | Clusters running ML/GPU runtimes with hyperlinks, pagination, and historical toggle |
-| **Agent Bricks** | Knowledge Assistants and other agent types with type filters, pagination, and historical toggle |
-
-### Apps
-| Feature | Description |
-|---|---|
-| **App Cost Dashboard** | Per-app spend with SKU breakdown drill-down |
-| **Connected Artifacts** | Serving endpoints, SQL warehouses, and other resources used by apps |
-
-### Tagging Hub
-| Feature | Description |
-|---|---|
-| **Tag Coverage** | Tagged vs untagged spend ratio |
-| **Spend by Tag** | Cost attribution by tag key/value pairs |
-| **Spend by Key** | Horizontal bar chart of top tag keys |
-| **Untagged Resources** | Clusters, jobs, pipelines, warehouses, and endpoints missing tags — with dynamic suggested tags per resource type, historical toggle, and pagination |
-
-### Users
-| Feature | Description |
-|---|---|
-| **Users by Spend** | Ranked list of users by total DBU cost across all products |
-| **Spend Over Time per User** | Daily timeseries for any selected user |
-| **Product Breakdown** | Cost split by product category per user |
-| **User Growth Trend** | Active user count over time |
-
-### Lakebase
-| Feature | Description |
-|---|---|
-| **Instance Overview** | Status and configuration of Databricks-managed PostgreSQL (Lakebase) instances |
-| **Migration Status** | Progress tracker for app backing store configuration |
-| **Usage Timeseries** | Lakebase billing data over time |
-| **Cost Comparison** | Materialized view refresh cost vs. Lakebase hosting cost |
-
-> **Note:** Lakebase is optional. When not configured, the app falls back to Delta tables for all persistent state (alerts, settings, permissions). See [Lakebase Integration](#lakebase-integration) below.
-
-### Use Cases
-| Feature | Description |
-|---|---|
-| **Business Use Case Tracking** | Define and track cost attribution to business use cases |
-| **Lifecycle Stages** | POC → pilot → production progression tracking |
-| **Cost per Use Case** | DBU cost allocated to each tracked initiative |
-
-### Alerts
-| Feature | Description |
-|---|---|
-| **Threshold Alerts** | Daily spend spike detection with configurable thresholds |
-| **Email Digest** | Scheduled alert digest via SMTP or webhook |
-| **Slack Webhooks** | Post alerts to Slack channels |
-| **Alert History** | Historical log of triggered alerts |
-
-### Settings
-| Feature | Description |
-|---|---|
-| **General** | Date range selection and display preferences |
-| **Configuration** | Warehouse, catalog, schema, and Genie Space configuration |
-| **Connections** | Shows the default Databricks workspace environment (cloud provider + host) |
-| **User Permissions** | Admin-only management of who has admin vs. read-only access to the app |
-| **Account Pricing** | Toggle between standard list prices and negotiated account prices |
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Databricks App                        │
-│                                                         │
-│  ┌──────────────┐          ┌──────────────────────────┐ │
-│  │  React + TS  │◄────────►│  FastAPI (4 workers)     │ │
-│  │  Vite + TW   │  REST    │  18 routers              │ │
-│  └──────────────┘          └──────────┬───────────────┘ │
-│                                       │                 │
-└───────────────────────────────────────┼─────────────────┘
-                                        │ Databricks SDK
-                      ┌─────────────────┼──────────────────┐
-                      │                 ▼                  │
-                      │   ┌──────────────────────────────┐ │
-                      │   │  SQL Warehouse (Serverless)  │ │
-                      │   └─────────────┬────────────────┘ │
-                      │                 │                  │
-                      │   ┌─────────────▼────────────────┐ │
-                      │   │  system.billing.usage        │ │
-                      │   │  system.billing.list_prices  │ │
-                      │   │  system.billing.account_prices│ │
-                      │   │  system.query.history        │ │
-                      │   │  system.compute.*            │ │
-                      │   │  system.lakeflow.*           │ │
-                      │   │  system.serving.*            │ │
-                      │   │  system.access.*             │ │
-                      │   │  6 Materialized Views (MV)   │ │
-                      │   └──────────────────────────────┘ │
-                      │         Databricks                 │
-                      └────────────────────────────────────┘
-                                        │
-                      ┌─────────────────▼──────────────────┐
-                      │  Lakebase (optional, PostgreSQL 16) │
-                      │  App state: alerts, permissions,    │
-                      │  settings, user preferences         │
-                      │  Falls back to Delta tables if not  │
-                      │  configured                         │
-                      └────────────────────────────────────┘
-```
-
-### Data Sources
-
-All billing and compute data is **account-level** — queries run against Unity Catalog system tables which span all workspaces in the account.
-
-| System Table | Usage |
-|---|---|
-| `system.billing.usage` | Core spend/DBU data for all products |
-| `system.billing.list_prices` | Standard SKU pricing for cost calculation |
-| `system.billing.account_prices` | Negotiated/discounted account-specific prices (private preview) |
-| `system.query.history` | SQL query attribution, source tracking, and rightsizing signals |
-| `system.compute.clusters` | Cluster metadata, names, owners, ML runtime detection |
-| `system.compute.warehouses` | Warehouse names, types, sizes |
-| `system.lakeflow.pipelines` | SDP pipeline name resolution |
-| `system.lakeflow.jobs` | Job name resolution |
-| `system.lakeflow.job_run_timeline` | Job success/failure tracking for KPIs |
-| `system.serving.served_entities` | ML endpoint metadata |
-| `system.access.workspaces_latest` | Workspace name resolution |
-
-### Materialized Views
-
-The setup wizard creates **6 pre-aggregated Delta tables** in your Unity Catalog (`main.cost_obs` by default). These are the only persistent objects the app creates in your environment.
-
-| Table | What it stores | Rows (est.) |
-|---|---|---|
-| `daily_usage_summary` | Total DBUs + spend per day | ~365 |
-| `daily_product_breakdown` | DBUs + spend per day × product category (SQL, ETL, Interactive, etc.) | ~3,600 |
-| `daily_workspace_breakdown` | DBUs + spend per day × workspace | ~3,600–36,000 |
-| `sql_tool_attribution` | Genie vs DBSQL spend split per day × warehouse | ~730–7,000 |
-| `daily_query_stats` | Query count, rows read, compute time per day | ~365 |
-| `dbsql_cost_per_query` | Per-query cost attribution for the last 90 days | ~90k–900k |
-
-All tables are refreshed by clicking **Refresh** in the app settings, or by re-running the setup wizard. They can be dropped and recreated at any time with no data loss — all source data lives in `system.*` tables.
-
-### Performance Optimizations
-
-| Optimization | Detail |
-|---|---|
-| **Materialized Views** | Pre-aggregated Delta tables for sub-second dashboard loads |
-| **Parallel Query Execution** | `ThreadPoolExecutor` (10 workers) runs 6–8 queries concurrently per bundle endpoint |
-| **4-Hour Query Cache** | `TTLCache` with 500 entries — cost data changes at most once per day |
-| **SDK Call Caching** | Pipeline names, group membership, and app registry cached for 1 hour |
-| **Bundle Endpoints** | Single API call returns all data for a tab (reduces HTTP round-trips) |
-| **React Query** | 30-minute stale time, 1-hour GC — prevents redundant refetches |
-| **Lazy-Loaded Chunks** | Each heavy tab (Cloud Costs, AI/ML, Tagging, etc.) is a separate JS chunk loaded on first visit |
-
----
-
 ## Deployment
 
 ### Prerequisites
@@ -369,6 +169,181 @@ This system table is a private preview. Contact your Databricks account team to 
 
 ---
 
+## What It Does
+
+### DBU Overview
+| Feature | Description |
+|---|---|
+| **Spend Over Time** | Daily spend timeseries by product category |
+| **Spend by Product** | Horizontal bar chart with workspace filter — SQL, ETL, Interactive, Model Serving, Vector Search, Fine-Tuning, AI Functions, Serverless |
+| **Spend by SKU** | Top 10 SKUs with workspace filter |
+| **Spend by User** | Top spenders by DBU cost |
+| **Workspace Table** | Per-workspace cost breakdown with top products/users |
+| **Interactive Compute** | All-purpose cluster usage by user, cluster, or notebook with historical toggle |
+| **ETL Breakdown** | Jobs and SDP pipeline spend with type filters, pagination, and historical toggle |
+| **Account Prices Toggle** | Switch between list prices and negotiated account prices (from `system.billing.account_prices`, private preview) |
+
+### KPIs & Trends
+| Feature | Description |
+|---|---|
+| **Platform KPIs** | Total spend, DBUs, successful runs, active clusters, workspaces, models served |
+| **KPI Drill-Downs** | Click any KPI to see daily/monthly trend lines in a modal |
+| **Spend Anomalies** | Largest day-over-day spend changes with date search and AI analysis |
+
+### SQL
+| Feature | Description |
+|---|---|
+| **Query Spend by Source** | Daily cost timeseries by query source type (DBSQL, Genie, Dashboard, etc.) |
+| **Warehouse Spend by Type** | Daily spend area chart segmented by Serverless/Pro/Classic |
+| **Warehouses by Size** | Distribution of warehouses by size with workspace filter |
+| **Top Users** | Highest-cost SQL users |
+| **Query Source Breakdown** | Drill-down table by source type |
+| **Most Expensive Queries** | Top queries with historical toggle, pagination, and query profile links |
+| **Warehouse Rightsizing** | Automated recommendations to right-size overprovisioned warehouses based on `system.query.history` utilization heuristics |
+
+### Cloud Costs
+| Feature | Description |
+|---|---|
+| **Multi-Cloud Support** | Auto-detects AWS or Azure from workspace URL; displays cloud-specific logos, instance types, pricing links, and setup guides |
+| **Infrastructure KPIs** | Total cloud cost, DBU hours, avg active clusters/day, avg cluster cost — all derived from billing data |
+| **Cost Over Time** | Area chart of estimated infrastructure costs with instance family filter bubbles |
+| **Instance Family Usage** | DBU hours by EC2 (AWS) or VM series (Azure) instance family |
+| **Cluster Table** | Per-cluster cost attribution with instance types, pricing links, pagination, and historical toggle |
+| **Actual Costs Integration** | Toggle between estimated and actual costs when AWS CUR 2.0 or Azure Cost Management Export is configured |
+| **Cloud Integration Wizard** | In-app 5-step setup guide for both AWS and Azure actual cost integration |
+| **2025 Pricing** | Updated EC2 and Azure VM pricing covering: AWS m7i, r7i, c7i, i4i, g6; Azure Dv6, Ev5/v6, NC A100 v4, ND A100 v4, NVadsA10 v5 |
+
+### AI/ML
+| Feature | Description |
+|---|---|
+| **AI/ML Spend Over Time** | Stacked area chart by AI/ML category |
+| **Cost by Category** | Donut chart of spend distribution |
+| **Top Serverless Endpoints** | Highest-cost inference endpoints |
+| **ML Runtime Clusters** | Clusters running ML/GPU runtimes with hyperlinks, pagination, and historical toggle |
+| **Agent Bricks** | Knowledge Assistants and other agent types with type filters, pagination, and historical toggle |
+
+### Apps
+| Feature | Description |
+|---|---|
+| **App Cost Dashboard** | Per-app spend with SKU breakdown drill-down |
+| **Connected Artifacts** | Serving endpoints, SQL warehouses, and other resources used by apps |
+
+### Tagging Hub
+| Feature | Description |
+|---|---|
+| **Tag Coverage** | Tagged vs untagged spend ratio |
+| **Spend by Tag** | Cost attribution by tag key/value pairs |
+| **Spend by Key** | Horizontal bar chart of top tag keys |
+| **Untagged Resources** | Clusters, jobs, pipelines, warehouses, and endpoints missing tags — with dynamic suggested tags per resource type, historical toggle, and pagination |
+
+### Users
+| Feature | Description |
+|---|---|
+| **Users by Spend** | Ranked list of users by total DBU cost across all products |
+| **Spend Over Time per User** | Daily timeseries for any selected user |
+| **Product Breakdown** | Cost split by product category per user |
+| **User Growth Trend** | Active user count over time |
+
+### Settings
+| Feature | Description |
+|---|---|
+| **General** | Date range selection and display preferences |
+| **Configuration** | Warehouse, catalog, schema, and Genie Space configuration |
+| **Connections** | Shows the default Databricks workspace environment (cloud provider + host) |
+| **User Permissions** | Admin-only management of who has admin vs. read-only access to the app |
+| **Account Pricing** | Toggle between standard list prices and negotiated account prices |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Databricks App                        │
+│                                                         │
+│  ┌──────────────┐          ┌──────────────────────────┐ │
+│  │  React + TS  │◄────────►│  FastAPI (4 workers)     │ │
+│  │  Vite + TW   │  REST    │  18 routers              │ │
+│  └──────────────┘          └──────────┬───────────────┘ │
+│                                       │                 │
+└───────────────────────────────────────┼─────────────────┘
+                                        │ Databricks SDK
+                      ┌─────────────────┼──────────────────┐
+                      │                 ▼                  │
+                      │   ┌──────────────────────────────┐ │
+                      │   │  SQL Warehouse (Serverless)  │ │
+                      │   └─────────────┬────────────────┘ │
+                      │                 │                  │
+                      │   ┌─────────────▼────────────────┐ │
+                      │   │  system.billing.usage        │ │
+                      │   │  system.billing.list_prices  │ │
+                      │   │  system.billing.account_prices│ │
+                      │   │  system.query.history        │ │
+                      │   │  system.compute.*            │ │
+                      │   │  system.lakeflow.*           │ │
+                      │   │  system.serving.*            │ │
+                      │   │  system.access.*             │ │
+                      │   │  6 Materialized Views (MV)   │ │
+                      │   └──────────────────────────────┘ │
+                      │         Databricks                 │
+                      └────────────────────────────────────┘
+                                        │
+                      ┌─────────────────▼──────────────────┐
+                      │  Lakebase (optional, PostgreSQL 16) │
+                      │  App state: alerts, permissions,    │
+                      │  settings, user preferences         │
+                      │  Falls back to Delta tables if not  │
+                      │  configured                         │
+                      └────────────────────────────────────┘
+```
+
+### Data Sources
+
+All billing and compute data is **account-level** — queries run against Unity Catalog system tables which span all workspaces in the account.
+
+| System Table | Usage |
+|---|---|
+| `system.billing.usage` | Core spend/DBU data for all products |
+| `system.billing.list_prices` | Standard SKU pricing for cost calculation |
+| `system.billing.account_prices` | Negotiated/discounted account-specific prices (private preview) |
+| `system.query.history` | SQL query attribution, source tracking, and rightsizing signals |
+| `system.compute.clusters` | Cluster metadata, names, owners, ML runtime detection |
+| `system.compute.warehouses` | Warehouse names, types, sizes |
+| `system.lakeflow.pipelines` | SDP pipeline name resolution |
+| `system.lakeflow.jobs` | Job name resolution |
+| `system.lakeflow.job_run_timeline` | Job success/failure tracking for KPIs |
+| `system.serving.served_entities` | ML endpoint metadata |
+| `system.access.workspaces_latest` | Workspace name resolution |
+
+### Materialized Views
+
+The setup wizard creates **6 pre-aggregated Delta tables** in your Unity Catalog (`main.cost_obs` by default). These are the only persistent objects the app creates in your environment.
+
+| Table | What it stores | Rows (est.) |
+|---|---|---|
+| `daily_usage_summary` | Total DBUs + spend per day | ~365 |
+| `daily_product_breakdown` | DBUs + spend per day × product category (SQL, ETL, Interactive, etc.) | ~3,600 |
+| `daily_workspace_breakdown` | DBUs + spend per day × workspace | ~3,600–36,000 |
+| `sql_tool_attribution` | Genie vs DBSQL spend split per day × warehouse | ~730–7,000 |
+| `daily_query_stats` | Query count, rows read, compute time per day | ~365 |
+| `dbsql_cost_per_query` | Per-query cost attribution for the last 90 days | ~90k–900k |
+
+All tables are refreshed by clicking **Refresh** in the app settings, or by re-running the setup wizard. They can be dropped and recreated at any time with no data loss — all source data lives in `system.*` tables.
+
+### Performance Optimizations
+
+| Optimization | Detail |
+|---|---|
+| **Materialized Views** | Pre-aggregated Delta tables for sub-second dashboard loads |
+| **Parallel Query Execution** | `ThreadPoolExecutor` (10 workers) runs 6–8 queries concurrently per bundle endpoint |
+| **4-Hour Query Cache** | `TTLCache` with 500 entries — cost data changes at most once per day |
+| **SDK Call Caching** | Pipeline names, group membership, and app registry cached for 1 hour |
+| **Bundle Endpoints** | Single API call returns all data for a tab (reduces HTTP round-trips) |
+| **React Query** | 30-minute stale time, 1-hour GC — prevents redundant refetches |
+| **Lazy-Loaded Chunks** | Each heavy tab (Cloud Costs, AI/ML, Tagging, etc.) is a separate JS chunk loaded on first visit |
+
+---
+
 ## Local Development
 
 ### Prerequisites
@@ -427,23 +402,6 @@ The app reads from `billing.aws.actuals_gold`. Setup steps are available in the 
 ### Azure (Cost Management Export)
 
 The app reads from `billing.azure.actuals_gold`. Setup steps are available in the in-app wizard, and the table location can be overridden via `AZURE_COST_CATALOG` / `AZURE_COST_SCHEMA`.
-
----
-
-## Lakebase Integration
-
-The app optionally uses [Databricks Lakebase](https://docs.databricks.com/en/database-objects/lakebase.html) (managed PostgreSQL 16) as its persistent backing store for:
-
-- Alert configurations and thresholds
-- User permissions (admin / read-only roles)
-- App settings and preferences
-- Webhook configurations
-
-**Lakebase is optional.** If `PGHOST` and `ENDPOINT_NAME` are not set, the app automatically falls back to Delta tables for all persistent state. No configuration or extra setup is needed to get started — deploy from Git and the app handles the rest.
-
-To enable Lakebase, set `ENDPOINT_NAME` and `PGHOST` in your app's environment variables after provisioning a Lakebase instance in your workspace. The app's service principal needs `CAN_MANAGE` on the Lakebase project to generate short-lived database credentials at startup.
-
-For a deeper walkthrough of this pattern, see: [How to Use Lakebase as a Transactional Data Layer for Databricks Apps](https://www.databricks.com/blog/how-use-lakebase-transactional-data-layer-databricks-apps).
 
 ---
 
