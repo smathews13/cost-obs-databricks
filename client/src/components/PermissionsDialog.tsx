@@ -102,9 +102,9 @@ export function PermissionsDialog() {
     return createPortal(
       <div
         className="fixed inset-0 z-[100] flex items-start justify-center pt-24 p-4"
-        style={{ backgroundColor: "rgba(0, 0, 0, 0.6)" }}
+        style={{ backgroundColor: "rgba(255, 255, 255, 0.95)" }}
       >
-        <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow-2xl">
+        <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow-2xl border border-gray-200">
           {isLoading ? (
             <Loader2 className="mx-auto h-10 w-10 text-gray-400 mb-4 animate-spin" />
           ) : (
