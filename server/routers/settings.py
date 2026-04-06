@@ -721,19 +721,21 @@ async def get_account_prices() -> dict[str, Any]:
     """
     from server.db import execute_query as _exec
 
+    _TRANSIENT_ERRORS = ("table", "not found", "does not exist", "cannot resolve", "http_path", "warehouse")
+
     # Try account_prices first (negotiated rates, private preview)
     try:
         rows = _exec(_ACCOUNT_PRICES_SQL)
         source = "account_prices"
     except Exception as e:
         err = str(e).lower()
-        if any(kw in err for kw in ("table", "not found", "does not exist", "cannot resolve")):
-            logger.info("system.billing.account_prices not available, falling back to list_prices")
+        if any(kw in err for kw in _TRANSIENT_ERRORS):
+            logger.info(f"system.billing.account_prices not available ({e}), falling back to list_prices")
             try:
                 rows = _exec(_LIST_PRICES_SQL)
                 source = "list_prices"
             except Exception as e2:
-                logger.warning(f"system.billing.list_prices also unavailable: {e2}")
+                logger.debug(f"system.billing.list_prices also unavailable: {e2}")
                 return {"available": False, "prices": [], "source": None,
                         "message": "Billing price tables not accessible"}
         else:
