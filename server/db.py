@@ -224,13 +224,24 @@ def setup_warehouse_connection() -> str:
 
     Priority:
     1. DATABRICKS_HTTP_PATH env var (explicit config in app.yaml)
-    2. Warehouse saved via the in-app settings UI (warehouse_settings.json)
-    3. Auto-create/find a dedicated warehouse (last resort)
+    2. DATABRICKS_WAREHOUSE_ID env var — injected by Databricks Apps when a
+       sql_warehouse resource is declared with valueFrom in app.yaml
+    3. Warehouse saved via the in-app settings UI (warehouse_settings.json)
+    4. Auto-create/find a dedicated warehouse (last resort)
 
     Returns:
         The HTTP path being used
     """
     http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
+
+    # Databricks Apps sql_warehouse resource via valueFrom: sql-warehouse
+    if not http_path or http_path.lower() == "auto":
+        warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID", "")
+        if warehouse_id:
+            http_path = f"/sql/1.0/warehouses/{warehouse_id}"
+            os.environ["DATABRICKS_HTTP_PATH"] = http_path
+            logger.info(f"Using warehouse from DATABRICKS_WAREHOUSE_ID resource: {http_path}")
+            return http_path
 
     # Fall back to warehouse saved via the in-app settings UI
     if not http_path or http_path.lower() == "auto":
