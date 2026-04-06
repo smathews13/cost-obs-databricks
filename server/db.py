@@ -305,6 +305,12 @@ def _strip_host_scheme(host: str) -> str:
     return host
 
 
+def _is_scope_error(exc: Exception) -> bool:
+    """Return True if exception indicates the token lacks the 'sql' OAuth scope."""
+    msg = str(exc).lower()
+    return "required scopes" in msg or "does not have required scopes" in msg
+
+
 @contextmanager
 def get_connection() -> Generator[Any, None, None]:
     """Get a Databricks SQL connection as a context manager.
@@ -384,15 +390,30 @@ def execute_write(query: str, params: dict[str, Any] | None = None) -> int:
     """
     start_time = time.time()
 
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
+    def _run(force_sp: bool = False) -> int:
+        ctx_tok = _user_token.set("") if force_sp else None
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cursor:
+                    if params:
+                        cursor.execute(query, params)
+                    else:
+                        cursor.execute(query)
+                    return cursor.rowcount if cursor.rowcount is not None else 0
+        finally:
+            if ctx_tok is not None:
+                _user_token.reset(ctx_tok)
 
-            # rowcount gives the number of affected rows for DML statements
-            affected_rows = cursor.rowcount if cursor.rowcount is not None else 0
+    try:
+        affected_rows = _run()
+    except Exception as exc:
+        if _is_scope_error(exc) and _user_token.get():
+            logger.warning(
+                "User token lacks sql scope — falling back to service principal for write query"
+            )
+            affected_rows = _run(force_sp=True)
+        else:
+            raise
 
     elapsed = time.time() - start_time
     logger.info(f"Write query executed in {elapsed:.2f}s ({affected_rows} rows affected)")
@@ -417,22 +438,36 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
             logger.info(f"Cache hit - returned in {(time.time() - start_time)*1000:.0f}ms")
             return _query_cache[cache_key]
 
-    # Execute query with proper parameterized queries to prevent SQL injection
-    with get_connection() as conn:
-        with conn.cursor() as cursor:
-            if params:
-                # Use Databricks SQL connector's native parameter binding
-                # Pass parameters as second positional argument (DB-API 2.0 standard)
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
+    def _run(force_sp: bool = False) -> list[dict[str, Any]]:
+        """Execute the query. force_sp=True clears user token to use SP auth."""
+        ctx_tok = _user_token.set("") if force_sp else None
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cursor:
+                    if params:
+                        cursor.execute(query, params)
+                    else:
+                        cursor.execute(query)
+                    if cursor.description is not None:
+                        columns = [desc[0] for desc in cursor.description]
+                        rows = cursor.fetchall()
+                        return [dict(zip(columns, row)) for row in rows]
+                    return []
+        finally:
+            if ctx_tok is not None:
+                _user_token.reset(ctx_tok)
 
-            if cursor.description is not None:
-                columns = [desc[0] for desc in cursor.description]
-                rows = cursor.fetchall()
-                result = [dict(zip(columns, row)) for row in rows]
-            else:
-                result = []  # DDL statement (CREATE/DROP/etc.) — no result set
+    # Execute query with proper parameterized queries to prevent SQL injection
+    try:
+        result = _run()
+    except Exception as exc:
+        if _is_scope_error(exc) and _user_token.get():
+            logger.warning(
+                "User token lacks sql scope — falling back to service principal for SQL query"
+            )
+            result = _run(force_sp=True)
+        else:
+            raise
 
     # Cache the result (TTLCache handles expiration automatically)
     if not no_cache:
