@@ -6,7 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from server.db import get_workspace_client
 
@@ -187,7 +187,7 @@ def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
 
 
 @router.get("/check")
-async def check_permissions(refresh: bool = False) -> dict[str, Any]:
+async def check_permissions(request: Request, refresh: bool = False) -> dict[str, Any]:
     """
     Check user's access to required system tables.
 
@@ -198,17 +198,23 @@ async def check_permissions(refresh: bool = False) -> dict[str, Any]:
     """
     from server.db import _user_token
 
-    using_user_auth = bool(_user_token.get())
+    # Read the token directly from the request rather than relying on middleware
+    # ContextVar propagation, which is unreliable through BaseHTTPMiddleware.
+    user_token = request.headers.get("x-forwarded-access-token", "")
+    using_user_auth = bool(user_token)
 
-    # Never cache when running under user authorization — each user has different grants
-    bypass = refresh or using_user_auth
+    # Set ContextVar here in the async handler so it's guaranteed to propagate
+    # into run_in_executor (which copies the current context to its thread).
+    ctx_tok = _user_token.set(user_token)
+    try:
+        bypass = refresh or using_user_auth
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            _permissions_executor,
+            lambda: _check_permissions_sync(bypass_cache=bypass),
+        )
+    finally:
+        _user_token.reset(ctx_tok)
 
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(
-        _permissions_executor,
-        lambda: _check_permissions_sync(bypass_cache=bypass),
-    )
-
-    # Annotate response with the active auth mode so the UI can display it
     result["auth_mode"] = "user" if using_user_auth else "service_principal"
     return result
