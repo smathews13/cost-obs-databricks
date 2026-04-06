@@ -66,9 +66,10 @@ Or click the **Deploy to Databricks** button at the top of this README.
 
 ### Environment Variables
 
-**No environment variables are required to deploy.** Databricks Apps injects OAuth credentials and the workspace host automatically. On first startup the app attempts to auto-create a dedicated SQL warehouse; if that fails (the app's service principal lacks warehouse creation permissions), the setup wizard will prompt you to select or create one.
+**No environment variables are required to deploy.** Databricks Apps injects OAuth credentials and the workspace host automatically.
 
-All variables below are optional overrides:
+<details>
+<summary>Optional environment variable overrides</summary>
 
 | Variable | Default | Description |
 |---|---|---|
@@ -83,6 +84,8 @@ All variables below are optional overrides:
 | `AWS_COST_CATALOG` / `AWS_COST_SCHEMA` | `billing` / `aws` | AWS CUR actual cost tables |
 | `AZURE_COST_CATALOG` / `AZURE_COST_SCHEMA` | `billing` / `azure` | Azure cost export tables |
 | `DATABRICKS_TOKEN` | — | Only needed for **local development** — the setup wizard can generate one for you |
+
+</details>
 
 ### First-Run Setup Wizard
 
