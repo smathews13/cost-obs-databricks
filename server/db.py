@@ -7,7 +7,12 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Callable, Generator
+
+# Per-request user token set by UserAuthMiddleware when x-forwarded-access-token
+# is present (Databricks Apps user authorization preview). Empty string = use SP.
+_user_token: ContextVar[str] = ContextVar("_user_token", default="")
 
 from cachetools import TTLCache
 from databricks import sql
@@ -239,10 +244,19 @@ def setup_warehouse_connection() -> str:
 def _get_cache_key(query: str, params: dict[str, Any] | None, *, tag: str | None = None) -> str:
     """Generate a cache key from query and params.
 
+    When running under user authorization, the token hash is included so each
+    user's results are cached independently (respects row/column-level security).
+
     Args:
         tag: Optional prefix for pattern-based cache invalidation (e.g. "use_case").
     """
     key_data = query + json.dumps(params or {}, sort_keys=True)
+    token = _user_token.get()
+    if token:
+        # Use first 16 chars of token hash — enough to distinguish users without
+        # exposing the token itself in log output or cache inspection.
+        token_prefix = hashlib.md5(token.encode()).hexdigest()[:16]
+        key_data = token_prefix + ":" + key_data
     hash_key = hashlib.md5(key_data.encode()).hexdigest()
     return f"{tag}:{hash_key}" if tag else hash_key
 
@@ -258,25 +272,51 @@ def _strip_host_scheme(host: str) -> str:
 
 @contextmanager
 def get_connection() -> Generator[Any, None, None]:
-    """Get a Databricks SQL connection as a context manager."""
+    """Get a Databricks SQL connection as a context manager.
+
+    Auth priority:
+    1. Per-request user token from x-forwarded-access-token (user authorization
+       preview — set by UserAuthMiddleware when the feature is enabled).
+    2. DATABRICKS_TOKEN env var (local dev with explicit PAT/token).
+    3. SP OAuth via WorkspaceClient (standard Databricks Apps SP identity).
+    """
     http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
 
     if not http_path:
         raise ValueError("Missing DATABRICKS_HTTP_PATH environment variable.")
 
-    token = os.getenv("DATABRICKS_TOKEN")
-    host = os.getenv("DATABRICKS_HOST")
-
-    if token and host:
-        # Local development with explicit credentials
+    # 1. User authorization (Databricks Apps preview feature)
+    user_token = _user_token.get()
+    if user_token:
+        host = os.getenv("DATABRICKS_HOST", "")
+        if not host:
+            w = get_workspace_client()
+            host = w.config.host or ""
         conn = sql.connect(
             server_hostname=_strip_host_scheme(host),
             http_path=http_path,
-            access_token=token,
+            access_token=user_token,
+            _socket_timeout=_CONNECTION_TIMEOUT,
+        )
+        try:
+            yield conn
+        finally:
+            conn.close()
+        return
+
+    dev_token = os.getenv("DATABRICKS_TOKEN")
+    dev_host = os.getenv("DATABRICKS_HOST")
+
+    if dev_token and dev_host:
+        # 2. Local development with explicit credentials
+        conn = sql.connect(
+            server_hostname=_strip_host_scheme(dev_host),
+            http_path=http_path,
+            access_token=dev_token,
             _socket_timeout=_CONNECTION_TIMEOUT,
         )
     else:
-        # Databricks App environment - get OAuth token from SDK
+        # 3. Databricks App environment — use SP OAuth token from SDK
         w = get_workspace_client()
         config = w.config
         server_hostname = _strip_host_scheme(config.host)

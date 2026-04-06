@@ -24,6 +24,29 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+class UserAuthMiddleware(BaseHTTPMiddleware):
+    """Propagate x-forwarded-access-token into the db layer's ContextVar.
+
+    When Databricks Apps user authorization (Public Preview) is enabled, the
+    platform injects the end-user's OAuth token via this header on every request.
+    We store it in a ContextVar so get_connection() can use it instead of the SP
+    token, giving the user their own UC identity for all SQL queries.
+
+    If the header is absent the ContextVar stays at its default (""), and
+    get_connection() falls back to the service-principal path as before.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        from server.db import _user_token
+
+        token = request.headers.get("x-forwarded-access-token", "")
+        ctx_token = _user_token.set(token)
+        try:
+            return await call_next(request)
+        finally:
+            _user_token.reset(ctx_token)
+
+
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """Middleware for request/response logging with correlation IDs."""
 
@@ -387,6 +410,11 @@ app = FastAPI(
 
 # Request logging middleware
 app.add_middleware(RequestLoggingMiddleware)
+
+# User authorization middleware — runs inside logging so requests show correct identity.
+# Reads x-forwarded-access-token injected by Databricks Apps when user authorization
+# is enabled (Public Preview). No-op when the header is absent.
+app.add_middleware(UserAuthMiddleware)
 
 # CORS configuration - externalized for production
 # Set CORS_ORIGINS env var for production (comma-separated list of origins)

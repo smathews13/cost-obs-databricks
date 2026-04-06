@@ -186,11 +186,24 @@ async def check_permissions(refresh: bool = False) -> dict[str, Any]:
     """
     Check user's access to required system tables.
 
-    Cached for 5 minutes per process. Pass ?refresh=true to force a live re-check
-    (e.g. after granting new permissions in the setup wizard).
+    When Databricks Apps user authorization is active (x-forwarded-access-token
+    present), checks run as the end user and results are not cached (each user
+    may have different grants). Otherwise cached for 5 minutes per process.
+    Pass ?refresh=true to force a live re-check (e.g. after granting permissions).
     """
+    from server.db import _user_token
+
+    using_user_auth = bool(_user_token.get())
+
+    # Never cache when running under user authorization — each user has different grants
+    bypass = refresh or using_user_auth
+
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(
+    result = await loop.run_in_executor(
         _permissions_executor,
-        lambda: _check_permissions_sync(bypass_cache=refresh),
+        lambda: _check_permissions_sync(bypass_cache=bypass),
     )
+
+    # Annotate response with the active auth mode so the UI can display it
+    result["auth_mode"] = "user" if using_user_auth else "service_principal"
+    return result
