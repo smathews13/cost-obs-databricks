@@ -68,8 +68,10 @@ REQUIRED_PERMISSIONS = [
 ]
 
 
-def check_table_access(table: str) -> bool:
+def check_table_access(table: str) -> tuple[bool, str]:
     """Check if the app can query a system table.
+
+    Returns (granted, error_message). error_message is empty string on success.
 
     Runs SELECT 1 FROM <table> LIMIT 1 via the configured SQL warehouse —
     the same path the app uses at runtime. This is more reliable than the
@@ -80,10 +82,10 @@ def check_table_access(table: str) -> bool:
     from server.db import execute_query
     try:
         execute_query(f"SELECT 1 FROM {table} LIMIT 1", no_cache=True)
-        return True
+        return True, ""
     except Exception as e:
-        logger.debug(f"Access check failed for {table}: {e}")
-        return False
+        logger.warning(f"Access check failed for {table}: {type(e).__name__}: {e}")
+        return False, str(e)
 
 
 def _get_current_user() -> tuple[str, str]:
@@ -124,7 +126,7 @@ def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
         }
         user_future = pool.submit(_get_current_user)
 
-        access_results: dict[str, bool] = {}
+        access_results: dict[str, tuple[bool, str]] = {}
         for future in as_completed(future_to_table):
             table = future_to_table[future]
             access_results[table] = future.result()
@@ -138,7 +140,7 @@ def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
     required_count = 0
 
     for perm in REQUIRED_PERMISSIONS:
-        has_access = access_results[perm["table"]]
+        has_access, error_msg = access_results[perm["table"]]
 
         if has_access:
             granted_count += 1
@@ -148,13 +150,16 @@ def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
         if perm["required"]:
             required_count += 1
 
-        results.append({
+        row = {
             "table": perm["table"],
             "name": perm["name"],
             "description": perm["description"],
             "required": perm["required"],
             "granted": has_access,
-        })
+        }
+        if error_msg:
+            row["error"] = error_msg
+        results.append(row)
 
     # Determine overall status
     all_required_granted = required_granted == required_count

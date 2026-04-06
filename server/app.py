@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class UserAuthMiddleware(BaseHTTPMiddleware):
+class UserAuthMiddleware:
     """Propagate x-forwarded-access-token into the db layer's ContextVar.
 
     When Databricks Apps user authorization (Public Preview) is enabled, the
@@ -34,17 +34,27 @@ class UserAuthMiddleware(BaseHTTPMiddleware):
 
     If the header is absent the ContextVar stays at its default (""), and
     get_connection() falls back to the service-principal path as before.
+
+    Implemented as a pure ASGI middleware (not BaseHTTPMiddleware) because
+    BaseHTTPMiddleware runs call_next in a separate task context, which breaks
+    ContextVar propagation to downstream request handlers.
     """
 
-    async def dispatch(self, request: Request, call_next):
-        from server.db import _user_token
+    def __init__(self, app):
+        self.app = app
 
-        token = request.headers.get("x-forwarded-access-token", "")
-        ctx_token = _user_token.set(token)
-        try:
-            return await call_next(request)
-        finally:
-            _user_token.reset(ctx_token)
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            from server.db import _user_token
+            headers = {k.lower(): v for k, v in scope.get("headers", [])}
+            token = headers.get(b"x-forwarded-access-token", b"").decode()
+            ctx_token = _user_token.set(token)
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                _user_token.reset(ctx_token)
+        else:
+            await self.app(scope, receive, send)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
