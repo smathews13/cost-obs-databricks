@@ -280,12 +280,43 @@ def setup_materialized_views():
         catalog, schema = get_catalog_schema()
         logger.info(f"Checking materialized views in {catalog}.{schema}...")
 
-        # Always refresh MVs on startup — ensures data is current after each deploy.
-        # CREATE OR REPLACE is idempotent and fast relative to tab load times.
-        logger.info("Refreshing materialized views on startup...")
-        results = create_materialized_views(catalog, schema)
-        success = sum(1 for v in results.values() if v == "created")
-        logger.info(f"Materialized views refreshed: {success}/{len(results)} tables rebuilt")
+        # Check which tables exist and have data
+        tables = check_materialized_views_exist(catalog, schema)
+        missing = [name for name, exists in tables.items() if not exists]
+
+        # Also rebuild if core summary table is empty (stale/failed previous build)
+        if not missing:
+            from server.db import execute_query
+            try:
+                result = execute_query(
+                    f"SELECT COUNT(*) as cnt FROM {catalog}.{schema}.daily_usage_summary LIMIT 1",
+                    no_cache=True,
+                )
+                if not result or int(result[0].get("cnt", 0)) == 0:
+                    logger.info("daily_usage_summary exists but is empty — forcing MV rebuild")
+                    missing = ["daily_usage_summary"]
+            except Exception:
+                pass
+
+        if missing:
+            logger.info(f"Creating/rebuilding materialized views: {missing}")
+            results = create_materialized_views(catalog, schema)
+            success = sum(1 for v in results.values() if v == "created")
+            logger.info(f"Materialized views setup complete: {success}/{len(results)} tables built")
+        else:
+            # Tables exist and have data — refresh in background so startup isn't blocked
+            # and the setup wizard check never sees missing tables
+            import threading
+            def _bg_refresh():
+                try:
+                    logger.info("Refreshing materialized views in background (post-deploy)...")
+                    r = create_materialized_views(catalog, schema)
+                    ok = sum(1 for v in r.values() if v == "created")
+                    logger.info(f"Background MV refresh complete: {ok}/{len(r)} tables rebuilt")
+                except Exception as ex:
+                    logger.warning(f"Background MV refresh failed (non-fatal): {ex}")
+            threading.Thread(target=_bg_refresh, daemon=True).start()
+            logger.info("Materialized views exist — refresh kicked off in background")
 
     except Exception as e:
         logger.warning(f"Materialized views setup failed (non-fatal): {e}")
