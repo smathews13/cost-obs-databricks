@@ -153,7 +153,7 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
           const detail = status?.task?.error || "unknown error";
           setError(`Table creation failed: ${detail}`);
         }
-      }, 5000);
+      }, 2000);
 
       // Safety timeout after 10 minutes
       setTimeout(() => {
