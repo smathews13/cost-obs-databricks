@@ -13,7 +13,7 @@ export function isServicePrincipal(id: string): boolean {
 
 /**
  * Short display label for any identity, with optional resolved SP name map:
- *  - Service principal UUID → resolved display name, or UUID if not resolved
+ *  - Service principal UUID → resolved display name, or "SP-xxxxx" abbreviation if not resolved
  *  - Email address          → "alice"  (username before @)
  *  - Other                  → value as-is
  */
@@ -21,7 +21,7 @@ export function formatIdentity(id: string, spNames?: Record<string, string>): st
   if (!id) return id;
   const v = id.trim();
   if (isServicePrincipal(v)) {
-    return spNames?.[v] ?? v;
+    return spNames?.[v] ?? `SP-${v.replace(/-/g, "").slice(0, 5)}`;
   }
   if (v.includes("@")) {
     return v.split("@")[0];
