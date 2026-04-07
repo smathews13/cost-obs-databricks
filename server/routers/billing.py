@@ -22,7 +22,6 @@ from server.queries import (
     BILLING_TIMESERIES,
     BILLING_TIMESERIES_FAST,
     ETL_BREAKDOWN,
-    INFRA_COST_BY_INSTANCE_TYPE,
     INFRA_COST_ESTIMATE,
     INFRA_COST_TIMESERIES,
     INTERACTIVE_BREAKDOWN,
@@ -598,14 +597,8 @@ async def get_infra_costs(
     }
 
     try:
-        # Execute both queries in parallel for better performance
-        query_results = execute_queries_parallel([
-            ("clusters", lambda: execute_query(INFRA_COST_ESTIMATE, params)),
-            ("families", lambda: execute_query(INFRA_COST_BY_INSTANCE_TYPE, params)),
-        ])
-
-        cluster_results = query_results.get("clusters") or []
-        family_results = query_results.get("families") or []
+        # Single query — instance families are derived in Python from cluster results
+        cluster_results = execute_query(INFRA_COST_ESTIMATE, params)
 
         # Detect cloud from results, fall back to host URL detection
         host = get_host_url()
@@ -625,53 +618,47 @@ async def get_infra_costs(
         clusters = []
         total_estimated_cost = 0
         total_dbu_hours = 0
+        family_agg: dict[str, dict] = {}
 
         for row in cluster_results:
             dbu_hours = float(row.get("total_dbu_hours") or 0)
             driver_type = row.get("driver_instance_type")
             worker_type = row.get("worker_instance_type")
 
-            # Calculate cost using cloud-specific pricing
             driver_cost = get_instance_pricing(driver_type, cloud)
             worker_cost = get_instance_pricing(worker_type, cloud)
-
-            # Estimate: assume average 2 workers, runtime ~ DBU hours / 2
             estimated_cost = dbu_hours * (driver_cost + worker_cost * 2) / 2
 
             total_estimated_cost += estimated_cost
             total_dbu_hours += dbu_hours
 
-            clusters.append(
-                {
-                    "cluster_id": row.get("cluster_id"),
-                    "cluster_name": row.get("cluster_name"),
-                    "driver_instance_type": driver_type,
-                    "worker_instance_type": worker_type,
-                    "cluster_source": row.get("cluster_source"),
-                    "total_dbu_hours": dbu_hours,
-                    "estimated_cost": estimated_cost,
-                    "days_active": row.get("days_active") or 0,
-                }
-            )
+            clusters.append({
+                "cluster_id": row.get("cluster_id"),
+                "cluster_name": row.get("cluster_name"),
+                "driver_instance_type": driver_type,
+                "worker_instance_type": worker_type,
+                "cluster_source": row.get("cluster_source"),
+                "total_dbu_hours": dbu_hours,
+                "estimated_cost": estimated_cost,
+                "days_active": row.get("days_active") or 0,
+            })
 
-        # Calculate percentages
+            # Aggregate instance families from cluster data — no second query needed
+            for itype in [driver_type, worker_type]:
+                if itype:
+                    family = get_instance_family(itype, cloud)
+                    days = row.get("days_active") or 0
+                    if family in family_agg:
+                        family_agg[family]["total_dbu_hours"] += dbu_hours
+                        family_agg[family]["days_active"] = max(family_agg[family]["days_active"], days)
+                    else:
+                        family_agg[family] = {"instance_family": family, "total_dbu_hours": dbu_hours, "days_active": days}
+
         for cluster in clusters:
             cluster["percentage"] = (
                 (cluster["estimated_cost"] / total_estimated_cost * 100)
-                if total_estimated_cost > 0
-                else 0
+                if total_estimated_cost > 0 else 0
             )
-        family_agg: dict[str, dict] = {}
-        for row in family_results:
-            instance_type = row.get("instance_type")
-            family = get_instance_family(instance_type, cloud)
-            dbu_hours = float(row.get("total_dbu_hours") or 0)
-            days = row.get("days_active") or 0
-            if family in family_agg:
-                family_agg[family]["total_dbu_hours"] += dbu_hours
-                family_agg[family]["days_active"] = max(family_agg[family]["days_active"], days)
-            else:
-                family_agg[family] = {"instance_family": family, "total_dbu_hours": dbu_hours, "days_active": days}
         instance_families = sorted(family_agg.values(), key=lambda f: f["total_dbu_hours"], reverse=True)
 
         return {
@@ -810,13 +797,11 @@ async def get_infra_bundle(
     try:
         query_results = execute_queries_parallel([
             ("clusters", lambda: execute_query(INFRA_COST_ESTIMATE, params)),
-            ("families", lambda: execute_query(INFRA_COST_BY_INSTANCE_TYPE, params)),
             ("timeseries", lambda: execute_query(INFRA_COST_TIMESERIES, params)),
             ("billing_summary", lambda: execute_query(BILLING_INFRA_SUMMARY, params)),
         ])
 
         cluster_results = query_results.get("clusters") or []
-        family_results = query_results.get("families") or []
         ts_results = query_results.get("timeseries") or []
         billing_summary_results = query_results.get("billing_summary") or []
 
@@ -835,10 +820,11 @@ async def get_infra_bundle(
                     cloud = row.get("cloud")
                     break
 
-        # --- Build clusters ---
+        # --- Build clusters and instance families in one pass ---
         clusters = []
         total_estimated_cost = 0
         total_dbu_hours = 0
+        family_agg: dict[str, dict] = {}
 
         for row in cluster_results:
             dbu_hours = float(row.get("total_dbu_hours") or 0)
@@ -860,25 +846,22 @@ async def get_infra_bundle(
                 "estimated_cost": estimated_cost,
                 "days_active": row.get("days_active") or 0,
             })
+            # Derive instance families from cluster data — no second query needed
+            for itype in [driver_type, worker_type]:
+                if itype:
+                    family = get_instance_family(itype, cloud)
+                    days = row.get("days_active") or 0
+                    if family in family_agg:
+                        family_agg[family]["total_dbu_hours"] += dbu_hours
+                        family_agg[family]["days_active"] = max(family_agg[family]["days_active"], days)
+                    else:
+                        family_agg[family] = {"instance_family": family, "total_dbu_hours": dbu_hours, "days_active": days}
 
         for cluster in clusters:
             cluster["percentage"] = (
                 (cluster["estimated_cost"] / total_estimated_cost * 100)
                 if total_estimated_cost > 0 else 0
             )
-
-        # --- Build instance families (aggregate by family name) ---
-        family_agg: dict[str, dict] = {}
-        for row in family_results:
-            instance_type = row.get("instance_type")
-            family = get_instance_family(instance_type, cloud)
-            dbu_hours = float(row.get("total_dbu_hours") or 0)
-            days = row.get("days_active") or 0
-            if family in family_agg:
-                family_agg[family]["total_dbu_hours"] += dbu_hours
-                family_agg[family]["days_active"] = max(family_agg[family]["days_active"], days)
-            else:
-                family_agg[family] = {"instance_family": family, "total_dbu_hours": dbu_hours, "days_active": days}
         instance_families = sorted(family_agg.values(), key=lambda f: f["total_dbu_hours"], reverse=True)
 
         # --- Build timeseries ---

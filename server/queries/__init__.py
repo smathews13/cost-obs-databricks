@@ -1156,101 +1156,52 @@ ORDER BY usage_date, product_category
 # Uses dynamic pricing based on cloud provider
 INFRA_COST_ESTIMATE = """
 WITH cluster_info AS (
-  -- Aggregate by cluster_id to avoid fan-out from multiple config rows
-  -- (system.compute.clusters is an audit log, one row per config change)
+  -- Deduplicate audit log — one row per cluster with latest config
   SELECT
     cluster_id,
-    MAX(cluster_name) as cluster_name,
+    MAX(cluster_name)     AS cluster_name,
     MAX(driver_node_type) AS driver_instance_type,
     MAX(worker_node_type) AS worker_instance_type,
-    MAX(cluster_source) as cluster_source
+    MAX(cluster_source)   AS cluster_source
   FROM system.compute.clusters
   GROUP BY cluster_id
 ),
-cluster_usage AS (
+usage_with_cluster AS (
   SELECT
     u.usage_date,
     u.workspace_id,
     u.usage_metadata.cluster_id AS cluster_id,
-    u.usage_quantity,
     u.cloud,
-    u.usage_quantity AS estimated_dbu_hours
+    u.usage_quantity            AS estimated_dbu_hours,
+    ci.cluster_name,
+    ci.driver_instance_type,
+    ci.worker_instance_type,
+    ci.cluster_source
   FROM system.billing.usage u
+  LEFT JOIN cluster_info ci ON u.usage_metadata.cluster_id = ci.cluster_id
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.usage_metadata.cluster_id IS NOT NULL
     AND u.billing_origin_product NOT IN ('SQL', 'DLT')
-),
-usage_with_cluster AS (
-  SELECT
-    cu.usage_date,
-    cu.workspace_id,
-    cu.cluster_id,
-    cu.cloud,
-    ci.cluster_name,
-    ci.driver_instance_type,
-    ci.worker_instance_type,
-    ci.cluster_source,
-    cu.estimated_dbu_hours
-  FROM cluster_usage cu
-  LEFT JOIN cluster_info ci ON cu.cluster_id = ci.cluster_id
 )
 SELECT
   cluster_id,
-  MAX(cluster_name) as cluster_name,
-  MAX(driver_instance_type) as driver_instance_type,
-  MAX(worker_instance_type) as worker_instance_type,
-  MAX(cluster_source) as cluster_source,
-  MAX(workspace_id) as workspace_id,
-  MAX(cloud) as cloud,
-  SUM(estimated_dbu_hours) as total_dbu_hours,
-  COUNT(DISTINCT usage_date) as days_active
+  MAX(cluster_name)            AS cluster_name,
+  MAX(driver_instance_type)    AS driver_instance_type,
+  MAX(worker_instance_type)    AS worker_instance_type,
+  MAX(cluster_source)          AS cluster_source,
+  MAX(workspace_id)            AS workspace_id,
+  MAX(cloud)                   AS cloud,
+  SUM(estimated_dbu_hours)     AS total_dbu_hours,
+  COUNT(DISTINCT usage_date)   AS days_active
 FROM usage_with_cluster
 GROUP BY cluster_id
 ORDER BY total_dbu_hours DESC
 LIMIT 100
 """
 
-# Multi-cloud cost by instance family
-INFRA_COST_BY_INSTANCE_TYPE = """
-WITH cluster_info AS (
-  SELECT
-    cluster_id,
-    driver_node_type AS driver_instance_type,
-    worker_node_type AS worker_instance_type
-  FROM system.compute.clusters
-),
-cluster_usage AS (
-  SELECT
-    u.usage_date,
-    u.usage_metadata.cluster_id AS cluster_id,
-    u.cloud,
-    u.usage_quantity AS estimated_dbu_hours
-  FROM system.billing.usage u
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.usage_metadata.cluster_id IS NOT NULL
-    AND u.billing_origin_product NOT IN ('SQL', 'DLT')
-),
-usage_with_types AS (
-  SELECT
-    cu.usage_date,
-    cu.cloud,
-    ci.worker_instance_type,
-    cu.estimated_dbu_hours
-  FROM cluster_usage cu
-  LEFT JOIN cluster_info ci ON cu.cluster_id = ci.cluster_id
-)
-SELECT
-  MAX(cloud) as cloud,
-  worker_instance_type as instance_type,
-  SUM(estimated_dbu_hours) as total_dbu_hours,
-  COUNT(DISTINCT usage_date) as days_active
-FROM usage_with_types
-WHERE worker_instance_type IS NOT NULL
-GROUP BY worker_instance_type
-ORDER BY total_dbu_hours DESC
-"""
+# Derived from INFRA_COST_ESTIMATE results in Python — no separate query needed
+INFRA_COST_BY_INSTANCE_TYPE = None
 
 # Multi-cloud cost timeseries
 INFRA_COST_TIMESERIES = """

@@ -9,6 +9,7 @@ either from real Azure exports or from scripts/generate_synthetic_azure_costs.py
 import asyncio
 import logging
 import os
+import time
 from datetime import date, timedelta
 from typing import Any
 
@@ -18,6 +19,10 @@ from server.db import execute_query
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Cache Azure table availability — information_schema.tables is slow
+_azure_status_cache: dict[str, Any] = {"available": None, "checked_at": 0}
+_AZURE_STATUS_TTL = 300  # 5 minutes
 
 
 def get_catalog_schema() -> tuple[str, str]:
@@ -118,15 +123,21 @@ ORDER BY date
 
 @router.get("/status")
 async def get_azure_status() -> dict[str, Any]:
-    """Check if Azure cost tables are available."""
+    """Check if Azure cost tables are available (cached 5 min)."""
     catalog, schema = get_catalog_schema()
-    try:
-        query = CHECK_AZURE_TABLES.format(catalog=catalog, schema=schema, table="actuals_gold")
-        results = execute_query(query)
-        available = len(results) > 0
-    except Exception as e:
-        logger.warning(f"Azure cost tables not available: {e}")
-        available = False
+
+    if _azure_status_cache["available"] is not None and (time.time() - _azure_status_cache["checked_at"]) < _AZURE_STATUS_TTL:
+        available = _azure_status_cache["available"]
+    else:
+        try:
+            query = CHECK_AZURE_TABLES.format(catalog=catalog, schema=schema, table="actuals_gold")
+            results = execute_query(query)
+            available = len(results) > 0
+        except Exception as e:
+            logger.warning(f"Azure cost tables not available: {e}")
+            available = False
+        _azure_status_cache["available"] = available
+        _azure_status_cache["checked_at"] = time.time()
 
     return {
         "azure_available": available,

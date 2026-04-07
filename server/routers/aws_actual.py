@@ -9,6 +9,7 @@ Source: https://github.com/databricks-solutions/cloud-infra-costs
 
 import asyncio
 import logging
+import time
 from datetime import date, timedelta
 from typing import Any
 
@@ -18,6 +19,10 @@ from server.db import execute_query
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Cache CUR availability — information_schema.tables is slow, no need to re-check on every request
+_cur_status_cache: dict[str, Any] = {"available": None, "checked_at": 0}
+_CUR_STATUS_TTL = 300  # 5 minutes
 
 # Check if CUR tables exist
 CHECK_CUR_TABLES = """
@@ -136,20 +141,21 @@ def get_catalog_schema() -> tuple[str, str]:
 
 @router.get("/status")
 async def get_cur_status() -> dict[str, Any]:
-    """Check if AWS CUR tables are available."""
+    """Check if AWS CUR tables are available (cached 5 min)."""
     catalog, schema = get_catalog_schema()
 
-    try:
-        query = CHECK_CUR_TABLES.format(
-            catalog=catalog,
-            schema=schema,
-            table="actuals_gold"
-        )
-        results = execute_query(query)
-        available = len(results) > 0
-    except Exception as e:
-        logger.warning(f"CUR tables not available: {e}")
-        available = False
+    if _cur_status_cache["available"] is not None and (time.time() - _cur_status_cache["checked_at"]) < _CUR_STATUS_TTL:
+        available = _cur_status_cache["available"]
+    else:
+        try:
+            query = CHECK_CUR_TABLES.format(catalog=catalog, schema=schema, table="actuals_gold")
+            results = execute_query(query)
+            available = len(results) > 0
+        except Exception as e:
+            logger.warning(f"CUR tables not available: {e}")
+            available = False
+        _cur_status_cache["available"] = available
+        _cur_status_cache["checked_at"] = time.time()
 
     return {
         "cur_available": available,
