@@ -226,38 +226,26 @@ GROUP BY CASE WHEN usage_date <= :mid_date THEN 'first_half' ELSE 'second_half' 
 """
 
 USERS_GROWTH = """
-WITH monthly_active AS (
+WITH base AS (
   SELECT
-    date_trunc('month', u.usage_date) AS month,
-    COUNT(DISTINCT u.identity_metadata.run_as) AS active_users
-  FROM system.billing.usage u
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.identity_metadata.run_as IS NOT NULL
-  GROUP BY date_trunc('month', u.usage_date)
+    date_trunc('month', usage_date) AS month,
+    identity_metadata.run_as AS user_id
+  FROM system.billing.usage
+  WHERE usage_date BETWEEN :start_date AND :end_date
+    AND usage_quantity > 0
+    AND identity_metadata.run_as IS NOT NULL
 ),
-user_first_seen AS (
-  SELECT
-    u.identity_metadata.run_as AS user_email,
-    date_trunc('month', MIN(u.usage_date)) AS first_month
-  FROM system.billing.usage u
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.identity_metadata.run_as IS NOT NULL
-  GROUP BY u.identity_metadata.run_as
-),
-new_users AS (
-  SELECT first_month AS month, COUNT(*) AS new_users
-  FROM user_first_seen
-  GROUP BY first_month
+user_first AS (
+  SELECT user_id, MIN(month) AS first_month FROM base GROUP BY user_id
 )
 SELECT
-  date_format(m.month, 'yyyy-MM') AS month,
-  m.active_users,
-  COALESCE(n.new_users, 0) AS new_users
-FROM monthly_active m
-LEFT JOIN new_users n ON m.month = n.month
-ORDER BY m.month
+  date_format(b.month, 'yyyy-MM') AS month,
+  COUNT(DISTINCT b.user_id) AS active_users,
+  COUNT(DISTINCT CASE WHEN b.month = f.first_month THEN b.user_id END) AS new_users
+FROM base b
+JOIN user_first f ON b.user_id = f.user_id
+GROUP BY b.month
+ORDER BY month
 """
 
 _SCIM_TIMEOUT = 12.0  # seconds per HTTP request
@@ -456,6 +444,11 @@ async def get_users_groups_bundle(
     mid_dt = start_dt + (end_dt - start_dt) / 2
     growth_params = {**params, "mid_date": mid_dt.isoformat()}
 
+    growth_date_params = {
+        "start_date": (date.today() - timedelta(days=182)).isoformat(),
+        "end_date": (date.today() - timedelta(days=1)).isoformat(),
+    }
+
     queries = [
         ("summary", lambda: execute_query(USERS_SUMMARY, params)),
         ("top_users", lambda: execute_query(USERS_TOP_SPEND, params)),
@@ -463,6 +456,7 @@ async def get_users_groups_bundle(
         ("timeseries", lambda: execute_query(USERS_TIMESERIES, params)),
         ("by_workspace", lambda: execute_query(USERS_BY_WORKSPACE, params)),
         ("spend_growth", lambda: execute_query(USERS_SPEND_GROWTH, growth_params)),
+        ("user_growth", lambda: execute_query(USERS_GROWTH, growth_date_params)),
     ]
     results = execute_queries_parallel(queries)
 
@@ -547,12 +541,23 @@ async def get_users_groups_bundle(
         for r in ws_rows
     ]
 
+    growth_rows = results.get("user_growth") or []
+    user_growth = [
+        {
+            "month": r.get("month"),
+            "active_users": int(r.get("active_users") or 0),
+            "new_users": int(r.get("new_users") or 0),
+        }
+        for r in growth_rows
+    ]
+
     return {
         "summary": summary,
         "top_users": top_users,
         "timeseries": timeseries,
         "timeseries_users": sorted(list(ts_users)),
         "by_workspace": by_workspace,
+        "user_growth": user_growth,
         "start_date": start_date,
         "end_date": end_date,
     }

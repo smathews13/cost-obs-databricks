@@ -247,6 +247,7 @@ export interface UsersGroupsBundle {
   timeseries: Array<{ date: string; [user: string]: string | number }>;
   timeseries_users: string[];
   by_workspace: { workspace_id: string; user_count: number; total_spend: number }[];
+  user_growth: UserGrowthPoint[];
   start_date: string;
   end_date: string;
 }

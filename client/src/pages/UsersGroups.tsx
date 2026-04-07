@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   Cell, LabelList,
 } from "recharts";
-import { useUsersGroupsBundle, useUserGrowth } from "@/hooks/useBillingData";
+import { useUsersGroupsBundle } from "@/hooks/useBillingData";
 import { KPITrendModal } from "@/components/KPITrendModal";
 
 function InfoTooltip({ text }: { text: string }) {
@@ -264,7 +264,6 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
   }, []);
 
   const { data, isLoading } = useUsersGroupsBundle(dateRange);
-  const { data: growthData } = useUserGrowth();
 
   const summary = data?.summary;
   const topUsers = data?.top_users ?? [];
@@ -478,7 +477,7 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
       </div>
 
       {/* User growth charts — always last 6 months */}
-      {growthData && growthData.data.length > 1 && (
+      {data?.user_growth && data.user_growth.length > 1 && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
             <h3 className="text-lg font-medium text-gray-900 mb-1 flex items-center">
@@ -487,7 +486,7 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
             </h3>
             <p className="text-xs text-gray-500 mb-4">Last 6 months</p>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={growthData.data} margin={{ left: 0, right: 16, top: 20, bottom: 0 }}>
+              <BarChart data={data!.user_growth} margin={{ left: 0, right: 16, top: 20, bottom: 0 }}>
                 <XAxis dataKey="month" stroke="#9ca3af" fontSize={12} tickMargin={8} tickFormatter={m => { const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; const parts = m.split("-"); return months[parseInt(parts[1], 10) - 1] || m; }} />
                 <YAxis stroke="#9ca3af" fontSize={12} tickMargin={4} allowDecimals={false} />
                 <Tooltip labelFormatter={l => String(l)} />
@@ -501,7 +500,7 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
             <h3 className="text-lg font-medium text-gray-900 mb-1">Monthly User Growth</h3>
             <p className="text-xs text-gray-500 mb-4">New users appearing for the first time each month — last 6 months</p>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={growthData.data} margin={{ left: 0, right: 16, top: 20, bottom: 0 }}>
+              <BarChart data={data!.user_growth} margin={{ left: 0, right: 16, top: 20, bottom: 0 }}>
                 <XAxis dataKey="month" stroke="#9ca3af" fontSize={12} tickMargin={8} tickFormatter={m => { const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; const parts = m.split("-"); return months[parseInt(parts[1], 10) - 1] || m; }} />
                 <YAxis stroke="#9ca3af" fontSize={12} tickMargin={4} allowDecimals={false} />
                 <Tooltip labelFormatter={l => String(l)} />
