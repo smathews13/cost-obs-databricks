@@ -125,14 +125,16 @@ WITH usage_with_price AS (
     AND u.usage_quantity > 0
 )
 SELECT
-  usage_date,
-  workspace_id,
-  SUM(usage_quantity) as total_dbus,
-  SUM(usage_quantity * price_per_dbu) as total_spend,
-  SUM(usage_quantity * effective_price_per_dbu) as effective_list_spend
-FROM usage_with_price
-GROUP BY usage_date, workspace_id
-ORDER BY usage_date, workspace_id
+  uwp.usage_date,
+  uwp.workspace_id,
+  ws.workspace_name,
+  SUM(uwp.usage_quantity) as total_dbus,
+  SUM(uwp.usage_quantity * uwp.price_per_dbu) as total_spend,
+  SUM(uwp.usage_quantity * uwp.effective_price_per_dbu) as effective_list_spend
+FROM usage_with_price uwp
+LEFT JOIN system.access.workspaces_latest ws ON uwp.workspace_id = ws.workspace_id
+GROUP BY uwp.usage_date, uwp.workspace_id, ws.workspace_name
+ORDER BY uwp.usage_date, uwp.workspace_id
 """
 
 # SQL tool attribution (Genie vs DBSQL) - expensive query, pre-computed daily
@@ -1021,6 +1023,7 @@ ORDER BY usage_date, product_category
 MV_BILLING_BY_WORKSPACE = """
 SELECT
   workspace_id,
+  MAX(workspace_name) as workspace_name,
   SUM(total_dbus) as total_dbus,
   SUM(total_spend) as total_spend
 FROM {catalog}.{schema}.daily_workspace_breakdown
