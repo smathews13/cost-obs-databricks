@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { formatIdentity } from "@/utils/identity";
+import { useSpNames } from "@/hooks/useSpNames";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -88,6 +89,8 @@ interface SourceQuery {
 }
 
 export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryData, isLoading, host, startDate, endDate }: SQLWarehousing360Props) {
+  const allExecutedBy = ((queryData?.top_queries as any)?.queries ?? []).map((q: any) => q.executed_by as string);
+  const spNames = useSpNames(allExecutedBy);
   const [sortField, setSortField] = useState<SortField>("cost");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [queriesPage, setQueriesPage] = useState(1);
@@ -269,7 +272,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
     return Object.values(byUser)
       .sort((a, b) => b.total_spend - a.total_spend)
       .slice(0, 10)
-      .map(u => ({ ...u, user: formatIdentity(u.user) }));
+      .map(u => ({ ...u, user: formatIdentity(u.user, spNames) }));
   }, [queryData?.by_user]);
 
   const timeseriesData = useMemo(() => {
@@ -1030,7 +1033,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                         </td>
                         <td className="px-4 py-3">
                           <span className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 max-w-40 truncate" title={query.executed_by}>
-                            {formatIdentity(query.executed_by)}
+                            {formatIdentity(query.executed_by, spNames)}
                           </span>
                         </td>
                         <td className="max-w-md px-4 py-3 text-sm text-gray-500">
@@ -1248,7 +1251,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                       <tr key={q.statement_id || idx} className="hover:bg-gray-50">
                         <td className="px-4 py-3">
                           <span className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 max-w-40 truncate" title={q.executed_by}>
-                            {formatIdentity(q.executed_by)}
+                            {formatIdentity(q.executed_by, spNames)}
                           </span>
                         </td>
                         <td className="max-w-sm px-4 py-3 text-sm text-gray-500">

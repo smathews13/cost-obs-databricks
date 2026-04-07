@@ -3,6 +3,7 @@ import type { InteractiveBreakdownResponse } from "@/types/billing";
 import { formatCurrency, workspaceUrl } from "@/utils/formatters";
 import { StatusIndicator } from "./StatusIndicator";
 import { formatIdentity } from "@/utils/identity";
+import { useSpNames } from "@/hooks/useSpNames";
 
 interface InteractiveBreakdownProps {
   data: InteractiveBreakdownResponse | undefined;
@@ -188,6 +189,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
   const endIndex = startIndex + itemsPerPage;
   const paginatedData = sortedData.slice(startIndex, endIndex);
 
+  const spNames = useSpNames(data.items.map(i => i.user));
   const uniqueUsers = new Set(data.items.map((i) => i.user).filter(Boolean)).size;
   const uniqueClusters = new Set(data.items.map((i) => i.cluster_id).filter(Boolean)).size;
   const uniqueNotebooks = new Set(data.items.map((i) => i.notebook_path).filter(Boolean)).size;
@@ -330,7 +332,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
                 : viewMode === "by-notebook" && item.key !== "(No Notebook)"
                 ? item.key.split("/").pop() || item.key
                 : viewMode === "by-user"
-                ? formatIdentity(item.key)
+                ? formatIdentity(item.key, spNames)
                 : item.key;
 
               return (
@@ -376,7 +378,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
                     <td className="px-3 py-3">
                       {item.user ? (
                         <span className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 max-w-36 truncate" title={item.user}>
-                          {formatIdentity(item.user)}
+                          {formatIdentity(item.user, spNames)}
                         </span>
                       ) : (
                         <span className="text-gray-400">—</span>

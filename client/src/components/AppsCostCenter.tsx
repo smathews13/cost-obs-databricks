@@ -15,6 +15,7 @@ import type { AppsDashboardBundle, AppsApp, AppsConnectedArtifact, DateRange } f
 import { useAppsDashboardBundle } from "@/hooks/useBillingData";
 import { KPITrendModal } from "./KPITrendModal";
 import { formatIdentity } from "@/utils/identity";
+import { useSpNames } from "@/hooks/useSpNames";
 
 interface AppsCostCenterProps {
   data: AppsDashboardBundle | undefined;
@@ -291,6 +292,11 @@ function AppHostingComparison({
 
 export function AppsCostCenter({ data: initialData, isLoading: initialLoading, host, startDate, endDate, dateRange, enableHostingComparison, workspaceNameMap }: AppsCostCenterProps) {
   const MINIMIZE_KEY = "cost-obs-minimize-apps-info";
+  const spArtifactNames = useSpNames(
+    (initialData?.connected_artifacts ?? [])
+      .filter((a: AppsConnectedArtifact) => a.artifact_type === 'SERVICE_PRINCIPAL')
+      .map((a: AppsConnectedArtifact) => a.artifact_name)
+  );
   const [infoMinimized, setInfoMinimized] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem(MINIMIZE_KEY) === "true";
@@ -1176,7 +1182,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                     const appBackendUrl = hostBase && artifact.app_name ? `${hostBase}/apps/${artifact.app_name}` : null;
 
                     const isSP = artifact.artifact_type === 'SERVICE_PRINCIPAL';
-                    const displayName = isSP ? formatIdentity(artifact.artifact_name) : na(artifact.artifact_name);
+                    const displayName = isSP ? formatIdentity(artifact.artifact_name, spArtifactNames) : na(artifact.artifact_name);
 
                     return (
                       <tr key={`${artifact.app_id}-${artifact.artifact_name}-${idx}`} className="hover:bg-gray-50">

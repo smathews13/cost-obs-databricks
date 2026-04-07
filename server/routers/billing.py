@@ -41,7 +41,6 @@ from server.cloud_pricing import (
 )
 from server.materialized_views import (
     MV_BILLING_BY_PRODUCT,
-    MV_BILLING_BY_WORKSPACE,
     MV_BILLING_SUMMARY,
     MV_BILLING_TIMESERIES,
     MV_ETL_BREAKDOWN,
@@ -322,39 +321,9 @@ async def get_billing_by_workspace(
         "end_date": end_date or get_default_end_date(),
     }
 
-    if _check_mv_available():
-        results = _exec_mv(MV_BILLING_BY_WORKSPACE, params)
-        if not results:
-            results = execute_query(BILLING_BY_WORKSPACE, params)
-    else:
-        results = execute_query(BILLING_BY_WORKSPACE, params)
-
-    workspaces = []
-    total_spend = 0
-
-    for row in results:
-        spend = float(row.get("total_spend") or 0)
-        total_spend += spend
-        workspaces.append(
-            {
-                "workspace_id": row.get("workspace_id"),
-                "total_dbus": float(row.get("total_dbus") or 0),
-                "total_spend": spend,
-                "top_products": _ensure_list(row.get("top_products")),
-                "top_users": _ensure_list(row.get("top_users")),
-            }
-        )
-
-    # Calculate percentages
-    for ws in workspaces:
-        ws["percentage"] = (ws["total_spend"] / total_spend * 100) if total_spend > 0 else 0
-
-    return {
-        "workspaces": workspaces,
-        "total_spend": total_spend,
-        "start_date": params["start_date"],
-        "end_date": params["end_date"],
-    }
+    # Always use the live query here — the MV lacks top_products and top_users columns.
+    results = execute_query(BILLING_BY_WORKSPACE, params)
+    return _format_workspaces(results, params)
 
 
 @router.get("/timeseries")
@@ -1230,14 +1199,11 @@ async def get_dashboard_bundle_fast(
             r = _exec_mv(MV_BILLING_SUMMARY, params)
             return r if r else execute_query(BILLING_SUMMARY, params)
 
-        def _mv_workspaces():
-            r = _exec_mv(MV_BILLING_BY_WORKSPACE, params)
-            return r if r else execute_query(BILLING_BY_WORKSPACE, params)
-
         queries = [
             ("summary", _mv_summary),
             ("products", lambda: execute_query(BILLING_BY_PRODUCT_FAST, params)),
-            ("workspaces", _mv_workspaces),
+            # Live query always used — MV lacks top_products/top_users columns
+            ("workspaces", lambda: execute_query(BILLING_BY_WORKSPACE, params)),
             ("timeseries", lambda: _exec_mv(MV_BILLING_TIMESERIES, params)),
             ("etl_breakdown", lambda: _exec_mv(MV_ETL_BREAKDOWN, params)),
         ]
