@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, get_catalog_schema
+from server.db import execute_query, execute_queries_parallel, get_catalog_schema
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -389,3 +389,120 @@ async def get_top_queries_by_origin(
     ]
     return {"available": True, "queries": queries, "origin": origin,
             "start_date": start_date, "end_date": end_date}
+
+
+@router.get("/bundle")
+async def get_origin_bundle(
+    start_date: str = Query(default=None),
+    end_date: str = Query(default=None),
+) -> dict[str, Any]:
+    """Run all query origin data fetches in parallel — single round-trip for the SQL Origin tab."""
+    start_date, end_date = _default_dates(start_date, end_date)
+    catalog, schema = get_catalog_schema()
+    params = {"start_date": start_date, "end_date": end_date}
+
+    def _run_summary():
+        try:
+            rows, has_cost = _execute_with_fallback(
+                _SUMMARY_SQL.format(catalog=catalog, schema=schema),
+                _SUMMARY_SQL_NO_COST,
+                params,
+            )
+            return rows, has_cost
+        except Exception as e:
+            logger.warning(f"Bundle summary failed: {e}")
+            return [], False
+
+    def _run_timeseries():
+        try:
+            rows, _ = _execute_with_fallback(
+                _TIMESERIES_SQL.format(catalog=catalog, schema=schema),
+                _TIMESERIES_SQL_NO_COST,
+                params,
+            )
+            return rows
+        except Exception as e:
+            logger.warning(f"Bundle timeseries failed: {e}")
+            return []
+
+    def _run_by_warehouse():
+        try:
+            rows, _ = _execute_with_fallback(
+                _BY_WAREHOUSE_SQL.format(catalog=catalog, schema=schema),
+                _BY_WAREHOUSE_SQL_NO_COST,
+                params,
+            )
+            return rows
+        except Exception as e:
+            logger.warning(f"Bundle by-warehouse failed: {e}")
+            return []
+
+    raw = execute_queries_parallel([
+        ("summary", _run_summary),
+        ("timeseries", _run_timeseries),
+        ("by_warehouse", _run_by_warehouse),
+    ])
+
+    # --- Format summary ---
+    summary_rows, has_cost = raw.get("summary") or ([], False)
+    total_spend = sum(float(r.get("total_spend") or 0) for r in summary_rows)
+    total_queries = sum(int(r.get("query_count") or 0) for r in summary_rows)
+    origins_summary = [
+        {
+            "origin": r.get("query_origin") or "HUMAN",
+            "query_count": int(r.get("query_count") or 0),
+            "total_spend": float(r.get("total_spend") or 0),
+            "total_dbus": float(r.get("total_dbus") or 0),
+            "percentage": round(float(r.get("query_count") or 0) / total_queries * 100, 2)
+            if not has_cost and total_queries > 0
+            else (round(float(r.get("total_spend") or 0) / total_spend * 100, 2) if total_spend > 0 else 0),
+        }
+        for r in summary_rows
+    ]
+
+    # --- Format timeseries ---
+    ts_rows = raw.get("timeseries") or []
+    origins_set: set[str] = set()
+    data_by_date: dict[str, dict] = {}
+    for r in ts_rows:
+        d = str(r.get("usage_date"))
+        origin = r.get("query_origin") or "HUMAN"
+        origins_set.add(origin)
+        if d not in data_by_date:
+            data_by_date[d] = {"date": d}
+        data_by_date[d][origin] = float(r.get("daily_spend") or 0)
+    origins_list = sorted(list(origins_set))
+    timeseries = []
+    for d in sorted(data_by_date):
+        row = data_by_date[d]
+        for o in origins_list:
+            if o not in row:
+                row[o] = 0
+        timeseries.append(row)
+
+    # --- Format by-warehouse ---
+    wh_rows = raw.get("by_warehouse") or []
+    wh_map: dict[str, dict] = {}
+    for r in wh_rows:
+        wid = r.get("warehouse_id") or "unknown"
+        if wid not in wh_map:
+            wh_map[wid] = {"warehouse_id": wid, "total_spend": 0, "total_dbus": 0, "origins": {}}
+        origin = r.get("query_origin") or "HUMAN"
+        spend = float(r.get("total_spend") or 0)
+        wh_map[wid]["total_spend"] += spend
+        wh_map[wid]["total_dbus"] += float(r.get("total_dbus") or 0)
+        wh_map[wid]["origins"][origin] = {
+            "query_count": int(r.get("query_count") or 0),
+            "total_spend": spend,
+        }
+    warehouses = sorted(wh_map.values(), key=lambda x: x["total_spend"], reverse=True)
+
+    return {
+        "available": True,
+        "has_cost_data": has_cost,
+        "summary": {"origins": origins_summary, "total_spend": total_spend},
+        "timeseries": {"timeseries": timeseries, "origins": origins_list},
+        "by_warehouse": {"warehouses": warehouses},
+        "start_date": start_date,
+        "end_date": end_date,
+    }

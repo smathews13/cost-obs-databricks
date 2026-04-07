@@ -228,7 +228,10 @@ async def get_billing_summary(
         "end_date": end_date or get_default_end_date(),
     }
 
-    results = execute_query(BILLING_SUMMARY, params)
+    if _check_mv_available():
+        results = _exec_mv(MV_BILLING_SUMMARY, params)
+    else:
+        results = execute_query(BILLING_SUMMARY, params)
 
     if not results:
         return {
@@ -317,7 +320,10 @@ async def get_billing_by_workspace(
         "end_date": end_date or get_default_end_date(),
     }
 
-    results = execute_query(BILLING_BY_WORKSPACE, params)
+    if _check_mv_available():
+        results = _exec_mv(MV_BILLING_BY_WORKSPACE, params)
+    else:
+        results = execute_query(BILLING_BY_WORKSPACE, params)
 
     workspaces = []
     total_spend = 0
@@ -1210,35 +1216,29 @@ async def get_dashboard_bundle_fast(
 
     use_mv = _check_mv_available()
 
-    # Most recent day's workspace count (matches the latest point in KPI trend)
-    WORKSPACE_COUNT_QUERY = """
-    SELECT daily_ws as workspace_count FROM (
-      SELECT usage_date, COUNT(DISTINCT workspace_id) as daily_ws
-      FROM system.billing.usage
-      WHERE usage_date BETWEEN :start_date AND :end_date AND usage_quantity > 0
-      GROUP BY usage_date
-      ORDER BY usage_date DESC
-      LIMIT 1
-    )
-    """
-
     if use_mv:
-        # Use materialized views - much faster!
-        # Note: summary and workspaces always use live queries —
-        # summary for consistency with tagging tab totals,
-        # workspaces because the MV doesn't include top_products/top_users
-        # products always uses fast query to pick up category changes without MV refresh
+        # Use materialized views — sub-second queries for all heavy aggregations
         logger.info("Using materialized views for dashboard bundle")
         queries = [
-            ("summary", lambda: execute_query(BILLING_SUMMARY, params)),
+            ("summary", lambda: _exec_mv(MV_BILLING_SUMMARY, params)),
             ("products", lambda: execute_query(BILLING_BY_PRODUCT_FAST, params)),
-            ("workspaces", lambda: execute_query(BILLING_BY_WORKSPACE, params)),
+            ("workspaces", lambda: _exec_mv(MV_BILLING_BY_WORKSPACE, params)),
             ("timeseries", lambda: _exec_mv(MV_BILLING_TIMESERIES, params)),
             ("etl_breakdown", lambda: _exec_mv(MV_ETL_BREAKDOWN, params)),
-            ("workspace_count", lambda: execute_query(WORKSPACE_COUNT_QUERY, params)),
         ]
     else:
         # Fall back to fast queries without MVs
+        # Most recent day's workspace count (matches latest point in KPI trend)
+        WORKSPACE_COUNT_QUERY = """
+        SELECT daily_ws as workspace_count FROM (
+          SELECT usage_date, COUNT(DISTINCT workspace_id) as daily_ws
+          FROM system.billing.usage
+          WHERE usage_date BETWEEN :start_date AND :end_date AND usage_quantity > 0
+          GROUP BY usage_date
+          ORDER BY usage_date DESC
+          LIMIT 1
+        )
+        """
         queries = [
             ("summary", lambda: execute_query(BILLING_SUMMARY, params)),
             ("products", lambda: execute_query(BILLING_BY_PRODUCT_FAST, params)),
@@ -1261,12 +1261,13 @@ async def get_dashboard_bundle_fast(
         "using_materialized_views": use_mv,
     }
 
-    # Override workspace_count with accurate cross-range distinct count
-    wc_results = results.get("workspace_count")
-    if wc_results and len(wc_results) > 0:
-        accurate_count = int(wc_results[0].get("workspace_count") or 0)
-        if accurate_count > 0:
-            response["summary"]["workspace_count"] = accurate_count
+    # Without MVs: override workspace_count with accurate most-recent-day count
+    if not use_mv:
+        wc_results = results.get("workspace_count")
+        if wc_results and len(wc_results) > 0:
+            accurate_count = int(wc_results[0].get("workspace_count") or 0)
+            if accurate_count > 0:
+                response["summary"]["workspace_count"] = accurate_count
 
     return response
 
@@ -2043,10 +2044,16 @@ async def get_kpi_trend(
         "start_date": start_date or get_default_start_date(),
         "end_date": end_date or get_default_end_date(),
     }
-    
-    # Build query based on KPI type
+
+    use_mv = _check_mv_available()
+
+    # Build query based on KPI type — use MVs when available for daily-aggregation KPIs
     if kpi == "total_spend" or kpi == "avg_daily_spend":
-        query = """
+        if use_mv:
+            catalog, schema = get_catalog_schema()
+            query = f"SELECT usage_date as date, total_spend as value FROM {catalog}.{schema}.daily_usage_summary WHERE usage_date BETWEEN :start_date AND :end_date ORDER BY usage_date"
+        else:
+            query = """
         WITH usage_with_price AS (
           SELECT
             u.usage_date,
@@ -2068,7 +2075,11 @@ async def get_kpi_trend(
         ORDER BY usage_date
         """
     elif kpi == "total_dbus":
-        query = """
+        if use_mv:
+            catalog, schema = get_catalog_schema()
+            query = f"SELECT usage_date as date, total_dbus as value FROM {catalog}.{schema}.daily_usage_summary WHERE usage_date BETWEEN :start_date AND :end_date ORDER BY usage_date"
+        else:
+            query = """
         SELECT
           usage_date as date,
           SUM(usage_quantity) as value
@@ -2079,7 +2090,11 @@ async def get_kpi_trend(
         ORDER BY usage_date
         """
     elif kpi == "workspace_count":
-        query = """
+        if use_mv:
+            catalog, schema = get_catalog_schema()
+            query = f"SELECT usage_date as date, workspace_count as value FROM {catalog}.{schema}.daily_usage_summary WHERE usage_date BETWEEN :start_date AND :end_date ORDER BY usage_date"
+        else:
+            query = """
         SELECT
           usage_date as date,
           COUNT(DISTINCT workspace_id) as value

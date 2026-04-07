@@ -376,14 +376,10 @@ def prewarm_all_tabs():
 
         logger.info("Pre-warming ALL tabs cache in background...")
 
-        # Query origin — pre-warm all endpoints (system.query.history × dbsql_cost_per_query can be slow)
+        # Query origin — pre-warm all endpoints in parallel (system.query.history × dbsql_cost_per_query can be slow)
         catalog, schema = get_catalog_schema()
-        origin_queries = [
-            ("summary", _SUMMARY_SQL.format(catalog=catalog, schema=schema), _SUMMARY_SQL_NO_COST),
-            ("timeseries", _TIMESERIES_SQL.format(catalog=catalog, schema=schema), _TIMESERIES_SQL_NO_COST),
-            ("by_warehouse", _BY_WAREHOUSE_SQL.format(catalog=catalog, schema=schema), _BY_WAREHOUSE_SQL_NO_COST),
-        ]
-        for name, sql_cost, sql_no_cost in origin_queries:
+
+        def _prewarm_origin(sql_cost, sql_no_cost, name):
             try:
                 execute_query(sql_cost, params)
                 logger.info(f"Pre-warmed query origin {name} (with cost)")
@@ -393,6 +389,13 @@ def prewarm_all_tabs():
                     logger.info(f"Pre-warmed query origin {name} (no cost fallback)")
                 except Exception as e:
                     logger.warning(f"Query origin {name} pre-warm failed (non-fatal): {e}")
+
+        origin_prewarm_queries = [
+            ("origin_summary", lambda: _prewarm_origin(_SUMMARY_SQL.format(catalog=catalog, schema=schema), _SUMMARY_SQL_NO_COST, "summary")),
+            ("origin_timeseries", lambda: _prewarm_origin(_TIMESERIES_SQL.format(catalog=catalog, schema=schema), _TIMESERIES_SQL_NO_COST, "timeseries")),
+            ("origin_by_warehouse", lambda: _prewarm_origin(_BY_WAREHOUSE_SQL.format(catalog=catalog, schema=schema), _BY_WAREHOUSE_SQL_NO_COST, "by_warehouse")),
+        ]
+        execute_queries_parallel(origin_prewarm_queries)
 
         # Tagging queries
         tagging_queries = [
