@@ -230,6 +230,8 @@ async def get_billing_summary(
 
     if _check_mv_available():
         results = _exec_mv(MV_BILLING_SUMMARY, params)
+        if not results:
+            results = execute_query(BILLING_SUMMARY, params)
     else:
         results = execute_query(BILLING_SUMMARY, params)
 
@@ -322,6 +324,8 @@ async def get_billing_by_workspace(
 
     if _check_mv_available():
         results = _exec_mv(MV_BILLING_BY_WORKSPACE, params)
+        if not results:
+            results = execute_query(BILLING_BY_WORKSPACE, params)
     else:
         results = execute_query(BILLING_BY_WORKSPACE, params)
 
@@ -1217,12 +1221,14 @@ async def get_dashboard_bundle_fast(
     use_mv = _check_mv_available()
 
     if use_mv:
-        # Use materialized views — sub-second queries for all heavy aggregations
-        logger.info("Using materialized views for dashboard bundle")
+        # Use materialized views for timeseries/etl (the slow ones).
+        # Summary stays on live query for accuracy + tagging tab consistency.
+        # Workspaces stays on live query since MV lacks top_products/top_users.
+        logger.info("Using materialized views for dashboard bundle (timeseries + etl)")
         queries = [
-            ("summary", lambda: _exec_mv(MV_BILLING_SUMMARY, params)),
+            ("summary", lambda: execute_query(BILLING_SUMMARY, params)),
             ("products", lambda: execute_query(BILLING_BY_PRODUCT_FAST, params)),
-            ("workspaces", lambda: _exec_mv(MV_BILLING_BY_WORKSPACE, params)),
+            ("workspaces", lambda: execute_query(BILLING_BY_WORKSPACE, params)),
             ("timeseries", lambda: _exec_mv(MV_BILLING_TIMESERIES, params)),
             ("etl_breakdown", lambda: _exec_mv(MV_ETL_BREAKDOWN, params)),
         ]
@@ -2048,10 +2054,34 @@ async def get_kpi_trend(
     use_mv = _check_mv_available()
 
     # Build query based on KPI type — use MVs when available for daily-aggregation KPIs
+    # mv_fallback_query is set when using an MV so we can fall back to live if MV is empty
+    mv_fallback_query = None
+
     if kpi == "total_spend" or kpi == "avg_daily_spend":
         if use_mv:
             catalog, schema = get_catalog_schema()
             query = f"SELECT usage_date as date, total_spend as value FROM {catalog}.{schema}.daily_usage_summary WHERE usage_date BETWEEN :start_date AND :end_date ORDER BY usage_date"
+            mv_fallback_query = """
+        WITH usage_with_price AS (
+          SELECT
+            u.usage_date,
+            u.usage_quantity,
+            COALESCE(p.pricing.default, 0) as price_per_dbu
+          FROM system.billing.usage u
+          LEFT JOIN system.billing.list_prices p
+            ON u.sku_name = p.sku_name
+            AND u.cloud = p.cloud
+            AND p.price_end_time IS NULL
+          WHERE u.usage_date BETWEEN :start_date AND :end_date
+            AND u.usage_quantity > 0
+        )
+        SELECT
+          usage_date as date,
+          SUM(usage_quantity * price_per_dbu) as value
+        FROM usage_with_price
+        GROUP BY usage_date
+        ORDER BY usage_date
+        """
         else:
             query = """
         WITH usage_with_price AS (
@@ -2078,6 +2108,16 @@ async def get_kpi_trend(
         if use_mv:
             catalog, schema = get_catalog_schema()
             query = f"SELECT usage_date as date, total_dbus as value FROM {catalog}.{schema}.daily_usage_summary WHERE usage_date BETWEEN :start_date AND :end_date ORDER BY usage_date"
+            mv_fallback_query = """
+        SELECT
+          usage_date as date,
+          SUM(usage_quantity) as value
+        FROM system.billing.usage
+        WHERE usage_date BETWEEN :start_date AND :end_date
+          AND usage_quantity > 0
+        GROUP BY usage_date
+        ORDER BY usage_date
+        """
         else:
             query = """
         SELECT
@@ -2093,6 +2133,16 @@ async def get_kpi_trend(
         if use_mv:
             catalog, schema = get_catalog_schema()
             query = f"SELECT usage_date as date, workspace_count as value FROM {catalog}.{schema}.daily_usage_summary WHERE usage_date BETWEEN :start_date AND :end_date ORDER BY usage_date"
+            mv_fallback_query = """
+        SELECT
+          usage_date as date,
+          COUNT(DISTINCT workspace_id) as value
+        FROM system.billing.usage
+        WHERE usage_date BETWEEN :start_date AND :end_date
+          AND usage_quantity > 0
+        GROUP BY usage_date
+        ORDER BY usage_date
+        """
         else:
             query = """
         SELECT
@@ -2340,23 +2390,32 @@ async def get_kpi_trend(
 
     try:
         results = execute_query(query, params)
+        if not results and mv_fallback_query:
+            logger.info(f"KPI trend MV returned empty for {kpi}, falling back to live query")
+            results = execute_query(mv_fallback_query, params)
     except Exception as e:
         logger.error(f"KPI trend query failed for {kpi}: {e}")
-        return {
-            "kpi": kpi,
-            "granularity": granularity,
-            "data_points": [],
-            "summary": {
-                "period_start_value": 0,
-                "period_end_value": 0,
-                "change_amount": 0,
-                "change_percent": 0,
-                "min_value": 0,
-                "max_value": 0,
-                "avg_value": 0,
-                "trend": "flat"
+        if mv_fallback_query:
+            try:
+                results = execute_query(mv_fallback_query, params)
+            except Exception:
+                results = []
+        if not results:
+            return {
+                "kpi": kpi,
+                "granularity": granularity,
+                "data_points": [],
+                "summary": {
+                    "period_start_value": 0,
+                    "period_end_value": 0,
+                    "change_amount": 0,
+                    "change_percent": 0,
+                    "min_value": 0,
+                    "max_value": 0,
+                    "avg_value": 0,
+                    "trend": "flat",
+                },
             }
-        }
 
     # Process results into daily data points
     daily_points = []
