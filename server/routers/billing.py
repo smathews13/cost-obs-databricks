@@ -2513,6 +2513,35 @@ async def get_kpi_trend(
         }
     }
 
+def _build_platform_kpi_response(kpi: str, granularity: str, data_points: list[dict]) -> dict[str, Any]:
+    """Build the standard platform KPI trend response from a list of {date, value} points."""
+    PLATFORM_AVG_KPIS = {"avg_query_duration"}
+    all_values = [dp["value"] for dp in data_points]
+    if not data_points:
+        return {"kpi": kpi, "granularity": granularity, "data_points": [], "summary": {
+            "period_start_value": 0, "period_end_value": 0, "change_amount": 0,
+            "change_percent": 0, "min_value": 0, "max_value": 0, "avg_value": 0, "trend": "flat"
+        }}
+    period_start_value = all_values[0]
+    period_end_value = all_values[-1]
+    change_amount = period_end_value - period_start_value
+    change_percent = (change_amount / period_start_value * 100) if period_start_value > 0 else 0
+    trend = "flat" if abs(change_percent) < 5 else ("increasing" if change_percent > 0 else "decreasing")
+    return {
+        "kpi": kpi, "granularity": granularity, "data_points": data_points,
+        "summary": {
+            "period_start_value": round(period_start_value, 2),
+            "period_end_value": round(period_end_value, 2),
+            "change_amount": round(change_amount, 2),
+            "change_percent": round(change_percent, 2),
+            "min_value": round(min(all_values), 2),
+            "max_value": round(max(all_values), 2),
+            "avg_value": round(sum(all_values) / len(all_values), 2),
+            "trend": trend,
+        }
+    }
+
+
 @router.get("/platform-kpi-trend")
 async def get_platform_kpi_trend(
     kpi: str = Query(..., description="Platform KPI: total_queries, total_rows_read, total_bytes_read, total_compute_seconds, total_jobs, total_job_runs, successful_runs, active_notebooks, active_workspaces, models_served, total_users"),
@@ -2525,6 +2554,84 @@ async def get_platform_kpi_trend(
         "start_date": start_date or get_default_start_date(),
         "end_date": end_date or get_default_end_date(),
     }
+
+    # For DISTINCT COUNT KPIs, monthly/weekly rollup must be done in SQL — summing
+    # daily distinct counts in Python overcounts (user active 30 days = 30x, not 1x).
+    # We re-query with DATE_TRUNC grouping so the DB computes true monthly/weekly uniques.
+    DATE_TRUNC_MAP = {"weekly": "WEEK", "monthly": "MONTH"}
+    if granularity in DATE_TRUNC_MAP:
+        trunc = DATE_TRUNC_MAP[granularity]
+        if kpi == "total_users":
+            query = f"""
+            SELECT
+              DATE_TRUNC('{trunc}', DATE(start_time)) as date,
+              COUNT(DISTINCT COALESCE(executed_by, executed_as_user_id)) as value
+            FROM system.query.history
+            WHERE start_time >= CAST(:start_date AS TIMESTAMP)
+              AND start_time < CAST(DATE_ADD(CAST(:end_date AS DATE), 1) AS TIMESTAMP)
+              AND (executed_by IS NOT NULL OR executed_as_user_id IS NOT NULL)
+            GROUP BY DATE_TRUNC('{trunc}', DATE(start_time))
+            ORDER BY date
+            """
+            results = execute_query(query, params)
+            daily_points = [{"date": str(r["date"])[:10], "value": float(r["value"] or 0)} for r in results]
+            return _build_platform_kpi_response(kpi, granularity, daily_points)
+        elif kpi == "active_workspaces":
+            query = f"""
+            SELECT
+              DATE_TRUNC('{trunc}', usage_date) as date,
+              COUNT(DISTINCT workspace_id) as value
+            FROM system.billing.usage
+            WHERE usage_date >= :start_date AND usage_date <= :end_date AND usage_quantity > 0
+            GROUP BY DATE_TRUNC('{trunc}', usage_date)
+            ORDER BY date
+            """
+            results = execute_query(query, params)
+            daily_points = [{"date": str(r["date"])[:10], "value": float(r["value"] or 0)} for r in results]
+            return _build_platform_kpi_response(kpi, granularity, daily_points)
+        elif kpi == "total_jobs":
+            query = f"""
+            SELECT
+              DATE_TRUNC('{trunc}', usage_date) as date,
+              COUNT(DISTINCT usage_metadata.job_id) as value
+            FROM system.billing.usage
+            WHERE usage_date >= :start_date AND usage_date <= :end_date
+              AND usage_metadata.job_id IS NOT NULL AND usage_quantity > 0
+            GROUP BY DATE_TRUNC('{trunc}', usage_date)
+            ORDER BY date
+            """
+            results = execute_query(query, params)
+            daily_points = [{"date": str(r["date"])[:10], "value": float(r["value"] or 0)} for r in results]
+            return _build_platform_kpi_response(kpi, granularity, daily_points)
+        elif kpi == "models_served":
+            query = f"""
+            SELECT
+              DATE_TRUNC('{trunc}', usage_date) as date,
+              COUNT(DISTINCT usage_metadata.endpoint_name) as value
+            FROM system.billing.usage
+            WHERE usage_date >= :start_date AND usage_date <= :end_date
+              AND sku_name LIKE '%INFERENCE%' AND usage_quantity > 0
+            GROUP BY DATE_TRUNC('{trunc}', usage_date)
+            ORDER BY date
+            """
+            results = execute_query(query, params)
+            daily_points = [{"date": str(r["date"])[:10], "value": float(r["value"] or 0)} for r in results]
+            return _build_platform_kpi_response(kpi, granularity, daily_points)
+        elif kpi == "unique_warehouses":
+            query = f"""
+            SELECT
+              DATE_TRUNC('{trunc}', DATE(start_time)) as date,
+              COUNT(DISTINCT warehouse_id) as value
+            FROM system.query.history
+            WHERE start_time >= CAST(:start_date AS TIMESTAMP)
+              AND start_time < CAST(DATE_ADD(CAST(:end_date AS DATE), 1) AS TIMESTAMP)
+              AND warehouse_id IS NOT NULL
+            GROUP BY DATE_TRUNC('{trunc}', DATE(start_time))
+            ORDER BY date
+            """
+            results = execute_query(query, params)
+            daily_points = [{"date": str(r["date"])[:10], "value": float(r["value"] or 0)} for r in results]
+            return _build_platform_kpi_response(kpi, granularity, daily_points)
 
     # Build query based on KPI type
     # Use explicit TIMESTAMP casts for partition-aware date filtering on system.query.history
