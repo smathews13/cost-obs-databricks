@@ -33,7 +33,6 @@ function InfoTooltip({ text }: { text: string }) {
 import type { UserSpend } from "@/hooks/useBillingData";
 import type { DateRange } from "@/types/billing";
 import { formatIdentity, isServicePrincipal } from "@/utils/identity";
-import { useSpNames } from "@/hooks/useSpNames";
 
 const COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#8B5CF6", "#EC4899", "#EF4444", "#6B7280", "#3B82F6"];
 
@@ -59,7 +58,7 @@ function fmt(n: number) {
 
 // ── User Detail Modal ─────────────────────────────────────────────────────────
 
-function UserDetailModal({ user, onClose, spNames }: { user: UserSpend; onClose: () => void; spNames: Record<string, string> }) {
+function UserDetailModal({ user, onClose }: { user: UserSpend; onClose: () => void }) {
   const [detail, setDetail] = useState<{ permission_grants: { type: string; value: string }[] } | null>(null);
 
   useEffect(() => {
@@ -75,7 +74,7 @@ function UserDetailModal({ user, onClose, spNames }: { user: UserSpend; onClose:
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-gray-900 text-sm truncate max-w-75">{formatIdentity(user.user_email, spNames)}</h3>
+              <h3 className="font-semibold text-gray-900 text-sm truncate max-w-75">{formatIdentity(user.user_email)}</h3>
             </div>
             <p className="text-xs text-gray-500 mt-0.5">{user.active_days} active days · {user.workspace_count} workspace{user.workspace_count !== 1 ? "s" : ""}</p>
           </div>
@@ -269,8 +268,6 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
 
   const summary = data?.summary;
   const topUsers = data?.top_users ?? [];
-  const spNames = useSpNames(topUsers.map(u => u.user_email));
-
   const uniqueProducts = Array.from(new Set(topUsers.map(u => u.primary_product).filter(Boolean))).sort();
 
   const filtered = topUsers
@@ -295,7 +292,7 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
   // Pre-format labels so Recharts category axis shows abbreviated SP names directly
   const seenLabels = new Set<string>();
   const barData = topUsers.slice(0, 15).map(u => {
-    let label = formatIdentity(u.user_email, spNames);
+    let label = formatIdentity(u.user_email);
     if (seenLabels.has(label)) {
       let n = 2;
       while (seenLabels.has(`${label} (${n})`)) n++;
@@ -411,7 +408,7 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
             <div className="min-w-0">
               <p className="text-sm text-gray-500">Top spender</p>
               <p className="text-2xl font-semibold text-gray-900">{topUsers[0] ? fmt(topUsers[0].total_spend) : "—"}</p>
-              {topUsers[0] && <p className="text-xs text-gray-400 truncate">{formatIdentity(topUsers[0].user_email, spNames)}</p>}
+              {topUsers[0] && <p className="text-xs text-gray-400 truncate">{formatIdentity(topUsers[0].user_email)}</p>}
               <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
             </div>
           </div>
@@ -646,7 +643,7 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
                           {sp ? "SP" : u.user_email.charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0">
-                          <span className="text-gray-800 font-medium truncate max-w-55 block">{formatIdentity(u.user_email, spNames)}</span>
+                          <span className="text-gray-800 font-medium truncate max-w-55 block">{formatIdentity(u.user_email)}</span>
                         </div>
                       </div>
                     </td>
@@ -710,7 +707,7 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
       </div>
 
       {selectedUser && (
-        <UserDetailModal user={selectedUser} onClose={() => setSelectedUser(null)} spNames={spNames} />
+        <UserDetailModal user={selectedUser} onClose={() => setSelectedUser(null)} />
       )}
       </>}
     </div>
