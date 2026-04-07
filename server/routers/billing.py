@@ -1197,14 +1197,21 @@ async def get_dashboard_bundle_fast(
 
         def _mv_summary():
             r = _exec_mv(MV_BILLING_SUMMARY, params)
-            return r if r else execute_query(BILLING_SUMMARY, params)
+            # Fall back if empty or if MV returned zero spend (table exists but not yet populated)
+            if r and float((r[0] if r else {}).get("total_spend") or 0) > 0:
+                return r
+            return execute_query(BILLING_SUMMARY, params)
+
+        def _mv_timeseries():
+            r = _exec_mv(MV_BILLING_TIMESERIES, params)
+            return r if r else execute_query(BILLING_TIMESERIES_FAST, params)
 
         queries = [
             ("summary", _mv_summary),
             ("products", lambda: execute_query(BILLING_BY_PRODUCT_FAST, params)),
             # Live query always used — MV lacks top_products/top_users columns
             ("workspaces", lambda: execute_query(BILLING_BY_WORKSPACE, params)),
-            ("timeseries", lambda: _exec_mv(MV_BILLING_TIMESERIES, params)),
+            ("timeseries", _mv_timeseries),
             ("etl_breakdown", lambda: _exec_mv(MV_ETL_BREAKDOWN, params)),
         ]
     else:
