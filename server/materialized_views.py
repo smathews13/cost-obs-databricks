@@ -859,15 +859,24 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
         ("dbsql_cost_per_query", CREATE_DBSQL_COST_PER_QUERY),
     ]
 
-    for table_name, create_sql in tables:
+    # Create all tables in parallel — none depend on each other
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _create_table(table_name: str, create_sql: str) -> tuple[str, str]:
         try:
             logger.info(f"Creating table {catalog}.{schema}.{table_name}...")
             execute_query(create_sql.format(catalog=catalog, schema=schema))
-            results[table_name] = "created"
             logger.info(f"✓ {table_name} created successfully")
+            return table_name, "created"
         except Exception as e:
             logger.error(f"✗ Failed to create {table_name}: {e}")
-            results[table_name] = f"error: {e}"
+            return table_name, f"error: {e}"
+
+    with ThreadPoolExecutor(max_workers=len(tables)) as executor:
+        futures = {executor.submit(_create_table, name, sql): name for name, sql in tables}
+        for future in as_completed(futures):
+            table_name, status = future.result()
+            results[table_name] = status
 
     # Sync all successfully-created tables to Lakebase (non-fatal)
     sync_to_lakebase(catalog, schema, [t for t, _ in tables if results.get(t) == "created"])
