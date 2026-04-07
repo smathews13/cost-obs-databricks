@@ -1221,14 +1221,23 @@ async def get_dashboard_bundle_fast(
     use_mv = _check_mv_available()
 
     if use_mv:
-        # Use materialized views for timeseries/etl (the slow ones).
-        # Summary stays on live query for accuracy + tagging tab consistency.
-        # Workspaces stays on live query since MV lacks top_products/top_users.
-        logger.info("Using materialized views for dashboard bundle (timeseries + etl)")
+        # Use materialized views — much faster than live system.billing.usage scans.
+        # Fallbacks to live queries are handled in _format_summary / _format_workspaces
+        # if MV returns empty (e.g. mid-rebuild on startup).
+        logger.info("Using materialized views for dashboard bundle")
+
+        def _mv_summary():
+            r = _exec_mv(MV_BILLING_SUMMARY, params)
+            return r if r else execute_query(BILLING_SUMMARY, params)
+
+        def _mv_workspaces():
+            r = _exec_mv(MV_BILLING_BY_WORKSPACE, params)
+            return r if r else execute_query(BILLING_BY_WORKSPACE, params)
+
         queries = [
-            ("summary", lambda: execute_query(BILLING_SUMMARY, params)),
+            ("summary", _mv_summary),
             ("products", lambda: execute_query(BILLING_BY_PRODUCT_FAST, params)),
-            ("workspaces", lambda: execute_query(BILLING_BY_WORKSPACE, params)),
+            ("workspaces", _mv_workspaces),
             ("timeseries", lambda: _exec_mv(MV_BILLING_TIMESERIES, params)),
             ("etl_breakdown", lambda: _exec_mv(MV_ETL_BREAKDOWN, params)),
         ]
