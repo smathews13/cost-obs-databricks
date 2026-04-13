@@ -67,6 +67,7 @@ export function SettingsConfig({
     queryFn: () => fetch("/api/settings/lakebase-status").then(r => r.json()).catch(() => ({ configured: false })),
     staleTime: 5 * 60 * 1000,
   });
+  const [mvRefreshing, setMvRefreshing] = useState(false);
   const { data: tablesStatus = null, isLoading: tablesLoading, refetch: refetchTables } = useQuery<{
     catalog: string | null;
     schema: string | null;
@@ -83,6 +84,16 @@ export function SettingsConfig({
     queryFn: () => fetch("/api/settings/tables").then(r => r.json()).catch(() => null),
     staleTime: 2 * 60 * 1000,
   });
+
+  async function handleMvRefresh() {
+    setMvRefreshing(true);
+    try {
+      await fetch("/api/settings/refresh-mvs", { method: "POST" });
+      await refetchTables();
+    } finally {
+      setMvRefreshing(false);
+    }
+  }
   const { data: accountPrices = null, isLoading: accountPricesLoading } = useQuery<{
     available: boolean;
     prices: Array<{ sku_name: string; cloud: string; currency_code: string; usage_unit: string; list_price: number; effective_list_price: number; start_time: string | null; end_time: string | null }>;
@@ -399,14 +410,15 @@ export function SettingsConfig({
                 <h4 className="text-sm font-semibold text-gray-900">Storage Location & Tables</h4>
               </div>
               <button
-                onClick={() => refetchTables()}
-                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                title="Refresh table status"
+                onClick={handleMvRefresh}
+                disabled={mvRefreshing}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Rebuild materialized views"
               >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className={`h-3.5 w-3.5 ${mvRefreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                Refresh
+                {mvRefreshing ? "Refreshing…" : "Refresh"}
               </button>
             </div>
 

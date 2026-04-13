@@ -440,8 +440,16 @@ def prewarm_all_tabs():
         logger.warning(f"Background cache pre-warming failed (non-fatal): {e}")
 
 
+def _run_mv_refresh() -> dict:
+    """Run CREATE OR REPLACE TABLE for all MV tables. Returns results dict."""
+    from server.materialized_views import refresh_materialized_views
+    from server.db import get_catalog_schema
+    catalog, schema = get_catalog_schema()
+    return refresh_materialized_views(catalog, schema)
+
+
 def startup_tasks():
-    """Run all startup tasks: setup warehouse, setup MVs, create job, warm cache, setup alerts."""
+    """Run all startup tasks: setup warehouse, setup MVs, warm cache, setup alerts."""
     # Restore saved warehouse preference (if user previously switched warehouses)
     current_http_path = os.environ.get("DATABRICKS_HTTP_PATH", "")
     if current_http_path and current_http_path != "auto":
@@ -466,23 +474,6 @@ def startup_tasks():
 
     # Step 1: Create materialized views if needed
     setup_materialized_views()
-
-    # Step 2: Create/update refresh job
-    # File lock prevents 4 uvicorn workers from all creating duplicate jobs simultaneously.
-    try:
-        import fcntl
-        from server.jobs import create_or_update_refresh_job
-        lock_path = "/tmp/cost-obs-job-setup.lock"
-        with open(lock_path, "w") as lock_file:
-            try:
-                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                create_or_update_refresh_job()
-            except BlockingIOError:
-                logger.info("Job setup already running in another worker — skipping")
-            finally:
-                fcntl.flock(lock_file, fcntl.LOCK_UN)
-    except Exception as e:
-        logger.warning(f"Job creation failed (non-fatal): {e}")
 
     # Step 3: Pre-warm cache (billing - fast queries first)
     prewarm_cache_sync()
@@ -563,7 +554,42 @@ async def lifespan(app: FastAPI):
 
     # Remaining startup tasks run in background
     asyncio.get_event_loop().run_in_executor(None, startup_tasks)
+
+    # Daily MV refresh scheduler — runs at 2am UTC inside the app process.
+    # Uses a file lock so only one uvicorn worker fires the refresh.
+    async def _daily_mv_refresh_loop():
+        from datetime import datetime, timezone, timedelta
+        import fcntl
+        while True:
+            try:
+                now = datetime.now(timezone.utc)
+                next_run = now.replace(hour=2, minute=0, second=0, microsecond=0)
+                if next_run <= now:
+                    next_run += timedelta(days=1)
+                wait = (next_run - datetime.now(timezone.utc)).total_seconds()
+                logger.info(f"Next MV refresh scheduled in {wait/3600:.1f}h (at 02:00 UTC)")
+                await asyncio.sleep(max(wait, 0))
+                # File lock — only one worker runs the refresh
+                lock_path = "/tmp/cost-obs-mv-refresh.lock"
+                try:
+                    with open(lock_path, "w") as lf:
+                        fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        logger.info("Running scheduled daily MV refresh...")
+                        loop = asyncio.get_event_loop()
+                        await loop.run_in_executor(None, _run_mv_refresh)
+                        logger.info("Scheduled MV refresh complete")
+                        fcntl.flock(lf, fcntl.LOCK_UN)
+                except BlockingIOError:
+                    logger.info("MV refresh already running in another worker — skipping")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Daily MV refresh loop error: {e}")
+                await asyncio.sleep(3600)  # retry in 1h on unexpected error
+
+    scheduler_task = asyncio.create_task(_daily_mv_refresh_loop())
     yield
+    scheduler_task.cancel()
 
 
 app = FastAPI(

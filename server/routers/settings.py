@@ -221,6 +221,20 @@ async def get_tables_status():
     return {"catalog": catalog, "schema": schema, "tables": results}
 
 
+@router.post("/refresh-mvs")
+async def trigger_mv_refresh():
+    """Trigger an immediate MV rebuild (CREATE OR REPLACE TABLE for all MV tables)."""
+    import asyncio
+    from server.app import _run_mv_refresh
+
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(None, _run_mv_refresh)
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @router.get("/warehouses")
 async def list_warehouses():
     """List all SQL warehouses the user has access to."""

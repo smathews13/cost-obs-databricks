@@ -21,6 +21,8 @@ export default defineConfig({
     },
   },
   build: {
+    outDir: "../static",
+    emptyOutDir: true,
     // Code splitting for optimized bundle loading
     rollupOptions: {
       output: {
