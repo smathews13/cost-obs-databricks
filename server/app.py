@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from server.routers import aiml, alerts, apps, aws_actual, azure_actual, billing, dbsql, dbsql_prpr, genie, health, permissions, query_origin, reconciliation, settings, setup, tagging, use_cases, user, users_groups, warehouse_health
+from server.routers import aiml, alerts, apps, aws_actual, azure_actual, gcp_actual, billing, dbsql, dbsql_prpr, genie, health, permissions, query_origin, reconciliation, settings, setup, tagging, use_cases, user, users_groups, warehouse_health
 
 # Configure structured logging
 logging.basicConfig(
@@ -603,6 +603,7 @@ app.include_router(apps.router, prefix="/api/apps", tags=["apps"])
 app.include_router(tagging.router, prefix="/api/tagging", tags=["tagging"])
 app.include_router(aws_actual.router, prefix="/api/aws-actual", tags=["aws-actual"])
 app.include_router(azure_actual.router, prefix="/api/azure-actual", tags=["azure-actual"])
+app.include_router(gcp_actual.router, prefix="/api/gcp-actual", tags=["gcp-actual"])
 app.include_router(dbsql.router, prefix="/api/dbsql", tags=["dbsql"])
 app.include_router(dbsql_prpr.router, prefix="/api/dbsql-prpr", tags=["dbsql-prpr"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])

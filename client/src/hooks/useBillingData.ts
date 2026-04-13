@@ -4,6 +4,7 @@ import type {
   AWSCostsResponse,
   AWSActualDashboardBundle,
   AzureActualDashboardBundle,
+  GCPActualDashboardBundle,
   BillingSummary,
   ProductBreakdownResponse,
   WorkspaceBreakdownResponse,
@@ -399,6 +400,16 @@ export function useAzureActualCosts(dateRange?: DateRange, enabled: boolean = tr
     queryKey: ["azure-actual", "dashboard-bundle", dateRange],
     queryFn: () =>
       fetchJson(buildUrl("/api/azure-actual/dashboard-bundle", dateRange)),
+    staleTime: 5 * 60 * 1000,
+    enabled,
+  });
+}
+
+export function useGCPActualCosts(dateRange?: DateRange, enabled: boolean = true) {
+  return useQuery<GCPActualDashboardBundle>({
+    queryKey: ["gcp-actual", "dashboard-bundle", dateRange],
+    queryFn: () =>
+      fetchJson(buildUrl("/api/gcp-actual/dashboard-bundle", dateRange)),
     staleTime: 5 * 60 * 1000,
     enabled,
   });

@@ -35,6 +35,7 @@ import {
   useAccountInfo,
   useAWSActualCosts,
   useAzureActualCosts,
+  useGCPActualCosts,
   useDashboardBundleFast,
   useSqlBreakdown,
   usePipelineObjects,
@@ -296,9 +297,10 @@ function Dashboard() {
   // Tagging tab data - prefetch for fast tab switching
   const { data: taggingData, isLoading: taggingLoading } = useTaggingDashboardBundle(dateRange, true);
 
-  // Cloud actual costs — fetch both clouds; CloudCostsView shows tabs when multiple have data
+  // Cloud actual costs — fetch all clouds; CloudCostsView shows tabs when multiple have data
   const { data: awsActualData, isLoading: awsActualLoading } = useAWSActualCosts(dateRange, activeTab === "infra");
   const { data: azureActualData, isLoading: azureActualLoading } = useAzureActualCosts(dateRange, activeTab === "infra");
+  const { data: gcpActualData, isLoading: gcpActualLoading } = useGCPActualCosts(dateRange, activeTab === "infra");
 
   // DBSQL/SQL Warehousing tab data - prefetch for fast tab switching
   const { data: dbsqlData, isLoading: dbsqlLoading } = useDBSQLQueryCosts(dateRange, true);
@@ -832,6 +834,8 @@ function Dashboard() {
             actualLoading={awsActualLoading}
             azureActualData={azureActualData}
             azureActualLoading={azureActualLoading}
+            gcpActualData={gcpActualData}
+            gcpActualLoading={gcpActualLoading}
             infraData={infraCosts}
             infraLoading={infraBundleLoading}
             infraTimeseriesData={infraCostsTimeseries}

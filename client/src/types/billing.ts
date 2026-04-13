@@ -759,6 +759,84 @@ export interface AzureActualDashboardBundle {
   end_date: string;
 }
 
+// GCP Actual Cost Types
+export interface GCPActualCostsSummary {
+  available: boolean;
+  total_cost?: number;
+  currency?: string;
+  project_count?: number;
+  service_count?: number;
+  days_in_range?: number;
+  start_date: string;
+  end_date: string;
+}
+
+export interface GCPActualService {
+  service: string;
+  total_cost: number;
+  days_active: number;
+  percentage: number;
+}
+
+export interface GCPActualByServiceResponse {
+  available: boolean;
+  services: GCPActualService[];
+  total_cost: number;
+  start_date: string;
+  end_date: string;
+}
+
+export interface GCPActualProject {
+  project_id: string;
+  project_name: string;
+  total_cost: number;
+  service_count: number;
+  percentage: number;
+}
+
+export interface GCPActualByProjectResponse {
+  available: boolean;
+  projects: GCPActualProject[];
+  total_cost: number;
+  start_date: string;
+  end_date: string;
+}
+
+export interface GCPActualSku {
+  service: string;
+  sku: string;
+  total_cost: number;
+  percentage: number;
+}
+
+export interface GCPActualBySkuResponse {
+  available: boolean;
+  skus: GCPActualSku[];
+  total_cost: number;
+  start_date: string;
+  end_date: string;
+}
+
+export interface GCPActualTimeseriesResponse {
+  available: boolean;
+  timeseries: Array<{ date: string; [service: string]: number | string }>;
+  services: string[];
+  start_date: string;
+  end_date: string;
+}
+
+export interface GCPActualDashboardBundle {
+  available: boolean;
+  message?: string;
+  summary?: GCPActualCostsSummary;
+  by_service?: GCPActualByServiceResponse;
+  by_project?: GCPActualByProjectResponse;
+  by_sku?: GCPActualBySkuResponse;
+  timeseries?: GCPActualTimeseriesResponse;
+  start_date: string;
+  end_date: string;
+}
+
 // DBSQL Query Cost Attribution Types
 export interface DBSQLDataRange {
   earliest_date: string | null;
