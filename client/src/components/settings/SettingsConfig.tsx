@@ -67,6 +67,22 @@ export function SettingsConfig({
     queryFn: () => fetch("/api/settings/lakebase-status").then(r => r.json()).catch(() => ({ configured: false })),
     staleTime: 5 * 60 * 1000,
   });
+  const { data: tablesStatus = null, isLoading: tablesLoading, refetch: refetchTables } = useQuery<{
+    catalog: string | null;
+    schema: string | null;
+    tables: Array<{
+      name: string;
+      exists: boolean | null;
+      row_count: number | null;
+      max_date: string | null;
+      days_behind: number | null;
+      error?: string;
+    }>;
+  } | null>({
+    queryKey: ["settings-tables-status"],
+    queryFn: () => fetch("/api/settings/tables").then(r => r.json()).catch(() => null),
+    staleTime: 2 * 60 * 1000,
+  });
   const { data: accountPrices = null, isLoading: accountPricesLoading } = useQuery<{
     available: boolean;
     prices: Array<{ sku_name: string; cloud: string; currency_code: string; usage_unit: string; list_price: number; effective_list_price: number; start_time: string | null; end_time: string | null }>;
@@ -373,30 +389,105 @@ export function SettingsConfig({
             </div>
           </div>
 
-          {/* Storage Location */}
+          {/* Storage Location & Tables */}
           <div>
-            <div className="flex items-center gap-2 mb-3">
-              <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
-              </svg>
-              <h4 className="text-sm font-semibold text-gray-900">Storage Location</h4>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+                </svg>
+                <h4 className="text-sm font-semibold text-gray-900">Storage Location & Tables</h4>
+              </div>
+              <button
+                onClick={() => refetchTables()}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                title="Refresh table status"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Refresh
+              </button>
             </div>
+
+            {/* Catalog / Schema pills */}
             {appConfig?.storage_location ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3">
-                  <div className="text-sm text-gray-500">Catalog</div>
-                  <div className="text-sm font-mono text-gray-900">{appConfig.storage_location.catalog}</div>
-                </div>
-                <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3">
-                  <div className="text-sm text-gray-500">Schema</div>
-                  <div className="text-sm font-mono text-gray-900">{appConfig.storage_location.schema}</div>
-                </div>
-                <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs text-orange-700">
-                  Tables and materialized views are stored in <span className="font-mono font-medium">{appConfig.storage_location.catalog}.{appConfig.storage_location.schema}</span>
-                </div>
+              <div className="mb-3 flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-gray-500">Catalog</span>
+                <span className="rounded-md bg-orange-50 border border-orange-200 px-2 py-0.5 text-xs font-mono font-medium text-orange-800">
+                  {appConfig.storage_location.catalog}
+                </span>
+                <span className="text-gray-300">·</span>
+                <span className="text-xs text-gray-500">Schema</span>
+                <span className="rounded-md bg-orange-50 border border-orange-200 px-2 py-0.5 text-xs font-mono font-medium text-orange-800">
+                  {appConfig.storage_location.schema}
+                </span>
               </div>
             ) : (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-400">Could not retrieve storage location</div>
+              <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-400">Could not retrieve storage location</div>
+            )}
+
+            {/* Table list */}
+            {tablesLoading ? (
+              <div className="py-3 text-center text-xs text-gray-400">Checking tables...</div>
+            ) : tablesStatus?.tables?.length ? (
+              <div className="rounded-lg border border-gray-200 overflow-hidden">
+                <table className="min-w-full divide-y divide-gray-100 text-xs">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-gray-500">Table</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-500">Rows</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-500">Latest date</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-500">Freshness</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 bg-white">
+                    {tablesStatus.tables.map((t) => {
+                      const stale = t.days_behind != null && t.days_behind > 1;
+                      const missing = t.exists === false;
+                      const unknown = t.exists === null;
+                      return (
+                        <tr key={t.name} className={missing ? "bg-red-50" : stale ? "bg-amber-50" : ""}>
+                          <td className="px-3 py-2 font-mono text-gray-700 flex items-center gap-1.5">
+                            {missing ? (
+                              <span className="text-red-400">✗</span>
+                            ) : unknown ? (
+                              <span className="text-gray-300">?</span>
+                            ) : (
+                              <span className="text-green-500">✓</span>
+                            )}
+                            {t.name}
+                            {t.error && (
+                              <span className="ml-1 text-red-400" title={t.error}>⚠</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right text-gray-500 tabular-nums">
+                            {t.row_count != null ? t.row_count.toLocaleString() : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-gray-500">
+                            {t.max_date ? t.max_date.slice(0, 10) : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {t.days_behind == null ? (
+                              <span className="text-gray-300">—</span>
+                            ) : t.days_behind === 0 ? (
+                              <span className="text-green-600 font-medium">Today</span>
+                            ) : t.days_behind === 1 ? (
+                              <span className="text-green-600">1d behind</span>
+                            ) : t.days_behind <= 3 ? (
+                              <span className="text-amber-600 font-medium">{t.days_behind}d behind</span>
+                            ) : (
+                              <span className="text-red-600 font-medium">{t.days_behind}d behind</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-400">Could not retrieve table status</div>
             )}
           </div>
 

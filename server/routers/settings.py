@@ -149,6 +149,78 @@ async def get_app_config():
     return result
 
 
+@router.get("/tables")
+async def get_tables_status():
+    """Return status of each MV table: exists, row count, max date, days behind."""
+    from server.db import get_catalog_schema, execute_query
+
+    MV_TABLES = [
+        "daily_usage_summary",
+        "daily_product_breakdown",
+        "daily_workspace_breakdown",
+        "sql_tool_attribution",
+        "daily_query_stats",
+        "daily_sku_breakdown",
+        "daily_etl_breakdown",
+        "dbsql_cost_per_query",
+        "app_user_permissions",
+    ]
+
+    try:
+        catalog, schema = get_catalog_schema()
+    except Exception as e:
+        return {"catalog": None, "schema": None, "tables": [], "error": str(e)}
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from datetime import date
+
+    today = date.today().isoformat()
+
+    def check_table(table_name: str) -> dict:
+        fqn = f"`{catalog}`.`{schema}`.`{table_name}`"
+        is_utility = table_name == "app_user_permissions"
+        try:
+            if is_utility:
+                rows = execute_query(f"SELECT COUNT(*) as cnt FROM {fqn}")
+                cnt = rows[0]["cnt"] if rows else 0
+                return {"name": table_name, "exists": True, "row_count": cnt, "max_date": None, "days_behind": None}
+            else:
+                rows = execute_query(
+                    f"SELECT COUNT(*) as cnt, MAX(usage_date) as max_date FROM {fqn}"
+                )
+                if not rows:
+                    return {"name": table_name, "exists": True, "row_count": 0, "max_date": None, "days_behind": None}
+                cnt = rows[0].get("cnt", 0)
+                max_date = rows[0].get("max_date")
+                max_date_str = str(max_date) if max_date else None
+                days_behind = None
+                if max_date_str:
+                    from datetime import date as _date
+                    try:
+                        delta = _date.today() - _date.fromisoformat(max_date_str[:10])
+                        days_behind = delta.days
+                    except Exception:
+                        pass
+                return {"name": table_name, "exists": True, "row_count": int(cnt), "max_date": max_date_str, "days_behind": days_behind}
+        except Exception as e:
+            err = str(e)
+            if "TABLE_OR_VIEW_NOT_FOUND" in err or "does not exist" in err.lower() or "not found" in err.lower():
+                return {"name": table_name, "exists": False, "row_count": None, "max_date": None, "days_behind": None}
+            return {"name": table_name, "exists": None, "row_count": None, "max_date": None, "days_behind": None, "error": err[:200]}
+
+    results = []
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = {ex.submit(check_table, t): t for t in MV_TABLES}
+        for fut in as_completed(futures):
+            results.append(fut.result())
+
+    # Preserve original order
+    order = {t: i for i, t in enumerate(MV_TABLES)}
+    results.sort(key=lambda r: order.get(r["name"], 99))
+
+    return {"catalog": catalog, "schema": schema, "tables": results}
+
+
 @router.get("/warehouses")
 async def list_warehouses():
     """List all SQL warehouses the user has access to."""
