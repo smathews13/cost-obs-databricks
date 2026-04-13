@@ -99,6 +99,7 @@ export interface AppSettings {
   enableForecasting: boolean;
   enableLakebase: boolean;
   darkMode: boolean;
+  anonymizeUsers: boolean;
 }
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -123,6 +124,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   enableForecasting: false,
   enableLakebase: false,
   darkMode: false,
+  anonymizeUsers: false,
 };
 
 const APP_SETTINGS_KEY = "coc-app-settings";

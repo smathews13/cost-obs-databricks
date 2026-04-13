@@ -36,3 +36,15 @@ export function identityTitle(id: string): string {
   return id ?? "";
 }
 
+/**
+ * Returns a stable anon label for a user email given its sort index.
+ * Service principals are always returned as-is.
+ * @param id    - raw identity string (email or SP UUID)
+ * @param index - 0-based rank in the sorted user list
+ * @param enabled - whether anonymization is active
+ */
+export function anonymizeIdentity(id: string, index: number, enabled: boolean): string {
+  if (!enabled || isServicePrincipal(id)) return formatIdentity(id);
+  return `User ${index + 1}`;
+}
+

@@ -220,11 +220,12 @@ interface Props {
   startDate: string;
   endDate: string;
   dateRange: DateRange;
+  anonymizeUsers?: boolean;
 }
 
 const PAGE_SIZE = 10;
 
-export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
+export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUsers = false }: Props) {
   const [selectedUser, setSelectedUser] = useState<UserSpend | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"spend" | "dbus" | "days">("spend");
@@ -269,6 +270,20 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
   const topUsers = data?.top_users ?? [];
   const uniqueProducts = Array.from(new Set(topUsers.map(u => u.primary_product).filter(Boolean))).sort();
 
+  // Stable anon index map: human users sorted by spend get User 1, User 2, …
+  const anonMap = new Map<string, string>();
+  if (anonymizeUsers) {
+    let idx = 0;
+    [...topUsers].sort((a, b) => b.total_spend - a.total_spend).forEach(u => {
+      if (!isServicePrincipal(u.user_email)) {
+        anonMap.set(u.user_email, `User ${idx + 1}`);
+        idx++;
+      }
+    });
+  }
+  const displayUser = (email: string) =>
+    anonymizeUsers && anonMap.has(email) ? anonMap.get(email)! : formatIdentity(email);
+
   const filtered = topUsers
     .filter(u => {
       if (searchQuery && !u.user_email.toLowerCase().includes(searchQuery.toLowerCase())) return false;
@@ -291,7 +306,7 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
   // Pre-format labels so Recharts category axis shows abbreviated SP names directly
   const seenLabels = new Set<string>();
   const barData = topUsers.slice(0, 15).map(u => {
-    let label = formatIdentity(u.user_email);
+    let label = displayUser(u.user_email);
     if (seenLabels.has(label)) {
       let n = 2;
       while (seenLabels.has(`${label} (${n})`)) n++;
@@ -407,7 +422,7 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
             <div className="min-w-0">
               <p className="text-sm text-gray-500">Top spender</p>
               <p className="text-2xl font-semibold text-gray-900">{topUsers[0] ? fmt(topUsers[0].total_spend) : "—"}</p>
-              {topUsers[0] && <p className="text-xs text-gray-400 truncate">{formatIdentity(topUsers[0].user_email)}</p>}
+              {topUsers[0] && <p className="text-xs text-gray-400 truncate">{displayUser(topUsers[0].user_email)}</p>}
               <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
             </div>
           </div>
@@ -639,10 +654,10 @@ export default function UsersGroups({ startDate, endDate, dateRange }: Props) {
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2.5">
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white text-xs font-semibold" style={{ backgroundColor: COLORS[globalIdx % COLORS.length] }}>
-                          {sp ? "SP" : u.user_email.charAt(0).toUpperCase()}
+                          {sp ? "SP" : (anonymizeUsers ? (globalIdx + 1).toString() : u.user_email.charAt(0).toUpperCase())}
                         </div>
                         <div className="min-w-0">
-                          <span className="text-gray-800 font-medium truncate max-w-55 block">{formatIdentity(u.user_email)}</span>
+                          <span className="text-gray-800 font-medium truncate max-w-55 block">{displayUser(u.user_email)}</span>
                         </div>
                       </div>
                     </td>

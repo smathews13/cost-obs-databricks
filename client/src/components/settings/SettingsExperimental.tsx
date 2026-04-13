@@ -47,6 +47,23 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
           </label>
           */}
 
+          {/* Anonymize Users */}
+          <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 cursor-pointer hover:border-gray-300 transition-colors">
+            <input
+              type="checkbox"
+              checked={localSettings.anonymizeUsers}
+              onChange={(e) => updateSetting("anonymizeUsers", e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+            />
+            <div>
+              <div className="text-sm font-medium text-gray-900">Anonymize Users</div>
+              <div className="mt-0.5 text-xs text-gray-500">
+                Replace human user emails with generic labels (User 1, User 2, …) throughout the Users tab.
+                Service principals are not affected. Useful for demos and screenshots.
+              </div>
+            </div>
+          </label>
+
           {/* Platform Alerts */}
           <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 cursor-pointer hover:border-gray-300 transition-colors">
             <input

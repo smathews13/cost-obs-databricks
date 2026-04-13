@@ -926,6 +926,7 @@ function Dashboard() {
             startDate={dateRange.startDate}
             endDate={dateRange.endDate}
             dateRange={dateRange}
+            anonymizeUsers={appSettings.anonymizeUsers}
           />
           </TabErrorBoundary>
         ) : null}
