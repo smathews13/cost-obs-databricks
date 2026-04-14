@@ -104,26 +104,6 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> None:
     _uc_grant(SecurableType.SCHEMA, f"{catalog}.{schema}",
               "USE SCHEMA", "CREATE TABLE", "SELECT")
 
-    # Warehouse CAN_USE via permissions REST API (not a UC object)
-    http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
-    warehouse_id = http_path.split("/")[-1] if http_path and "/" in http_path else ""
-    if warehouse_id:
-        try:
-            from databricks.sdk.service.sql import WarehouseAccessControlRequest, WarehousePermissionLevel
-            w.warehouses.update_permissions(
-                warehouse_id=warehouse_id,
-                access_control_list=[
-                    WarehouseAccessControlRequest(
-                        service_principal_name=sp_client_id,
-                        permission_level=WarehousePermissionLevel.CAN_USE,
-                    )
-                ],
-            )
-            ok += 1
-            logger.debug(f"Granted CAN_USE on warehouse {warehouse_id} to {sp_client_id}")
-        except Exception as e:
-            logger.warning(f"Warehouse CAN_USE grant failed (non-fatal): {e}")
-
     logger.info(f"SP grants via SDK API: {ok} ok, {failed} failed for {sp_client_id}")
 
 
