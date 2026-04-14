@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure.png";
-import gcpLogo from "@/assets/gcp.svg";
+import gcpLogo from "@/assets/gcp.png";
 import { KPITrendModal } from "./KPITrendModal";
 import {
   BarChart,
@@ -230,19 +230,19 @@ export function CloudCostsView({
   });
 
   // Modular cloud integrations
-  type CloudIntegration = { id: string; cloud: "azure" | "aws"; label: string };
+  type CloudIntegration = { id: string; cloud: "azure" | "aws" | "gcp"; label: string };
   const INTEGRATIONS_KEY = "cost-obs-cloud-integrations";
   const [cloudIntegrations, setCloudIntegrations] = useState<CloudIntegration[]>(() => {
     try { return JSON.parse(localStorage.getItem(INTEGRATIONS_KEY) || "[]"); } catch { return []; }
   });
   const [showIntegrationWizard, setShowIntegrationWizard] = useState(false);
-  const [wizardCloud, setWizardCloud] = useState<"azure" | "aws" | null>(null);
+  const [wizardCloud, setWizardCloud] = useState<"azure" | "aws" | "gcp" | null>(null);
   const [wizardExpandedStep, setWizardExpandedStep] = useState<number | null>(null);
   const [viewingIntegration, setViewingIntegration] = useState<CloudIntegration | null>(null);
 
-  const addIntegration = (cloud: "azure" | "aws") => {
+  const addIntegration = (cloud: "azure" | "aws" | "gcp") => {
     if (cloudIntegrations.length >= 3) return;
-    const newInt: CloudIntegration = { id: Date.now().toString(), cloud, label: cloud === "azure" ? "Azure" : "AWS" };
+    const newInt: CloudIntegration = { id: Date.now().toString(), cloud, label: cloud === "azure" ? "Azure" : cloud === "gcp" ? "GCP" : "AWS" };
     const updated = [...cloudIntegrations, newInt];
     setCloudIntegrations(updated);
     localStorage.setItem(INTEGRATIONS_KEY, JSON.stringify(updated));
@@ -1924,10 +1924,11 @@ export function CloudCostsView({
         </div>
       </div>
 
-      {/* Preload both logos — must NOT use display:none or browsers skip loading */}
-      <div className="absolute overflow-hidden" style={{ width: 0, height: 0 }} aria-hidden="true">
-        <img src={awsLogo} alt="" />
-        <img src={azureLogo} alt="" />
+      {/* Preload logos so they're instant when the modal opens */}
+      <div className="fixed" style={{ top: -9999, left: -9999, opacity: 0.01, pointerEvents: "none" }} aria-hidden="true">
+        <img src={awsLogo} alt="" style={{ width: 1, height: 1 }} />
+        <img src={azureLogo} alt="" style={{ width: 1, height: 1 }} />
+        <img src={gcpLogo} alt="" style={{ width: 1, height: 1 }} />
       </div>
 
       {/* Cloud Integration Wizard Modal — rendered via portal to escape any parent overflow/transform */}
@@ -1941,7 +1942,7 @@ export function CloudCostsView({
                 <h2 className="text-lg font-semibold text-gray-900">
                   {wizardCloud === null
                     ? "Integrate Cloud Environment Costs"
-                    : `${wizardCloud === "azure" ? "Azure" : "AWS"} Cost Integration — Setup Guide`}
+                    : `${wizardCloud === "azure" ? "Azure" : wizardCloud === "gcp" ? "Google Cloud" : "AWS"} Cost Integration — Setup Guide`}
                 </h2>
                 <p className="mt-0.5 text-sm text-gray-500">
                   {wizardCloud === null
@@ -1966,7 +1967,7 @@ export function CloudCostsView({
                   <p className="text-sm text-gray-600">
                     You can integrate billing data from any cloud environment regardless of where your Databricks workspace is hosted. Up to 3 cloud cost integrations are supported.
                   </p>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-3 gap-4">
                     {/* Azure card */}
                     <button
                       onClick={() => { setWizardCloud("azure"); setWizardExpandedStep(null); }}
@@ -2003,6 +2004,23 @@ export function CloudCostsView({
                         <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Already added</span>
                       )}
                     </button>
+                    {/* GCP card */}
+                    <button
+                      onClick={() => { setWizardCloud("gcp"); setWizardExpandedStep(null); }}
+                      disabled={cloudIntegrations.some(i => i.cloud === "gcp") || cloudIntegrations.length >= 3}
+                      className="group flex flex-col items-center gap-3 rounded-xl border-2 border-gray-200 p-6 text-center hover:border-blue-400 hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-50 transition-all"
+                    >
+                      <img src={gcpLogo} alt="GCP" className="h-12 w-auto object-contain" />
+                      <div>
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="font-semibold text-gray-900">Google Cloud</span>
+                        </div>
+                        <div className="mt-0.5 text-xs text-gray-500">GCP Billing Export via BigQuery</div>
+                      </div>
+                      {cloudIntegrations.some(i => i.cloud === "gcp") && (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Already added</span>
+                      )}
+                    </button>
                   </div>
                 </div>
               ) : (
@@ -2011,26 +2029,30 @@ export function CloudCostsView({
                   <p className="text-sm text-gray-600">
                     {wizardCloud === "azure"
                       ? "Deploy the cloud-infra-costs Azure project to ingest actual Azure billing data (Actuals, Amortized, or FOCUS format) via Streaming Declarative Pipelines into a medallion architecture:"
+                      : wizardCloud === "gcp"
+                      ? "Deploy the cloud-infra-costs GCP project to ingest GCP billing data from BigQuery into a medallion architecture via Databricks Asset Bundles:"
                       : "Deploy the cloud-infra-costs AWS project to ingest CUR 2.0 Standard Data Exports from S3 into a medallion architecture via Databricks Asset Bundles:"}
                   </p>
 
-                  {[
-                    wizardCloud === "azure"
-                      ? "Deploy Terraform (Storage Account, External Location, Catalog)"
-                      : "Create S3 Bucket for Cost Export",
-                    wizardCloud === "azure"
-                      ? "Configure Cost Exports in Azure Portal"
-                      : "Configure Standard Data Export (CUR 2.0)",
-                    wizardCloud === "azure"
-                      ? "Configure Databricks Asset Bundle (DAB)"
-                      : "Create Storage Credential & External Location",
-                    wizardCloud === "azure"
-                      ? "Authenticate & Deploy the Bundle"
-                      : "Configure & Deploy the DAB",
-                    wizardCloud === "azure"
-                      ? "Validate Dashboards & Import Genie Space (Final Step)"
-                      : "Validate Workflows & Dashboards (Final Step)",
-                  ].map((title, i) => {
+                  {(wizardCloud === "azure" ? [
+                    "Deploy Terraform (Storage Account, External Location, Catalog)",
+                    "Configure Cost Exports in Azure Portal",
+                    "Configure Databricks Asset Bundle (DAB)",
+                    "Authenticate & Deploy the Bundle",
+                    "Validate Dashboards & Import Genie Space (Final Step)",
+                  ] : wizardCloud === "gcp" ? [
+                    "Enable GCP Billing Export to BigQuery",
+                    "Create a GCP Service Account with BigQuery read access",
+                    "Create a Databricks Google Cloud Storage External Location",
+                    "Configure & Deploy the Databricks Asset Bundle (DAB)",
+                    "Validate Workflows & Dashboards (Final Step)",
+                  ] : [
+                    "Create S3 Bucket for Cost Export",
+                    "Configure Standard Data Export (CUR 2.0)",
+                    "Create Storage Credential & External Location",
+                    "Configure & Deploy the DAB",
+                    "Validate Workflows & Dashboards (Final Step)",
+                  ]).map((title, i) => {
                     const step = i + 1;
                     const isLast = step === 5;
                     const stepKey = `${wizardCloud}-${viewingIntegration?.id || 'new'}-step-${step}`;
@@ -2262,6 +2284,8 @@ export function CloudCostsView({
                     <a
                       href={wizardCloud === "azure"
                         ? "https://github.com/databricks-solutions/cloud-infra-costs/tree/main/azure"
+                        : wizardCloud === "gcp"
+                        ? "https://github.com/databricks-solutions/cloud-infra-costs/tree/main/gcp"
                         : "https://github.com/databricks-solutions/cloud-infra-costs/tree/main/aws"}
                       target="_blank" rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
@@ -2269,7 +2293,7 @@ export function CloudCostsView({
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                       </svg>
-                      {wizardCloud === "azure" ? "cloud-infra-costs/azure README" : "cloud-infra-costs/aws README"}
+                      {wizardCloud === "azure" ? "cloud-infra-costs/azure README" : wizardCloud === "gcp" ? "cloud-infra-costs/gcp README" : "cloud-infra-costs/aws README"}
                     </a>
                     <a
                       href="https://docs.databricks.com/en/dev-tools/bundles/index.html"
