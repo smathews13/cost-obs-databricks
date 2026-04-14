@@ -440,12 +440,64 @@ def prewarm_all_tabs():
         logger.warning(f"Background cache pre-warming failed (non-fatal): {e}")
 
 
-def _run_mv_refresh() -> dict:
+def _run_mv_refresh(user_token: str | None = None) -> dict:
     """Run CREATE OR REPLACE TABLE for all MV tables. Returns results dict."""
+    import json
+    import os
+    import time
+    from datetime import datetime, timezone
     from server.materialized_views import refresh_materialized_views
-    from server.db import get_catalog_schema
-    catalog, schema = get_catalog_schema()
-    return refresh_materialized_views(catalog, schema)
+    from server.db import get_catalog_schema, _user_token as _db_user_token
+
+    ctx_tok = None
+    if user_token:
+        ctx_tok = _db_user_token.set(user_token)
+        logger.info("MV refresh triggered with user OAuth token")
+    else:
+        logger.info("MV refresh running as service principal (no user token)")
+
+    log_dir = os.path.join(os.path.dirname(__file__), "..", ".settings")
+    log_path = os.path.join(log_dir, "mv_refresh_log.json")
+    log_tmp = log_path + ".tmp"
+
+    refresh_start = time.monotonic()
+    start_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    results: dict = {}
+    log_data: dict = {"last_refresh_utc": start_utc, "duration_seconds": 0, "mv_timings": {}, "status": "error", "error": "unknown"}
+    try:
+        catalog, schema = get_catalog_schema()
+        results = refresh_materialized_views(catalog, schema)
+        mv_timings = results.pop("__mv_timings__", {})
+        duration = round(time.monotonic() - refresh_start, 1)
+        log_data = {
+            "last_refresh_utc": start_utc,
+            "duration_seconds": duration,
+            "mv_timings": mv_timings,
+            "status": "success",
+        }
+        logger.info(f"MV refresh complete in {duration}s")
+    except Exception as exc:
+        duration = round(time.monotonic() - refresh_start, 1)
+        log_data = {
+            "last_refresh_utc": start_utc,
+            "duration_seconds": duration,
+            "mv_timings": {},
+            "status": "error",
+            "error": str(exc)[:500],
+        }
+        raise
+    finally:
+        if ctx_tok is not None:
+            _db_user_token.reset(ctx_tok)
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            with open(log_tmp, "w") as f:
+                json.dump(log_data, f)
+            os.replace(log_tmp, log_path)
+        except Exception as log_exc:
+            logger.warning(f"Failed to write MV refresh log: {log_exc}")
+
+    return results
 
 
 def startup_tasks():

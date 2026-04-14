@@ -2859,3 +2859,118 @@ async def get_platform_kpi_trend(
             "trend": trend
         }
     }
+
+
+@router.get("/contract-burndown")
+async def get_contract_burndown() -> dict[str, Any]:
+    """Return contract burn-down data: KPIs + daily cumulative series vs ideal pace.
+
+    Reads contract terms from .settings/contract_settings.json.
+    If not configured, returns {"configured": false}.
+    """
+    import json as _json
+    import os as _os
+    from datetime import date as _date, timedelta as _td
+
+    contract_file = _os.path.join(
+        _os.path.dirname(__file__), "..", "..", ".settings", "contract_settings.json"
+    )
+    try:
+        with open(contract_file) as f:
+            contract = _json.load(f)
+    except (FileNotFoundError, _json.JSONDecodeError, OSError):
+        return {"configured": False}
+
+    start_str = contract.get("start_date") or ""
+    end_str = contract.get("end_date") or ""
+    total_commit = contract.get("total_commit_usd")
+    if not start_str or not end_str or not total_commit:
+        return {"configured": False}
+
+    try:
+        start_date = _date.fromisoformat(start_str)
+        end_date = _date.fromisoformat(end_str)
+    except ValueError:
+        return {"configured": False, "error": "Invalid date format in contract settings"}
+
+    total_days = (end_date - start_date).days
+    if total_days <= 0:
+        return {"configured": False, "error": "end_date must be after start_date"}
+
+    today = _date.today()
+    query_end = min(today, end_date)
+
+    catalog, schema = get_catalog_schema()
+    rows = execute_query(
+        f"SELECT usage_date, total_spend FROM `{catalog}`.`{schema}`.`daily_usage_summary`"
+        f" WHERE usage_date >= '{start_str}' AND usage_date <= '{query_end.isoformat()}'"
+        f" ORDER BY usage_date"
+    )
+
+    # Build daily spend lookup
+    spend_by_date: dict[str, float] = {}
+    for row in rows:
+        d = str(row["usage_date"])[:10]
+        spend_by_date[d] = float(row.get("total_spend") or 0)
+
+    # Build cumulative series over the full contract range
+    daily_series = []
+    cumulative = 0.0
+    day = start_date
+    while day <= end_date:
+        day_str = day.isoformat()
+        day_index = (day - start_date).days
+        ideal = (day_index / total_days) * total_commit
+        if day <= query_end:
+            cumulative += spend_by_date.get(day_str, 0.0)
+            daily_series.append({
+                "date": day_str,
+                "actual_cumulative": round(cumulative, 2),
+                "ideal_cumulative": round(ideal, 2),
+            })
+        else:
+            daily_series.append({
+                "date": day_str,
+                "actual_cumulative": None,
+                "ideal_cumulative": round(ideal, 2),
+            })
+        day += _td(days=1)
+
+    spent_to_date = cumulative
+    days_elapsed = max((min(today, end_date) - start_date).days, 1)
+    days_remaining = max((end_date - today).days, 0)
+    remaining = total_commit - spent_to_date
+
+    # Projected end: daily burn rate projected to exhausting the commit
+    avg_daily_burn = spent_to_date / days_elapsed if days_elapsed else 0
+    if avg_daily_burn > 0:
+        days_to_exhaust = remaining / avg_daily_burn
+        projected_end = (today + _td(days=int(days_to_exhaust))).isoformat()
+    else:
+        projected_end = end_str
+
+    # Pace status: ratio of actual vs ideal spend at today
+    ideal_at_today = (days_elapsed / total_days) * total_commit if total_days else 0
+    pace_ratio = spent_to_date / ideal_at_today if ideal_at_today > 0 else 0
+    if pace_ratio < 0.95:
+        pace_status = "under"
+    elif pace_ratio <= 1.10:
+        pace_status = "on_pace"
+    else:
+        pace_status = "over"
+
+    return {
+        "configured": True,
+        "contract": contract,
+        "kpis": {
+            "total_commit_usd": total_commit,
+            "spent_to_date": round(spent_to_date, 2),
+            "remaining": round(remaining, 2),
+            "days_elapsed": days_elapsed,
+            "days_remaining": days_remaining,
+            "projected_end_date": projected_end,
+            "pace_status": pace_status,
+        },
+        "daily_series": daily_series,
+    }
+

@@ -561,6 +561,42 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
     return result
 
 
+def get_auth_status() -> dict:
+    """Return current auth mode for the settings UI auth indicator.
+
+    Reads the in-process auth state without touching the database.
+    """
+    token = _user_token.get()
+    locked_to_sp = _auth_mode == "sp"
+    user_token_active = bool(token) and not locked_to_sp
+
+    if user_token_active:
+        identity = "user_oauth"
+    else:
+        identity = "service_principal"
+
+    # Attempt to decode JWT scope claim (no verification — just informational)
+    has_sql_scope: bool | None = None
+    if token:
+        try:
+            import base64
+            payload_b64 = token.split(".")[1]
+            # Pad to multiple of 4
+            padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(padded))
+            scp = payload.get("scp", payload.get("scope", ""))
+            has_sql_scope = "sql" in scp.split() if isinstance(scp, str) else "sql" in scp
+        except Exception:
+            pass
+
+    return {
+        "user_token_active": user_token_active,
+        "identity": identity,
+        "locked_to_sp": locked_to_sp,
+        "has_sql_scope": has_sql_scope,
+    }
+
+
 def execute_queries_parallel(
     query_funcs: list[tuple[str, Callable[[], list[dict[str, Any]]]]]
 ) -> dict[str, list[dict[str, Any]] | None]:

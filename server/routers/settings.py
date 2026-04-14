@@ -247,7 +247,98 @@ async def get_tables_status():
     order = {name: i for i, (name, _, _) in enumerate(tasks)}
     results.sort(key=lambda r: order.get(r["name"], 99))
 
-    return {"catalog": catalog, "schema": schema, "tables": results}
+    # Detect auth/permission failures — surface a top-level auth_error so the UI
+    # can show an actionable message instead of per-row ⚠ icons.
+    _PERM_SIGNALS = ("PERMISSION_DENIED", "INSUFFICIENT_PRIVILEGES", "not authorized",
+                     "Not authorized", "Unauthorized", "User does not have", "403")
+    perm_errors = [
+        r for r in results
+        if r.get("error") and any(s in r["error"] for s in _PERM_SIGNALS)
+    ]
+    auth_error = None
+    if perm_errors and len(perm_errors) >= len(tasks) // 2:
+        auth_error = (
+            "The app service principal lacks permission to read these tables. "
+            "Open the app as a workspace admin (with SQL scope) so queries run under your credentials, "
+            "or run dba_deploy.sh to grant the required Unity Catalog permissions."
+        )
+
+    # Read MV refresh log (atomic write guarantees no partial read)
+    refresh_status = None
+    _log_path = os.path.join(os.path.dirname(__file__), "..", "..", ".settings", "mv_refresh_log.json")
+    try:
+        with open(_log_path) as _f:
+            _log = json.load(_f)
+        from datetime import datetime as _dt, timezone as _tz
+        _last = _dt.strptime(_log["last_refresh_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_tz.utc)
+        _hours = (_dt.now(_tz.utc) - _last).total_seconds() / 3600
+        refresh_status = {
+            "last_refresh_utc": _log["last_refresh_utc"],
+            "duration_seconds": _log.get("duration_seconds"),
+            "hours_since_refresh": round(_hours, 1),
+            "stale": _hours > 26,
+            "status": _log.get("status", "unknown"),
+        }
+        if _log.get("error"):
+            refresh_status["error"] = _log["error"]
+    except (FileNotFoundError, KeyError, ValueError, OSError):
+        pass
+
+    return {"catalog": catalog, "schema": schema, "tables": results, "auth_error": auth_error, "refresh_status": refresh_status}
+
+
+_CONTRACT_SETTINGS_FILE = os.path.join(
+    os.path.dirname(__file__), "..", "..", ".settings", "contract_settings.json"
+)
+
+_CONTRACT_EMPTY = {"start_date": None, "end_date": None, "total_commit_usd": None, "notes": ""}
+
+
+def _load_contract_settings() -> dict:
+    try:
+        with open(_CONTRACT_SETTINGS_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return _CONTRACT_EMPTY.copy()
+
+
+@router.get("/contract")
+async def get_contract_settings():
+    """Return saved contract terms (or empty defaults)."""
+    return _load_contract_settings()
+
+
+@router.post("/contract")
+async def save_contract_settings(body: dict):
+    """Persist contract terms after basic validation."""
+    from datetime import date as _date
+    errors = []
+    start = body.get("start_date") or ""
+    end = body.get("end_date") or ""
+    commit = body.get("total_commit_usd")
+    try:
+        _date.fromisoformat(start)
+    except (ValueError, TypeError):
+        errors.append("start_date must be a valid ISO date (YYYY-MM-DD)")
+    try:
+        _date.fromisoformat(end)
+    except (ValueError, TypeError):
+        errors.append("end_date must be a valid ISO date (YYYY-MM-DD)")
+    if commit is None or not isinstance(commit, (int, float)) or commit <= 0:
+        errors.append("total_commit_usd must be a positive number")
+    if errors:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="; ".join(errors))
+    data = {
+        "start_date": start,
+        "end_date": end,
+        "total_commit_usd": float(commit),
+        "notes": (body.get("notes") or "").strip(),
+    }
+    os.makedirs(os.path.dirname(_CONTRACT_SETTINGS_FILE), exist_ok=True)
+    with open(_CONTRACT_SETTINGS_FILE, "w") as f:
+        json.dump(data, f)
+    return data
 
 
 @router.get("/catalog")
@@ -281,17 +372,25 @@ async def reset_catalog_settings():
 
 
 @router.post("/refresh-mvs")
-async def trigger_mv_refresh():
+async def trigger_mv_refresh(request: Request):
     """Trigger an immediate MV rebuild (CREATE OR REPLACE TABLE for all MV tables)."""
     import asyncio
     from server.app import _run_mv_refresh
 
+    user_token = request.headers.get("x-forwarded-access-token") or None
     loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(None, _run_mv_refresh)
+        result = await loop.run_in_executor(None, lambda: _run_mv_refresh(user_token=user_token))
         return {"status": "ok", "result": result}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+@router.get("/auth-status")
+async def get_auth_status_endpoint():
+    """Return current auth mode for the settings UI indicator."""
+    from server.db import get_auth_status
+    return get_auth_status()
 
 
 @router.get("/warehouses")

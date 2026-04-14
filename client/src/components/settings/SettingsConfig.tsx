@@ -65,6 +65,17 @@ export function SettingsConfig({
     queryFn: () => fetch("/api/settings/catalog").then(r => r.json()).catch(() => null),
     staleTime: 30 * 1000,
   });
+  const { data: authStatus = null } = useQuery<{
+    user_token_active: boolean;
+    identity: "user_oauth" | "service_principal";
+    locked_to_sp: boolean;
+    has_sql_scope: boolean | null;
+  } | null>({
+    queryKey: ["settings-auth-status"],
+    queryFn: () => fetch("/api/settings/auth-status").then(r => r.json()).catch(() => null),
+    staleTime: 60 * 1000,
+  });
+
   const [catalogEditing, setCatalogEditing] = useState(false);
   const [catalogDraft, setCatalogDraft] = useState({ catalog: "", schema: "" });
   const [catalogSaving, setCatalogSaving] = useState(false);
@@ -72,6 +83,15 @@ export function SettingsConfig({
   const { data: tablesStatus = null, isLoading: tablesLoading, refetch: refetchTables } = useQuery<{
     catalog: string | null;
     schema: string | null;
+    auth_error?: string | null;
+    refresh_status?: {
+      last_refresh_utc: string;
+      duration_seconds: number | null;
+      hours_since_refresh: number;
+      stale: boolean;
+      status: string;
+      error?: string;
+    } | null;
     tables: Array<{
       name: string;
       table_type: string | null;
@@ -303,6 +323,29 @@ export function SettingsConfig({
                   <div className="text-sm font-medium text-gray-900">{appConfig.identity.user_name || "—"}</div>
                 </div>
               )}
+              {authStatus && (
+                <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3">
+                  <div className="text-sm text-gray-500">Auth Mode</div>
+                  <div className="flex items-center gap-1.5">
+                    {authStatus.identity === "user_oauth" ? (
+                      <>
+                        <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
+                        <span className="text-sm font-medium text-green-700">User OAuth</span>
+                      </>
+                    ) : authStatus.locked_to_sp ? (
+                      <>
+                        <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+                        <span className="text-sm font-medium text-amber-700">Service principal (token failed scope check)</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="inline-block h-2 w-2 rounded-full bg-amber-400" />
+                        <span className="text-sm font-medium text-amber-700">Service principal</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -399,17 +442,35 @@ export function SettingsConfig({
                 </svg>
                 <h4 className="text-sm font-semibold text-gray-900">Storage Location & Tables</h4>
               </div>
-              <button
-                onClick={handleMvRefresh}
-                disabled={mvRefreshing}
-                className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Rebuild materialized views"
-              >
-                <svg className={`h-3.5 w-3.5 ${mvRefreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                {mvRefreshing ? "Refreshing…" : "Refresh"}
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Last refresh indicator */}
+                {tablesStatus?.refresh_status === null || tablesStatus?.refresh_status === undefined ? (
+                  <span className="text-xs text-gray-400">Last refresh: unknown</span>
+                ) : tablesStatus.refresh_status.status === "error" ? (
+                  <span className="text-xs text-red-500">Last refresh failed</span>
+                ) : tablesStatus.refresh_status.stale ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                    Stale (&gt;26h)
+                  </span>
+                ) : (
+                  <span className="text-xs text-gray-400">
+                    {tablesStatus.refresh_status.hours_since_refresh < 1
+                      ? "Refreshed &lt;1h ago"
+                      : `Refreshed ${tablesStatus.refresh_status.hours_since_refresh}h ago`}
+                  </span>
+                )}
+                <button
+                  onClick={handleMvRefresh}
+                  disabled={mvRefreshing}
+                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Rebuild materialized views"
+                >
+                  <svg className={`h-3.5 w-3.5 ${mvRefreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  {mvRefreshing ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
             </div>
 
             {/* Catalog / Schema location */}
@@ -527,6 +588,16 @@ export function SettingsConfig({
                 </p>
               )}
             </div>
+
+            {/* Auth error banner */}
+            {tablesStatus?.auth_error && (
+              <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 flex gap-2 items-start">
+                <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+                <span>{tablesStatus.auth_error}</span>
+              </div>
+            )}
 
             {/* Table list */}
             {tablesLoading ? (

@@ -98,6 +98,7 @@ export interface AppSettings {
   enableAlerts: boolean;
   enableForecasting: boolean;
   enableLakebase: boolean;
+  enableContractTracking: boolean;
   darkMode: boolean;
   anonymizeUsers: boolean;
 }
@@ -123,6 +124,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   enableAlerts: false,
   enableForecasting: false,
   enableLakebase: false,
+  enableContractTracking: false,
   darkMode: false,
   anonymizeUsers: false,
 };

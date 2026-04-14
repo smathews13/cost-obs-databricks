@@ -28,6 +28,7 @@ const TaggingHub = lazy(() => import("@/components/TaggingHub").then(m => ({ def
 const SQLWarehousing360 = lazy(() => import("@/components/SQLWarehousing360").then(m => ({ default: m.SQLWarehousing360 })));
 const ForecastingView = lazy(() => import("@/components/ForecastingView").then(m => ({ default: m.ForecastingView })));
 const LakebaseView = lazy(() => import("@/components/LakebaseView").then(m => ({ default: m.LakebaseView })));
+const ContractBurndown = lazy(() => import("@/components/ContractBurndown").then(m => ({ default: m.ContractBurndown })));
 const Alerts = lazy(() => import("@/pages/Alerts"));
 const UseCases = lazy(() => import("@/pages/UseCases"));
 const UsersGroups = lazy(() => import("@/pages/UsersGroups"));
@@ -53,7 +54,7 @@ import {
 import type { DateRange } from "@/types/billing";
 import { generateCostReport } from "@/utils/pdfExport";
 
-type ViewTab = "dbu" | "sql" | "infra" | "kpis" | "aiml" | "apps" | "tagging" | "use-cases" | "alerts" | "forecasting" | "lakebase" | "users-groups";
+type ViewTab = "dbu" | "sql" | "infra" | "kpis" | "aiml" | "apps" | "tagging" | "use-cases" | "alerts" | "forecasting" | "lakebase" | "users-groups" | "contract";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -118,6 +119,7 @@ function Dashboard() {
     "alerts":       [["alerts"]],
     "forecasting":  [["billing", "dashboard-bundle-fast"]],
     "lakebase":     [],
+    "contract":     [["contract-burndown"]],
   };
 
   const handleTabRefresh = async () => {
@@ -201,6 +203,17 @@ function Dashboard() {
   });
 
   const { data: accountInfo } = useAccountInfo();
+
+  const { data: authStatus } = useQuery<{
+    user_token_active: boolean;
+    identity: "user_oauth" | "service_principal";
+    locked_to_sp: boolean;
+    has_sql_scope: boolean | null;
+  } | null>({
+    queryKey: ["settings-auth-status"],
+    queryFn: () => fetch("/api/settings/auth-status").then(r => r.json()).catch(() => null),
+    staleTime: 60 * 1000,
+  });
 
   // Detect cloud from browser URL instantly (no API call needed)
   const detectedCloudFromUrl = useMemo(() => {
@@ -458,6 +471,15 @@ function Dashboard() {
                     alt={detectedCloudFromUrl}
                     className="h-5 w-5 object-contain"
                   />
+                  {authStatus && (
+                    <span
+                      title={authStatus.identity === "user_oauth" ? "Queries running as your OAuth token" : authStatus.locked_to_sp ? "Locked to service principal (token failed scope check)" : "Queries running as service principal"}
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${authStatus.identity === "user_oauth" ? "bg-green-500/20 text-green-200" : "bg-amber-400/20 text-amber-200"}`}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${authStatus.identity === "user_oauth" ? "bg-green-400" : "bg-amber-400"}`} />
+                      {authStatus.identity === "user_oauth" ? "OAuth" : "SP"}
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center gap-3">
@@ -709,6 +731,21 @@ function Dashboard() {
                 Lakebase
               </button>
               )}
+              {appSettings.enableContractTracking && (
+              <button
+                onClick={() => setActiveTab("contract")}
+                className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
+                  activeTab === "contract"
+                    ? "border-[#FF3621] text-[#FF3621]"
+                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                }`}
+              >
+                <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Contract
+              </button>
+              )}
             </nav>
           </div>
         </div>
@@ -929,6 +966,10 @@ function Dashboard() {
             anonymizeUsers={appSettings.anonymizeUsers}
           />
           </TabErrorBoundary>
+        ) : activeTab === "contract" ? (
+          <TabErrorBoundary tabName="Contract">
+          <ContractBurndown />
+          </TabErrorBoundary>
         ) : null}
         </Suspense>
         </div>
@@ -956,9 +997,10 @@ function Dashboard() {
         appSettings={appSettings}
         onTabVisibilityChange={(v) => {
           setTabVisibility(v);
-          // If the active tab was hidden, switch to the first visible tab
-          if (!v[activeTab]) {
-            const firstVisible = (Object.keys(v) as ViewTab[]).find((k) => v[k]);
+          // If the active tab was hidden, switch to the first visible tab.
+          // "contract" is not in TabVisibility (it's purely settings-gated), so skip the check for it.
+          if (activeTab !== "contract" && !v[activeTab as keyof typeof v]) {
+            const firstVisible = (Object.keys(v) as ViewTab[]).find((k) => v[k as keyof typeof v]);
             if (firstVisible) setActiveTab(firstVisible);
           }
         }}

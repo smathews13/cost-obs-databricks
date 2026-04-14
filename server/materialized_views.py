@@ -138,6 +138,10 @@ ORDER BY uwp.usage_date, uwp.workspace_id
 """
 
 # SQL tool attribution (Genie vs DBSQL) - expensive query, pre-computed daily
+# Lookback reduced from 1095→365 days (2026-04-14). Query history joins are expensive.
+# 1y is sufficient for query analytics.
+# NOTE: Lakebase is the planned destination for this pre-aggregated data; when migrated,
+# replace Delta writes with Postgres writes and queries with Postgres reads.
 CREATE_SQL_TOOL_ATTRIBUTION = """
 CREATE OR REPLACE TABLE {catalog}.{schema}.sql_tool_attribution AS
 WITH sql_query_work AS (
@@ -152,7 +156,7 @@ WITH sql_query_work AS (
   FROM system.query.history
   WHERE executed_as_user_id IS NOT NULL
     AND compute.warehouse_id IS NOT NULL
-    AND DATE(start_time) >= DATE_SUB(CURRENT_DATE(), 1095)
+    AND DATE(start_time) >= DATE_SUB(CURRENT_DATE(), 365)
   GROUP BY 1, 2, 3
 ),
 sql_usage AS (
@@ -168,7 +172,7 @@ sql_usage AS (
     AND u.cloud = p.cloud
     AND p.price_end_time IS NULL
   WHERE u.billing_origin_product = 'SQL'
-    AND u.usage_date >= DATE_SUB(CURRENT_DATE(), 1095)
+    AND u.usage_date >= DATE_SUB(CURRENT_DATE(), 365)
     AND u.usage_quantity > 0
   GROUP BY 1, 2
 ),
@@ -202,6 +206,10 @@ LEFT JOIN sql_usage s ON q.usage_date = s.usage_date AND q.warehouse_id = s.ware
 """
 
 # Platform KPIs from query.history (pre-computed daily)
+# Lookback reduced from 1095→365 days (2026-04-14). Query history joins are expensive.
+# 1y is sufficient for query analytics.
+# NOTE: Lakebase is the planned destination for this pre-aggregated data; when migrated,
+# replace Delta writes with Postgres writes and queries with Postgres reads.
 CREATE_QUERY_STATS = """
 CREATE OR REPLACE TABLE {catalog}.{schema}.daily_query_stats AS
 SELECT
@@ -212,7 +220,7 @@ SELECT
   SUM(COALESCE(read_bytes, 0)) as total_bytes_read,
   SUM(COALESCE(total_task_duration_ms, 0)) / 1000.0 as total_compute_seconds
 FROM system.query.history
-WHERE DATE(start_time) >= DATE_SUB(CURRENT_DATE(), 1095)
+WHERE DATE(start_time) >= DATE_SUB(CURRENT_DATE(), 365)
 GROUP BY DATE(start_time)
 ORDER BY usage_date
 """
@@ -864,21 +872,30 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
     # Create all tables in parallel — none depend on each other
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    def _create_table(table_name: str, create_sql: str) -> tuple[str, str]:
+    import time as _time
+
+    def _create_table(table_name: str, create_sql: str) -> tuple[str, str, float]:
+        t0 = _time.monotonic()
         try:
             logger.info(f"Creating table {catalog}.{schema}.{table_name}...")
             execute_query(create_sql.format(catalog=catalog, schema=schema))
-            logger.info(f"✓ {table_name} created successfully")
-            return table_name, "created"
+            elapsed = _time.monotonic() - t0
+            logger.info(f"✓ {table_name} created successfully in {elapsed:.1f}s")
+            return table_name, "created", elapsed
         except Exception as e:
+            elapsed = _time.monotonic() - t0
             logger.error(f"✗ Failed to create {table_name}: {e}")
-            return table_name, f"error: {e}"
+            return table_name, f"error: {e}", elapsed
 
+    mv_timings: dict[str, float] = {}
     with ThreadPoolExecutor(max_workers=len(tables)) as executor:
         futures = {executor.submit(_create_table, name, sql): name for name, sql in tables}
         for future in as_completed(futures):
-            table_name, status = future.result()
+            table_name, status, elapsed = future.result()
             results[table_name] = status
+            mv_timings[table_name] = round(elapsed, 2)
+
+    results["__mv_timings__"] = mv_timings  # type: ignore[assignment]
 
     # Sync all successfully-created tables to Lakebase (non-fatal)
     sync_to_lakebase(catalog, schema, [t for t, _ in tables if results.get(t) == "created"])
