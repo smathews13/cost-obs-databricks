@@ -48,51 +48,75 @@ SYSTEM_TABLE_GRANTS = [
 
 
 def _grant_sp_schema_access(catalog: str, schema: str) -> None:
-    """Grant the app's SP identity all required permissions.
+    """Grant the app's SP identity all required permissions via UC REST API.
 
-    Grants USE+CREATE+SELECT on the app schema, plus SELECT on all system
-    tables the app queries (billing, query history, compute, lakeflow).
-    Called after auto-bootstrap MV creation so the nightly scheduled refresh
-    (which runs as SP with no user token) can rebuild tables. Non-fatal.
-    The caller must already have set the user OAuth token in the ContextVar
-    so the GRANTs run with admin authority.
+    Uses the SDK grants API directly — no SQL warehouse required, so this
+    works even when the warehouse is stopped or the SP has no CAN_USE yet.
+    Warehouse CAN_USE is granted via the permissions REST API.
     """
-    from server.db import execute_query
+    from server.db import get_user_workspace_client
+    from databricks.sdk.service.catalog import SecurableType, PermissionsChange
+
     sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
     if not sp_client_id:
         logger.warning("DATABRICKS_CLIENT_ID not set — skipping SP grants")
         return
 
-    grants = [
-        # App schema
-        f"GRANT USE CATALOG ON CATALOG {catalog} TO `{sp_client_id}`",
-        f"GRANT USE SCHEMA ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
-        f"GRANT CREATE TABLE ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
-        f"GRANT SELECT ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
-    ] + [
-        # System tables
-        f"GRANT {priv} ON {obj_type} {obj_name} TO `{sp_client_id}`"
-        for priv, obj_type, obj_name in SYSTEM_TABLE_GRANTS
-    ]
+    w = get_user_workspace_client()
+    ok = failed = 0
 
-    # Also grant CAN_USE on the active warehouse so the SP can run queries
-    http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
-    warehouse_id = http_path.split("/")[-1] if http_path and "/" in http_path else ""
-    if warehouse_id:
-        grants.append(f"GRANT CAN_USE ON SQL WAREHOUSE `{warehouse_id}` TO `{sp_client_id}`")
-
-    ok = 0
-    for sql in grants:
+    def _uc_grant(securable_type: SecurableType, full_name: str, *privileges: str):
+        nonlocal ok, failed
         try:
-            execute_query(sql, no_cache=True)
+            w.grants.update(
+                securable_type=securable_type,
+                full_name=full_name,
+                changes=[PermissionsChange(principal=sp_client_id, add=list(privileges))],
+            )
             ok += 1
+            logger.debug(f"Granted {privileges} on {securable_type} {full_name} to {sp_client_id}")
         except Exception as e:
             err = str(e).lower()
             if "already" in err or "not found" in err or "does not exist" in err:
                 ok += 1
             else:
-                logger.warning(f"SP grant failed (non-fatal): {sql} — {e}")
-    logger.info(f"SP grants: {ok}/{len(grants)} applied for {sp_client_id}")
+                logger.warning(f"UC grant failed ({full_name}): {e}")
+                failed += 1
+
+    # System catalog + schemas + tables
+    _uc_grant(SecurableType.CATALOG, "system", "USE CATALOG")
+    for _, obj_type, obj_name in SYSTEM_TABLE_GRANTS:
+        if obj_type == "SCHEMA":
+            _uc_grant(SecurableType.SCHEMA, obj_name, "USE SCHEMA")
+        elif obj_type == "TABLE":
+            _uc_grant(SecurableType.TABLE, obj_name, "SELECT")
+
+    # App catalog + schema
+    _uc_grant(SecurableType.CATALOG, catalog, "USE CATALOG")
+    _uc_grant(SecurableType.SCHEMA, f"{catalog}.{schema}",
+              "USE SCHEMA", "CREATE TABLE", "SELECT")
+
+    # Warehouse CAN_USE via permissions REST API (not a UC object)
+    http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
+    warehouse_id = http_path.split("/")[-1] if http_path and "/" in http_path else ""
+    if warehouse_id:
+        try:
+            from databricks.sdk.service.sql import AccessControl, PermissionLevel
+            w.warehouses.set_permissions(
+                warehouse_id=warehouse_id,
+                access_control_list=[
+                    AccessControl(
+                        service_principal_name=sp_client_id,
+                        permission_level=PermissionLevel.CAN_USE,
+                    )
+                ],
+            )
+            ok += 1
+            logger.debug(f"Granted CAN_USE on warehouse {warehouse_id} to {sp_client_id}")
+        except Exception as e:
+            logger.warning(f"Warehouse CAN_USE grant failed (non-fatal): {e}")
+
+    logger.info(f"SP grants via SDK API: {ok} ok, {failed} failed for {sp_client_id}")
 
 
 @router.get("/status")
