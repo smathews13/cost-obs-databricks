@@ -36,6 +36,15 @@ export function PermissionsDialog() {
     return localStorage.getItem(STORAGE_KEY) === "true";
   });
 
+  // Check auth mode — if OAuth is active, SP permissions are irrelevant
+  const { data: authStatus } = useQuery<{ identity: string }>({
+    queryKey: ["settings-auth-status"],
+    queryFn: () => fetch("/api/settings/auth-status").then(r => r.json()),
+    staleTime: 30 * 1000,
+    enabled: !dismissed,
+  });
+  const isOAuth = authStatus?.identity === "user_oauth";
+
   // Checkbox state for acknowledgment (required)
   const [acknowledged, setAcknowledged] = useState(false);
 
@@ -72,16 +81,62 @@ export function PermissionsDialog() {
       if (!response.ok) throw new Error("Failed to check permissions");
       return response.json();
     },
-    enabled: !dismissed,
-    staleTime: 0, // Always refetch
-    gcTime: 0, // Don't cache
-    retry: 1, // Only retry once
-    retryDelay: 1000, // Wait 1s between retries
+    enabled: !dismissed && !isOAuth,
+    staleTime: 0,
+    gcTime: 0,
+    retry: 1,
+    retryDelay: 1000,
   });
 
   // Don't show if user dismissed this session
   if (dismissed) {
     return null;
+  }
+
+  // OAuth active — SP permissions are irrelevant; show a lightweight acknowledgment instead
+  if (isOAuth) {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        style={{ backgroundColor: "rgba(0, 0, 0, 0.6)" }}
+      >
+        <div className="relative w-full max-w-md rounded-xl bg-white shadow-2xl">
+          <div className="flex items-center gap-4 rounded-t-xl px-6 py-5" style={{ backgroundColor: "#1B3139" }}>
+            <div className="rounded-full bg-white/10 p-3">
+              <Shield className="h-6 w-6 text-white" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-xl font-semibold text-white">OAuth Active</h2>
+              <p className="text-sm text-white/70">Queries run as your Databricks user identity.</p>
+            </div>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4">
+              <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-green-600" />
+              <div>
+                <p className="text-sm font-medium text-green-800">No SP grants required</p>
+                <p className="text-sm text-green-700 mt-0.5">
+                  All queries run under your own Unity Catalog identity — system table access follows your personal permissions, not the service principal's.
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              <span className="font-medium text-gray-600">Important Disclaimer:</span> This application is a reference implementation and is not official production software from Databricks. It is not covered by Databricks support SLAs. Treat your deployment like OSS software.
+            </p>
+          </div>
+          <div className="flex justify-end border-t border-gray-200 px-6 py-4">
+            <button
+              onClick={() => { localStorage.setItem(STORAGE_KEY, "true"); setDismissed(true); }}
+              className="rounded-lg px-5 py-2 text-sm font-medium text-white"
+              style={{ backgroundColor: "#10b981" }}
+            >
+              Continue to Dashboard
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
   }
 
   // Show loading or error states inside the modal overlay
