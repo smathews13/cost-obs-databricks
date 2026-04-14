@@ -15,7 +15,7 @@ import { SettingsDialog, loadTabVisibility, loadAppSettings, type TabVisibility,
 import { PricingProvider, usePricing } from "@/context/PricingContext";
 import { Footer } from "@/components/Footer";
 import awsLogo from "@/assets/aws.png";
-import azureLogo from "@/assets/azure.svg";
+import azureLogo from "@/assets/azure.png";
 
 // Lazy-loaded tab views — only downloaded when the user first visits that tab
 const InteractiveBreakdown = lazy(() => import("@/components/InteractiveBreakdown").then(m => ({ default: m.InteractiveBreakdown })));
