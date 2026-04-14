@@ -55,7 +55,14 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> None:
     Warehouse CAN_USE is granted via the permissions REST API.
     """
     from server.db import get_user_workspace_client
-    from databricks.sdk.service.catalog import SecurableType, PermissionsChange
+    from databricks.sdk.service.catalog import SecurableType, PermissionsChange, Privilege
+
+    _PRIV_MAP = {
+        "USE CATALOG": Privilege.USE_CATALOG,
+        "USE SCHEMA": Privilege.USE_SCHEMA,
+        "SELECT": Privilege.SELECT,
+        "CREATE TABLE": Privilege.CREATE_TABLE,
+    }
 
     sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
     if not sp_client_id:
@@ -68,10 +75,11 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> None:
     def _uc_grant(securable_type: SecurableType, full_name: str, *privileges: str):
         nonlocal ok, failed
         try:
+            priv_enums = [_PRIV_MAP[p] for p in privileges if p in _PRIV_MAP]
             w.grants.update(
                 securable_type=securable_type,
                 full_name=full_name,
-                changes=[PermissionsChange(principal=sp_client_id, add=list(privileges))],
+                changes=[PermissionsChange(principal=sp_client_id, add=priv_enums)],
             )
             ok += 1
             logger.debug(f"Granted {privileges} on {securable_type} {full_name} to {sp_client_id}")
@@ -101,13 +109,13 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> None:
     warehouse_id = http_path.split("/")[-1] if http_path and "/" in http_path else ""
     if warehouse_id:
         try:
-            from databricks.sdk.service.sql import AccessControl, PermissionLevel
+            from databricks.sdk.service.sql import WarehouseAccessControlRequest, WarehousePermissionLevel
             w.warehouses.set_permissions(
                 warehouse_id=warehouse_id,
                 access_control_list=[
-                    AccessControl(
+                    WarehouseAccessControlRequest(
                         service_principal_name=sp_client_id,
-                        permission_level=PermissionLevel.CAN_USE,
+                        permission_level=WarehousePermissionLevel.CAN_USE,
                     )
                 ],
             )
