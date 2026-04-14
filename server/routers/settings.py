@@ -762,12 +762,27 @@ def _save_telemetry_settings(settings: dict) -> None:
 
 @router.get("/telemetry")
 async def get_telemetry_settings() -> dict[str, Any]:
-    """Return current app telemetry destination settings."""
+    """Return current app telemetry destination settings.
+
+    Falls back to the app's own catalog/schema (from env) when nothing is saved,
+    so OTel table monitoring works out of the box without requiring manual config.
+    """
+    from server.db import get_catalog_schema
     stored = _load_telemetry_settings()
+    # Use stored values if present, otherwise fall back to the app's catalog/schema
+    if not stored.get("catalog"):
+        try:
+            default_catalog, default_schema = get_catalog_schema()
+        except Exception:
+            default_catalog, default_schema = "", ""
+    else:
+        default_catalog = stored["catalog"]
+        default_schema = stored.get("schema_name", "")
     return {
-        "catalog": stored.get("catalog", ""),
-        "schema_name": stored.get("schema_name", ""),
+        "catalog": stored.get("catalog") or default_catalog,
+        "schema_name": stored.get("schema_name") or default_schema,
         "table_prefix": stored.get("table_prefix", ""),
+        "is_default": not bool(stored.get("catalog")),  # True = using app default, not custom
     }
 
 

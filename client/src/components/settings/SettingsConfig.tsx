@@ -20,6 +20,7 @@ interface TelemetryConfig {
   catalog: string;
   schema_name: string;
   table_prefix: string;
+  is_default?: boolean;
 }
 
 interface SettingsConfigProps {
@@ -674,7 +675,7 @@ export function SettingsConfig({
                   }}
                   className="rounded border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50"
                 >
-                  {telemetry?.catalog ? "Edit" : "Configure"}
+                  {telemetry?.is_default ? "Override" : "Edit"}
                 </button>
               )}
             </div>
@@ -782,25 +783,24 @@ export function SettingsConfig({
                     </button>
                   </div>
                 </div>
-              ) : telemetry?.catalog ? (
+              ) : (
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-gray-500">Catalog</span>
-                  <span className="rounded-md bg-purple-50 border border-purple-200 px-2 py-0.5 text-xs font-mono font-medium text-purple-800">{telemetry.catalog}</span>
+                  <span className="rounded-md bg-purple-50 border border-purple-200 px-2 py-0.5 text-xs font-mono font-medium text-purple-800">{telemetry?.catalog || "—"}</span>
                   <span className="text-gray-300">·</span>
                   <span className="text-xs text-gray-500">Schema</span>
-                  <span className="rounded-md bg-purple-50 border border-purple-200 px-2 py-0.5 text-xs font-mono font-medium text-purple-800">{telemetry.schema_name}</span>
-                  {telemetry.table_prefix && (
+                  <span className="rounded-md bg-purple-50 border border-purple-200 px-2 py-0.5 text-xs font-mono font-medium text-purple-800">{telemetry?.schema_name || "—"}</span>
+                  {telemetry?.table_prefix && (
                     <>
                       <span className="text-gray-300">·</span>
                       <span className="text-xs text-gray-500">Prefix</span>
                       <span className="rounded-md bg-purple-50 border border-purple-200 px-2 py-0.5 text-xs font-mono font-medium text-purple-800">{telemetry.table_prefix}</span>
                     </>
                   )}
+                  {telemetry?.is_default && (
+                    <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-[10px] text-gray-500">App default</span>
+                  )}
                 </div>
-              ) : (
-                <p className="text-xs text-gray-400 italic">
-                  Not configured — click Configure to set the catalog/schema where Databricks writes OTel tables for this app.
-                </p>
               )}
             </div>
           </div>

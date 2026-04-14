@@ -15,7 +15,7 @@ import { SettingsDialog, loadTabVisibility, loadAppSettings, type TabVisibility,
 import { PricingProvider, usePricing } from "@/context/PricingContext";
 import { Footer } from "@/components/Footer";
 import awsLogo from "@/assets/aws.png";
-import azureLogo from "@/assets/azure.png";
+import azureLogo from "@/assets/azure.svg";
 
 // Lazy-loaded tab views — only downloaded when the user first visits that tab
 const InteractiveBreakdown = lazy(() => import("@/components/InteractiveBreakdown").then(m => ({ default: m.InteractiveBreakdown })));
@@ -249,8 +249,8 @@ function Dashboard() {
   // Detect cloud from browser URL instantly (no API call needed)
   const detectedCloudFromUrl = useMemo(() => {
     const host = window.location.hostname.toLowerCase();
-    if (host.includes(".azure.")) return "AZURE";
-    if (host.includes(".gcp.")) return "GCP";
+    if (host.includes("azure") || host.includes(".azure.")) return "AZURE";
+    if (host.includes(".gcp.") || host.includes("gcp.databricks")) return "GCP";
     return "AWS";
   }, []);
 

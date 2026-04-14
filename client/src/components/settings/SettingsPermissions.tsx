@@ -25,6 +25,8 @@ export function SettingsPermissions() {
   const [newConsumer, setNewConsumer] = useState("");
   const [modeError, setModeError] = useState<string | null>(null);
   const [modeSuccess, setModeSuccess] = useState<string | null>(null);
+  const [grantRunning, setGrantRunning] = useState(false);
+  const [grantResult, setGrantResult] = useState<string | null>(null);
 
   const { data: permissions, isLoading } = useQuery<UserPermissions>({
     queryKey: ["user-permissions"],
@@ -87,6 +89,24 @@ export function SettingsPermissions() {
     }
   };
 
+  const runSpGrants = async () => {
+    setGrantRunning(true);
+    setGrantResult(null);
+    try {
+      const res = await fetch("/api/setup/grant-sp-system-access", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.status === "ok") {
+        setGrantResult(`Grants applied for ${body.sp_client_id} on ${body.catalog}.${body.schema} + system tables.`);
+      } else {
+        setGrantResult(body.reason ?? body.detail ?? "Grant run completed (check server logs for details).");
+      }
+    } catch {
+      setGrantResult("Network error running grants.");
+    } finally {
+      setGrantRunning(false);
+    }
+  };
+
   const addAdmin = () => {
     const email = newAdmin.trim();
     if (!email) return;
@@ -132,6 +152,100 @@ export function SettingsPermissions() {
 
   return (
     <div className="space-y-6">
+
+      {/* ── App-level user/role permissions ── */}
+      {saveMutation.isError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <strong>Save failed:</strong> {saveMutation.error instanceof Error ? saveMutation.error.message : "Unknown error"}. Check that the app service principal has INSERT/DELETE access to the permissions table.
+        </div>
+      )}
+      <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700">
+        <strong>Default access:</strong> Any user not explicitly listed is treated as a <strong>Consumer</strong>. Add users to <em>Admins</em> to grant settings access.
+      </div>
+
+      {permissions?.table_location && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
+          <span className="font-medium">Permissions table: </span>
+          <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-800">{permissions.table_location}</code>
+          <span className="ml-2 text-gray-400">— stored in Unity Catalog, persists across deploys</span>
+        </div>
+      )}
+
+      {/* Admins */}
+      <div>
+        <h4 className="mb-1 text-sm font-semibold text-gray-800">Admins</h4>
+        <p className="mb-3 text-xs text-gray-500">Admins can view all data and change app settings.</p>
+        <div className="mb-3 space-y-2">
+          {(permissions?.admins ?? []).length === 0 ? (
+            <p className="text-xs text-gray-400 italic">No explicit admins listed — all unlisted users are admins by default.</p>
+          ) : (
+            (permissions?.admins ?? []).map((email) => (
+              <div key={email} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600">Admin</span>
+                  <span className="text-sm text-gray-800">{email}</span>
+                </div>
+                <button onClick={() => removeAdmin(email)} className="text-xs text-red-500 hover:text-red-700">Remove</button>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="email"
+            placeholder="user@example.com"
+            value={newAdmin}
+            onChange={(e) => setNewAdmin(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addAdmin()}
+            className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-[#FF3621] focus:outline-none"
+          />
+          <button
+            onClick={addAdmin}
+            disabled={!newAdmin.trim() || saveMutation.isPending}
+            className="btn-brand rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          >
+            Add Admin
+          </button>
+        </div>
+      </div>
+
+      {/* Consumers */}
+      <div>
+        <h4 className="mb-1 text-sm font-semibold text-gray-800">Consumers</h4>
+        <p className="mb-3 text-xs text-gray-500">Consumers can view dashboards but cannot change app settings.</p>
+        <div className="mb-3 space-y-2">
+          {(permissions?.consumers ?? []).length === 0 ? (
+            <p className="text-xs text-gray-400 italic">No consumers listed.</p>
+          ) : (
+            (permissions?.consumers ?? []).map((email) => (
+              <div key={email} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-500">Consumer</span>
+                  <span className="text-sm text-gray-800">{email}</span>
+                </div>
+                <button onClick={() => removeConsumer(email)} className="text-xs text-red-500 hover:text-red-700">Remove</button>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="email"
+            placeholder="user@example.com"
+            value={newConsumer}
+            onChange={(e) => setNewConsumer(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addConsumer()}
+            className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-[#FF3621] focus:outline-none"
+          />
+          <button
+            onClick={addConsumer}
+            disabled={!newConsumer.trim() || saveMutation.isPending}
+            className="btn-brand rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          >
+            Add Consumer
+          </button>
+        </div>
+      </div>
 
       {/* ── Auth Mode Panel ── */}
       <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
@@ -296,6 +410,29 @@ export function SettingsPermissions() {
             )}
           </div>
 
+          {/* Re-run SP grants button (shown when in SP mode or no token) */}
+          {(isSP || noToken) && (
+            <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 space-y-2">
+              <p className="text-xs font-medium text-amber-800">After a git deploy, re-apply SP grants</p>
+              <p className="text-[11px] text-amber-700">
+                Each git deploy creates a new service principal. Run this (as a metastore or account admin) to
+                grant the new SP access to all system tables and the app schema — fixes 0s in dashboards after deploy.
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={runSpGrants}
+                  disabled={grantRunning}
+                  className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                >
+                  {grantRunning ? "Running grants…" : "Re-run SP grants"}
+                </button>
+                {grantResult && (
+                  <span className="text-[11px] text-amber-800">{grantResult}</span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* SP grants reference */}
           {(isSP || noToken) && (
             <details className="rounded-lg border border-gray-200 bg-gray-50 text-xs">
@@ -331,99 +468,6 @@ GRANT SELECT ON SCHEMA <your_catalog>.<your_schema> TO \`<sp_client_id>\`;`}</pr
         </div>
       </div>
 
-      {/* ── App-level user/role permissions ── */}
-      {saveMutation.isError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          <strong>Save failed:</strong> {saveMutation.error instanceof Error ? saveMutation.error.message : "Unknown error"}. Check that the app service principal has INSERT/DELETE access to the permissions table.
-        </div>
-      )}
-      <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700">
-        <strong>Default access:</strong> Any user not explicitly listed is treated as a <strong>Consumer</strong>. Add users to <em>Admins</em> to grant settings access.
-      </div>
-
-      {permissions?.table_location && (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
-          <span className="font-medium">Permissions table: </span>
-          <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-800">{permissions.table_location}</code>
-          <span className="ml-2 text-gray-400">— stored in Unity Catalog, persists across deploys</span>
-        </div>
-      )}
-
-      {/* Admins */}
-      <div>
-        <h4 className="mb-1 text-sm font-semibold text-gray-800">Admins</h4>
-        <p className="mb-3 text-xs text-gray-500">Admins can view all data and change app settings.</p>
-        <div className="mb-3 space-y-2">
-          {(permissions?.admins ?? []).length === 0 ? (
-            <p className="text-xs text-gray-400 italic">No explicit admins listed — all unlisted users are admins by default.</p>
-          ) : (
-            (permissions?.admins ?? []).map((email) => (
-              <div key={email} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600">Admin</span>
-                  <span className="text-sm text-gray-800">{email}</span>
-                </div>
-                <button onClick={() => removeAdmin(email)} className="text-xs text-red-500 hover:text-red-700">Remove</button>
-              </div>
-            ))
-          )}
-        </div>
-        <div className="flex gap-2">
-          <input
-            type="email"
-            placeholder="user@example.com"
-            value={newAdmin}
-            onChange={(e) => setNewAdmin(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addAdmin()}
-            className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-[#FF3621] focus:outline-none"
-          />
-          <button
-            onClick={addAdmin}
-            disabled={!newAdmin.trim() || saveMutation.isPending}
-            className="btn-brand rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Add Admin
-          </button>
-        </div>
-      </div>
-
-      {/* Consumers */}
-      <div>
-        <h4 className="mb-1 text-sm font-semibold text-gray-800">Consumers</h4>
-        <p className="mb-3 text-xs text-gray-500">Consumers can view dashboards but cannot change app settings.</p>
-        <div className="mb-3 space-y-2">
-          {(permissions?.consumers ?? []).length === 0 ? (
-            <p className="text-xs text-gray-400 italic">No consumers listed.</p>
-          ) : (
-            (permissions?.consumers ?? []).map((email) => (
-              <div key={email} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-500">Consumer</span>
-                  <span className="text-sm text-gray-800">{email}</span>
-                </div>
-                <button onClick={() => removeConsumer(email)} className="text-xs text-red-500 hover:text-red-700">Remove</button>
-              </div>
-            ))
-          )}
-        </div>
-        <div className="flex gap-2">
-          <input
-            type="email"
-            placeholder="user@example.com"
-            value={newConsumer}
-            onChange={(e) => setNewConsumer(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addConsumer()}
-            className="flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-[#FF3621] focus:outline-none"
-          />
-          <button
-            onClick={addConsumer}
-            disabled={!newConsumer.trim() || saveMutation.isPending}
-            className="btn-brand rounded-md px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Add Consumer
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

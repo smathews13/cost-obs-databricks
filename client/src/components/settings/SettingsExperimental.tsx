@@ -177,134 +177,193 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
           </div>
 
           {/* Anonymize Users */}
-          <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 cursor-pointer hover:border-gray-300 transition-colors">
-            <input
-              type="checkbox"
-              checked={localSettings.anonymizeUsers}
-              onChange={(e) => updateSetting("anonymizeUsers", e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
-            />
-            <div>
-              <div className="text-sm font-medium text-gray-900">Anonymize Users</div>
-              <div className="mt-0.5 text-xs text-gray-500">
-                Replace human user emails with generic labels (User 1, User 2, …) throughout the Users tab.
-                Service principals are not affected.
-              </div>
-              <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
+          <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <span className="text-sm font-medium text-gray-900">Anonymize Users</span>
+              <div className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
                 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                 </svg>
                 Preview
               </div>
             </div>
-          </label>
+            <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+              <div>
+                <p className="text-xs font-medium text-gray-800">Enable anonymization</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Replace human user emails with generic labels (User 1, User 2, …) throughout the Users tab. Service principals are not affected.
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={localSettings.anonymizeUsers}
+                onClick={() => updateSetting("anonymizeUsers", !localSettings.anonymizeUsers)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+                  localSettings.anonymizeUsers ? "bg-green-500" : "bg-gray-200"
+                }`}
+              >
+                <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
+                  localSettings.anonymizeUsers ? "translate-x-4" : "translate-x-0"
+                }`} />
+              </button>
+            </div>
+          </div>
 
           {/* Contract Tracking */}
-          <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 cursor-pointer hover:border-gray-300 transition-colors">
-            <input
-              type="checkbox"
-              checked={localSettings.enableContractTracking}
-              onChange={(e) => updateSetting("enableContractTracking", e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
-            />
-            <div>
-              <div className="text-sm font-medium text-gray-900">Contract Tracking</div>
-              <div className="mt-0.5 text-xs text-gray-500">
-                Track Databricks contract burn-down against committed spend. Add contract terms in the Contract tab.
-              </div>
-              <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
+          <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span className="text-sm font-medium text-gray-900">Contract Tracking</span>
+              <div className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
                 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                 </svg>
                 Preview
               </div>
             </div>
-          </label>
+            <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+              <div>
+                <p className="text-xs font-medium text-gray-800">Enable contract tracking</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Track Databricks contract burn-down against committed spend. Add contract terms in the Contract tab.
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={localSettings.enableContractTracking}
+                onClick={() => updateSetting("enableContractTracking", !localSettings.enableContractTracking)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+                  localSettings.enableContractTracking ? "bg-green-500" : "bg-gray-200"
+                }`}
+              >
+                <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
+                  localSettings.enableContractTracking ? "translate-x-4" : "translate-x-0"
+                }`} />
+              </button>
+            </div>
+          </div>
 
           {/* Platform Alerts */}
-          <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 cursor-pointer hover:border-gray-300 transition-colors">
-            <input
-              type="checkbox"
-              checked={localSettings.enableAlerts}
-              onChange={(e) => updateSetting("enableAlerts", e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
-            />
-            <div>
-              <div className="text-sm font-medium text-gray-900">Platform Alerts</div>
-              <div className="mt-0.5 text-xs text-gray-500">
-                Add an Alerts tab for configuring cost spike detection, daily spend thresholds,
-                and workspace-level budget alerts with email and Slack notifications.
-              </div>
-              <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
+          <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+              <span className="text-sm font-medium text-gray-900">Platform Alerts</span>
+              <div className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
                 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                 </svg>
                 Preview
               </div>
             </div>
-          </label>
+            <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+              <div>
+                <p className="text-xs font-medium text-gray-800">Enable alerts</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Add an Alerts tab for configuring cost spike detection, daily spend thresholds, and workspace-level budget alerts with email and Slack notifications.
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={localSettings.enableAlerts}
+                onClick={() => updateSetting("enableAlerts", !localSettings.enableAlerts)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+                  localSettings.enableAlerts ? "bg-green-500" : "bg-gray-200"
+                }`}
+              >
+                <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
+                  localSettings.enableAlerts ? "translate-x-4" : "translate-x-0"
+                }`} />
+              </button>
+            </div>
+          </div>
 
           {/* Use Case Tracking */}
-          <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 cursor-pointer hover:border-gray-300 transition-colors">
-            <input
-              type="checkbox"
-              checked={localSettings.enableUseCaseTracking}
-              onChange={(e) => updateSetting("enableUseCaseTracking", e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
-            />
-            <div>
-              <div className="text-sm font-medium text-gray-900">Use Case Tracking</div>
-              <div className="mt-0.5 text-xs text-gray-500">
-                Add a Use Cases tab for tracking and categorizing Databricks workloads by business use case,
-                including cost attribution and usage patterns per use case.
-              </div>
-              <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
+          <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+              <span className="text-sm font-medium text-gray-900">Use Case Tracking</span>
+              <div className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
                 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                 </svg>
                 Preview
               </div>
             </div>
-          </label>
-
-          {/* Cost Forecasting — coming soon, not yet functional */}
-          <div className="flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50 p-4 opacity-50 cursor-not-allowed select-none">
-            <input
-              type="checkbox"
-              disabled
-              checked={false}
-              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-gray-400 cursor-not-allowed"
-            />
-            <div>
-              <div className="text-sm font-medium text-gray-400">Cost Forecasting</div>
-              <div className="mt-0.5 text-xs text-gray-400">
-                Add a Forecasting tab that projects future consumption based on historical usage
-                patterns. Includes month-end estimates, growth driver analysis, and budget scenario
-                modeling (optimistic / most likely / pessimistic).
+            <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+              <div>
+                <p className="text-xs font-medium text-gray-800">Enable use case tracking</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Add a Use Cases tab for tracking and categorizing Databricks workloads by business use case, including cost attribution and usage patterns per use case.
+                </p>
               </div>
-              <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-400 border border-gray-200">
+              <button
+                role="switch"
+                aria-checked={localSettings.enableUseCaseTracking}
+                onClick={() => updateSetting("enableUseCaseTracking", !localSettings.enableUseCaseTracking)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+                  localSettings.enableUseCaseTracking ? "bg-green-500" : "bg-gray-200"
+                }`}
+              >
+                <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
+                  localSettings.enableUseCaseTracking ? "translate-x-4" : "translate-x-0"
+                }`} />
+              </button>
+            </div>
+          </div>
+
+          {/* Cost Forecasting — coming soon */}
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-3 opacity-50 cursor-not-allowed select-none">
+            <div className="flex items-center gap-2">
+              <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              </svg>
+              <span className="text-sm font-medium text-gray-400">Cost Forecasting</span>
+              <div className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-400 border border-gray-200">
                 Coming Soon
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-white px-3 py-2.5">
+              <div>
+                <p className="text-xs font-medium text-gray-400">Enable forecasting</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Add a Forecasting tab that projects future consumption based on historical usage patterns, including month-end estimates and budget scenario modeling.
+                </p>
+              </div>
+              <div className="relative inline-flex h-5 w-9 shrink-0 rounded-full bg-gray-200 cursor-not-allowed">
+                <span className="pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform translate-x-0" />
               </div>
             </div>
           </div>
 
-          {/* Lakebase — coming soon, not yet functional */}
-          <div className="flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50 p-4 opacity-50 cursor-not-allowed select-none">
-            <input
-              type="checkbox"
-              disabled
-              checked={false}
-              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-gray-400 cursor-not-allowed"
-            />
-            <div>
-              <div className="text-sm font-medium text-gray-400">Lakebase</div>
-              <div className="mt-0.5 text-xs text-gray-400">
-                Replace the materialized views and tables backing the app with Lakebase (managed
-                PostgreSQL). Adds a Lakebase tab for monitoring instance health, storage, compute
-                hours, and migration progress from materialized views to Lakebase tables.
-              </div>
-              <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-400 border border-gray-200">
+          {/* Lakebase — coming soon */}
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-3 opacity-50 cursor-not-allowed select-none">
+            <div className="flex items-center gap-2">
+              <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+              </svg>
+              <span className="text-sm font-medium text-gray-400">Lakebase</span>
+              <div className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-400 border border-gray-200">
                 Coming Soon
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-white px-3 py-2.5">
+              <div>
+                <p className="text-xs font-medium text-gray-400">Enable Lakebase</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Replace materialized views with Lakebase (managed PostgreSQL). Adds a Lakebase tab for monitoring instance health, storage, compute hours, and migration progress.
+                </p>
+              </div>
+              <div className="relative inline-flex h-5 w-9 shrink-0 rounded-full bg-gray-200 cursor-not-allowed">
+                <span className="pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform translate-x-0" />
               </div>
             </div>
           </div>

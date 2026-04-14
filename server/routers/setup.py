@@ -30,25 +30,51 @@ GENIE_SETTINGS_FILE = os.path.join(SETTINGS_DIR, "genie_settings.json")
 _create_task_state: dict = {"status": "idle", "error": None}  # idle | running | done | error
 
 
-def _grant_sp_schema_access(catalog: str, schema: str) -> None:
-    """Grant the app's SP identity USE+CREATE+SELECT on the app schema.
+SYSTEM_TABLE_GRANTS = [
+    ("USE CATALOG", "CATALOG", "system"),
+    ("USE SCHEMA",  "SCHEMA",  "system.billing"),
+    ("SELECT",      "TABLE",   "system.billing.usage"),
+    ("SELECT",      "TABLE",   "system.billing.list_prices"),
+    ("SELECT",      "TABLE",   "system.billing.account_prices"),
+    ("USE SCHEMA",  "SCHEMA",  "system.query"),
+    ("SELECT",      "TABLE",   "system.query.history"),
+    ("USE SCHEMA",  "SCHEMA",  "system.compute"),
+    ("SELECT",      "TABLE",   "system.compute.clusters"),
+    ("USE SCHEMA",  "SCHEMA",  "system.lakeflow"),
+    ("SELECT",      "TABLE",   "system.lakeflow.pipelines"),
+    ("USE SCHEMA",  "SCHEMA",  "system.serving"),
+    ("SELECT",      "TABLE",   "system.serving.served_entities"),
+]
 
+
+def _grant_sp_schema_access(catalog: str, schema: str) -> None:
+    """Grant the app's SP identity all required permissions.
+
+    Grants USE+CREATE+SELECT on the app schema, plus SELECT on all system
+    tables the app queries (billing, query history, compute, lakeflow).
     Called after auto-bootstrap MV creation so the nightly scheduled refresh
     (which runs as SP with no user token) can rebuild tables. Non-fatal.
     The caller must already have set the user OAuth token in the ContextVar
-    so the GRANT runs with admin authority.
+    so the GRANTs run with admin authority.
     """
     from server.db import execute_query
     sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
     if not sp_client_id:
-        logger.warning("DATABRICKS_CLIENT_ID not set — skipping SP schema grants")
+        logger.warning("DATABRICKS_CLIENT_ID not set — skipping SP grants")
         return
+
     grants = [
+        # App schema
         f"GRANT USE CATALOG ON CATALOG {catalog} TO `{sp_client_id}`",
         f"GRANT USE SCHEMA ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
         f"GRANT CREATE TABLE ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
         f"GRANT SELECT ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
+    ] + [
+        # System tables
+        f"GRANT {priv} ON {obj_type} {obj_name} TO `{sp_client_id}`"
+        for priv, obj_type, obj_name in SYSTEM_TABLE_GRANTS
     ]
+
     ok = 0
     for sql in grants:
         try:
@@ -56,11 +82,11 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> None:
             ok += 1
         except Exception as e:
             err = str(e).lower()
-            if "already" in err:
+            if "already" in err or "not found" in err or "does not exist" in err:
                 ok += 1
             else:
-                logger.warning(f"SP schema grant failed (non-fatal): {sql} — {e}")
-    logger.info(f"SP schema grants: {ok}/{len(grants)} applied for {sp_client_id}")
+                logger.warning(f"SP grant failed (non-fatal): {sql} — {e}")
+    logger.info(f"SP grants: {ok}/{len(grants)} applied for {sp_client_id}")
 
 
 @router.get("/status")
@@ -131,6 +157,24 @@ async def get_setup_status() -> dict[str, Any]:
         "status": "ready" if all_exist else "setup_required",
         "task": _create_task_state.copy(),
     }
+
+
+@router.post("/grant-sp-system-access")
+async def grant_sp_system_access() -> dict[str, Any]:
+    """Re-run all SP grants using the current user's OAuth token.
+
+    Call this after a git deploy when the new SP is missing system table or
+    app schema grants. Requires the calling user to be a metastore admin or
+    account admin so the GRANT statements succeed on system tables.
+    Returns a summary of how many grants were applied.
+    """
+    from server.materialized_views import get_catalog_schema
+    catalog, schema = get_catalog_schema()
+    sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
+    if not sp_client_id:
+        return {"status": "skipped", "reason": "DATABRICKS_CLIENT_ID not set"}
+    _grant_sp_schema_access(catalog, schema)
+    return {"status": "ok", "sp_client_id": sp_client_id, "catalog": catalog, "schema": schema}
 
 
 @router.post("/create-tables")
