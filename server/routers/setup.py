@@ -103,8 +103,21 @@ async def get_setup_status() -> dict[str, Any]:
     all_exist = all(tables.values())
     missing = [name for name, exists in tables.items() if not exists]
 
-    # Auto-bootstrap: tables missing + user OAuth active + not already creating
-    if not all_exist and _create_task_state["status"] not in ("running",):
+    if not all_exist:
+        # If bootstrap is already running (started by a prior request), keep returning
+        # "initializing" so the frontend continues polling instead of showing the wizard.
+        if _create_task_state["status"] == "running":
+            return {
+                "catalog": catalog,
+                "schema": schema,
+                "tables": tables,
+                "all_tables_exist": False,
+                "missing_tables": missing,
+                "status": "initializing",
+                "task": _create_task_state.copy(),
+            }
+
+        # Auto-bootstrap: tables missing + user OAuth active + not already creating
         user_token = _db_user_token.get()
         if user_token:
             import threading
