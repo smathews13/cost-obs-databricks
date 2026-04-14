@@ -410,9 +410,8 @@ export function SettingsPermissions() {
             )}
           </div>
 
-          {/* Re-run SP grants button (shown when in SP mode or no token) */}
-          {(isSP || noToken) && (
-            <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 space-y-2">
+          {/* Re-run SP grants button — always visible, needed after every git deploy */}
+          <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 space-y-2">
               <p className="text-xs font-medium text-amber-800">After a git deploy, re-apply SP grants</p>
               <p className="text-[11px] text-amber-700">
                 Each git deploy creates a new service principal. Run this (as a metastore or account admin) to
@@ -431,7 +430,6 @@ export function SettingsPermissions() {
                 )}
               </div>
             </div>
-          )}
 
           {/* SP grants reference */}
           {(isSP || noToken) && (
