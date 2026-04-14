@@ -110,7 +110,7 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> None:
     if warehouse_id:
         try:
             from databricks.sdk.service.sql import WarehouseAccessControlRequest, WarehousePermissionLevel
-            w.warehouses.set_permissions(
+            w.warehouses.update_permissions(
                 warehouse_id=warehouse_id,
                 access_control_list=[
                     WarehouseAccessControlRequest(
