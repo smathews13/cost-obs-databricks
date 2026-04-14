@@ -417,10 +417,10 @@ async def set_auth_mode(body: AuthModeRequest):
 @router.get("/warehouses")
 async def list_warehouses():
     """List all SQL warehouses the user has access to."""
-    from server.db import get_workspace_client
+    from server.db import get_user_workspace_client
 
     try:
-        w = get_workspace_client()
+        w = get_user_workspace_client()
         warehouses = list(w.warehouses.list())
         current_http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
         current_id = current_http_path.split("/")[-1] if current_http_path else None

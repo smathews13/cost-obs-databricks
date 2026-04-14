@@ -235,12 +235,16 @@ def setup_system_table_grants():
         # without manual grants. Non-fatal — skipped if DATABRICKS_CLIENT_ID is not set.
         sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
         if sp_client_id and sp_client_id != principal:
+            http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
+            warehouse_id = http_path.split("/")[-1] if http_path and "/" in http_path else ""
             sp_schema_grants = [
                 f"GRANT USE CATALOG ON CATALOG {catalog} TO `{sp_client_id}`",
                 f"GRANT USE SCHEMA ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
                 f"GRANT CREATE TABLE ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
                 f"GRANT SELECT ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
             ]
+            if warehouse_id:
+                sp_schema_grants.append(f"GRANT CAN_USE ON SQL WAREHOUSE `{warehouse_id}` TO `{sp_client_id}`")
             sp_ok = 0
             for grant_sql in sp_schema_grants:
                 try:

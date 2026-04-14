@@ -75,6 +75,12 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> None:
         for priv, obj_type, obj_name in SYSTEM_TABLE_GRANTS
     ]
 
+    # Also grant CAN_USE on the active warehouse so the SP can run queries
+    http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
+    warehouse_id = http_path.split("/")[-1] if http_path and "/" in http_path else ""
+    if warehouse_id:
+        grants.append(f"GRANT CAN_USE ON SQL WAREHOUSE `{warehouse_id}` TO `{sp_client_id}`")
+
     ok = 0
     for sql in grants:
         try:

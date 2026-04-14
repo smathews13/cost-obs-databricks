@@ -247,6 +247,21 @@ def get_workspace_client() -> WorkspaceClient:
     return _workspace_client
 
 
+def get_user_workspace_client() -> WorkspaceClient:
+    """Get a WorkspaceClient using the current request's OAuth token if available.
+
+    Falls back to the SP singleton when no user token is in context.
+    Used for SDK calls (warehouse listing, etc.) that should run as the user
+    rather than the SP so they respect the user's permissions.
+    """
+    user_token = _user_token.get()
+    if user_token and _auth_mode != "sp":
+        host = os.getenv("DATABRICKS_HOST", "")
+        if host:
+            return WorkspaceClient(host=host, token=user_token)
+    return get_workspace_client()
+
+
 def ensure_dedicated_warehouse() -> tuple[str, str]:
     """Ensure a dedicated serverless SQL warehouse exists for the app.
 
