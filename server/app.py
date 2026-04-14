@@ -211,7 +211,7 @@ def setup_system_table_grants():
 
         logger.info(f"System table grants complete: {succeeded} ok, {failed} failed")
 
-        # Also grant the SP itself permission to create the app schema.
+        # Also grant the current identity permission to create the app schema.
         # Needed when sql scope is not configured and the SP runs DDL.
         # Fails silently if the SP isn't a catalog owner/metastore admin.
         from server.db import get_catalog_schema
@@ -229,6 +229,30 @@ def setup_system_table_grants():
                     pass
                 else:
                     logger.debug(f"Catalog grant failed (non-fatal — SP may not own catalog): {e}")
+
+        # If running under user OAuth (workspace admin), also pre-grant the SP identity
+        # the UC permissions it needs on the app schema so scheduled nightly refresh works
+        # without manual grants. Non-fatal — skipped if DATABRICKS_CLIENT_ID is not set.
+        sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
+        if sp_client_id and sp_client_id != principal:
+            sp_schema_grants = [
+                f"GRANT USE CATALOG ON CATALOG {catalog} TO `{sp_client_id}`",
+                f"GRANT USE SCHEMA ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
+                f"GRANT CREATE TABLE ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
+                f"GRANT SELECT ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
+            ]
+            sp_ok = 0
+            for grant_sql in sp_schema_grants:
+                try:
+                    execute_query(grant_sql, no_cache=True)
+                    sp_ok += 1
+                except Exception as e:
+                    err = str(e).lower()
+                    if "already" in err:
+                        sp_ok += 1
+                    else:
+                        logger.debug(f"SP pre-grant failed (non-fatal): {grant_sql} — {e}")
+            logger.info(f"SP schema pre-grants: {sp_ok}/{len(sp_schema_grants)} applied for {sp_client_id}")
 
     except Exception as e:
         logger.warning(f"System table grant setup failed (non-fatal): {e}")

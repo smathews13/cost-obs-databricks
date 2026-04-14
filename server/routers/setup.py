@@ -18,7 +18,7 @@ from server.jobs import (
     run_refresh_job_now,
     get_job_status,
 )
-from server.db import get_workspace_client
+from server.db import get_workspace_client, _user_token as _db_user_token
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -30,17 +30,97 @@ GENIE_SETTINGS_FILE = os.path.join(SETTINGS_DIR, "genie_settings.json")
 _create_task_state: dict = {"status": "idle", "error": None}  # idle | running | done | error
 
 
+def _grant_sp_schema_access(catalog: str, schema: str) -> None:
+    """Grant the app's SP identity USE+CREATE+SELECT on the app schema.
+
+    Called after auto-bootstrap MV creation so the nightly scheduled refresh
+    (which runs as SP with no user token) can rebuild tables. Non-fatal.
+    The caller must already have set the user OAuth token in the ContextVar
+    so the GRANT runs with admin authority.
+    """
+    from server.db import execute_query
+    sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
+    if not sp_client_id:
+        logger.warning("DATABRICKS_CLIENT_ID not set — skipping SP schema grants")
+        return
+    grants = [
+        f"GRANT USE CATALOG ON CATALOG {catalog} TO `{sp_client_id}`",
+        f"GRANT USE SCHEMA ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
+        f"GRANT CREATE TABLE ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
+        f"GRANT SELECT ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
+    ]
+    ok = 0
+    for sql in grants:
+        try:
+            execute_query(sql, no_cache=True)
+            ok += 1
+        except Exception as e:
+            err = str(e).lower()
+            if "already" in err:
+                ok += 1
+            else:
+                logger.warning(f"SP schema grant failed (non-fatal): {sql} — {e}")
+    logger.info(f"SP schema grants: {ok}/{len(grants)} applied for {sp_client_id}")
+
+
 @router.get("/status")
 async def get_setup_status() -> dict[str, Any]:
     """Check the status of materialized views.
 
-    Returns which tables exist and are ready for use.
+    If tables are missing and a user OAuth token is present (git-deploy / first load),
+    automatically kick off table creation in a background thread using the user's
+    token — no wizard interaction required. Returns status='initializing' in that case.
     """
     catalog, schema = get_catalog_schema()
     tables = check_materialized_views_exist(catalog, schema)
 
     all_exist = all(tables.values())
     missing = [name for name, exists in tables.items() if not exists]
+
+    # Auto-bootstrap: tables missing + user OAuth active + not already creating
+    if not all_exist and _create_task_state["status"] not in ("running",):
+        user_token = _db_user_token.get()
+        if user_token:
+            import threading
+            _create_task_state["status"] = "running"
+            _create_task_state["error"] = None
+            _token_snap = user_token
+            _catalog_snap = catalog
+            _schema_snap = schema
+
+            def _auto_bootstrap():
+                tok = _db_user_token.set(_token_snap)
+                try:
+                    logger.info("Auto-bootstrapping materialized views with user OAuth token...")
+                    results = create_materialized_views(_catalog_snap, _schema_snap)
+                    errors = {k: v for k, v in results.items() if isinstance(v, str) and v.startswith("error:")}
+                    if errors:
+                        first_err = next(iter(errors.values()))
+                        _create_task_state["status"] = "error"
+                        _create_task_state["error"] = first_err.replace("error: ", "", 1)
+                        logger.error(f"Auto-bootstrap failed: {first_err}")
+                    else:
+                        _create_task_state["status"] = "done"
+                        _create_task_state["error"] = None
+                        logger.info("Auto-bootstrap complete — granting SP schema access")
+                        _grant_sp_schema_access(_catalog_snap, _schema_snap)
+                except Exception as exc:
+                    _create_task_state["status"] = "error"
+                    _create_task_state["error"] = str(exc)
+                    logger.error(f"Auto-bootstrap exception: {exc}")
+                finally:
+                    _db_user_token.reset(tok)
+
+            threading.Thread(target=_auto_bootstrap, daemon=True).start()
+            return {
+                "catalog": catalog,
+                "schema": schema,
+                "tables": tables,
+                "all_tables_exist": False,
+                "missing_tables": missing,
+                "status": "initializing",
+                "task": _create_task_state.copy(),
+            }
 
     return {
         "catalog": catalog,

@@ -98,8 +98,8 @@ function Dashboard() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [tabVisibility, setTabVisibility] = useState<TabVisibility>(loadTabVisibility);
-  // "pending" while we check setup status, true = show wizard, false = show dashboard
-  const [showSetupWizard, setShowSetupWizard] = useState<boolean | "pending">(
+  // "pending" = checking, "initializing" = auto-creating MVs, true = wizard, false = dashboard
+  const [showSetupWizard, setShowSetupWizard] = useState<boolean | "pending" | "initializing">(
     localStorage.getItem("coc-setup-complete") === "true" ? false : "pending"
   );
   const rqClient = useQueryClient();
@@ -131,16 +131,47 @@ function Dashboard() {
     }
   };
 
-  // Auto-launch setup wizard on first deploy if materialized views don't exist yet
+  // Auto-launch setup wizard on first deploy if materialized views don't exist yet.
+  // If the server returns "initializing", the server is auto-creating MVs using the
+  // user's OAuth token — show a spinner and poll until ready (no wizard needed).
   useEffect(() => {
     if (localStorage.getItem("coc-setup-complete") === "true") return;
     fetch("/api/setup/status")
       .then((r) => r.json())
       .then((status) => {
-        setShowSetupWizard(status?.status === "setup_required" ? true : false);
+        if (status?.status === "setup_required") {
+          setShowSetupWizard(true);
+        } else if (status?.status === "initializing") {
+          setShowSetupWizard("initializing");
+        } else {
+          setShowSetupWizard(false);
+        }
       })
       .catch(() => { setShowSetupWizard(false); });
   }, []);
+
+  // Poll while auto-initializing (server is building MVs in background)
+  useEffect(() => {
+    if (showSetupWizard !== "initializing") return;
+    const interval = setInterval(() => {
+      fetch("/api/setup/status")
+        .then(r => r.json())
+        .then(status => {
+          if (status?.status === "ready") {
+            localStorage.setItem("coc-setup-complete", "true");
+            fetch("/api/setup/bootstrap-admin", { method: "POST" }).catch(() => {});
+            setShowSetupWizard(false);
+            queryClient.invalidateQueries();
+          } else if (status?.status === "setup_required") {
+            // Auto-create failed or no longer has user token — fall back to wizard
+            setShowSetupWizard(true);
+          }
+          // keep polling if still "initializing"
+        })
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [showSetupWizard]);
 
   const handleSetupComplete = () => {
     localStorage.setItem("coc-setup-complete", "true");
@@ -425,16 +456,20 @@ function Dashboard() {
     );
   };
 
-  if (showSetupWizard === "pending" || showSetupWizard === true) {
+  if (showSetupWizard === "pending" || showSetupWizard === "initializing" || showSetupWizard === true) {
     return (
       <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: '#F9F7F4' }}>
         {showSetupWizard === true && (
           <SetupWizard onComplete={handleSetupComplete} onClose={() => setShowSetupWizard(false)} />
         )}
-        {showSetupWizard === "pending" && (
+        {(showSetupWizard === "pending" || showSetupWizard === "initializing") && (
           <div className="flex flex-col items-center gap-3">
             <div className="h-8 w-8 animate-spin rounded-full" style={{ border: '3px solid #e5e7eb', borderTopColor: '#FF3621' }} />
-            <p className="text-sm text-gray-500">Loading...</p>
+            <p className="text-sm text-gray-500">
+              {showSetupWizard === "initializing"
+                ? "Setting up your workspace — this takes a few minutes on first deploy…"
+                : "Loading..."}
+            </p>
           </div>
         )}
       </div>
