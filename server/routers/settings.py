@@ -160,8 +160,6 @@ async def get_tables_status():
         "daily_workspace_breakdown",
         "sql_tool_attribution",
         "daily_query_stats",
-        "daily_sku_breakdown",
-        "daily_etl_breakdown",
         "dbsql_cost_per_query",
         "app_user_permissions",
     ]

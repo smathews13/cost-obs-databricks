@@ -37,13 +37,13 @@ WITH usage_with_price AS (
     u.billing_origin_product,
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu,
-    COALESCE(TRY(p.pricing.effective_list.default), p.pricing.default, 0) as effective_price_per_dbu
+    COALESCE(p.pricing.effective_list.default, p.pricing.default, 0) as effective_price_per_dbu
   FROM system.billing.usage u
   LEFT JOIN system.billing.list_prices p
     ON u.sku_name = p.sku_name
     AND u.cloud = p.cloud
     AND p.price_end_time IS NULL
-  WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), 365)
+  WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), 1095)
     AND u.usage_quantity > 0
 )
 SELECT
@@ -69,7 +69,7 @@ WITH usage_with_price AS (
     u.usage_quantity,
     u.usage_metadata,
     COALESCE(p.pricing.default, 0) as price_per_dbu,
-    COALESCE(TRY(p.pricing.effective_list.default), p.pricing.default, 0) as effective_price_per_dbu,
+    COALESCE(p.pricing.effective_list.default, p.pricing.default, 0) as effective_price_per_dbu,
     CASE
       WHEN u.billing_origin_product = 'SQL' THEN 'SQL'
       WHEN u.billing_origin_product = 'DLT' OR u.usage_metadata.dlt_pipeline_id IS NOT NULL THEN 'ETL - Streaming'
@@ -90,7 +90,7 @@ WITH usage_with_price AS (
     ON u.sku_name = p.sku_name
     AND u.cloud = p.cloud
     AND p.price_end_time IS NULL
-  WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), 365)
+  WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), 1095)
     AND u.usage_quantity > 0
 )
 SELECT
@@ -115,13 +115,13 @@ WITH usage_with_price AS (
     u.sku_name,
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu,
-    COALESCE(TRY(p.pricing.effective_list.default), p.pricing.default, 0) as effective_price_per_dbu
+    COALESCE(p.pricing.effective_list.default, p.pricing.default, 0) as effective_price_per_dbu
   FROM system.billing.usage u
   LEFT JOIN system.billing.list_prices p
     ON u.sku_name = p.sku_name
     AND u.cloud = p.cloud
     AND p.price_end_time IS NULL
-  WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), 365)
+  WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), 1095)
     AND u.usage_quantity > 0
 )
 SELECT
@@ -152,7 +152,7 @@ WITH sql_query_work AS (
   FROM system.query.history
   WHERE executed_as_user_id IS NOT NULL
     AND compute.warehouse_id IS NOT NULL
-    AND DATE(start_time) >= DATE_SUB(CURRENT_DATE(), 365)
+    AND DATE(start_time) >= DATE_SUB(CURRENT_DATE(), 1095)
   GROUP BY 1, 2, 3
 ),
 sql_usage AS (
@@ -161,14 +161,14 @@ sql_usage AS (
     u.usage_metadata.warehouse_id as warehouse_id,
     SUM(u.usage_quantity) as total_dbus,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend,
-    SUM(u.usage_quantity * COALESCE(TRY(p.pricing.effective_list.default), p.pricing.default, 0)) as effective_list_spend
+    SUM(u.usage_quantity * COALESCE(p.pricing.effective_list.default, p.pricing.default, 0)) as effective_list_spend
   FROM system.billing.usage u
   LEFT JOIN system.billing.list_prices p
     ON u.sku_name = p.sku_name
     AND u.cloud = p.cloud
     AND p.price_end_time IS NULL
   WHERE u.billing_origin_product = 'SQL'
-    AND u.usage_date >= DATE_SUB(CURRENT_DATE(), 365)
+    AND u.usage_date >= DATE_SUB(CURRENT_DATE(), 1095)
     AND u.usage_quantity > 0
   GROUP BY 1, 2
 ),
@@ -212,7 +212,7 @@ SELECT
   SUM(COALESCE(read_bytes, 0)) as total_bytes_read,
   SUM(COALESCE(total_task_duration_ms, 0)) / 1000.0 as total_compute_seconds
 FROM system.query.history
-WHERE DATE(start_time) >= DATE_SUB(CURRENT_DATE(), 365)
+WHERE DATE(start_time) >= DATE_SUB(CURRENT_DATE(), 1095)
 GROUP BY DATE(start_time)
 ORDER BY usage_date
 """
@@ -230,7 +230,7 @@ warehouse_hourly_usage AS (
     u.usage_metadata.warehouse_id AS warehouse_id,
     SUM(u.usage_quantity) AS hourly_dbus,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS hourly_dollars,
-    SUM(u.usage_quantity * COALESCE(TRY(p.pricing.effective_list.default), p.pricing.default, 0)) AS hourly_dollars_effective
+    SUM(u.usage_quantity * COALESCE(p.pricing.effective_list.default, p.pricing.default, 0)) AS hourly_dollars_effective
   FROM system.billing.usage u
   LEFT JOIN system.billing.list_prices p
     ON u.sku_name = p.sku_name
