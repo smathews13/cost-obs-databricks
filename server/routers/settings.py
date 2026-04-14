@@ -163,6 +163,12 @@ async def get_tables_status():
         "dbsql_cost_per_query",
         "app_user_permissions",
     ]
+    # Which tables are conceptually "materialized views" (rebuilt on schedule)
+    # vs persistent managed tables
+    MV_SET = {
+        "daily_usage_summary", "daily_product_breakdown", "daily_workspace_breakdown",
+        "sql_tool_attribution", "daily_query_stats", "dbsql_cost_per_query",
+    }
 
     try:
         catalog, schema = get_catalog_schema()
@@ -174,20 +180,26 @@ async def get_tables_status():
 
     today = date.today().isoformat()
 
-    def check_table(table_name: str) -> dict:
-        fqn = f"`{catalog}`.`{schema}`.`{table_name}`"
-        is_utility = table_name == "app_user_permissions"
+    # Tables that don't have a usage_date column — use an alternate date expression or skip date
+    date_expr_overrides = {
+        "dbsql_cost_per_query": "CAST(MAX(start_time) AS DATE)",
+    }
+    no_date_tables = {"app_user_permissions"}
+
+    def check_table(table_name: str, fqn: str, table_type: str) -> dict:
+        skip_date = table_name in no_date_tables
         try:
-            if is_utility:
+            if skip_date:
                 rows = execute_query(f"SELECT COUNT(*) as cnt FROM {fqn}")
                 cnt = rows[0]["cnt"] if rows else 0
-                return {"name": table_name, "exists": True, "row_count": cnt, "max_date": None, "days_behind": None}
+                return {"name": table_name, "table_type": table_type, "exists": True, "row_count": cnt, "max_date": None, "days_behind": None}
             else:
+                date_expr = date_expr_overrides.get(table_name, "MAX(usage_date)")
                 rows = execute_query(
-                    f"SELECT COUNT(*) as cnt, MAX(usage_date) as max_date FROM {fqn}"
+                    f"SELECT COUNT(*) as cnt, {date_expr} as max_date FROM {fqn}"
                 )
                 if not rows:
-                    return {"name": table_name, "exists": True, "row_count": 0, "max_date": None, "days_behind": None}
+                    return {"name": table_name, "table_type": table_type, "exists": True, "row_count": 0, "max_date": None, "days_behind": None}
                 cnt = rows[0].get("cnt", 0)
                 max_date = rows[0].get("max_date")
                 max_date_str = str(max_date) if max_date else None
@@ -199,24 +211,73 @@ async def get_tables_status():
                         days_behind = delta.days
                     except Exception:
                         pass
-                return {"name": table_name, "exists": True, "row_count": int(cnt), "max_date": max_date_str, "days_behind": days_behind}
+                return {"name": table_name, "table_type": table_type, "exists": True, "row_count": int(cnt), "max_date": max_date_str, "days_behind": days_behind}
         except Exception as e:
             err = str(e)
             if "TABLE_OR_VIEW_NOT_FOUND" in err or "does not exist" in err.lower() or "not found" in err.lower():
-                return {"name": table_name, "exists": False, "row_count": None, "max_date": None, "days_behind": None}
-            return {"name": table_name, "exists": None, "row_count": None, "max_date": None, "days_behind": None, "error": err[:200]}
+                return {"name": table_name, "table_type": table_type, "exists": False, "row_count": None, "max_date": None, "days_behind": None}
+            return {"name": table_name, "table_type": table_type, "exists": None, "row_count": None, "max_date": None, "days_behind": None, "error": err[:200]}
+
+    # Build task list: (table_name, fqn, table_type)
+    tasks = [
+        (t, f"`{catalog}`.`{schema}`.`{t}`", "Materialized View" if t in MV_SET else "Table")
+        for t in MV_TABLES
+    ]
+
+    # Add app telemetry OTel tables if configured
+    tel = _load_telemetry_settings()
+    tel_catalog = tel.get("catalog", "").strip()
+    tel_schema = tel.get("schema_name", "").strip()
+    tel_prefix = tel.get("table_prefix", "").strip()
+    if tel_catalog and tel_schema:
+        otel_tables = ["otel_spans", "otel_metrics", "otel_logs"]
+        for ot in otel_tables:
+            full_name = f"{tel_prefix}{ot}" if tel_prefix else ot
+            fqn = f"`{tel_catalog}`.`{tel_schema}`.`{full_name}`"
+            tasks.append((full_name, fqn, "Telemetry"))
+            no_date_tables.add(full_name)  # OTel tables don't have usage_date
 
     results = []
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {ex.submit(check_table, t): t for t in MV_TABLES}
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futures = {ex.submit(check_table, name, fqn, ttype): name for name, fqn, ttype in tasks}
         for fut in as_completed(futures):
             results.append(fut.result())
 
     # Preserve original order
-    order = {t: i for i, t in enumerate(MV_TABLES)}
+    order = {name: i for i, (name, _, _) in enumerate(tasks)}
     results.sort(key=lambda r: order.get(r["name"], 99))
 
     return {"catalog": catalog, "schema": schema, "tables": results}
+
+
+@router.get("/catalog")
+async def get_catalog_settings():
+    """Return current catalog/schema and whether it's from an override or env vars."""
+    from server.db import get_catalog_schema_info
+    return get_catalog_schema_info()
+
+
+@router.post("/catalog")
+async def set_catalog_settings(body: dict):
+    """Save a catalog/schema override. Clears the query cache so new values take effect immediately."""
+    from server.db import save_catalog_override, clear_query_cache
+    catalog = (body.get("catalog") or "").strip()
+    schema = (body.get("schema") or "").strip()
+    if not catalog or not schema:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="catalog and schema are required")
+    save_catalog_override(catalog, schema)
+    clear_query_cache()
+    return {"status": "ok", "catalog": catalog, "schema": schema, "source": "override"}
+
+
+@router.delete("/catalog")
+async def reset_catalog_settings():
+    """Remove catalog/schema override and revert to env var values."""
+    from server.db import clear_catalog_override, get_catalog_schema_info, clear_query_cache
+    clear_catalog_override()
+    clear_query_cache()
+    return {"status": "ok", **get_catalog_schema_info()}
 
 
 @router.post("/refresh-mvs")

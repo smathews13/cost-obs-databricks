@@ -1,4 +1,7 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { AppSettings } from "../SettingsDialog";
+import { usePricing } from "@/context/PricingContext";
 
 interface SettingsExperimentalProps {
   localSettings: AppSettings;
@@ -7,6 +10,21 @@ interface SettingsExperimentalProps {
 }
 
 export function SettingsExperimental({ localSettings, updateSetting, saveStatus }: SettingsExperimentalProps) {
+  const { useAccountPrices, setUseAccountPrices, discountPercent, available: pricingAvailable, loading: pricingLoading } = usePricing();
+  const [pricingToggling, setPricingToggling] = useState(false);
+  const [priceSearch, setPriceSearch] = useState("");
+  const { data: accountPrices = null, isLoading: accountPricesLoading } = useQuery<{
+    available: boolean;
+    prices: Array<{ sku_name: string; cloud: string; currency_code: string; usage_unit: string; list_price: number; effective_list_price: number; start_time: string | null; end_time: string | null }>;
+    source: string | null;
+    count: number;
+    message?: string;
+  } | null>({
+    queryKey: ["settings-account-prices"],
+    queryFn: () => fetch("/api/settings/account-prices").then(r => r.json()).catch(() => ({ available: false, prices: [], source: null, count: 0 })),
+    staleTime: 5 * 60 * 1000,
+  });
+
   return (
     <div className="space-y-5">
       {saveStatus && (
@@ -59,7 +77,13 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
               <div className="text-sm font-medium text-gray-900">Anonymize Users</div>
               <div className="mt-0.5 text-xs text-gray-500">
                 Replace human user emails with generic labels (User 1, User 2, …) throughout the Users tab.
-                Service principals are not affected. Useful for demos and screenshots.
+                Service principals are not affected.
+              </div>
+              <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                </svg>
+                Preview
               </div>
             </div>
           </label>
@@ -129,6 +153,117 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
                 Coming Soon
               </div>
             </div>
+          </div>
+
+          {/* Account Pricing */}
+          <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+              </svg>
+              <span className="text-sm font-medium text-gray-900">Account Pricing</span>
+              {accountPrices?.source && (
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+                  {accountPrices.source === "account_prices" ? "Negotiated rates" : "List prices"}
+                </span>
+              )}
+              <div className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                </svg>
+                Preview
+              </div>
+            </div>
+            {/* Use account prices toggle */}
+            <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+              <div>
+                <p className="text-xs font-medium text-gray-800">Use account prices</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Apply your negotiated rates from <code className="rounded bg-gray-100 px-0.5">system.billing.account_prices</code> to all spend figures.
+                  {useAccountPrices && pricingAvailable && discountPercent > 0 && (
+                    <span className="ml-1 font-medium text-green-600">{discountPercent.toFixed(1)}% discount active.</span>
+                  )}
+                  {useAccountPrices && !pricingAvailable && !pricingLoading && (
+                    <span className="ml-1 text-amber-600">Table not yet available (private preview) — showing list prices.</span>
+                  )}
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={useAccountPrices}
+                disabled={pricingToggling}
+                onClick={async () => {
+                  setPricingToggling(true);
+                  await setUseAccountPrices(!useAccountPrices);
+                  setPricingToggling(false);
+                }}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+                  useAccountPrices ? "bg-green-500" : "bg-gray-200"
+                } ${pricingToggling ? "opacity-50" : ""}`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${
+                    useAccountPrices ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-xs text-gray-500">
+              Prices sourced from <code className="rounded bg-gray-100 px-1">system.billing.account_prices</code> (negotiated account rates, private preview) or{" "}
+              <code className="rounded bg-gray-100 px-1">system.billing.list_prices</code> as fallback.
+              Used to compute effective spend vs. list-price spend.
+            </p>
+            {accountPricesLoading ? (
+              <p className="text-xs text-gray-400">Loading...</p>
+            ) : !accountPrices?.available ? (
+              <p className="text-xs text-gray-400">{accountPrices?.message || "Pricing tables not accessible."}</p>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Filter by SKU name..."
+                    value={priceSearch}
+                    onChange={e => setPriceSearch(e.target.value)}
+                    className="rounded border border-gray-200 px-2 py-1.5 text-xs w-64 focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
+                  />
+                  <span className="text-xs text-gray-400">{accountPrices.count} SKUs</span>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-64">
+                  <table className="min-w-full divide-y divide-gray-200 text-xs">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">SKU Name</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Cloud</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">List Price</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Effective Price</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Unit</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {accountPrices.prices
+                        .filter(p => !priceSearch || p.sku_name.toLowerCase().includes(priceSearch.toLowerCase()))
+                        .map((p, i) => (
+                          <tr key={`${p.sku_name}-${p.cloud}-${i}`} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 font-mono text-gray-700">{p.sku_name}</td>
+                            <td className="px-3 py-2 text-gray-500">{p.cloud}</td>
+                            <td className="px-3 py-2 text-right text-gray-600">${p.list_price.toFixed(4)}</td>
+                            <td className={`px-3 py-2 text-right font-medium ${p.effective_list_price < p.list_price ? "text-green-600" : "text-gray-900"}`}>
+                              ${p.effective_list_price.toFixed(4)}
+                              {p.effective_list_price < p.list_price && (
+                                <span className="ml-1 text-green-500">
+                                  ({((1 - p.effective_list_price / p.list_price) * 100).toFixed(0)}% off)
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-gray-400">{p.usage_unit}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Lakebase — coming soon, not yet functional */}
