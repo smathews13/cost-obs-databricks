@@ -17,21 +17,26 @@ import { Footer } from "@/components/Footer";
 import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure.png";
 
+// Retry a dynamic import once on failure (handles cold-start chunk load errors)
+function lazyWithRetry<T>(factory: () => Promise<T>): Promise<T> {
+  return factory().catch(() => factory());
+}
+
 // Lazy-loaded tab views — only downloaded when the user first visits that tab
-const InteractiveBreakdown = lazy(() => import("@/components/InteractiveBreakdown").then(m => ({ default: m.InteractiveBreakdown })));
-const CloudCostsView = lazy(() => import("@/components/CloudCostsView").then(m => ({ default: m.CloudCostsView })));
-const GenieChatView = lazy(() => import("@/components/GenieChatView").then(m => ({ default: m.GenieChatView })));
-const PlatformKPIsView = lazy(() => import("@/components/PlatformKPIsView").then(m => ({ default: m.PlatformKPIsView })));
-const AIMLCostCenter = lazy(() => import("@/components/AIMLCostCenter").then(m => ({ default: m.AIMLCostCenter })));
-const AppsCostCenter = lazy(() => import("@/components/AppsCostCenter").then(m => ({ default: m.AppsCostCenter })));
-const TaggingHub = lazy(() => import("@/components/TaggingHub").then(m => ({ default: m.TaggingHub })));
-const SQLWarehousing360 = lazy(() => import("@/components/SQLWarehousing360").then(m => ({ default: m.SQLWarehousing360 })));
-const ForecastingView = lazy(() => import("@/components/ForecastingView").then(m => ({ default: m.ForecastingView })));
-const LakebaseView = lazy(() => import("@/components/LakebaseView").then(m => ({ default: m.LakebaseView })));
-const ContractBurndown = lazy(() => import("@/components/ContractBurndown").then(m => ({ default: m.ContractBurndown })));
-const Alerts = lazy(() => import("@/pages/Alerts"));
-const UseCases = lazy(() => import("@/pages/UseCases"));
-const UsersGroups = lazy(() => import("@/pages/UsersGroups"));
+const InteractiveBreakdown = lazy(() => lazyWithRetry(() => import("@/components/InteractiveBreakdown").then(m => ({ default: m.InteractiveBreakdown }))));
+const CloudCostsView = lazy(() => lazyWithRetry(() => import("@/components/CloudCostsView").then(m => ({ default: m.CloudCostsView }))));
+const GenieChatView = lazy(() => lazyWithRetry(() => import("@/components/GenieChatView").then(m => ({ default: m.GenieChatView }))));
+const PlatformKPIsView = lazy(() => lazyWithRetry(() => import("@/components/PlatformKPIsView").then(m => ({ default: m.PlatformKPIsView }))));
+const AIMLCostCenter = lazy(() => lazyWithRetry(() => import("@/components/AIMLCostCenter").then(m => ({ default: m.AIMLCostCenter }))));
+const AppsCostCenter = lazy(() => lazyWithRetry(() => import("@/components/AppsCostCenter").then(m => ({ default: m.AppsCostCenter }))));
+const TaggingHub = lazy(() => lazyWithRetry(() => import("@/components/TaggingHub").then(m => ({ default: m.TaggingHub }))));
+const SQLWarehousing360 = lazy(() => lazyWithRetry(() => import("@/components/SQLWarehousing360").then(m => ({ default: m.SQLWarehousing360 }))));
+const ForecastingView = lazy(() => lazyWithRetry(() => import("@/components/ForecastingView").then(m => ({ default: m.ForecastingView }))));
+const LakebaseView = lazy(() => lazyWithRetry(() => import("@/components/LakebaseView").then(m => ({ default: m.LakebaseView }))));
+const ContractBurndown = lazy(() => lazyWithRetry(() => import("@/components/ContractBurndown").then(m => ({ default: m.ContractBurndown }))));
+const Alerts = lazy(() => lazyWithRetry(() => import("@/pages/Alerts")));
+const UseCases = lazy(() => lazyWithRetry(() => import("@/pages/UseCases")));
+const UsersGroups = lazy(() => lazyWithRetry(() => import("@/pages/UsersGroups")));
 import {
   useAccountInfo,
   useAWSActualCosts,
