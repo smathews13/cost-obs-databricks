@@ -89,13 +89,12 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
               <div>
                 <p className="text-xs font-medium text-gray-800">Use account prices</p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Apply your negotiated rates from <code className="rounded bg-gray-100 px-0.5">system.billing.account_prices</code> to all spend figures.
-                  {useAccountPrices && pricingAvailable && discountPercent > 0 && (
-                    <span className="ml-1 font-medium text-green-600">{discountPercent.toFixed(1)}% discount active.</span>
-                  )}
-                  {useAccountPrices && !pricingAvailable && !pricingLoading && (
-                    <span className="ml-1 text-amber-600">Table not yet available (private preview) — showing list prices.</span>
-                  )}
+                  {useAccountPrices && pricingAvailable && discountPercent > 0
+                    ? <span className="font-medium text-green-600">{discountPercent.toFixed(1)}% discount active.</span>
+                    : useAccountPrices && !pricingAvailable && !pricingLoading
+                    ? <span className="text-amber-600">Table not yet available (private preview) — showing list prices.</span>
+                    : <>Prices sourced from <code className="rounded bg-gray-100 px-0.5">system.billing.account_prices</code> (negotiated account rates, private preview) or <code className="rounded bg-gray-100 px-0.5">system.billing.list_prices</code> as fallback. Used to compute effective spend vs. list-price spend.</>
+                  }
                 </p>
               </div>
               <button
@@ -118,15 +117,12 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
                 />
               </button>
             </div>
-            <p className="text-xs text-gray-500">
-              Prices sourced from <code className="rounded bg-gray-100 px-1">system.billing.account_prices</code> (negotiated account rates, private preview) or{" "}
-              <code className="rounded bg-gray-100 px-1">system.billing.list_prices</code> as fallback.
-              Used to compute effective spend vs. list-price spend.
-            </p>
             {accountPricesLoading ? (
               <p className="text-xs text-gray-400">Loading...</p>
             ) : !accountPrices?.available ? (
-              <p className="text-xs text-gray-400">{accountPrices?.message || "Pricing tables not accessible."}</p>
+              <span className="inline-flex items-center rounded-full bg-red-50 border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600">
+                {accountPrices?.message || "Pricing tables not accessible"}
+              </span>
             ) : (
               <>
                 <div className="flex items-center gap-2">
