@@ -393,6 +393,27 @@ async def get_auth_status_endpoint():
     return get_auth_status()
 
 
+class AuthModeRequest(BaseModel):
+    mode: str  # "sp" | "auto"
+
+
+@router.post("/auth-mode")
+async def set_auth_mode(body: AuthModeRequest):
+    """Override the SQL query auth mode.
+
+    mode='sp'   — force all queries through the service principal.
+    mode='auto' — clear the override and re-enable OAuth auto-detection.
+
+    The change takes effect immediately for new requests. A page refresh
+    is required for the header badge to update.
+    """
+    if body.mode not in ("sp", "auto"):
+        raise HTTPException(status_code=422, detail="mode must be 'sp' or 'auto'")
+    from server.db import set_auth_mode_override
+    set_auth_mode_override(body.mode)
+    return {"status": "ok", "mode": body.mode}
+
+
 @router.get("/warehouses")
 async def list_warehouses():
     """List all SQL warehouses the user has access to."""
@@ -759,6 +780,7 @@ async def save_telemetry_settings_endpoint(settings: TelemetrySettings) -> dict[
         "table_prefix": settings.table_prefix,
     })
     logger.info("Telemetry settings updated")
+    return {"status": "ok"}
 
 
 # ── Lakebase Status ──────────────────────────────────────────────────────────

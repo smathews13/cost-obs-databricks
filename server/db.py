@@ -14,10 +14,29 @@ from typing import Any, Callable, Generator
 # is present (Databricks Apps user authorization preview). Empty string = use SP.
 _user_token: ContextVar[str] = ContextVar("_user_token", default="")
 
-# App-level auth mode. Starts as "unknown". Locked to "user" or "sp" on first
-# successful or failed SQL query. Once locked, UserAuthMiddleware respects it so
-# every query in every request uses the same identity.
-_auth_mode: str = "unknown"  # "unknown" | "user" | "sp"
+# Persisted auth-mode override file (written by POST /api/settings/auth-mode)
+_AUTH_MODE_OVERRIDE_FILE = os.path.join(
+    os.path.dirname(__file__), "..", ".settings", "auth_mode_override.json"
+)
+
+
+def _load_auth_mode_override() -> str:
+    """Read the persisted auth mode preference. Returns 'sp' or 'unknown'."""
+    try:
+        if os.path.exists(_AUTH_MODE_OVERRIDE_FILE):
+            with open(_AUTH_MODE_OVERRIDE_FILE) as f:
+                data = json.load(f)
+            if data.get("mode") == "sp":
+                return "sp"
+    except Exception:
+        pass
+    return "unknown"
+
+
+# App-level auth mode. Initialized from persisted override (if any), then locked
+# on first successful/failed SQL query. UserAuthMiddleware respects this so every
+# query in every request uses the same identity.
+_auth_mode: str = _load_auth_mode_override()  # "unknown" | "user" | "sp"
 
 
 def _lock_auth_mode(mode: str) -> None:
@@ -29,6 +48,24 @@ def _lock_auth_mode(mode: str) -> None:
             logger.info("SQL auth mode locked to: user (x-forwarded-access-token with sql scope)")
         else:
             logger.info("SQL auth mode locked to: service principal (no sql scope or no user token)")
+
+
+def set_auth_mode_override(mode: str) -> None:
+    """Persist and immediately apply an auth mode override.
+
+    mode='sp'   — force all queries to run as the service principal.
+    mode='auto' — clear the override and let the app auto-detect on the next query.
+    """
+    global _auth_mode
+    os.makedirs(os.path.dirname(_AUTH_MODE_OVERRIDE_FILE), exist_ok=True)
+    with open(_AUTH_MODE_OVERRIDE_FILE, "w") as f:
+        json.dump({"mode": mode}, f)
+    if mode == "sp":
+        _auth_mode = "sp"
+        logger.info("Auth mode override saved: forced to service principal")
+    else:
+        _auth_mode = "unknown"
+        logger.info("Auth mode override saved: auto-detect (reset)")
 
 from cachetools import TTLCache
 from databricks import sql
@@ -568,32 +605,52 @@ def get_auth_status() -> dict:
     """
     token = _user_token.get()
     locked_to_sp = _auth_mode == "sp"
-    user_token_active = bool(token) and not locked_to_sp
+    token_present = bool(token)
+    user_token_active = token_present and not locked_to_sp
 
     if user_token_active:
         identity = "user_oauth"
     else:
         identity = "service_principal"
 
-    # Attempt to decode JWT scope claim (no verification — just informational)
+    # Attempt to decode JWT claims (no verification — informational only)
     has_sql_scope: bool | None = None
+    user_email: str | None = None
+    token_scopes: list[str] = []
     if token:
         try:
             import base64
             payload_b64 = token.split(".")[1]
-            # Pad to multiple of 4
             padded = payload_b64 + "=" * (-len(payload_b64) % 4)
             payload = json.loads(base64.urlsafe_b64decode(padded))
             scp = payload.get("scp", payload.get("scope", ""))
-            has_sql_scope = "sql" in scp.split() if isinstance(scp, str) else "sql" in scp
+            token_scopes = scp.split() if isinstance(scp, str) else list(scp)
+            has_sql_scope = "sql" in token_scopes
+            user_email = payload.get("upn") or payload.get("email") or payload.get("preferred_username") or None
         except Exception:
             pass
 
+    # Check whether a manual override is saved on disk
+    override_mode: str | None = None
+    try:
+        if os.path.exists(_AUTH_MODE_OVERRIDE_FILE):
+            with open(_AUTH_MODE_OVERRIDE_FILE) as f:
+                override_mode = json.load(f).get("mode")
+    except Exception:
+        pass
+
     return {
+        # Simplified fields used by the header badge
         "user_token_active": user_token_active,
         "identity": identity,
         "locked_to_sp": locked_to_sp,
         "has_sql_scope": has_sql_scope,
+        # Richer fields for the Permissions settings panel
+        "auth_mode": _auth_mode,          # "unknown" | "user" | "sp"
+        "token_present": token_present,   # OAuth header received from Databricks Apps
+        "token_scopes": token_scopes,     # scopes decoded from the JWT
+        "user_email": user_email,         # email from JWT claims
+        "override_mode": override_mode,   # "sp" | "auto" | None (manual override on disk)
     }
 
 
