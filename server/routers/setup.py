@@ -167,6 +167,24 @@ async def get_setup_status() -> dict[str, Any]:
                 "task": _create_task_state.copy(),
             }
 
+    # Tables exist — but if a user OAuth token is present, re-run SP grants in the
+    # background. Each git deploy creates a new SP with no grants; auto-bootstrap only
+    # fires when tables are missing. Re-granting here is idempotent and non-fatal.
+    if all_exist:
+        user_token = _db_user_token.get()
+        if user_token:
+            import threading as _threading
+            _token_snap = user_token
+            _catalog_snap = catalog
+            _schema_snap = schema
+            def _bg_grant():
+                tok = _db_user_token.set(_token_snap)
+                try:
+                    _grant_sp_schema_access(_catalog_snap, _schema_snap)
+                finally:
+                    _db_user_token.reset(tok)
+            _threading.Thread(target=_bg_grant, daemon=True).start()
+
     return {
         "catalog": catalog,
         "schema": schema,
