@@ -124,14 +124,38 @@ export function PermissionsDialog() {
               <span className="font-medium text-gray-600">Important Disclaimer:</span> This application is a reference implementation and is not official production software from Databricks. It is not covered by Databricks support SLAs. Treat your deployment like OSS software.
             </p>
           </div>
-          <div className="flex justify-end border-t border-gray-200 px-6 py-4">
-            <button
-              onClick={() => { localStorage.setItem(STORAGE_KEY, "true"); setDismissed(true); }}
-              className="rounded-lg px-5 py-2 text-sm font-medium text-white"
-              style={{ backgroundColor: "#10b981" }}
-            >
-              Continue to Dashboard
-            </button>
+          <div className="flex flex-col gap-3 border-t border-gray-200 px-6 py-4">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={acknowledged}
+                onChange={(e) => setAcknowledged(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span className="text-sm font-semibold text-gray-700">I acknowledge the disclaimer above.</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={dontShowAgain}
+                onChange={(e) => setDontShowAgain(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span className="text-sm font-semibold text-gray-700">Don't show this again.</span>
+            </label>
+            <div className="flex justify-end">
+              <button
+                onClick={() => {
+                  if (dontShowAgain) localStorage.setItem(STORAGE_KEY, "true");
+                  setDismissed(true);
+                }}
+                disabled={!acknowledged}
+                className={`rounded-lg px-5 py-2 text-sm font-medium text-white transition-colors ${!acknowledged ? "opacity-50 cursor-not-allowed" : ""}`}
+                style={{ backgroundColor: acknowledged ? "#10b981" : "#9ca3af" }}
+              >
+                Continue to Dashboard
+              </button>
+            </div>
           </div>
         </div>
       </div>,
