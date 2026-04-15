@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { SettingsConfig, SettingsGeneral, SettingsTabs, SettingsConnections, SettingsExperimental, SettingsAccuracyChecks, SettingsPermissions } from "./settings";
+import { SettingsConfig, SettingsGeneral, SettingsTabs, SettingsExperimental, SettingsAccuracyChecks, SettingsPermissions } from "./settings";
 
 export interface TabVisibility {
   dbu: boolean;
@@ -17,31 +17,6 @@ export interface TabVisibility {
   forecasting: boolean;
   lakebase: boolean;
 }
-
-export interface CloudConnection {
-  id: string;
-  name: string;
-  provider: "azure" | "aws" | "gcp";
-  // Azure
-  tenant_id?: string;
-  subscription_id?: string;
-  client_id?: string;
-  client_secret?: string;
-  // AWS
-  aws_account_id?: string;
-  access_key_id?: string;
-  secret_access_key?: string;
-  region?: string;
-  // GCP
-  project_id?: string;
-  service_account_key?: string;
-  created_at?: string;
-}
-
-// Keep legacy export for any consumers
-export type AzureConnection = CloudConnection;
-
-type CloudProvider = "azure" | "aws" | "gcp";
 
 const DEFAULT_VISIBILITY: TabVisibility = {
   dbu: true,
@@ -158,7 +133,7 @@ interface SettingsDialogProps {
 }
 
 export function SettingsDialog({ isOpen, onClose, onTabVisibilityChange, onSettingsChange, tabVisibility, appSettings, onRerunWizard }: SettingsDialogProps) {
-  const [activeSection, setActiveSection] = useState<"tabs" | "cloud" | "general" | "config" | "experimental" | "accuracy-checks" | "permissions">("general");
+  const [activeSection, setActiveSection] = useState<"tabs" | "general" | "config" | "experimental" | "accuracy-checks" | "permissions">("general");
   const [localVisibility, setLocalVisibility] = useState<TabVisibility>(tabVisibility);
   const [localSettings, setLocalSettings] = useState<AppSettings>(appSettings);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
@@ -167,27 +142,6 @@ export function SettingsDialog({ isOpen, onClose, onTabVisibilityChange, onSetti
   const queryClient = useQueryClient();
 
   // ── Queries ──────────────────────────────────────────────────────────
-  const { data: cloudProvider } = useQuery<{ provider: CloudProvider; host: string }>({
-    queryKey: ["cloud-provider"],
-    queryFn: async () => {
-      const res = await fetch("/api/settings/cloud-provider");
-      if (!res.ok) throw new Error("Failed to fetch");
-      return res.json();
-    },
-    enabled: isOpen,
-    staleTime: Infinity,
-  });
-
-  const { data: connections = [], isLoading: connectionsLoading } = useQuery<CloudConnection[]>({
-    queryKey: ["cloud-connections"],
-    queryFn: async () => {
-      const res = await fetch("/api/settings/cloud-connections");
-      if (!res.ok) throw new Error("Failed to fetch");
-      return res.json();
-    },
-    enabled: isOpen,
-  });
-
   const { data: appConfig, isLoading: configLoading } = useQuery<{
     warehouse: { id: string; name: string | null; size: string | null; state: string } | null;
     identity: { display_name: string | null; user_name: string | null } | null;
@@ -239,43 +193,6 @@ export function SettingsDialog({ isOpen, onClose, onTabVisibilityChange, onSetti
     onError: () => {
       setPendingWarehouseSwitch(null);
       setSaveStatus("Failed to switch warehouse");
-      setTimeout(() => setSaveStatus(null), 3000);
-    },
-  });
-
-  const addMutation = useMutation({
-    mutationFn: async (conn: Record<string, string>) => {
-      const res = await fetch("/api/settings/cloud-connections", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(conn),
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!res.ok) throw new Error("Failed to save");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cloud-connections"] });
-      setSaveStatus("Connection saved successfully");
-      setTimeout(() => setSaveStatus(null), 3000);
-    },
-    onError: () => {
-      setSaveStatus("Failed to save connection");
-      setTimeout(() => setSaveStatus(null), 3000);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/settings/cloud-connections/${id}`, { method: "DELETE", signal: AbortSignal.timeout(15000) });
-      if (!res.ok) throw new Error("Failed to delete");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cloud-connections"] });
-    },
-    onError: () => {
-      setSaveStatus("Failed to delete connection");
       setTimeout(() => setSaveStatus(null), 3000);
     },
   });
@@ -370,7 +287,7 @@ export function SettingsDialog({ isOpen, onClose, onTabVisibilityChange, onSetti
 
             <div className="mt-4 flex items-center justify-between">
               <div className="flex flex-wrap gap-1">
-                {(["general", "tabs", "config", "permissions", "cloud", "experimental"] as const).map((section) => (
+                {(["general", "permissions", "config", "experimental", "tabs"] as const).map((section) => (
                   <button
                     key={section}
                     onClick={() => setActiveSection(section)}
@@ -379,7 +296,7 @@ export function SettingsDialog({ isOpen, onClose, onTabVisibilityChange, onSetti
                     }`}
                     style={activeSection === section ? { backgroundColor: '#1B3139' } : {}}
                   >
-                    {section === "general" ? "General" : section === "cloud" ? "Connections" : section === "tabs" ? "Tabs" : section === "experimental" ? "Experimental" : section === "permissions" ? "Permissions" : "Configuration"}
+                    {section === "general" ? "General" : section === "tabs" ? "Visibility" : section === "experimental" ? "Experimental" : section === "permissions" ? "Permissions" : "Configuration"}
                   </button>
                 ))}
                 {localSettings.enableAccuracyChecks && (
@@ -459,16 +376,6 @@ export function SettingsDialog({ isOpen, onClose, onTabVisibilityChange, onSetti
                 enableLakebase={localSettings.enableLakebase}
               />
             )}
-            {activeSection === "cloud" && (
-              <SettingsConnections
-                cloudProvider={cloudProvider}
-                connections={connections}
-                connectionsLoading={connectionsLoading}
-                addMutation={addMutation}
-                deleteMutation={deleteMutation}
-                saveStatus={saveStatus}
-              />
-            )}
             {activeSection === "experimental" && (
               <SettingsExperimental
                 localSettings={localSettings}
@@ -508,7 +415,7 @@ export function SettingsDialog({ isOpen, onClose, onTabVisibilityChange, onSetti
                 Save Settings
               </button>
             )}
-            {(activeSection === "cloud" || activeSection === "accuracy-checks" || activeSection === "permissions") && (
+            {(activeSection === "accuracy-checks" || activeSection === "permissions") && (
               <button
                 onClick={onClose}
                 className="btn-brand inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors"

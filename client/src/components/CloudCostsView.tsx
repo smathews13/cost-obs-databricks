@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure.png";
-import gcpLogo from "@/assets/gcp.png";
+import gcpLogo from "@/assets/gcp.svg";
 import { KPITrendModal } from "./KPITrendModal";
 import {
   BarChart,
@@ -1935,7 +1935,7 @@ export function CloudCostsView({
       {showIntegrationWizard && createPortal(
         <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/50">
           <div className="flex min-h-full items-start justify-center p-8 pt-16">
-          <div className="relative w-full max-w-2xl rounded-xl bg-white shadow-2xl">
+          <div className="relative w-full max-w-4xl rounded-xl bg-white shadow-2xl">
             {/* Modal header */}
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <div>
