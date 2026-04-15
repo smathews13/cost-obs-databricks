@@ -480,9 +480,17 @@ async def list_warehouses():
         return result
     except Exception as e:
         logger.error(f"Failed to list warehouses: {e}")
-        # Last resort: return just the configured warehouse so UI isn't empty
+        # warehouses.list() failed (scope/permissions issue) — try fetching the
+        # configured warehouse directly via SP client so we return real name/state.
         if current_id:
-            return [{"id": current_id, "name": None, "size": None, "state": "UNKNOWN", "is_current": True}]
+            from server.db import get_workspace_client as _sp
+            try:
+                wh = _sp().warehouses.get(current_id)
+                state = str(wh.state.value) if wh.state else "STOPPED"
+                return [{"id": wh.id, "name": wh.name, "size": wh.cluster_size, "state": state, "is_current": True}]
+            except Exception as e2:
+                logger.warning(f"SP warehouses.get fallback also failed: {e2}")
+                return [{"id": current_id, "name": None, "size": None, "state": "UNKNOWN", "is_current": True}]
         raise HTTPException(status_code=500, detail=str(e))
 
 
