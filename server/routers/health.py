@@ -246,6 +246,15 @@ async def query_diagnostics() -> dict[str, Any]:
     except Exception as e:
         diag["tests"]["system_query_history"] = f"ERROR: {e}"
 
+    # Test 5: UC REST API table list (used by setup status check — no warehouse needed)
+    try:
+        from server.db import get_workspace_client
+        w = get_workspace_client()
+        tables = [t.name for t in w.tables.list(catalog_name=catalog, schema_name=schema) if t.name]
+        diag["tests"]["uc_table_list"] = f"ok — {len(tables)} tables: {sorted(tables)}"
+    except Exception as e:
+        diag["tests"]["uc_table_list"] = f"ERROR: {e}"
+
     return diag
 
 
