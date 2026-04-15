@@ -157,8 +157,12 @@ async def get_setup_status() -> dict[str, Any]:
     automatically kick off table creation in a background thread using the user's
     token — no wizard interaction required. Returns status='initializing' in that case.
     """
+    import asyncio as _asyncio
     catalog, schema = get_catalog_schema()
-    tables = check_materialized_views_exist(catalog, schema)
+    # Run the blocking SDK call (tables.list) in a thread executor so it doesn't
+    # block the async event loop — the frontend polls this every few seconds.
+    loop = _asyncio.get_running_loop()
+    tables = await loop.run_in_executor(None, check_materialized_views_exist, catalog, schema)
 
     all_exist = all(tables.values())
     missing = [name for name, exists in tables.items() if not exists]
