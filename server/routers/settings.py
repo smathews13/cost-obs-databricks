@@ -449,23 +449,21 @@ async def list_warehouses():
                 "is_current": wh.id == current_id,
             })
 
-        # If the currently configured warehouse isn't in the list (SP visibility gap),
-        # fetch it directly and prepend so it's always selectable.
+        # If the currently configured warehouse isn't in the list (token visibility gap),
+        # try fetching it directly — first with the user token, then fall back to the
+        # SP M2M client (handles cases where forwarded OAuth token has narrower scope).
         if current_id and not any(r["id"] == current_id for r in result):
-            try:
-                wh = w.warehouses.get(current_id)
-                state = str(wh.state.value) if wh.state else "UNKNOWN"
-                result.insert(0, {
-                    "id": wh.id,
-                    "name": wh.name,
-                    "size": wh.cluster_size,
-                    "state": state,
-                    "is_current": True,
-                })
-            except Exception as e2:
-                logger.warning(f"Could not fetch current warehouse {current_id}: {e2}")
-                # Still surface it with minimal info so the UI doesn't show "No warehouses found"
-                result.insert(0, {"id": current_id, "name": None, "size": None, "state": "UNKNOWN", "is_current": True})
+            from server.db import get_workspace_client as _get_sp_client
+            wh_info = None
+            for label, client in [("user", w), ("sp", _get_sp_client())]:
+                try:
+                    wh = client.warehouses.get(current_id)
+                    state = str(wh.state.value) if wh.state else "UNKNOWN"
+                    wh_info = {"id": wh.id, "name": wh.name, "size": wh.cluster_size, "state": state, "is_current": True}
+                    break
+                except Exception as e2:
+                    logger.warning(f"Could not fetch warehouse {current_id} ({label} token): {e2}")
+            result.insert(0, wh_info or {"id": current_id, "name": None, "size": None, "state": "UNKNOWN", "is_current": True})
 
         # Sort: current first, then running, then by name
         result.sort(key=lambda x: (not x["is_current"], x["state"] != "RUNNING", x["name"] or ""))
