@@ -195,7 +195,10 @@ async def query_diagnostics() -> dict[str, Any]:
     Tests SQL connectivity, system table access, and MV table access
     under the current auth identity (OAuth user or SP). Returns exact
     errors so the root cause can be pinpointed without reading server logs.
+
+    SQL tests run in a thread pool so this endpoint never blocks the event loop.
     """
+    import asyncio
     from server.db import execute_query, get_auth_status, _user_token, _auth_mode, get_catalog_schema
 
     diag: dict[str, Any] = {
@@ -209,42 +212,50 @@ async def query_diagnostics() -> dict[str, Any]:
     diag["catalog"] = catalog
     diag["schema"] = schema
 
-    # Test 1: basic connectivity
-    try:
-        execute_query("SELECT 1 AS ping", no_cache=True)
-        diag["tests"]["connectivity"] = "ok"
-    except Exception as e:
-        diag["tests"]["connectivity"] = f"ERROR: {e}"
+    def _run_sql_tests() -> dict:
+        tests: dict[str, str] = {}
 
-    # Test 2: system.billing.usage (most commonly failing)
-    try:
-        rows = execute_query(
-            "SELECT COUNT(*) AS cnt FROM system.billing.usage WHERE usage_date >= CURRENT_DATE - 7",
-            no_cache=True,
-        )
-        diag["tests"]["system_billing_usage"] = f"ok — {rows[0]['cnt'] if rows else 0} rows"
-    except Exception as e:
-        diag["tests"]["system_billing_usage"] = f"ERROR: {e}"
+        # Test 1: basic connectivity
+        try:
+            execute_query("SELECT 1 AS ping", no_cache=True)
+            tests["connectivity"] = "ok"
+        except Exception as e:
+            tests["connectivity"] = f"ERROR: {e}"
 
-    # Test 3: MV table (app catalog)
-    try:
-        rows = execute_query(
-            f"SELECT COUNT(*) AS cnt FROM `{catalog}`.`{schema}`.`daily_usage_summary`",
-            no_cache=True,
-        )
-        diag["tests"]["mv_daily_usage_summary"] = f"ok — {rows[0]['cnt'] if rows else 0} rows"
-    except Exception as e:
-        diag["tests"]["mv_daily_usage_summary"] = f"ERROR: {e}"
+        # Test 2: system.billing.usage (most commonly failing)
+        try:
+            rows = execute_query(
+                "SELECT COUNT(*) AS cnt FROM system.billing.usage WHERE usage_date >= CURRENT_DATE - 7",
+                no_cache=True,
+            )
+            tests["system_billing_usage"] = f"ok — {rows[0]['cnt'] if rows else 0} rows"
+        except Exception as e:
+            tests["system_billing_usage"] = f"ERROR: {e}"
 
-    # Test 4: system.query.history
-    try:
-        rows = execute_query(
-            "SELECT COUNT(*) AS cnt FROM system.query.history WHERE start_time >= CURRENT_TIMESTAMP - INTERVAL 7 DAYS",
-            no_cache=True,
-        )
-        diag["tests"]["system_query_history"] = f"ok — {rows[0]['cnt'] if rows else 0} rows"
-    except Exception as e:
-        diag["tests"]["system_query_history"] = f"ERROR: {e}"
+        # Test 3: MV table (app catalog)
+        try:
+            rows = execute_query(
+                f"SELECT COUNT(*) AS cnt FROM `{catalog}`.`{schema}`.`daily_usage_summary`",
+                no_cache=True,
+            )
+            tests["mv_daily_usage_summary"] = f"ok — {rows[0]['cnt'] if rows else 0} rows"
+        except Exception as e:
+            tests["mv_daily_usage_summary"] = f"ERROR: {e}"
+
+        # Test 4: system.query.history
+        try:
+            rows = execute_query(
+                "SELECT COUNT(*) AS cnt FROM system.query.history WHERE start_time >= CURRENT_TIMESTAMP - INTERVAL 7 DAYS",
+                no_cache=True,
+            )
+            tests["system_query_history"] = f"ok — {rows[0]['cnt'] if rows else 0} rows"
+        except Exception as e:
+            tests["system_query_history"] = f"ERROR: {e}"
+
+        return tests
+
+    loop = asyncio.get_event_loop()
+    diag["tests"] = await loop.run_in_executor(None, _run_sql_tests)
 
     # Test 5: UC REST API table list (used by setup status check — no warehouse needed)
     try:
