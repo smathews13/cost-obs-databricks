@@ -258,7 +258,10 @@ def get_user_workspace_client() -> WorkspaceClient:
     if user_token and _auth_mode != "sp":
         host = os.getenv("DATABRICKS_HOST", "")
         if host:
-            return WorkspaceClient(host=host, token=user_token)
+            # Explicitly suppress client_id/client_secret so the SDK doesn't
+            # pick them up from DATABRICKS_CLIENT_ID/SECRET env vars and raise
+            # "more than one authorization method configured" (token vs oauth).
+            return WorkspaceClient(host=host, token=user_token, client_id="", client_secret="")
     return get_workspace_client()
 
 
