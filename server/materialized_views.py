@@ -825,20 +825,30 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
     results = {}
 
     # Create schema if it doesn't already exist.
-    # Check via UC API first (no warehouse, no CREATE SCHEMA privilege needed just to
-    # verify existence). Only run the SQL if the schema is genuinely absent — some
-    # Databricks versions require CREATE SCHEMA even for IF NOT EXISTS when the caller
-    # lacks the privilege, causing a spurious error when the schema already exists.
+    # Use tables.list() for existence detection — the x-forwarded-access-token has the
+    # "sql" scope which authorises tables.list() but NOT schemas.get() (a UC management
+    # API requiring a broader scope).  schemas.get() always returns 403 in Databricks
+    # Apps, so silently treating it as "not found" caused us to always attempt CREATE
+    # SCHEMA, which then fails for users without CREATE SCHEMA privilege even when the
+    # schema is already there.  tables.list() is exactly what check_materialized_views_exist
+    # uses and is reliably authorised by the SQL-scoped token.
     try:
         from server.db import get_user_workspace_client, get_workspace_client
         _schema_exists = False
-        for _wc in [get_user_workspace_client(), get_workspace_client()]:
+        for label, _wc in [("user", get_user_workspace_client()), ("sp", get_workspace_client())]:
             try:
-                _wc.schemas.get(f"{catalog}.{schema}")
+                # Consume the iterator — empty list means schema exists with no tables yet
+                list(_wc.tables.list(catalog_name=catalog, schema_name=schema))
                 _schema_exists = True
+                logger.info(f"Schema {catalog}.{schema} exists (confirmed via tables.list, {label})")
                 break
-            except Exception:
-                pass
+            except Exception as _e:
+                _emsg = str(_e)
+                if any(x in _emsg for x in ("SCHEMA_DOES_NOT_EXIST", "does not exist", "not found")):
+                    # Definitive: schema is absent — no need to try other clients
+                    logger.info(f"Schema {catalog}.{schema} confirmed absent via tables.list ({label}): {_emsg}")
+                    break
+                logger.debug(f"tables.list schema check failed ({label}): {_emsg}")
         if _schema_exists:
             logger.info(f"Schema {catalog}.{schema} already exists — skipping CREATE")
             results["schema"] = "exists"
