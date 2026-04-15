@@ -282,6 +282,7 @@ async def billing_diagnostics() -> dict[str, Any]:
     Hit this in the browser when tabs show zeros to get the exact failure point.
     """
     import asyncio
+    import os
     import time
     from server.db import execute_query, get_auth_status, get_catalog_schema, _auth_mode, _user_token
     from server.routers.billing import _mv_cache, _check_mv_available
