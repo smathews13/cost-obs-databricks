@@ -468,7 +468,7 @@ def prewarm_all_tabs():
         logger.warning(f"Background cache pre-warming failed (non-fatal): {e}")
 
 
-def _run_mv_refresh(user_token: str | None = None) -> dict:
+def _run_mv_refresh(user_token: str | None = None, lookback_days: int = 730) -> dict:
     """Run CREATE OR REPLACE TABLE for all MV tables. Returns results dict."""
     import json
     import os
@@ -494,7 +494,7 @@ def _run_mv_refresh(user_token: str | None = None) -> dict:
     log_data: dict = {"last_refresh_utc": start_utc, "duration_seconds": 0, "mv_timings": {}, "status": "error", "error": "unknown"}
     try:
         catalog, schema = get_catalog_schema()
-        results = refresh_materialized_views(catalog, schema)
+        results = refresh_materialized_views(catalog, schema, lookback_days=lookback_days)
         mv_timings = results.pop("__mv_timings__", {})
         duration = round(time.monotonic() - refresh_start, 1)
         log_data = {

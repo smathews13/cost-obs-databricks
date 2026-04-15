@@ -49,6 +49,7 @@ export function SettingsConfig({
   updateSetting,
 }: SettingsConfigProps) {
   const [mvRefreshing, setMvRefreshing] = useState(false);
+  const [lookbackDays, setLookbackDays] = useState(730);
 
   // Catalog/schema location override
   const { data: catalogInfo = null, isLoading: catalogLoading, refetch: refetchCatalog } = useQuery<{
@@ -104,6 +105,7 @@ export function SettingsConfig({
       table_type: string | null;
       exists: boolean | null;
       row_count: number | null;
+      min_date: string | null;
       max_date: string | null;
       days_behind: number | null;
       error?: string;
@@ -117,7 +119,7 @@ export function SettingsConfig({
   async function handleMvRefresh() {
     setMvRefreshing(true);
     try {
-      await fetch("/api/settings/refresh-mvs", { method: "POST" });
+      await fetch(`/api/settings/refresh-mvs?lookback_days=${lookbackDays}`, { method: "POST" });
       await refetchTables();
     } finally {
       setMvRefreshing(false);
@@ -440,19 +442,38 @@ export function SettingsConfig({
                       : `Refreshed ${tablesStatus.refresh_status.hours_since_refresh}h ago`}
                   </span>
                 )}
+                <select
+                  value={lookbackDays}
+                  onChange={e => setLookbackDays(Number(e.target.value))}
+                  disabled={mvRefreshing}
+                  className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-[#FF3621] disabled:opacity-50"
+                  title="Lookback period for rebuild (default 2 years)"
+                >
+                  <option value={180}>6 months</option>
+                  <option value={365}>1 year</option>
+                  <option value={730}>2 years (default)</option>
+                  <option value={1095}>3 years</option>
+                  <option value={1825}>5 years</option>
+                </select>
                 <button
                   onClick={handleMvRefresh}
                   disabled={mvRefreshing}
                   className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Rebuild materialized views"
+                  title="Rebuild materialized views with selected lookback period"
                 >
                   <svg className={`h-3.5 w-3.5 ${mvRefreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
-                  {mvRefreshing ? "Refreshing…" : "Refresh"}
+                  {mvRefreshing ? "Rebuilding…" : "Rebuild"}
                 </button>
               </div>
             </div>
+
+            {/* Lookback period note */}
+            <p className="mb-3 text-xs text-gray-400">
+              Tables are built from <strong className="text-gray-500">2 years</strong> of history by default.
+              Use the period selector above to rebuild with a different window — shorter periods rebuild faster, longer periods capture more historical trend data.
+            </p>
 
             {/* Catalog / Schema location */}
             <div className="mb-3 rounded-lg border border-gray-200 bg-white p-3 space-y-2">
@@ -591,6 +612,7 @@ export function SettingsConfig({
                       <th className="px-3 py-2 text-left font-medium text-gray-500">Table</th>
                       <th className="px-3 py-2 text-left font-medium text-gray-500">Type</th>
                       <th className="px-3 py-2 text-right font-medium text-gray-500">Rows</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-500">History</th>
                       <th className="px-3 py-2 text-right font-medium text-gray-500">Latest date</th>
                       <th className="px-3 py-2 text-right font-medium text-gray-500">Freshness</th>
                     </tr>
@@ -628,6 +650,18 @@ export function SettingsConfig({
                           </td>
                           <td className="px-3 py-2 text-right text-gray-500 tabular-nums">
                             {t.row_count != null ? t.row_count.toLocaleString() : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right text-gray-500 tabular-nums">
+                            {t.min_date && t.max_date ? (() => {
+                              const start = new Date(t.min_date.slice(0, 10));
+                              const end = new Date(t.max_date.slice(0, 10));
+                              const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+                              const years = Math.floor(months / 12);
+                              const remMonths = months % 12;
+                              if (years > 0 && remMonths > 0) return `${years}yr ${remMonths}mo`;
+                              if (years > 0) return `${years}yr`;
+                              return `${months}mo`;
+                            })() : "—"}
                           </td>
                           <td className="px-3 py-2 text-right font-mono text-gray-500">
                             {t.max_date ? t.max_date.slice(0, 10) : "—"}
