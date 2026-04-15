@@ -343,10 +343,17 @@ async def create_tables(
     target_schema = schema or sch
 
     if run_in_background:
+        import time as _time
         _create_task_state["status"] = "running"
         _create_task_state["error"] = None
+        _create_task_state["started_at"] = _time.monotonic()
+        _create_task_state["elapsed_seconds"] = 0
+        # Capture user token now — FastAPI BackgroundTasks don't reliably propagate
+        # ContextVar values, so we pass it explicitly so the queries run as the user
+        # (not the SP, which lacks CREATE SCHEMA on fresh deployments).
+        _token_snap = _db_user_token.get()
         background_tasks.add_task(
-            _create_tables_task, target_catalog, target_schema
+            _create_tables_task, target_catalog, target_schema, _token_snap
         )
         return {
             "status": "started",
@@ -365,14 +372,18 @@ async def create_tables(
         }
 
 
-def _create_tables_task(catalog: str, schema: str):
-    """Background task to create tables."""
+def _create_tables_task(catalog: str, schema: str, user_token: str = ""):
+    """Background task to create tables (wizard path).
+
+    Runs as the user (not the SP) so CREATE SCHEMA and CREATE TABLE succeed
+    on fresh deployments where the SP has no grants yet.
+    """
     logger.info(f"Starting background table creation for {catalog}.{schema}")
+    tok = _db_user_token.set(user_token) if user_token else None
     try:
         results = create_materialized_views(catalog, schema)
         logger.info(f"Table creation completed: {results}")
 
-        # create_materialized_views swallows errors internally — check results for failures
         errors = {k: v for k, v in results.items() if isinstance(v, str) and v.startswith("error:")}
         if errors:
             first_error = next(iter(errors.values()))
@@ -381,10 +392,14 @@ def _create_tables_task(catalog: str, schema: str):
         else:
             _create_task_state["status"] = "done"
             _create_task_state["error"] = None
+            _grant_sp_schema_access(catalog, schema)
     except Exception as e:
         _create_task_state["status"] = "error"
         _create_task_state["error"] = str(e)
         logger.error(f"Table creation failed: {e}")
+    finally:
+        if tok is not None:
+            _db_user_token.reset(tok)
 
 
 @router.post("/refresh-tables")
