@@ -269,6 +269,94 @@ async def query_diagnostics() -> dict[str, Any]:
     return diag
 
 
+@router.get("/billing-diag")
+async def billing_diagnostics() -> dict[str, Any]:
+    """Diagnose why billing/dashboard tabs show zeros.
+
+    Checks the full data path used by /api/billing/dashboard-bundle-fast:
+    - MV availability cache state
+    - Each MV query (products, workspaces, summary, timeseries, etl_breakdown)
+    - system.billing.usage fallback accessibility
+    - Auth identity in use
+
+    Hit this in the browser when tabs show zeros to get the exact failure point.
+    """
+    import asyncio
+    import time
+    from server.db import execute_query, get_auth_status, get_catalog_schema, _auth_mode, _user_token
+    from server.routers.billing import _mv_cache, _check_mv_available
+
+    catalog, schema = get_catalog_schema()
+    now = time.time()
+    cache_age = round(now - _mv_cache["checked_at"], 1) if _mv_cache["checked_at"] else None
+
+    diag: dict[str, Any] = {
+        "auth": get_auth_status(),
+        "warehouse": {
+            "http_path": os.getenv("DATABRICKS_HTTP_PATH", "NOT SET"),
+        },
+        "catalog": catalog,
+        "schema": schema,
+        "mv_cache": {
+            "available": _mv_cache["available"],
+            "age_seconds": cache_age,
+        },
+        "mv_queries": {},
+        "fallback_queries": {},
+    }
+
+    # Force a fresh MV availability check (bypass cache)
+    _mv_cache["available"] = None
+    mv_available = _check_mv_available()
+    diag["mv_available_fresh"] = mv_available
+
+    params = {"start_date": "2024-01-01", "end_date": "2030-12-31"}
+
+    def _run_billing_tests() -> tuple[dict, dict]:
+        from server.materialized_views import (
+            MV_BILLING_SUMMARY, MV_BILLING_BY_PRODUCT, MV_BILLING_BY_WORKSPACE,
+            MV_BILLING_TIMESERIES, MV_ETL_BREAKDOWN,
+        )
+        from server.routers.billing import _exec_mv
+        from server.queries import BILLING_SUMMARY, BILLING_BY_PRODUCT_FAST, BILLING_BY_WORKSPACE
+
+        mv_tests: dict[str, str] = {}
+        fallback_tests: dict[str, str] = {}
+
+        for name, template in [
+            ("summary", MV_BILLING_SUMMARY),
+            ("products", MV_BILLING_BY_PRODUCT),
+            ("workspaces", MV_BILLING_BY_WORKSPACE),
+            ("timeseries", MV_BILLING_TIMESERIES),
+            ("etl_breakdown", MV_ETL_BREAKDOWN),
+        ]:
+            try:
+                rows = _exec_mv(template, params)
+                mv_tests[name] = f"ok — {len(rows)} rows"
+            except Exception as e:
+                mv_tests[name] = f"ERROR: {e}"
+
+        for name, query in [
+            ("billing_summary", BILLING_SUMMARY),
+            ("billing_products", BILLING_BY_PRODUCT_FAST),
+            ("billing_workspaces", BILLING_BY_WORKSPACE),
+        ]:
+            try:
+                rows = execute_query(query, params, no_cache=True)
+                fallback_tests[name] = f"ok — {len(rows)} rows"
+            except Exception as e:
+                fallback_tests[name] = f"ERROR: {e}"
+
+        return mv_tests, fallback_tests
+
+    loop = asyncio.get_event_loop()
+    mv_results, fallback_results = await loop.run_in_executor(None, _run_billing_tests)
+    diag["mv_queries"] = mv_results
+    diag["fallback_queries"] = fallback_results
+
+    return diag
+
+
 @router.get("/debug-env")
 async def debug_env():
     """Debug: show detected environment (temporary)."""
