@@ -1001,7 +1001,7 @@ def check_materialized_views_exist(catalog: str | None = None, schema: str | Non
         for t in w.tables.list(catalog_name=catalog, schema_name=schema):
             if t.name:
                 existing.add(t.name.lower())
-        return {name: name in existing for name in table_names}
+        return {name: name.lower() in existing for name in table_names}
     except Exception as e:
         logger.debug(f"UC tables.list failed, falling back to SQL checks: {e}")
 

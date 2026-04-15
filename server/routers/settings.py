@@ -178,8 +178,6 @@ async def get_tables_status():
     from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
     from datetime import date
 
-    today = date.today().isoformat()
-
     # Tables that don't have a usage_date column — use an alternate date expression or skip date
     date_expr_overrides = {
         "dbsql_cost_per_query": "CAST(MAX(start_time) AS DATE)",
