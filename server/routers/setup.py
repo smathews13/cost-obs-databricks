@@ -106,6 +106,45 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> None:
 
     logger.info(f"SP grants via SDK API: {ok} ok, {failed} failed for {sp_client_id}")
 
+    # Grant CAN_USE on the SQL warehouse via REST API (not SQL — works even
+    # when the SP has no warehouse access yet, making it self-healing on redeploy)
+    _grant_warehouse_can_use(w, sp_client_id)
+
+
+def _grant_warehouse_can_use(w, sp_client_id: str) -> None:
+    """Grant CAN_USE on the configured SQL warehouse to the app SP via REST API.
+
+    Called from _grant_sp_schema_access on every /api/setup/status load when
+    a user OAuth token is present. Idempotent — re-running after a redeploy
+    that creates a new SP re-grants without any manual intervention.
+    """
+    http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
+    if not http_path:
+        logger.warning("DATABRICKS_HTTP_PATH not set — skipping warehouse CAN_USE grant")
+        return
+
+    # Extract warehouse ID from path like /sql/1.0/warehouses/{id}
+    parts = http_path.strip("/").split("/")
+    warehouse_id = parts[-1] if parts and parts[-1] != "warehouses" else ""
+    if not warehouse_id:
+        logger.warning(f"Cannot parse warehouse ID from http_path: {http_path}")
+        return
+
+    try:
+        w.api_client.do(
+            "PATCH",
+            f"/api/2.0/permissions/warehouses/{warehouse_id}",
+            body={
+                "access_control_list": [{
+                    "service_principal_name": sp_client_id,
+                    "permission_level": "CAN_USE",
+                }]
+            },
+        )
+        logger.info(f"Granted CAN_USE on warehouse {warehouse_id} to SP {sp_client_id}")
+    except Exception as e:
+        logger.warning(f"Failed to grant warehouse CAN_USE on {warehouse_id}: {e}")
+
 
 @router.get("/status")
 async def get_setup_status() -> dict[str, Any]:
