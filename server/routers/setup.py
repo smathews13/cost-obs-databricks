@@ -135,6 +135,19 @@ async def get_setup_status() -> dict[str, Any]:
                 "task": _create_task_state.copy(),
             }
 
+        # If bootstrap previously errored or "done" but tables still missing,
+        # fall through to setup_required so the wizard shows instead of looping forever.
+        if _create_task_state["status"] in ("error", "done"):
+            return {
+                "catalog": catalog,
+                "schema": schema,
+                "tables": tables,
+                "all_tables_exist": False,
+                "missing_tables": missing,
+                "status": "setup_required",
+                "task": _create_task_state.copy(),
+            }
+
         # Auto-bootstrap: tables missing + user OAuth active + not already creating
         user_token = _db_user_token.get()
         if user_token:
@@ -206,6 +219,28 @@ async def get_setup_status() -> dict[str, Any]:
         "status": "ready" if all_exist else "setup_required",
         "task": _create_task_state.copy(),
     }
+
+
+@router.post("/reset-bootstrap")
+async def reset_bootstrap_state() -> dict[str, Any]:
+    """Reset the in-process bootstrap state so auto-init can retry.
+
+    Call this if the app is stuck on the 'Setting up your workspace' spinner.
+    Resets the internal task state to 'idle' so the next /status poll will
+    attempt auto-bootstrap again (or fall through to setup_required if no
+    user token is available).
+    """
+    prev = _create_task_state.copy()
+    _create_task_state["status"] = "idle"
+    _create_task_state["error"] = None
+    logger.info(f"Bootstrap state manually reset (was: {prev})")
+    return {"ok": True, "previous": prev, "current": _create_task_state.copy()}
+
+
+@router.get("/bootstrap-state")
+async def get_bootstrap_state() -> dict[str, Any]:
+    """Return current in-process bootstrap task state for debugging."""
+    return _create_task_state.copy()
 
 
 @router.post("/grant-sp-system-access")
