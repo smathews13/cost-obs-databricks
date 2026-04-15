@@ -379,3 +379,201 @@ async def debug_env():
         "DATABRICKS_HOST": os.getenv("DATABRICKS_HOST", "NOT SET"),
         "DATABRICKS_HTTP_PATH": os.getenv("DATABRICKS_HTTP_PATH", "NOT SET"),
     }
+
+
+@router.get("/setup-diag")
+async def setup_diagnostics() -> dict[str, Any]:
+    """Diagnose why the app is stuck on 'Setting up your workspace'.
+
+    Tests every component of the bootstrap flow independently with short
+    timeouts so you get a precise failure point instead of an infinite spinner.
+
+    Hit this on the AWS app when setup stalls:
+      https://<app-url>/api/setup-diag
+    """
+    import os
+    import asyncio
+    from server.db import get_catalog_schema, get_workspace_client, _user_token, _auth_mode
+
+    catalog, schema = get_catalog_schema()
+    http_path = os.getenv("DATABRICKS_HTTP_PATH", "NOT SET")
+    host_raw = os.getenv("DATABRICKS_HOST", "NOT SET")
+    hostname = host_raw.replace("https://", "").replace("http://", "").rstrip("/")
+    sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "NOT SET")
+
+    # Capture user token now — ContextVar values don't cross thread boundaries automatically
+    user_tok = _user_token.get()
+
+    diag: dict[str, Any] = {
+        "env": {
+            "DATABRICKS_HOST": host_raw,
+            "DATABRICKS_HTTP_PATH": http_path,
+            "DATABRICKS_CLIENT_ID": sp_client_id,
+            "COST_OBS_CATALOG": os.getenv("COST_OBS_CATALOG", "NOT SET"),
+            "COST_OBS_SCHEMA": os.getenv("COST_OBS_SCHEMA", "NOT SET"),
+        },
+        "catalog": catalog,
+        "schema": schema,
+        "auth_mode": _auth_mode,
+        "user_token_present": bool(user_tok),
+    }
+
+    # Bootstrap state (in-process dict — instant)
+    try:
+        from server.routers.setup import _create_task_state
+        diag["bootstrap_state"] = _create_task_state.copy()
+    except Exception as e:
+        diag["bootstrap_state"] = f"ERROR: {e}"
+
+    # ------------------------------------------------------------------ #
+    # Helper: run a blocking callable in a thread with timeout             #
+    # ------------------------------------------------------------------ #
+    loop = asyncio.get_running_loop()
+
+    async def _run(fn) -> dict:
+        try:
+            return await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=40)
+        except asyncio.TimeoutError:
+            return {"ok": False, "error": "timed out after 40s — warehouse may be cold or unreachable"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ------------------------------------------------------------------ #
+    # 1. UC API — no warehouse needed                                      #
+    # ------------------------------------------------------------------ #
+    def _uc_api():
+        try:
+            w = get_workspace_client()
+            sp_name = None
+            try:
+                sp_name = w.current_user.me().user_name
+            except Exception:
+                pass
+            tables = list(w.tables.list(catalog_name=catalog, schema_name=schema))
+            return {"ok": True, "sp_identity": sp_name, "table_count": len(tables)}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    diag["uc_api"] = await _run(_uc_api)
+
+    # ------------------------------------------------------------------ #
+    # 2. SP warehouse connection                                           #
+    # ------------------------------------------------------------------ #
+    def _wh_sp():
+        if http_path == "NOT SET":
+            return {"ok": False, "error": "DATABRICKS_HTTP_PATH not set"}
+        try:
+            from databricks import sql
+            headers = get_workspace_client().config.authenticate()
+            access_token = headers.get("Authorization", "").replace("Bearer ", "")
+            if not access_token:
+                return {"ok": False, "error": "empty SP access token from SDK"}
+            conn = sql.connect(
+                server_hostname=hostname,
+                http_path=http_path,
+                access_token=access_token,
+                _socket_timeout=30,
+            )
+            with conn.cursor() as cur:
+                cur.execute("SELECT current_user() AS me")
+                rows = cur.fetchall()
+            conn.close()
+            return {"ok": True, "sp_user": rows[0][0] if rows else None}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    diag["warehouse_sp"] = await _run(_wh_sp)
+
+    # ------------------------------------------------------------------ #
+    # 3. User OAuth warehouse connection                                   #
+    # ------------------------------------------------------------------ #
+    def _wh_user():
+        if not user_tok:
+            return {"ok": None, "note": "no user token — open the app in a browser and retry"}
+        if http_path == "NOT SET":
+            return {"ok": False, "error": "DATABRICKS_HTTP_PATH not set"}
+        try:
+            from databricks import sql
+            conn = sql.connect(
+                server_hostname=hostname,
+                http_path=http_path,
+                access_token=user_tok,
+                _socket_timeout=30,
+            )
+            with conn.cursor() as cur:
+                cur.execute("SELECT current_user() AS me")
+                rows = cur.fetchall()
+            conn.close()
+            return {"ok": True, "user": rows[0][0] if rows else None}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    diag["warehouse_user"] = await _run(_wh_user)
+
+    # ------------------------------------------------------------------ #
+    # 4. System table access (billing + query history)                    #
+    # ------------------------------------------------------------------ #
+    def _sys_tables():
+        token = user_tok
+        if not token:
+            try:
+                headers = get_workspace_client().config.authenticate()
+                token = headers.get("Authorization", "").replace("Bearer ", "")
+            except Exception as e:
+                return {"connection": f"ERROR getting SP token: {e}"}
+        if http_path == "NOT SET":
+            return {"skipped": "DATABRICKS_HTTP_PATH not set"}
+        results: dict[str, str] = {}
+        try:
+            from databricks import sql
+            conn = sql.connect(
+                server_hostname=hostname,
+                http_path=http_path,
+                access_token=token,
+                _socket_timeout=30,
+            )
+            for tbl in [
+                "system.billing.usage",
+                "system.billing.list_prices",
+                "system.query.history",
+            ]:
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(f"SELECT 1 FROM {tbl} LIMIT 1")
+                        cur.fetchall()
+                    results[tbl] = "ok"
+                except Exception as e:
+                    results[tbl] = f"ERROR: {e}"
+            conn.close()
+        except Exception as e:
+            results["connection"] = f"ERROR: {e}"
+        return results
+
+    diag["system_tables"] = await _run(_sys_tables)
+
+    # ------------------------------------------------------------------ #
+    # 5. Schema create permission (needed for bootstrap)                  #
+    # ------------------------------------------------------------------ #
+    def _schema_perm():
+        if not user_tok:
+            return {"ok": None, "note": "no user token — test only runs when user is logged in"}
+        if http_path == "NOT SET":
+            return {"ok": False, "error": "DATABRICKS_HTTP_PATH not set"}
+        try:
+            from databricks import sql
+            conn = sql.connect(
+                server_hostname=hostname,
+                http_path=http_path,
+                access_token=user_tok,
+                _socket_timeout=30,
+            )
+            with conn.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{schema}")
+            conn.close()
+            return {"ok": True, "note": f"user can create/access schema {catalog}.{schema}"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    diag["schema_create_permission"] = await _run(_schema_perm)
+
+    return diag
