@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -73,40 +73,42 @@ def check_table_access(table: str) -> tuple[bool, str]:
 
     Returns (granted, error_message). error_message is empty string on success.
 
-    Tries two approaches in order:
-    1. SELECT 1 FROM <table> LIMIT 1 via the SQL warehouse — the most accurate
-       check because it uses the same path as the app at runtime.
-    2. SDK tables.get() — fallback when no warehouse is configured yet (e.g.
-       first-run setup wizard before the user has picked a warehouse).
-
-    If both fail the table is reported as inaccessible.
+    Uses SDK tables.get() first — instant REST call, no warehouse needed.
+    Falls back to SELECT 1 via SQL warehouse only when SDK returns an ambiguous
+    result (not a clear grant or denial). This avoids blocking on warehouse
+    cold-start which can take several minutes.
     """
+    # SDK check first — fast, no warehouse required, works during cold-start
+    try:
+        w = get_workspace_client()
+        w.tables.get(table)
+        return True, ""
+    except Exception as e:
+        err = str(e)
+        err_lower = err.lower()
+        # Clear permission denial — no need to try SQL
+        if any(kw in err_lower for kw in ("permission", "denied", "unauthorized", "not authorized", "403")):
+            logger.warning(f"Access check failed for {table}: {type(e).__name__}: {e}")
+            return False, err
+        # Table not found in UC — definitely no access
+        if any(kw in err_lower for kw in ("does not exist", "not found", "table_or_view_not_found")):
+            logger.warning(f"Table not found for {table}: {type(e).__name__}: {e}")
+            return False, err
+        # SDK call itself failed for an unexpected reason — try SQL as fallback
+        logger.debug(f"SDK check failed for {table} ({e}), trying SQL fallback")
+
     import os
     from server.db import execute_query
-
     http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
     if http_path and http_path.lower() != "auto":
         try:
             execute_query(f"SELECT 1 FROM {table} LIMIT 1", no_cache=True)
             return True, ""
         except Exception as e:
-            err = str(e)
-            # If the error is clearly a permission denial, no need to try SDK fallback
-            if any(kw in err.lower() for kw in ("permission", "denied", "unauthorized", "not authorized", "does not exist", "not found")):
-                logger.warning(f"Access check failed for {table}: {type(e).__name__}: {e}")
-                return False, err
-            # Otherwise (warehouse error, timeout, etc.) fall through to SDK check
-            logger.debug(f"Warehouse check failed for {table}, trying SDK fallback: {e}")
+            logger.warning(f"SQL access check failed for {table}: {type(e).__name__}: {e}")
+            return False, str(e)
 
-    # SDK fallback — works without a warehouse; may have false negatives for
-    # SELECT-only grants but avoids false positives from warehouse config issues.
-    try:
-        w = get_workspace_client()
-        w.tables.get(table)
-        return True, ""
-    except Exception as e:
-        logger.warning(f"Access check failed for {table}: {type(e).__name__}: {e}")
-        return False, str(e)
+    return False, "Could not verify table access"
 
 
 def _get_current_user() -> tuple[str, str]:
@@ -140,7 +142,6 @@ def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
     from concurrent.futures import as_completed
 
     # Fire table checks + user lookup all in parallel
-    _CHECK_TIMEOUT = 20  # seconds — cold warehouse SQL can block for minutes
     with ThreadPoolExecutor(max_workers=len(REQUIRED_PERMISSIONS) + 1) as pool:
         future_to_table = {
             pool.submit(check_table_access, perm["table"]): perm["table"]
@@ -149,23 +150,11 @@ def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
         user_future = pool.submit(_get_current_user)
 
         access_results: dict[str, tuple[bool, str]] = {}
-        try:
-            for future in as_completed(future_to_table, timeout=_CHECK_TIMEOUT):
-                table = future_to_table[future]
-                access_results[table] = future.result()
-        except FuturesTimeoutError:
-            # Some SQL checks timed out (cold warehouse). Fall back to fast SDK check.
-            logger.warning("Permissions SQL check timed out — falling back to SDK for remaining tables")
-            w = get_workspace_client()
-            for future, table in future_to_table.items():
-                if table not in access_results:
-                    try:
-                        w.tables.get(table)
-                        access_results[table] = (True, "")
-                    except Exception as e:
-                        access_results[table] = (False, str(e))
+        for future in as_completed(future_to_table):
+            table = future_to_table[future]
+            access_results[table] = future.result()
 
-        user_email, user_name = user_future.result(timeout=10)
+        user_email, user_name = user_future.result()
 
     # Assemble results
     results = []
