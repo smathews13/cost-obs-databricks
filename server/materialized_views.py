@@ -931,27 +931,35 @@ def check_materialized_views_exist(catalog: str | None = None, schema: str | Non
         "dbsql_cost_per_query",
     ]
 
-    # Try Unity Catalog API first (fast, no warehouse needed)
+    # Use the Unity Catalog REST API (no SQL warehouse needed — fast even when cold).
+    # Databricks Apps creates a new SP on every redeploy, so the SP may have no grants
+    # on an existing deployment. Try the user's OAuth token first (always has access to
+    # their own tables), then fall back to the SP client. Never fall back to SQL — a
+    # schema-not-found error from the UC API means the tables simply don't exist yet,
+    # and SQL connections would hang for minutes against a warehouse the SP can't use.
+    from server.db import get_workspace_client, get_user_workspace_client
+    clients_to_try = []
     try:
-        from server.db import get_workspace_client
-        w = get_workspace_client()
-        existing: set[str] = set()
-        for t in w.tables.list(catalog_name=catalog, schema_name=schema):
-            if t.name:
-                existing.add(t.name.lower())
-        return {name: name.lower() in existing for name in table_names}
-    except Exception as e:
-        logger.debug(f"UC tables.list failed, falling back to SQL checks: {e}")
+        user_client = get_user_workspace_client()
+        # Only add user client if it's actually using a user token (not the SP fallback)
+        if user_client is not get_workspace_client():
+            clients_to_try.append(("user", user_client))
+    except Exception:
+        pass
+    clients_to_try.append(("sp", get_workspace_client()))
 
-    # Fallback: SQL queries (only reached if UC API unavailable)
-    results = {}
-    for table_name in table_names:
+    for label, w in clients_to_try:
         try:
-            execute_query(f"SELECT 1 FROM {catalog}.{schema}.{table_name} LIMIT 1")
-            results[table_name] = True
-        except Exception:
-            results[table_name] = False
-    return results
+            existing: set[str] = set()
+            for t in w.tables.list(catalog_name=catalog, schema_name=schema):
+                if t.name:
+                    existing.add(t.name.lower())
+            return {name: name.lower() in existing for name in table_names}
+        except Exception as e:
+            logger.debug(f"UC tables.list failed ({label} token): {e}")
+
+    # Both clients failed — schema/catalog likely doesn't exist yet on this fresh deploy.
+    return {name: False for name in table_names}
 
 
 # Optimized queries that use materialized views
