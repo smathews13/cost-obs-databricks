@@ -897,9 +897,6 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
 
     results["__mv_timings__"] = mv_timings  # type: ignore[assignment]
 
-    # Sync all successfully-created tables to Lakebase (non-fatal)
-    sync_to_lakebase(catalog, schema, [t for t, _ in tables if results.get(t) == "created"])
-
     return results
 
 
@@ -916,57 +913,6 @@ _MV_TABLES = [
     "daily_query_stats",
     "dbsql_cost_per_query",
 ]
-
-
-def sync_to_lakebase(
-    catalog: str,
-    schema: str,
-    tables: list[str] | None = None,
-) -> dict:
-    """Fetch each MV table from Delta and bulk-replace in Lakebase.
-
-    Called automatically after create/refresh. Safe to call manually.
-    Returns a dict of table_name → 'synced' | 'skipped' | 'error: ...'
-    """
-    try:
-        from server.postgres import bulk_replace_table, _ensure_all_tables, is_available
-    except ImportError:
-        return {}
-
-    if not is_available():
-        logger.info("Lakebase not available — skipping MV sync")
-        return {}
-
-    target_tables = tables if tables is not None else _MV_TABLES
-    results: dict = {}
-
-    try:
-        _ensure_all_tables()
-    except Exception as e:
-        logger.warning(f"Lakebase _ensure_all_tables failed: {e}")
-        return {}
-
-    for table_name in target_tables:
-        try:
-            rows_raw = execute_query(
-                f"SELECT * FROM {catalog}.{schema}.{table_name}",
-                cache_tag=None,
-            )
-            if not rows_raw:
-                bulk_replace_table(table_name, [], [])
-                results[table_name] = "synced (0 rows)"
-                continue
-
-            columns = list(rows_raw[0].keys())
-            rows = [tuple(r.get(c) for c in columns) for r in rows_raw]
-            bulk_replace_table(table_name, columns, rows)
-            results[table_name] = f"synced ({len(rows)} rows)"
-            logger.info(f"Lakebase: synced {table_name} ({len(rows)} rows)")
-        except Exception as e:
-            logger.warning(f"Lakebase sync failed for {table_name}: {e}")
-            results[table_name] = f"error: {e}"
-
-    return results
 
 
 def check_materialized_views_exist(catalog: str | None = None, schema: str | None = None) -> dict:

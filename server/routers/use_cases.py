@@ -13,80 +13,6 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-# ── Lakebase helpers (primary) / Delta fallback ───────────────────────────────
-
-def _pg_list_use_cases(status: str | None, stage: str | None) -> list[dict] | None:
-    try:
-        from server.postgres import load_use_cases
-        return load_use_cases(status=status, stage=stage)
-    except Exception as e:
-        logger.warning(f"Lakebase list_use_cases failed, falling back to Delta: {e}")
-        return None
-
-
-def _pg_get_use_case(use_case_id: str) -> dict | None:
-    try:
-        from server.postgres import load_use_cases, load_use_case_objects
-        rows = load_use_cases()
-        if rows is None:
-            return None
-        uc = next((r for r in rows if r["use_case_id"] == use_case_id), None)
-        if uc is None:
-            return None
-        objects = load_use_case_objects(use_case_id) or []
-        return {**uc, "objects": objects, "object_count": len(objects)}
-    except Exception as e:
-        logger.warning(f"Lakebase get_use_case failed, falling back to Delta: {e}")
-        return None
-
-
-def _pg_save_use_case(uc: dict) -> bool:
-    try:
-        from server.postgres import save_use_case
-        save_use_case(uc)
-        return True
-    except Exception as e:
-        logger.warning(f"Lakebase save_use_case failed, falling back to Delta: {e}")
-        return False
-
-
-def _pg_delete_use_case(use_case_id: str) -> bool:
-    try:
-        from server.postgres import delete_use_case
-        delete_use_case(use_case_id)
-        return True
-    except Exception as e:
-        logger.warning(f"Lakebase delete_use_case failed, falling back to Delta: {e}")
-        return False
-
-
-def _pg_save_use_case_object(obj: dict) -> bool:
-    try:
-        from server.postgres import save_use_case_object
-        save_use_case_object(obj)
-        return True
-    except Exception as e:
-        logger.warning(f"Lakebase save_use_case_object failed, falling back to Delta: {e}")
-        return False
-
-
-def _pg_get_use_case_objects(use_case_id: str) -> list[dict] | None:
-    try:
-        from server.postgres import load_use_case_objects
-        return load_use_case_objects(use_case_id)
-    except Exception as e:
-        logger.warning(f"Lakebase load_use_case_objects failed, falling back to Delta: {e}")
-        return None
-
-
-def _pg_delete_use_case_object(mapping_id: str, use_case_id: str) -> bool:
-    try:
-        from server.postgres import delete_use_case_object
-        delete_use_case_object(mapping_id)
-        return True
-    except Exception as e:
-        logger.warning(f"Lakebase delete_use_case_object failed, falling back to Delta: {e}")
-        return False
 
 
 class CreateUseCaseRequest(BaseModel):
@@ -143,22 +69,15 @@ def create_default_use_case() -> dict[str, Any]:
     results: dict[str, Any] = {"created": False, "skipped": False, "error": None}
 
     try:
-        # Check Lakebase first, then Delta
-        existing_lakebase = _pg_list_use_cases(status="active", stage=None)
-        if existing_lakebase is not None:
-            if any(uc["name"] == DEFAULT_USE_CASE_NAME for uc in existing_lakebase):
-                results["skipped"] = True
-                return results
-        else:
-            check_query = """
-            SELECT use_case_id FROM cost_observability.use_cases
-            WHERE name = :name AND status = 'active'
-            LIMIT 1
-            """
-            existing = execute_query(check_query, {"name": DEFAULT_USE_CASE_NAME})
-            if existing:
-                results["skipped"] = True
-                return results
+        check_query = """
+        SELECT use_case_id FROM cost_observability.use_cases
+        WHERE name = :name AND status = 'active'
+        LIMIT 1
+        """
+        existing = execute_query(check_query, {"name": DEFAULT_USE_CASE_NAME})
+        if existing:
+            results["skipped"] = True
+            return results
 
         use_case_id = str(uuid.uuid4())
         now = datetime.now().isoformat()
@@ -179,19 +98,17 @@ def create_default_use_case() -> dict[str, Any]:
             "live_date": None,
         }
 
-        saved = _pg_save_use_case(uc)
-        if not saved:
-            query = """
-            INSERT INTO cost_observability.use_cases
-            (use_case_id, name, description, owner, tags, created_at, updated_at, status, stage, start_date, end_date, live_date)
-            VALUES (
-                :use_case_id, :name, :description, :owner,
-                MAP('team', 'data-science', 'priority', 'high'),
-                cast(:created_at as timestamp), cast(:updated_at as timestamp),
-                'active', :stage, cast(:start_date as date), NULL, NULL
-            )
-            """
-            execute_write(query, {k: v for k, v in uc.items() if k != "tags"})
+        query = """
+        INSERT INTO cost_observability.use_cases
+        (use_case_id, name, description, owner, tags, created_at, updated_at, status, stage, start_date, end_date, live_date)
+        VALUES (
+            :use_case_id, :name, :description, :owner,
+            MAP('team', 'data-science', 'priority', 'high'),
+            cast(:created_at as timestamp), cast(:updated_at as timestamp),
+            'active', :stage, cast(:start_date as date), NULL, NULL
+        )
+        """
+        execute_write(query, {k: v for k, v in uc.items() if k != "tags"})
 
         logger.info(f"Created default use case: {DEFAULT_USE_CASE_NAME} ({use_case_id})")
         results["created"] = True
@@ -222,13 +139,6 @@ async def setup_use_cases_tables() -> dict[str, Any]:
         for statement in statements:
             if statement:
                 execute_query(statement, {})
-
-        # Also ensure Lakebase tables exist (non-fatal)
-        try:
-            from server.postgres import _ensure_all_tables
-            _ensure_all_tables()
-        except Exception as lb_err:
-            logger.warning(f"Lakebase table setup skipped: {lb_err}")
 
         logger.info("Use cases tables created successfully")
         return {
@@ -294,9 +204,7 @@ async def create_use_case(request: CreateUseCaseRequest) -> dict[str, Any]:
             "end_date": request.end_date,
             "live_date": request.live_date,
         }
-        saved = _pg_save_use_case(uc_record)
-        if not saved:
-            execute_write(query, params)
+        execute_write(query, params)
 
         logger.info(f"Created use case: {use_case_id}")
 
@@ -365,15 +273,7 @@ def _list_use_cases_internal(
     status: str | None = None,
     stage: str | None = None
 ) -> list[dict[str, Any]]:
-    """
-    Internal helper to list use cases. Tries Lakebase first, falls back to Delta.
-    """
-    # Try Lakebase first
-    lb_results = _pg_list_use_cases(status=status, stage=stage)
-    if lb_results is not None:
-        return lb_results
-
-    # Delta fallback
+    """Internal helper to list use cases from Delta."""
     query = """
     SELECT
       use_case_id,
@@ -480,12 +380,6 @@ async def get_use_case(use_case_id: str) -> dict[str, Any]:
         WHERE use_case_id = :use_case_id
         """
 
-        # Try Lakebase first
-        lb_result = _pg_get_use_case(use_case_id)
-        if lb_result is not None:
-            return lb_result
-
-        # Delta fallback
         results = execute_query(query, {"use_case_id": use_case_id}, cache_tag="use_case")
 
         if not results:
@@ -615,23 +509,7 @@ async def update_use_case(
         WHERE use_case_id = :use_case_id
         """
 
-        # Build updated record for Lakebase (fetch current then merge)
-        current = _pg_get_use_case(use_case_id)
-        if current is not None:
-            merged = {**current}
-            if request.name is not None: merged["name"] = request.name
-            if request.description is not None: merged["description"] = request.description
-            if request.owner is not None: merged["owner"] = request.owner
-            if request.status is not None: merged["status"] = request.status
-            if request.tags is not None: merged["tags"] = request.tags
-            if request.stage is not None: merged["stage"] = request.stage
-            if request.start_date is not None: merged["start_date"] = request.start_date or None
-            if request.end_date is not None: merged["end_date"] = request.end_date or None
-            if request.live_date is not None: merged["live_date"] = request.live_date or None
-            merged["updated_at"] = datetime.now().isoformat()
-            _pg_save_use_case(merged)
-        else:
-            execute_write(query, params)
+        execute_write(query, params)
 
         logger.info(f"Updated use case: {use_case_id}")
 
@@ -656,17 +534,14 @@ async def delete_use_case(use_case_id: str) -> dict[str, Any]:
         Success status
     """
     try:
-        deleted = _pg_delete_use_case(use_case_id)
-        if not deleted:
-            # Delta fallback
-            execute_write(
-                "DELETE FROM cost_observability.use_case_objects WHERE use_case_id = :use_case_id",
-                {"use_case_id": use_case_id},
-            )
-            execute_write(
-                "DELETE FROM cost_observability.use_cases WHERE use_case_id = :use_case_id",
-                {"use_case_id": use_case_id},
-            )
+        execute_write(
+            "DELETE FROM cost_observability.use_case_objects WHERE use_case_id = :use_case_id",
+            {"use_case_id": use_case_id},
+        )
+        execute_write(
+            "DELETE FROM cost_observability.use_cases WHERE use_case_id = :use_case_id",
+            {"use_case_id": use_case_id},
+        )
 
         logger.info(f"Deleted use case: {use_case_id}")
 
@@ -735,9 +610,7 @@ async def assign_object_to_use_case(
             "custom_start_date": request.custom_start_date,
             "custom_end_date": request.custom_end_date,
         }
-        saved = _pg_save_use_case_object(obj_record)
-        if not saved:
-            execute_write(query, params)
+        execute_write(query, params)
 
         logger.info(f"Assigned {request.object_type} {request.object_id} to use case {use_case_id}")
 
@@ -771,12 +644,10 @@ async def remove_object_from_use_case(
         Success status
     """
     try:
-        deleted = _pg_delete_use_case_object(mapping_id, use_case_id)
-        if not deleted:
-            execute_write(
-                "DELETE FROM cost_observability.use_case_objects WHERE mapping_id = :mapping_id AND use_case_id = :use_case_id",
-                {"mapping_id": mapping_id, "use_case_id": use_case_id},
-            )
+        execute_write(
+            "DELETE FROM cost_observability.use_case_objects WHERE mapping_id = :mapping_id AND use_case_id = :use_case_id",
+            {"mapping_id": mapping_id, "use_case_id": use_case_id},
+        )
 
         logger.info(f"Removed mapping {mapping_id} from use case {use_case_id}")
 

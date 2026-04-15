@@ -162,45 +162,12 @@ def create_dbsql_router(table_name: str) -> APIRouter:
     sql = _build_queries(table_name)
 
     def _exec(query_key: str, params: dict, catalog: str, schema: str) -> list[dict]:
-        """Execute a dbsql query: Lakebase first, Delta fallback."""
+        """Execute a dbsql query against Delta."""
         template = sql[query_key]
-        try:
-            from server.postgres import execute_pg_mv
-            result = execute_pg_mv(template, params, catalog, schema)
-            if result is not None:
-                return result
-        except Exception as e:
-            logger.debug(f"Lakebase {table_name}.{query_key} failed, using Delta: {e}")
         return execute_query(template.format(catalog=catalog, schema=schema), params)
-
-    def _lb_table_available() -> bool:
-        """Check if the table exists and has rows in Lakebase."""
-        try:
-            from server.postgres import execute_pg
-            rows = execute_pg(f"SELECT COUNT(*) AS n FROM {table_name}")
-            return rows is not None and int((rows[0] or {}).get("n") or 0) > 0
-        except Exception:
-            return False
 
     async def check_mv_status() -> dict[str, Any]:
         catalog, schema = get_catalog_schema()
-
-        # Check Lakebase first
-        if _lb_table_available():
-            try:
-                data_range_rows = _exec("data_range", {}, catalog, schema)
-                data_range: dict[str, Any] = {}
-                if data_range_rows:
-                    row = data_range_rows[0]
-                    data_range = {
-                        "earliest_date": str(row["earliest_date"]) if row.get("earliest_date") else None,
-                        "latest_date": str(row["latest_date"]) if row.get("latest_date") else None,
-                        "total_rows": int(row.get("total_rows") or 0),
-                    }
-                return {"mv_available": True, "catalog": catalog, "schema": schema,
-                        "table": table_name, "data_range": data_range, "source": "lakebase"}
-            except Exception:
-                pass
 
         try:
             query = sql["check_mv"].format(catalog=catalog, schema=schema)
@@ -481,14 +448,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
             LIMIT {safe_limit}
         """
         params = {"start_date": start_date, "end_date": end_date, "source_type": source_type}
-        try:
-            from server.postgres import execute_pg_mv
-            results = execute_pg_mv(query, params, catalog, schema)
-            if results is None:
-                results = execute_query(query, params)
-        except Exception as e:
-            logger.debug(f"Lakebase top_queries_by_source failed, using Delta: {e}")
-            results = execute_query(query, params)
+        results = execute_query(query, params)
 
         host = get_host_url()
         queries = []

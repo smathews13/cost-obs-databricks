@@ -654,20 +654,13 @@ async def create_warehouse(name: str = Query(default="Cost Observability App", d
 
 @router.post("/bootstrap-admin")
 async def bootstrap_admin(request: Request) -> dict[str, Any]:
-    """Save the deploying user as admin on first-run setup completion.
-
-    Writes to Lakebase (primary) and Delta table (fallback) so the user
-    is explicitly an admin regardless of which storage backend is available.
-    """
+    """Save the deploying user as admin on first-run setup completion."""
     user_email = request.headers.get("X-Forwarded-Email", os.getenv("USER", ""))
     if not user_email:
         return {"status": "skipped", "reason": "no user email available"}
 
-    # Use settings module's own load/save functions so storage backend and
-    # table schema are consistent with what the Settings UI reads.
     try:
         from server.routers.settings import _load_user_permissions, _save_user_permissions_to_table
-        from server.postgres import save_permissions as lb_save, load_permissions as lb_load
 
         perms = _load_user_permissions()
         if user_email in perms.get("admins", []):
@@ -676,26 +669,9 @@ async def bootstrap_admin(request: Request) -> dict[str, Any]:
         admins = perms.get("admins", []) + [user_email]
         consumers = perms.get("consumers", [])
 
-        # Try Lakebase first
-        saved = False
-        try:
-            lb_save(admins, consumers)
-            saved = True
-            logger.info(f"Bootstrapped admin in Lakebase: {user_email}")
-        except Exception as e:
-            logger.warning(f"Lakebase bootstrap failed (non-fatal): {e}")
-
-        # Always write to Delta too (fallback storage)
-        try:
-            _save_user_permissions_to_table(admins, consumers)
-            saved = True
-            logger.info(f"Bootstrapped admin in Delta table: {user_email}")
-        except Exception as e:
-            logger.warning(f"Delta bootstrap failed (non-fatal): {e}")
-
-        if saved:
-            return {"status": "ok", "email": user_email, "role": "admin"}
-        return {"status": "error", "message": "Could not persist admin to any storage backend"}
+        _save_user_permissions_to_table(admins, consumers)
+        logger.info(f"Bootstrapped admin in Delta table: {user_email}")
+        return {"status": "ok", "email": user_email, "role": "admin"}
 
     except Exception as e:
         logger.error(f"Bootstrap admin failed: {e}")

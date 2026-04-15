@@ -832,47 +832,6 @@ async def save_telemetry_settings_endpoint(settings: TelemetrySettings) -> dict[
     return {"status": "ok"}
 
 
-# ── Lakebase Status ──────────────────────────────────────────────────────────
-
-@router.get("/lakebase-status")
-async def get_lakebase_status() -> dict[str, Any]:
-    """Return Lakebase (PostgreSQL) connection status and config."""
-    endpoint_name = os.getenv("ENDPOINT_NAME")
-    pg_host = os.getenv("PGHOST")
-    pg_database = os.getenv("PGDATABASE")
-    pg_user = os.getenv("PGUSER") or os.getenv("DATABRICKS_CLIENT_ID")
-
-    configured = all([endpoint_name, pg_host, pg_database])
-    if not configured:
-        missing = [k for k, v in {
-            "ENDPOINT_NAME": endpoint_name,
-            "PGHOST": pg_host,
-            "PGDATABASE": pg_database,
-        }.items() if not v]
-        return {"configured": False, "missing_vars": missing}
-
-    # Check if we can actually connect
-    connected = False
-    try:
-        from server.postgres import _get_pool
-        pool = _get_pool()
-        if pool is not None:
-            with pool.connection() as conn:
-                conn.execute("SELECT 1")
-            connected = True
-    except Exception as e:
-        logger.warning(f"Lakebase connectivity check failed: {e}")
-
-    return {
-        "configured": True,
-        "connected": connected,
-        "endpoint_name": endpoint_name,
-        "host": pg_host,
-        "database": pg_database,
-        "user": pg_user,
-    }
-
-
 # ── User Permissions ──────────────────────────────────────────────────────────
 
 class UserPermissionsModel(BaseModel):
@@ -901,17 +860,7 @@ def _ensure_permissions_table() -> None:
 
 
 def _load_user_permissions() -> dict:
-    """Load permissions — Lakebase first, then Delta table, then local file."""
-    # Primary: Lakebase (persistent PostgreSQL, no Delta permissions needed)
-    try:
-        from server.postgres import load_permissions as lakebase_load
-        result = lakebase_load()
-        if result is not None:
-            return result
-    except Exception as e:
-        logger.warning(f"Could not load permissions from Lakebase: {e}")
-
-    # Secondary: Delta table
+    """Load permissions from Delta table, then local file."""
     try:
         from server.db import execute_query
         _ensure_permissions_table()
@@ -971,24 +920,14 @@ async def get_user_permissions() -> dict:
 
 @router.post("/user-permissions")
 async def save_user_permissions(request: Request, data: UserPermissionsModel) -> dict:
-    """Save permissions — Lakebase first, Delta table as fallback."""
+    """Save permissions to Delta table."""
     _require_admin(request)
-    # Primary: Lakebase
-    try:
-        from server.postgres import save_permissions as lakebase_save
-        lakebase_save(data.admins, data.consumers)
-        logger.info(f"Permissions saved to Lakebase ({len(data.admins)} admins, {len(data.consumers)} consumers)")
-        return {"status": "ok"}
-    except Exception as e:
-        logger.warning(f"Lakebase permissions save failed, trying Delta table: {e}")
-
-    # Fallback: Delta table
     try:
         _save_user_permissions_to_table(data.admins, data.consumers)
         logger.info(f"Permissions saved to Delta table ({len(data.admins)} admins, {len(data.consumers)} consumers)")
         return {"status": "ok"}
     except Exception as e:
-        logger.error(f"All permissions storage backends failed: {e}")
+        logger.error(f"Failed to save permissions: {e}")
         raise HTTPException(status_code=500, detail="Failed to save permissions — check server logs")
 
 

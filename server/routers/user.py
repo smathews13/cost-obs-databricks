@@ -14,17 +14,7 @@ USER_PERMISSIONS_FILE = os.path.join(SETTINGS_DIR, "user_permissions.json")
 
 
 def _load_permissions() -> dict:
-    """Load permissions — Lakebase first, then Delta table, then local file."""
-    # Primary: Lakebase
-    try:
-        from server.postgres import load_permissions as lakebase_load
-        result = lakebase_load()
-        if result is not None:
-            return result
-    except Exception as e:
-        logger.error(f"Could not load permissions from Lakebase: {e}")
-
-    # Secondary: Delta table
+    """Load permissions from Delta table, then local file."""
     try:
         from server.db import execute_query, get_catalog_schema
         catalog, schema = get_catalog_schema()

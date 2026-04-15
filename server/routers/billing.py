@@ -88,23 +88,12 @@ _MV_CHECK_INTERVAL = 300  # 5 minutes
 
 
 def _check_mv_available() -> bool:
-    """Check if materialized views are available (with caching).
-    Lakebase takes priority — if Lakebase has the data, report available."""
+    """Check if materialized views are available (with caching)."""
     now = time.time()
     if _mv_cache["available"] is not None and (now - _mv_cache["checked_at"]) < _MV_CHECK_INTERVAL:
         return _mv_cache["available"]
 
     try:
-        # Check Lakebase first
-        try:
-            from server.postgres import lakebase_mv_available
-            if lakebase_mv_available():
-                _mv_cache["available"] = True
-                _mv_cache["checked_at"] = now
-                return True
-        except Exception:
-            pass
-
         catalog, schema = get_catalog_schema()
         tables = check_materialized_views_exist(catalog, schema)
         core_tables = ["daily_usage_summary", "daily_product_breakdown", "daily_workspace_breakdown"]
@@ -128,15 +117,8 @@ def _get_mv_query(mv_query: str) -> str:
 
 
 def _exec_mv(mv_template: str, params: dict) -> list[dict]:
-    """Execute an MV query: Lakebase first, Delta fallback."""
+    """Execute a materialized view query against Delta."""
     catalog, schema = get_catalog_schema()
-    try:
-        from server.postgres import execute_pg_mv
-        result = execute_pg_mv(mv_template, params, catalog, schema)
-        if result is not None:
-            return result
-    except Exception as e:
-        logger.debug(f"Lakebase MV query failed, using Delta: {e}")
     return execute_query(mv_template.format(catalog=catalog, schema=schema), params)
 
 
