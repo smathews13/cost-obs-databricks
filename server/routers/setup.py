@@ -717,7 +717,20 @@ async def create_warehouse(name: str = Query(default="Cost Observability App", d
 @router.post("/bootstrap-admin")
 async def bootstrap_admin(request: Request) -> dict[str, Any]:
     """Save the deploying user as admin on first-run setup completion."""
-    user_email = request.headers.get("X-Forwarded-Email", os.getenv("USER", ""))
+    # X-Forwarded-Email is injected by Databricks Apps on Azure but may be absent on AWS.
+    # Fall back to resolving identity from the forwarded OAuth token via the SDK.
+    user_email = request.headers.get("X-Forwarded-Email", "")
+    if not user_email:
+        try:
+            from server.db import get_user_workspace_client
+            import asyncio as _asyncio
+            loop = _asyncio.get_running_loop()
+            me = await loop.run_in_executor(
+                None, lambda: get_user_workspace_client().current_user.me()
+            )
+            user_email = me.user_name or ""
+        except Exception as e:
+            logger.warning(f"Could not resolve user identity for bootstrap-admin: {e}")
     if not user_email:
         return {"status": "skipped", "reason": "no user email available"}
 
