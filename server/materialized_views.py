@@ -833,18 +833,27 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
         err_str = str(e)
         err_lower = err_str.lower()
         if any(kw in err_lower for kw in ("insufficient_privileges", "does not have", "permission", "unauthorized", "error during request")):
-            from server.db import get_workspace_client
+            from server.db import get_workspace_client, _user_token
+            # Identify who actually ran the query so the error message is accurate
+            running_as_user = bool(_user_token.get())
             try:
-                sp = get_workspace_client().current_user.me().user_name or "<app-service-principal>"
+                if running_as_user:
+                    from server.db import get_user_workspace_client
+                    identity = get_user_workspace_client().current_user.me().user_name or "your user account"
+                    grant_note = f"As a metastore admin, run:"
+                else:
+                    identity = get_workspace_client().current_user.me().user_name or "<app-service-principal>"
+                    grant_note = f"A catalog owner or metastore admin must run:"
             except Exception:
-                sp = "<app-service-principal>"
+                identity = "your user account" if running_as_user else "<app-service-principal>"
+                grant_note = "A catalog owner or metastore admin must run:"
             friendly = (
-                f"The app service principal `{sp}` needs CREATE SCHEMA permission on the `{catalog}` catalog. "
-                f"A catalog owner or metastore admin must run: "
-                f"GRANT USE CATALOG ON CATALOG {catalog} TO `{sp}`; "
-                f"GRANT CREATE SCHEMA ON CATALOG {catalog} TO `{sp}`"
+                f"`{identity}` needs CREATE SCHEMA permission on the `{catalog}` catalog. "
+                f"{grant_note} "
+                f"GRANT USE CATALOG ON CATALOG {catalog} TO `{identity}`; "
+                f"GRANT CREATE SCHEMA ON CATALOG {catalog} TO `{identity}`"
             )
-            logger.error(f"Failed to create schema (permission error): {err_str}")
+            logger.error(f"Failed to create schema (permission error, running_as_user={running_as_user}): {err_str}")
             results["schema"] = f"error: {friendly}"
         else:
             logger.error(f"Failed to create schema: {e}")
