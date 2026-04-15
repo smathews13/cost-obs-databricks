@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -140,6 +140,7 @@ def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
     from concurrent.futures import as_completed
 
     # Fire table checks + user lookup all in parallel
+    _CHECK_TIMEOUT = 20  # seconds — cold warehouse SQL can block for minutes
     with ThreadPoolExecutor(max_workers=len(REQUIRED_PERMISSIONS) + 1) as pool:
         future_to_table = {
             pool.submit(check_table_access, perm["table"]): perm["table"]
@@ -148,11 +149,23 @@ def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
         user_future = pool.submit(_get_current_user)
 
         access_results: dict[str, tuple[bool, str]] = {}
-        for future in as_completed(future_to_table):
-            table = future_to_table[future]
-            access_results[table] = future.result()
+        try:
+            for future in as_completed(future_to_table, timeout=_CHECK_TIMEOUT):
+                table = future_to_table[future]
+                access_results[table] = future.result()
+        except FuturesTimeoutError:
+            # Some SQL checks timed out (cold warehouse). Fall back to fast SDK check.
+            logger.warning("Permissions SQL check timed out — falling back to SDK for remaining tables")
+            w = get_workspace_client()
+            for future, table in future_to_table.items():
+                if table not in access_results:
+                    try:
+                        w.tables.get(table)
+                        access_results[table] = (True, "")
+                    except Exception as e:
+                        access_results[table] = (False, str(e))
 
-        user_email, user_name = user_future.result()
+        user_email, user_name = user_future.result(timeout=10)
 
     # Assemble results
     results = []
