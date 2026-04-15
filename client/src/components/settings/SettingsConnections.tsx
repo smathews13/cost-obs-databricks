@@ -1,6 +1,21 @@
-import type { CloudConnection } from "../SettingsDialog";
-
 type CloudProvider = "azure" | "aws" | "gcp";
+
+interface CloudConnection {
+  id: string;
+  name: string;
+  provider: CloudProvider;
+  tenant_id?: string;
+  subscription_id?: string;
+  client_id?: string;
+  client_secret?: string;
+  aws_account_id?: string;
+  access_key_id?: string;
+  secret_access_key?: string;
+  region?: string;
+  project_id?: string;
+  service_account_key?: string;
+  created_at?: string;
+}
 
 const PROVIDER_META: Record<CloudProvider, { label: string; color: string; bgClass: string; textClass: string }> = {
   azure: { label: "Azure", color: "#0078D4", bgClass: "bg-blue-100", textClass: "text-blue-600" },
