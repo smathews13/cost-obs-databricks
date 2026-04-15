@@ -972,6 +972,10 @@ def sync_to_lakebase(
 def check_materialized_views_exist(catalog: str | None = None, schema: str | None = None) -> dict:
     """Check which materialized view tables exist.
 
+    Uses the Unity Catalog REST API (no SQL warehouse required) so this is
+    fast even when the warehouse is cold/starting. Avoids the thread-exhaustion
+    problem that occurred when 6 blocking SQL queries were spawned per poll.
+
     Returns:
         Dict mapping table name to exists (True/False)
     """
@@ -980,7 +984,7 @@ def check_materialized_views_exist(catalog: str | None = None, schema: str | Non
         catalog = catalog or cat
         schema = schema or sch
 
-    tables = [
+    table_names = [
         "daily_usage_summary",
         "daily_product_breakdown",
         "daily_workspace_breakdown",
@@ -989,15 +993,26 @@ def check_materialized_views_exist(catalog: str | None = None, schema: str | Non
         "dbsql_cost_per_query",
     ]
 
+    # Try Unity Catalog API first (fast, no warehouse needed)
+    try:
+        from server.db import get_workspace_client
+        w = get_workspace_client()
+        existing: set[str] = set()
+        for t in w.tables.list(catalog_name=catalog, schema_name=schema):
+            if t.name:
+                existing.add(t.name.lower())
+        return {name: name in existing for name in table_names}
+    except Exception as e:
+        logger.debug(f"UC tables.list failed, falling back to SQL checks: {e}")
+
+    # Fallback: SQL queries (only reached if UC API unavailable)
     results = {}
-    for table_name in tables:
+    for table_name in table_names:
         try:
-            # Try to query the table
             execute_query(f"SELECT 1 FROM {catalog}.{schema}.{table_name} LIMIT 1")
             results[table_name] = True
         except Exception:
             results[table_name] = False
-
     return results
 
 
