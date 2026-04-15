@@ -32,7 +32,6 @@ const AppsCostCenter = lazy(() => lazyWithRetry(() => import("@/components/AppsC
 const TaggingHub = lazy(() => lazyWithRetry(() => import("@/components/TaggingHub").then(m => ({ default: m.TaggingHub }))));
 const SQLWarehousing360 = lazy(() => lazyWithRetry(() => import("@/components/SQLWarehousing360").then(m => ({ default: m.SQLWarehousing360 }))));
 const ForecastingView = lazy(() => lazyWithRetry(() => import("@/components/ForecastingView").then(m => ({ default: m.ForecastingView }))));
-const LakebaseView = lazy(() => lazyWithRetry(() => import("@/components/LakebaseView").then(m => ({ default: m.LakebaseView }))));
 const ContractBurndown = lazy(() => lazyWithRetry(() => import("@/components/ContractBurndown").then(m => ({ default: m.ContractBurndown }))));
 const Alerts = lazy(() => lazyWithRetry(() => import("@/pages/Alerts")));
 const UseCases = lazy(() => lazyWithRetry(() => import("@/pages/UseCases")));
@@ -59,7 +58,7 @@ import {
 import type { DateRange } from "@/types/billing";
 import { generateCostReport } from "@/utils/pdfExport";
 
-type ViewTab = "dbu" | "sql" | "infra" | "kpis" | "aiml" | "apps" | "tagging" | "use-cases" | "alerts" | "forecasting" | "lakebase" | "users-groups" | "contract";
+type ViewTab = "dbu" | "sql" | "infra" | "kpis" | "aiml" | "apps" | "tagging" | "use-cases" | "alerts" | "forecasting" | "users-groups" | "contract";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -123,7 +122,6 @@ function Dashboard() {
     "use-cases":    [["use-cases"], ["use-cases-summary"], ["monthly-consumption"]],
     "alerts":       [["alerts"]],
     "forecasting":  [["billing", "dashboard-bundle-fast"]],
-    "lakebase":     [],
     "contract":     [["contract-burndown"]],
   };
 
@@ -374,7 +372,6 @@ function Dashboard() {
   useQuery({ queryKey: ["warehouses"], queryFn: async () => { const r = await fetch("/api/settings/warehouses"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 5 * 60 * 1000 });
   useQuery({ queryKey: ["cloud-provider"], queryFn: async () => { const r = await fetch("/api/settings/cloud-provider"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 30 * 60 * 1000 });
   useQuery({ queryKey: ["cloud-connections"], queryFn: async () => { const r = await fetch("/api/settings/cloud-connections"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 5 * 60 * 1000 });
-  useQuery({ queryKey: ["settings-lakebase-status"], queryFn: async () => { const r = await fetch("/api/settings/lakebase-status"); return r.ok ? r.json() : { configured: false }; }, staleTime: 5 * 60 * 1000 });
   useQuery({ queryKey: ["settings-account-prices"], queryFn: async () => { const r = await fetch("/api/settings/account-prices"); return r.ok ? r.json() : { available: false, prices: [], source: null, count: 0 }; }, staleTime: 5 * 60 * 1000 });
 
   // Memoize infra data transformations to avoid re-creating arrays on every render
@@ -756,21 +753,6 @@ function Dashboard() {
                 Forecasting
               </button>
               )}
-              {appSettings.enableLakebase && tabVisibility.lakebase && (
-              <button
-                onClick={() => setActiveTab("lakebase")}
-                className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
-                  activeTab === "lakebase"
-                    ? "border-[#FF3621] text-[#FF3621]"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
-                }`}
-              >
-                <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
-                </svg>
-                Lakebase
-              </button>
-              )}
               {appSettings.enableContractTracking && (
               <button
                 onClick={() => setActiveTab("contract")}
@@ -990,13 +972,6 @@ function Dashboard() {
             endDate={dateRange.endDate}
           />
           </TabErrorBoundary>
-        ) : activeTab === "lakebase" ? (
-          <TabErrorBoundary tabName="Lakebase">
-          <LakebaseView
-            startDate={dateRange.startDate}
-            endDate={dateRange.endDate}
-          />
-          </TabErrorBoundary>
         ) : activeTab === "users-groups" ? (
           <TabErrorBoundary tabName="Users">
           <UsersGroups
@@ -1026,7 +1001,6 @@ function Dashboard() {
           "use-cases": tabVisibility["use-cases"] && appSettings.enableUseCaseTracking,
           alerts: tabVisibility.alerts && appSettings.enableAlerts,
           forecasting: tabVisibility.forecasting && appSettings.enableForecasting,
-          lakebase: tabVisibility.lakebase && appSettings.enableLakebase,
         }}
       />
 

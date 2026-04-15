@@ -340,29 +340,6 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
             </div>
           </div>
 
-          {/* Lakebase — coming soon */}
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-3 opacity-50 cursor-not-allowed select-none">
-            <div className="flex items-center gap-2">
-              <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
-              </svg>
-              <span className="text-sm font-medium text-gray-400">Lakebase</span>
-              <div className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-400 border border-gray-200">
-                Coming Soon
-              </div>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-white px-3 py-2.5">
-              <div>
-                <p className="text-xs font-medium text-gray-400">Enable Lakebase</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Replace materialized views with Lakebase (managed PostgreSQL). Adds a Lakebase tab for monitoring instance health, storage, compute hours, and migration progress.
-                </p>
-              </div>
-              <div className="relative inline-flex h-5 w-9 shrink-0 rounded-full bg-gray-200 cursor-not-allowed">
-                <span className="pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform translate-x-0" />
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

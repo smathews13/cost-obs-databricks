@@ -12,7 +12,6 @@ const TAB_LABELS: Record<keyof TabVisibility, { label: string; color: string }> 
   alerts: { label: "Alerts", color: "#FF3621" },
   "users-groups": { label: "Users", color: "#FF3621" },
   forecasting: { label: "Forecasting", color: "#FF3621" },
-  lakebase: { label: "Lakebase", color: "#FF3621" },
 };
 
 interface SettingsTabsProps {
@@ -22,10 +21,9 @@ interface SettingsTabsProps {
   enableUseCaseTracking?: boolean;
   enableAlerts?: boolean;
   enableForecasting?: boolean;
-  enableLakebase?: boolean;
 }
 
-export function SettingsTabs({ localVisibility, toggleTab, visibleCount, enableUseCaseTracking, enableAlerts, enableForecasting, enableLakebase }: SettingsTabsProps) {
+export function SettingsTabs({ localVisibility, toggleTab, visibleCount, enableUseCaseTracking, enableAlerts, enableForecasting }: SettingsTabsProps) {
   return (
     <div>
       <p className="mb-4 text-sm text-gray-500">
@@ -36,7 +34,6 @@ export function SettingsTabs({ localVisibility, toggleTab, visibleCount, enableU
           if (key === "use-cases" && !enableUseCaseTracking) return false;
           if (key === "alerts" && !enableAlerts) return false;
           if (key === "forecasting" && !enableForecasting) return false;
-          if (key === "lakebase" && !enableLakebase) return false;
           return true;
         }).map((key) => {
           const { label, color } = TAB_LABELS[key];

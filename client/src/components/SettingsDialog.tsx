@@ -15,7 +15,6 @@ export interface TabVisibility {
   alerts: boolean;
   "users-groups": boolean;
   forecasting: boolean;
-  lakebase: boolean;
 }
 
 const DEFAULT_VISIBILITY: TabVisibility = {
@@ -30,7 +29,6 @@ const DEFAULT_VISIBILITY: TabVisibility = {
   alerts: false,
   "users-groups": true,
   forecasting: false,
-  lakebase: false,
 };
 
 const STORAGE_KEY = "coc-tab-visibility";
@@ -72,7 +70,6 @@ export interface AppSettings {
   genieSpaceId: string;
   enableAlerts: boolean;
   enableForecasting: boolean;
-  enableLakebase: boolean;
   enableContractTracking: boolean;
   darkMode: boolean;
   anonymizeUsers: boolean;
@@ -98,7 +95,6 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   genieSpaceId: "",
   enableAlerts: false,
   enableForecasting: false,
-  enableLakebase: false,
   enableContractTracking: false,
   darkMode: false,
   anonymizeUsers: false,
@@ -373,7 +369,6 @@ export function SettingsDialog({ isOpen, onClose, onTabVisibilityChange, onSetti
                 enableUseCaseTracking={localSettings.enableUseCaseTracking}
                 enableAlerts={localSettings.enableAlerts}
                 enableForecasting={localSettings.enableForecasting}
-                enableLakebase={localSettings.enableLakebase}
               />
             )}
             {activeSection === "experimental" && (

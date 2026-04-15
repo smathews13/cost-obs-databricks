@@ -27,7 +27,10 @@ SETTINGS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", ".settings")
 GENIE_SETTINGS_FILE = os.path.join(SETTINGS_DIR, "genie_settings.json")
 
 # Simple in-process state for the background create-tables task
-_create_task_state: dict = {"status": "idle", "error": None}  # idle | running | done | error
+_create_task_state: dict = {"status": "idle", "error": None, "started_at": None, "elapsed_seconds": None}  # idle | running | done | error
+
+# Auto-fail bootstrap after this many seconds to prevent infinite spinner
+_BOOTSTRAP_TIMEOUT_SECONDS = 25 * 60  # 25 minutes
 
 
 SYSTEM_TABLE_GRANTS = [
@@ -164,15 +167,29 @@ async def get_setup_status() -> dict[str, Any]:
         # If bootstrap is already running (started by a prior request), keep returning
         # "initializing" so the frontend continues polling instead of showing the wizard.
         if _create_task_state["status"] == "running":
-            return {
-                "catalog": catalog,
-                "schema": schema,
-                "tables": tables,
-                "all_tables_exist": False,
-                "missing_tables": missing,
-                "status": "initializing",
-                "task": _create_task_state.copy(),
-            }
+            import time as _time
+            started = _create_task_state.get("started_at") or _time.monotonic()
+            elapsed = int(_time.monotonic() - started)
+            _create_task_state["elapsed_seconds"] = elapsed
+            # Auto-fail after timeout so the wizard shows instead of spinning forever
+            if elapsed > _BOOTSTRAP_TIMEOUT_SECONDS:
+                _create_task_state["status"] = "error"
+                _create_task_state["error"] = (
+                    f"Table creation timed out after {elapsed // 60} minutes. "
+                    "The warehouse may be cold or the billing dataset is very large. "
+                    "Use the Setup wizard to retry, or check app logs for details."
+                )
+                logger.error(f"Bootstrap timed out after {elapsed}s — marking as error")
+            else:
+                return {
+                    "catalog": catalog,
+                    "schema": schema,
+                    "tables": tables,
+                    "all_tables_exist": False,
+                    "missing_tables": missing,
+                    "status": "initializing",
+                    "task": _create_task_state.copy(),
+                }
 
         # If bootstrap previously errored or "done" but tables still missing,
         # fall through to setup_required so the wizard shows instead of looping forever.
@@ -190,9 +207,11 @@ async def get_setup_status() -> dict[str, Any]:
         # Auto-bootstrap: tables missing + user OAuth active + not already creating
         user_token = _db_user_token.get()
         if user_token:
-            import threading
+            import threading, time as _time
             _create_task_state["status"] = "running"
             _create_task_state["error"] = None
+            _create_task_state["started_at"] = _time.monotonic()
+            _create_task_state["elapsed_seconds"] = 0
             _token_snap = user_token
             _catalog_snap = catalog
             _schema_snap = schema
