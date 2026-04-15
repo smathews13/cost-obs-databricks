@@ -325,6 +325,7 @@ async def grant_sp_system_access() -> dict[str, Any]:
 
 @router.post("/create-tables")
 async def create_tables(
+    request: Request,
     background_tasks: BackgroundTasks,
     catalog: str = Query(default=None, description="Target catalog"),
     schema: str = Query(default=None, description="Target schema"),
@@ -348,10 +349,14 @@ async def create_tables(
         _create_task_state["error"] = None
         _create_task_state["started_at"] = _time.monotonic()
         _create_task_state["elapsed_seconds"] = 0
-        # Capture user token now — FastAPI BackgroundTasks don't reliably propagate
-        # ContextVar values, so we pass it explicitly so the queries run as the user
-        # (not the SP, which lacks CREATE SCHEMA on fresh deployments).
-        _token_snap = _db_user_token.get()
+        # Read the raw header token directly — _auth_mode may have been locked to "sp"
+        # (e.g. after a scope error on a previous request), which forces _db_user_token
+        # to "" even when x-forwarded-access-token IS present in the request.
+        # Setup operations must always run as the user, not the SP.
+        _token_snap = (
+            request.headers.get("x-forwarded-access-token", "")
+            or _db_user_token.get()
+        )
         background_tasks.add_task(
             _create_tables_task, target_catalog, target_schema, _token_snap
         )
