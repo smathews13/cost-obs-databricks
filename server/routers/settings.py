@@ -175,7 +175,7 @@ async def get_tables_status():
     except Exception as e:
         return {"catalog": None, "schema": None, "tables": [], "error": str(e)}
 
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
     from datetime import date
 
     today = date.today().isoformat()
@@ -238,10 +238,24 @@ async def get_tables_status():
             no_date_tables.add(full_name)  # OTel tables don't have usage_date
 
     results = []
+    _TABLE_CHECK_TIMEOUT = 25  # seconds — keeps total request under proxy timeout limits
     with ThreadPoolExecutor(max_workers=6) as ex:
-        futures = {ex.submit(check_table, name, fqn, ttype): name for name, fqn, ttype in tasks}
-        for fut in as_completed(futures):
-            results.append(fut.result())
+        futures = {ex.submit(check_table, name, fqn, ttype): (name, fqn, ttype) for name, fqn, ttype in tasks}
+        try:
+            for fut in as_completed(futures, timeout=_TABLE_CHECK_TIMEOUT):
+                results.append(fut.result())
+        except FuturesTimeoutError:
+            # Some queries didn't finish (cold warehouse). Return partial results:
+            # completed futures + placeholder rows for anything still pending.
+            completed_names = {r["name"] for r in results}
+            for fut, (name, _fqn, ttype) in futures.items():
+                if name not in completed_names:
+                    results.append({
+                        "name": name, "table_type": ttype, "exists": None,
+                        "row_count": None, "max_date": None, "days_behind": None,
+                        "error": "timed out — warehouse may be starting up",
+                    })
+            logger.warning("Table status check timed out — warehouse likely cold")
 
     # Preserve original order
     order = {name: i for i, (name, _, _) in enumerate(tasks)}
@@ -419,11 +433,12 @@ async def list_warehouses():
     """List all SQL warehouses the user has access to."""
     from server.db import get_user_workspace_client
 
+    current_http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
+    current_id = current_http_path.split("/")[-1] if current_http_path else None
+
     try:
         w = get_user_workspace_client()
         warehouses = list(w.warehouses.list())
-        current_http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
-        current_id = current_http_path.split("/")[-1] if current_http_path else None
 
         result = []
         for wh in warehouses:
@@ -436,11 +451,32 @@ async def list_warehouses():
                 "is_current": wh.id == current_id,
             })
 
+        # If the currently configured warehouse isn't in the list (SP visibility gap),
+        # fetch it directly and prepend so it's always selectable.
+        if current_id and not any(r["id"] == current_id for r in result):
+            try:
+                wh = w.warehouses.get(current_id)
+                state = str(wh.state.value) if wh.state else "UNKNOWN"
+                result.insert(0, {
+                    "id": wh.id,
+                    "name": wh.name,
+                    "size": wh.cluster_size,
+                    "state": state,
+                    "is_current": True,
+                })
+            except Exception as e2:
+                logger.warning(f"Could not fetch current warehouse {current_id}: {e2}")
+                # Still surface it with minimal info so the UI doesn't show "No warehouses found"
+                result.insert(0, {"id": current_id, "name": None, "size": None, "state": "UNKNOWN", "is_current": True})
+
         # Sort: current first, then running, then by name
         result.sort(key=lambda x: (not x["is_current"], x["state"] != "RUNNING", x["name"] or ""))
         return result
     except Exception as e:
         logger.error(f"Failed to list warehouses: {e}")
+        # Last resort: return just the configured warehouse so UI isn't empty
+        if current_id:
+            return [{"id": current_id, "name": None, "size": None, "state": "UNKNOWN", "is_current": True}]
         raise HTTPException(status_code=500, detail=str(e))
 
 
