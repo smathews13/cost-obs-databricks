@@ -152,7 +152,11 @@ async def get_app_config():
 @router.get("/tables")
 async def get_tables_status():
     """Return status of each MV table: exists, row count, max date, days behind."""
-    from server.db import get_catalog_schema, execute_query
+    from server.db import get_catalog_schema, execute_query, _user_token
+
+    # Capture user token now — ContextVar values don't reliably propagate into
+    # ThreadPoolExecutor worker threads, so we pass it in explicitly.
+    _captured_token = _user_token.get()
 
     MV_TABLES = [
         "daily_usage_summary",
@@ -189,6 +193,16 @@ async def get_tables_status():
     }
 
     def check_table(table_name: str, fqn: str, table_type: str) -> dict:
+        # Pin the user token in this thread so execute_query uses user auth,
+        # not the SP fallback (which may lack SELECT on freshly-created tables).
+        tok = _user_token.set(_captured_token) if _captured_token else None
+        try:
+            return _check_table_inner(table_name, fqn, table_type)
+        finally:
+            if tok is not None:
+                _user_token.reset(tok)
+
+    def _check_table_inner(table_name: str, fqn: str, table_type: str) -> dict:
         skip_date = table_name in no_date_tables
         try:
             if skip_date:
