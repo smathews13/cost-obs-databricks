@@ -824,11 +824,28 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
 
     results = {}
 
-    # Create schema first
+    # Create schema if it doesn't already exist.
+    # Check via UC API first (no warehouse, no CREATE SCHEMA privilege needed just to
+    # verify existence). Only run the SQL if the schema is genuinely absent — some
+    # Databricks versions require CREATE SCHEMA even for IF NOT EXISTS when the caller
+    # lacks the privilege, causing a spurious error when the schema already exists.
     try:
-        logger.info(f"Creating schema {catalog}.{schema}...")
-        execute_query(CREATE_SCHEMA_SQL.format(catalog=catalog, schema=schema))
-        results["schema"] = "created"
+        from server.db import get_user_workspace_client, get_workspace_client
+        _schema_exists = False
+        for _wc in [get_user_workspace_client(), get_workspace_client()]:
+            try:
+                _wc.schemas.get(f"{catalog}.{schema}")
+                _schema_exists = True
+                break
+            except Exception:
+                pass
+        if _schema_exists:
+            logger.info(f"Schema {catalog}.{schema} already exists — skipping CREATE")
+            results["schema"] = "exists"
+        else:
+            logger.info(f"Creating schema {catalog}.{schema}...")
+            execute_query(CREATE_SCHEMA_SQL.format(catalog=catalog, schema=schema))
+            results["schema"] = "created"
     except Exception as e:
         err_str = str(e)
         err_lower = err_str.lower()
