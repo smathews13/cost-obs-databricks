@@ -258,10 +258,15 @@ def get_user_workspace_client() -> WorkspaceClient:
     if user_token and _auth_mode != "sp":
         host = os.getenv("DATABRICKS_HOST", "")
         if host:
-            # Explicitly suppress client_id/client_secret so the SDK doesn't
-            # pick them up from DATABRICKS_CLIENT_ID/SECRET env vars and raise
-            # "more than one authorization method configured" (token vs oauth).
-            return WorkspaceClient(host=host, token=user_token, client_id="", client_secret="")
+            # Databricks Apps injects DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET for
+            # the SP, so any WorkspaceClient() call also picks them up from env.  When we
+            # ALSO pass token=user_token the SDK sees two auth methods ("pat" + "oauth") and
+            # raises "more than one authorization method configured".
+            #
+            # Setting auth_type="pat" is the SDK-supported escape hatch: _validate() returns
+            # early when auth_type is set (line 668 of config.py), and init_auth() then uses
+            # the PAT credential provider, ignoring the M2M OAuth env vars.
+            return WorkspaceClient(host=host, token=user_token, auth_type="pat")
     return get_workspace_client()
 
 
