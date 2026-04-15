@@ -188,6 +188,67 @@ async def trigger_cache_prewarm(background_tasks: BackgroundTasks) -> dict[str, 
     }
 
 
+@router.get("/query-diag")
+async def query_diagnostics() -> dict[str, Any]:
+    """Diagnose why data tabs might show zeros.
+
+    Tests SQL connectivity, system table access, and MV table access
+    under the current auth identity (OAuth user or SP). Returns exact
+    errors so the root cause can be pinpointed without reading server logs.
+    """
+    from server.db import execute_query, get_auth_status, _user_token, _auth_mode, get_catalog_schema
+
+    diag: dict[str, Any] = {
+        "auth": get_auth_status(),
+        "user_token_present": bool(_user_token.get()),
+        "auth_mode_global": _auth_mode,
+        "tests": {},
+    }
+
+    catalog, schema = get_catalog_schema()
+    diag["catalog"] = catalog
+    diag["schema"] = schema
+
+    # Test 1: basic connectivity
+    try:
+        execute_query("SELECT 1 AS ping", no_cache=True)
+        diag["tests"]["connectivity"] = "ok"
+    except Exception as e:
+        diag["tests"]["connectivity"] = f"ERROR: {e}"
+
+    # Test 2: system.billing.usage (most commonly failing)
+    try:
+        rows = execute_query(
+            "SELECT COUNT(*) AS cnt FROM system.billing.usage WHERE usage_date >= CURRENT_DATE - 7",
+            no_cache=True,
+        )
+        diag["tests"]["system_billing_usage"] = f"ok — {rows[0]['cnt'] if rows else 0} rows"
+    except Exception as e:
+        diag["tests"]["system_billing_usage"] = f"ERROR: {e}"
+
+    # Test 3: MV table (app catalog)
+    try:
+        rows = execute_query(
+            f"SELECT COUNT(*) AS cnt FROM `{catalog}`.`{schema}`.`daily_usage_summary`",
+            no_cache=True,
+        )
+        diag["tests"]["mv_daily_usage_summary"] = f"ok — {rows[0]['cnt'] if rows else 0} rows"
+    except Exception as e:
+        diag["tests"]["mv_daily_usage_summary"] = f"ERROR: {e}"
+
+    # Test 4: system.query.history
+    try:
+        rows = execute_query(
+            "SELECT COUNT(*) AS cnt FROM system.query.history WHERE start_time >= CURRENT_TIMESTAMP - INTERVAL 7 DAYS",
+            no_cache=True,
+        )
+        diag["tests"]["system_query_history"] = f"ok — {rows[0]['cnt'] if rows else 0} rows"
+    except Exception as e:
+        diag["tests"]["system_query_history"] = f"ERROR: {e}"
+
+    return diag
+
+
 @router.get("/debug-env")
 async def debug_env():
     """Debug: show detected environment (temporary)."""
