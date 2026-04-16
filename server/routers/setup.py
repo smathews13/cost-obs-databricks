@@ -1,4 +1,4 @@
-"""Setup API endpoints for initializing materialized views and jobs."""
+"""Setup API endpoints for initializing materialized views."""
 
 import json
 import logging
@@ -12,11 +12,6 @@ from server.materialized_views import (
     create_materialized_views,
     get_catalog_schema,
     refresh_materialized_views,
-)
-from server.jobs import (
-    create_or_update_refresh_job,
-    run_refresh_job_now,
-    get_job_status,
 )
 from server.db import get_workspace_client, _user_token as _db_user_token
 
@@ -451,40 +446,6 @@ def _refresh_tables_task(catalog: str, schema: str):
         logger.info(f"Table refresh completed: {results}")
     except Exception as e:
         logger.error(f"Table refresh failed: {e}")
-
-
-# ============================================================================
-# Job Management Endpoints
-# ============================================================================
-
-
-@router.get("/job/status")
-async def get_refresh_job_status() -> dict[str, Any]:
-    """Get the status of the daily refresh job.
-
-    Returns job details and recent run history.
-    """
-    return get_job_status()
-
-
-@router.post("/job/create")
-async def create_refresh_job() -> dict[str, Any]:
-    """Create or update the daily refresh job.
-
-    This creates a Databricks job that runs daily at 6 AM UTC to refresh
-    all materialized view tables.
-    """
-    return create_or_update_refresh_job()
-
-
-@router.post("/job/run-now")
-async def trigger_refresh_job() -> dict[str, Any]:
-    """Trigger the refresh job to run immediately.
-
-    This is useful for manual refreshes or initial setup.
-    If the job doesn't exist, it will be created first.
-    """
-    return run_refresh_job_now()
 
 
 # ============================================================================

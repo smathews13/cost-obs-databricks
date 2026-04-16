@@ -331,7 +331,13 @@ The setup wizard creates **6 pre-aggregated Delta tables** in your Unity Catalog
 | `daily_query_stats` | Query count, rows read, compute time per day | ~365 |
 | `dbsql_cost_per_query` | Per-query cost attribution for the last 90 days | ~90k–900k |
 
-All tables are refreshed by clicking **Refresh** in the app settings, or by re-running the setup wizard. They can be dropped and recreated at any time with no data loss — all source data lives in `system.*` tables.
+### Keeping Tables Fresh
+
+**Tables must be refreshed manually** — there is no automated nightly job. Refresh whenever you want to pull in the latest billing data (recommended: once a day or before sharing reports with stakeholders).
+
+To refresh: go to **Settings → Tables & Storage → Refresh**. This rebuilds all 6 tables from the latest `system.*` data. The refresh runs in the background and typically takes 2–5 minutes depending on data volume and warehouse warmup. Progress is shown in real time.
+
+Tables can be dropped and recreated at any time with no data loss — all source data lives in `system.*` tables managed by Databricks.
 
 ### Performance Optimizations
 
