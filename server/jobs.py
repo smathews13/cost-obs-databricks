@@ -141,7 +141,7 @@ def create_or_update_refresh_job() -> dict:
             schedule=CronSchedule(
                 quartz_cron_expression="0 0 6 * * ?",  # 6 AM UTC daily
                 timezone_id="UTC",
-                pause_status=PauseStatus.UNPAUSED,
+                pause_status=PauseStatus.PAUSED,  # Paused by default — trigger manually via Settings
             ),
             tasks=[
                 Task(

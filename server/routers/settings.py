@@ -150,13 +150,19 @@ async def get_app_config():
 
 
 @router.get("/tables")
-async def get_tables_status():
+async def get_tables_status(request: Request):
     """Return status of each MV table: exists, row count, max date, days behind."""
     from server.db import get_catalog_schema, execute_query, _user_token
 
-    # Capture user token now — ContextVar values don't reliably propagate into
-    # ThreadPoolExecutor worker threads, so we pass it in explicitly.
-    _captured_token = _user_token.get()
+    # Read the raw forwarded token directly — _auth_mode may be locked to "sp"
+    # (e.g. warehouse was cold on startup and the scope check failed), which forces
+    # _user_token to "" even when x-forwarded-access-token IS present.  Reading the
+    # header directly bypasses that lock and ensures table checks always run as the
+    # user when the SQL scope is configured.
+    _captured_token = (
+        request.headers.get("x-forwarded-access-token", "")
+        or _user_token.get()
+    )
 
     MV_TABLES = [
         "daily_usage_summary",
