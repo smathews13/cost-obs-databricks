@@ -27,14 +27,12 @@ JOB_NAME = "cost-obs-refresh-materialized-views"
 SQL_FILE_PATH = "/Workspace/Shared/cost-obs/refresh_materialized_views.sql"
 
 
-def get_refresh_sql() -> str:
+def get_refresh_sql(lookback_days: int = 730) -> str:
     """Get the SQL to refresh all materialized views."""
     from server.materialized_views import (
         CREATE_DAILY_USAGE_SUMMARY,
         CREATE_DAILY_PRODUCT_BREAKDOWN,
         CREATE_DAILY_WORKSPACE_BREAKDOWN,
-        CREATE_ETL_BREAKDOWN,
-        CREATE_SKU_BREAKDOWN,
         CREATE_SQL_TOOL_ATTRIBUTION,
         CREATE_QUERY_STATS,
         CREATE_DBSQL_COST_PER_QUERY,
@@ -44,32 +42,28 @@ def get_refresh_sql() -> str:
     )
 
     catalog, schema = get_catalog_schema()
+    fmt = dict(catalog=catalog, schema=schema, billing_lookback_days=lookback_days)
 
-    # Build the full refresh SQL
     sql_statements = [
         f"-- Cost Observability Materialized Views Refresh",
         f"-- Catalog: {catalog}, Schema: {schema}",
         f"-- This job runs daily to refresh pre-aggregated tables",
         "",
-        CREATE_SCHEMA_SQL.format(catalog=catalog, schema=schema),
+        CREATE_SCHEMA_SQL.format(**fmt),
         "",
-        CREATE_DAILY_USAGE_SUMMARY.format(catalog=catalog, schema=schema),
+        CREATE_DAILY_USAGE_SUMMARY.format(**fmt),
         "",
-        CREATE_DAILY_PRODUCT_BREAKDOWN.format(catalog=catalog, schema=schema),
+        CREATE_DAILY_PRODUCT_BREAKDOWN.format(**fmt),
         "",
-        CREATE_DAILY_WORKSPACE_BREAKDOWN.format(catalog=catalog, schema=schema),
+        CREATE_DAILY_WORKSPACE_BREAKDOWN.format(**fmt),
         "",
-        CREATE_ETL_BREAKDOWN.format(catalog=catalog, schema=schema),
+        CREATE_SQL_TOOL_ATTRIBUTION.format(**fmt),
         "",
-        CREATE_SKU_BREAKDOWN.format(catalog=catalog, schema=schema),
+        CREATE_QUERY_STATS.format(**fmt),
         "",
-        CREATE_SQL_TOOL_ATTRIBUTION.format(catalog=catalog, schema=schema),
+        CREATE_DBSQL_COST_PER_QUERY.format(**fmt),
         "",
-        CREATE_QUERY_STATS.format(catalog=catalog, schema=schema),
-        "",
-        CREATE_DBSQL_COST_PER_QUERY.format(catalog=catalog, schema=schema),
-        "",
-        CREATE_DBSQL_COST_PER_QUERY_PRPR.format(catalog=catalog, schema=schema),
+        CREATE_DBSQL_COST_PER_QUERY_PRPR.format(**fmt),
     ]
 
     return ";\n".join(sql_statements)
