@@ -2891,11 +2891,14 @@ async def get_contract_burndown() -> dict[str, Any]:
     query_end = min(today, end_date)
 
     catalog, schema = get_catalog_schema()
-    rows = execute_query(
+    import asyncio as _asyncio
+    _sql = (
         f"SELECT usage_date, total_spend FROM `{catalog}`.`{schema}`.`daily_usage_summary`"
         f" WHERE usage_date >= '{start_str}' AND usage_date <= '{query_end.isoformat()}'"
         f" ORDER BY usage_date"
     )
+    loop = _asyncio.get_running_loop()
+    rows = await loop.run_in_executor(None, execute_query, _sql)
 
     # Build daily spend lookup
     spend_by_date: dict[str, float] = {}
