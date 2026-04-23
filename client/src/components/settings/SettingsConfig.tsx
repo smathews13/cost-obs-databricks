@@ -104,6 +104,7 @@ export function SettingsConfig({
       name: string;
       table_type: string | null;
       exists: boolean | null;
+      optional?: boolean;
       row_count: number | null;
       min_date: string | null;
       max_date: string | null;
@@ -620,13 +621,16 @@ export function SettingsConfig({
                   <tbody className="divide-y divide-gray-100 bg-white">
                     {tablesStatus.tables.map((t) => {
                       const stale = t.days_behind != null && t.days_behind > 1;
-                      const missing = t.exists === false;
+                      const missing = t.exists === false && !t.optional;
+                      const notConfigured = t.exists === false && t.optional;
                       const unknown = t.exists === null;
                       return (
                         <tr key={t.name} className={missing ? "bg-red-50" : stale ? "bg-amber-50" : ""}>
                           <td className="px-3 py-2 font-mono text-gray-700 flex items-center gap-1.5">
                             {missing ? (
                               <span className="text-red-400">✗</span>
+                            ) : notConfigured ? (
+                              <span className="text-gray-300">–</span>
                             ) : unknown ? (
                               <span className="text-gray-300">?</span>
                             ) : (

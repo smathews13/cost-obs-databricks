@@ -398,6 +398,12 @@ async def get_tables_status(request: Request):
                 return {"name": table_name, "table_type": table_type, "exists": False, "row_count": None, "min_date": None, "max_date": None, "days_behind": None}
             return {"name": table_name, "table_type": table_type, "exists": None, "row_count": None, "min_date": None, "max_date": None, "days_behind": None, "error": err[:200]}
 
+    # Config tables are created lazily on first save — not existing yet is expected
+    CONFIG_TABLES = {
+        "app_contract_settings", "app_cloud_connections",
+        "app_webhook_settings", "app_warehouse_settings", "app_telemetry_settings",
+    }
+
     # Build task list: (table_name, fqn, table_type)
     tasks = [
         (t, f"`{catalog}`.`{schema}`.`{t}`", "Materialized View" if t in MV_SET else "Table")
@@ -437,9 +443,12 @@ async def get_tables_status(request: Request):
                     })
             logger.warning("Table status check timed out — warehouse likely cold")
 
-    # Preserve original order
+    # Preserve original order and tag optional config tables
     order = {name: i for i, (name, _, _) in enumerate(tasks)}
     results.sort(key=lambda r: order.get(r["name"], 99))
+    for r in results:
+        if r["name"] in CONFIG_TABLES:
+            r["optional"] = True
 
     # Detect auth/permission failures — surface a top-level auth_error so the UI
     # can show an actionable message instead of per-row ⚠ icons.
