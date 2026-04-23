@@ -216,7 +216,7 @@ export function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
                 ) : i + 1}
               </div>
-              <span className={`ml-2 text-xs font-medium ${i === currentIdx ? "text-gray-900" : "text-gray-400"}`}>
+              <span className={`ml-2 text-xs font-medium ${i === currentIdx ? "text-gray-900" : "text-gray-500"}`}>
                 {STEP_LABELS[s]}
               </span>
               {i < STEPS.length - 1 && <div className="mx-3 h-px flex-1 bg-gray-200" />}
@@ -541,7 +541,7 @@ function WelcomeStep({ config, cloud, loading, onWarehouseSelected }: { config: 
           className="flex w-full items-center justify-between px-4 py-3 text-left"
         >
           <span className="text-sm font-medium text-gray-700">Local development setup</span>
-          <svg className={`h-4 w-4 text-gray-400 transition-transform ${devOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className={`h-4 w-4 text-gray-500 transition-transform ${devOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </button>
@@ -571,12 +571,12 @@ function WelcomeStep({ config, cloud, loading, onWarehouseSelected }: { config: 
                   <pre className="text-xs text-green-400 overflow-x-auto whitespace-pre">{envFileContent}</pre>
                   <button
                     onClick={() => handleCopy(envFileContent, "env")}
-                    className="absolute right-2 top-2 rounded px-2 py-1 text-xs text-gray-400 hover:bg-white/10 hover:text-white transition-colors"
+                    className="absolute right-2 top-2 rounded px-2 py-1 text-xs text-gray-500 hover:bg-white/10 hover:text-white transition-colors"
                   >
                     {copied === "env" ? "Copied!" : "Copy"}
                   </button>
                 </div>
-                <p className="text-xs text-gray-400">Keep this token secure — treat it like a password.</p>
+                <p className="text-xs text-gray-500">Keep this token secure — treat it like a password.</p>
               </div>
             )}
             {tokenError && (

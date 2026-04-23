@@ -26,6 +26,10 @@ import { formatCurrency, formatNumber } from "./formatters";
 
 // Databricks navy — unified header color for all PDF tables
 const DB_HEADER: [number, number, number] = [27, 49, 57];
+// Databricks brand orange — section titles and accent elements
+const DB_ORANGE: [number, number, number] = [255, 54, 33];
+// Subtle warm alternating row tint for striped tables
+const DB_ALT_ROW: [number, number, number] = [248, 249, 250];
 
 // jspdf-autotable extends jsPDF with lastAutoTable. This helper avoids
 // scattering `(doc as any)` casts throughout the file.
@@ -122,12 +126,18 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     // ignore
   }
 
-  // Title
-  doc.setFontSize(20);
+  // Brand header bar — Databricks orange across top of page 1
+  doc.setFillColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
+  doc.rect(0, 0, pageWidth, 18, "F");
+
+  // Title in white on the orange bar
+  doc.setFontSize(18);
   doc.setFont("helvetica", "bold");
+  doc.setTextColor(255, 255, 255);
   const title = companyName ? `${companyName} — COST-OBS Report` : "COST-OBS Report";
-  doc.text(title, pageWidth / 2, yPos, { align: "center" });
-  yPos += 10;
+  doc.text(title, pageWidth / 2, 12, { align: "center" });
+  doc.setTextColor(0, 0, 0);
+  yPos = 28;
 
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
@@ -150,7 +160,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
   if (includeSections.summary && data.summary) {
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Executive Summary", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     doc.setFontSize(10);
@@ -186,7 +198,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
   if (includeSections.products && data.products && data.products.products.length > 0) {
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Top 10 Products by Spend", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     const productData = data.products.products
@@ -204,6 +218,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       body: productData,
       theme: "striped",
       headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+      alternateRowStyles: { fillColor: DB_ALT_ROW },
       bodyStyles: { fontSize: 9 },
       margin: { left: 14, right: 14 },
     });
@@ -221,7 +236,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
   if (includeSections.workspaces && data.workspaces && data.workspaces.workspaces.length > 0) {
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Top 10 Workspaces by Spend", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     const workspaceData = data.workspaces.workspaces
@@ -239,6 +256,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       body: workspaceData,
       theme: "striped",
       headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+      alternateRowStyles: { fillColor: DB_ALT_ROW },
       bodyStyles: { fontSize: 9 },
       margin: { left: 14, right: 14 },
     });
@@ -256,7 +274,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
   if (includeSections.skus && data.skus && data.skus.skus.length > 0) {
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Top 10 SKUs by Spend", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     const skuData = data.skus.skus.slice(0, 10).map((s) => [
@@ -272,6 +292,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       body: skuData,
       theme: "striped",
       headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+      alternateRowStyles: { fillColor: DB_ALT_ROW },
       bodyStyles: { fontSize: 8 },
       margin: { left: 14, right: 14 },
       columnStyles: {
@@ -291,7 +312,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Top 10 Spend Changes (Day-over-Day)", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     const anomalyData = data.anomalies.anomalies.slice(0, 10).map((a) => [
@@ -308,6 +331,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       body: anomalyData,
       theme: "striped",
       headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+      alternateRowStyles: { fillColor: DB_ALT_ROW },
       bodyStyles: { fontSize: 9 },
       margin: { left: 14, right: 14 },
     });
@@ -324,7 +348,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Top 10 Jobs & Pipelines by Spend", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     const pipelineData = data.pipelineObjects.objects.slice(0, 10).map((p) => [
@@ -340,6 +366,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       body: pipelineData,
       theme: "striped",
       headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+      alternateRowStyles: { fillColor: DB_ALT_ROW },
       bodyStyles: { fontSize: 8 },
       margin: { left: 14, right: 14 },
       columnStyles: {
@@ -359,7 +386,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Top 10 Interactive Compute by Spend", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     const interactiveData = data.interactiveBreakdown.items.slice(0, 10).map((i) => [
@@ -375,6 +404,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       body: interactiveData,
       theme: "striped",
       headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+      alternateRowStyles: { fillColor: DB_ALT_ROW },
       bodyStyles: { fontSize: 8 },
       margin: { left: 14, right: 14 },
     });
@@ -389,7 +419,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Cloud Costs", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     doc.setFontSize(10);
@@ -419,7 +451,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     if (data.awsCosts.clusters.length > 0) {
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("Top 10 Clusters by AWS Cost", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const clusterData = data.awsCosts.clusters.slice(0, 10).map((c) => [
@@ -438,6 +472,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: clusterData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 8 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 7 },
         margin: { left: 14, right: 14 },
         columnStyles: {
@@ -458,7 +493,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("Top 5 Instance Families by Usage", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const familyData = data.awsCosts.instance_families.slice(0, 5).map((f) => {
@@ -476,6 +513,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: familyData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 9 },
         margin: { left: 14, right: 14 },
       });
@@ -491,7 +529,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("AI/ML", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     // Summary
@@ -511,7 +551,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     if (data.aiml.categories?.categories?.length > 0) {
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("AI/ML Costs by Category", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const categoryData = data.aiml.categories.categories.map((c) => [
@@ -527,6 +569,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: categoryData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 9 },
         margin: { left: 14, right: 14 },
       });
@@ -543,7 +586,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("FMAPI Provider Costs", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const providerData = data.aiml.providers.providers.map((p) => [
@@ -559,6 +604,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: providerData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 8 },
         margin: { left: 14, right: 14 },
         columnStyles: {
@@ -578,7 +624,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("Top 10 Serverless Inference Endpoints", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const endpointData = data.aiml.endpoints.endpoints.slice(0, 10).map((e) => [
@@ -596,6 +644,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: endpointData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 8 },
         margin: { left: 14, right: 14 },
         columnStyles: {
@@ -614,7 +663,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Apps", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     // Summary
@@ -634,7 +685,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     if (data.apps.apps?.apps?.length > 0) {
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("Top Apps by Spend", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const appsRows = data.apps.apps.apps.slice(0, 15).map((a) => [
@@ -653,6 +706,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: appsRows,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 8 },
         margin: { left: 14, right: 14 },
         columnStyles: {
@@ -671,7 +725,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Tagging", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     // Summary
@@ -691,7 +747,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     // Tag Coverage Summary
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
     doc.text("Tag Coverage Summary", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 6;
 
     const coverageData = [
@@ -720,7 +778,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("Top 15 Tags by Spend", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const tagData = data.tagging.cost_by_tag.tags.slice(0, 15).map((t) => [
@@ -736,6 +796,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: tagData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 8 },
         margin: { left: 14, right: 14 },
         columnStyles: {
@@ -764,7 +825,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
     doc.text("Untagged Resources Summary", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 6;
 
     autoTable(doc, {
@@ -773,6 +836,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       body: untaggedSummary,
       theme: "striped",
       headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+      alternateRowStyles: { fillColor: DB_ALT_ROW },
       bodyStyles: { fontSize: 9 },
       margin: { left: 14, right: 14 },
     });
@@ -787,7 +851,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Platform KPIs & Trends", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     const kpi = data.platformKPIs;
@@ -795,7 +861,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     // Query metrics
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
     doc.text("Query Metrics", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 6;
 
     const queryMetrics = [
@@ -821,7 +889,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     // Job metrics
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
     doc.text("Job Metrics", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 6;
 
     const jobSuccessRate = kpi.total_job_runs > 0 ? ((kpi.successful_runs / kpi.total_job_runs) * 100).toFixed(1) : "N/A";
@@ -848,7 +918,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     // Platform overview
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
     doc.text("Platform Overview", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 6;
 
     const platformMetrics = [
@@ -878,7 +950,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Query", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     // Summary metrics table
@@ -886,7 +960,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       const s = data.query360.summary;
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("SQL Warehouse Summary", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const summaryMetrics = [
@@ -921,7 +997,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("Cost by Query Source", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const sourceData = data.query360.by_source.sources.map((s: QueryCostBySource) => [
@@ -938,6 +1016,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: sourceData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 8 },
         margin: { left: 14, right: 14 },
       });
@@ -954,7 +1033,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("Top 10 SQL Warehouses by Spend", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const warehouseData = data.query360.by_warehouse.warehouses.slice(0, 10).map((w: QueryCostByWarehouse) => [
@@ -973,6 +1054,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: warehouseData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 8 },
         margin: { left: 14, right: 14 },
         columnStyles: {
@@ -992,7 +1074,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("Top 10 Users by Query Spend", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const userData = data.query360.by_user.users.slice(0, 10).map((u: QueryCostByUser) => [
@@ -1010,6 +1094,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: userData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 8 },
         margin: { left: 14, right: 14 },
         columnStyles: {
@@ -1029,7 +1114,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("Top 10 Most Expensive Queries", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const queryData = data.query360.top_queries.queries.slice(0, 10).map((q: ExpensiveQuery) => {
@@ -1052,6 +1139,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: queryData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 7 },
         margin: { left: 14, right: 14 },
         columnStyles: {
@@ -1070,7 +1158,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Users", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     const usersSummary = data.users.summary;
@@ -1088,7 +1178,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     if (data.users.top_users && data.users.top_users.length > 0) {
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
+      doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
       doc.text("Top 20 Users by Spend", 14, yPos);
+      doc.setTextColor(0, 0, 0);
       yPos += 6;
 
       const usersRows = data.users.top_users.slice(0, 20).map((u) => [
@@ -1108,6 +1200,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
         body: usersRows,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+        alternateRowStyles: { fillColor: DB_ALT_ROW },
         bodyStyles: { fontSize: 7 },
         margin: { left: 14, right: 14 },
         columnStyles: {
@@ -1127,7 +1220,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Use Cases", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     doc.setFontSize(10);
@@ -1140,7 +1235,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     // Use Cases table
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
     doc.text("Use Cases by Spend", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 6;
 
     const useCaseData = data.useCases.use_cases.map((uc) => [
@@ -1158,6 +1255,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       body: useCaseData,
       theme: "striped",
       headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+      alternateRowStyles: { fillColor: DB_ALT_ROW },
       bodyStyles: { fontSize: 8 },
       margin: { left: 14, right: 14 },
       columnStyles: {
@@ -1177,7 +1275,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
     doc.text("Alerts", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 8;
 
     doc.setFontSize(10);
@@ -1189,7 +1289,9 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
     doc.text("Recent Cost Alerts", 14, yPos);
+    doc.setTextColor(0, 0, 0);
     yPos += 6;
 
     const alertData = data.alerts.spikes.slice(0, 15).map((a) => [
@@ -1207,6 +1309,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       body: alertData,
       theme: "striped",
       headStyles: { fillColor: DB_HEADER, fontSize: 9 },
+      alternateRowStyles: { fillColor: DB_ALT_ROW },
       bodyStyles: { fontSize: 8 },
       margin: { left: 14, right: 14 },
     });
@@ -1218,6 +1321,12 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
+    // Thin brand-orange rule above the footer
+    doc.setDrawColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
+    doc.setLineWidth(0.3);
+    doc.line(14, doc.internal.pageSize.height - 14, pageWidth - 14, doc.internal.pageSize.height - 14);
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.2);
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
     doc.text(

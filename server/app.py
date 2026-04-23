@@ -497,13 +497,18 @@ def _run_mv_refresh(user_token: str | None = None, lookback_days: int = 730) -> 
         results = refresh_materialized_views(catalog, schema, lookback_days=lookback_days)
         mv_timings = results.pop("__mv_timings__", {})
         duration = round(time.monotonic() - refresh_start, 1)
+        failed = {k: v for k, v in results.items() if isinstance(v, str) and v.startswith("error:")}
         log_data = {
             "last_refresh_utc": start_utc,
             "duration_seconds": duration,
             "mv_timings": mv_timings,
-            "status": "success",
+            "status": "partial_error" if failed else "success",
         }
-        logger.info(f"MV refresh complete in {duration}s")
+        if failed:
+            log_data["error"] = "; ".join(f"{k}: {v}" for k, v in failed.items())
+            logger.error(f"MV refresh: {len(failed)} table(s) failed — {log_data['error']}")
+        else:
+            logger.info(f"MV refresh complete in {duration}s")
     except Exception as exc:
         duration = round(time.monotonic() - refresh_start, 1)
         log_data = {

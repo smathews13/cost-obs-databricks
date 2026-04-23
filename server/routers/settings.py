@@ -19,11 +19,14 @@ def _require_admin(request: Request) -> str:
     """Raise 403 if the requesting user is not an admin. Returns email on success."""
     email = request.headers.get("X-Forwarded-Email", os.getenv("USER", "dev@local"))
     perms = _load_user_permissions()
-    if email not in perms.get("admins", []):
+    admins = perms.get("admins", [])
+    # Mirror user.py::_get_user_role: if no admins configured yet, everyone is
+    # admin (fresh deploy). Only enforce the list once admins have been set.
+    if admins and email not in admins:
         raise HTTPException(status_code=403, detail="Admin role required")
     return email
 
-# File-based storage for cloud connections (simple, no DB needed)
+# File-based storage (fallback / dev only — production uses Delta tables)
 SETTINGS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", ".settings")
 CLOUD_CONNECTIONS_FILE = os.path.join(SETTINGS_DIR, "cloud_connections.json")
 WEBHOOK_SETTINGS_FILE = os.path.join(SETTINGS_DIR, "webhook_settings.json")
@@ -33,6 +36,58 @@ PRICING_SETTINGS_FILE = os.path.join(SETTINGS_DIR, "pricing_settings.json")
 USER_PERMISSIONS_FILE = os.path.join(SETTINGS_DIR, "user_permissions.json")
 # Legacy file path for backward compatibility
 AZURE_CONNECTIONS_FILE = os.path.join(SETTINGS_DIR, "azure_connections.json")
+
+
+# ── Delta table helpers (config tables that survive deploys) ──────────────────
+
+def _config_table(name: str) -> str:
+    from server.db import get_catalog_schema
+    catalog, schema = get_catalog_schema()
+    return f"`{catalog}`.`{schema}`.`{name}`"
+
+
+def _ensure_config_table(ddl: str) -> None:
+    from server.db import execute_write
+    execute_write(ddl, None)
+
+
+def _ensure_contract_table() -> None:
+    _ensure_config_table(
+        f"CREATE TABLE IF NOT EXISTS {_config_table('app_contract_settings')} "
+        f"(start_date STRING, end_date STRING, total_commit_usd DOUBLE, "
+        f"notes STRING, updated_at TIMESTAMP) USING DELTA"
+    )
+
+
+def _ensure_connections_table() -> None:
+    _ensure_config_table(
+        f"CREATE TABLE IF NOT EXISTS {_config_table('app_cloud_connections')} "
+        f"(id STRING NOT NULL, name STRING, provider STRING, created_at STRING, "
+        f"config_json STRING, updated_at TIMESTAMP) USING DELTA"
+    )
+
+
+def _ensure_webhook_table() -> None:
+    _ensure_config_table(
+        f"CREATE TABLE IF NOT EXISTS {_config_table('app_webhook_settings')} "
+        f"(slack_webhook_url STRING, updated_at TIMESTAMP) USING DELTA"
+    )
+
+
+def _ensure_warehouse_table() -> None:
+    _ensure_config_table(
+        f"CREATE TABLE IF NOT EXISTS {_config_table('app_warehouse_settings')} "
+        f"(warehouse_id STRING, http_path STRING, warehouse_name STRING, "
+        f"switched_at STRING, updated_at TIMESTAMP) USING DELTA"
+    )
+
+
+def _ensure_telemetry_table() -> None:
+    _ensure_config_table(
+        f"CREATE TABLE IF NOT EXISTS {_config_table('app_telemetry_settings')} "
+        f"(catalog STRING, schema_name STRING, table_prefix STRING, "
+        f"updated_at TIMESTAMP) USING DELTA"
+    )
 
 
 class CloudConnectionCreate(BaseModel):
@@ -53,39 +108,131 @@ class CloudConnectionCreate(BaseModel):
     service_account_key: Optional[str] = None
 
 
+def _load_connections_from_table() -> list[dict]:
+    from server.db import execute_query
+    table = _config_table("app_cloud_connections")
+    rows = execute_query(f"SELECT * FROM {table} ORDER BY created_at", None, no_cache=True)
+    result = []
+    for r in rows:
+        conn: dict = {
+            "id": r["id"],
+            "name": r["name"],
+            "provider": r["provider"],
+            "created_at": r["created_at"],
+        }
+        if r.get("config_json"):
+            try:
+                conn.update(json.loads(r["config_json"]))
+            except Exception:
+                pass
+        result.append(conn)
+    return result
+
+
+def _save_all_connections_to_table(connections: list[dict]) -> None:
+    from server.db import execute_write
+    _ensure_connections_table()
+    table = _config_table("app_cloud_connections")
+    execute_write(f"DELETE FROM {table}", None)
+    _top_level = {"id", "name", "provider", "created_at"}
+    for conn in connections:
+        config = {k: v for k, v in conn.items() if k not in _top_level}
+        execute_write(
+            f"INSERT INTO {table} (id, name, provider, created_at, config_json, updated_at) "
+            f"VALUES (:id, :name, :provider, :created_at, :config_json, current_timestamp())",
+            {
+                "id": conn.get("id", ""),
+                "name": conn.get("name", ""),
+                "provider": conn.get("provider", ""),
+                "created_at": conn.get("created_at", ""),
+                "config_json": json.dumps(config),
+            },
+        )
+
+
+def _upsert_connection_to_table(conn: dict) -> None:
+    from server.db import execute_write
+    _ensure_connections_table()
+    table = _config_table("app_cloud_connections")
+    _top_level = {"id", "name", "provider", "created_at"}
+    config = {k: v for k, v in conn.items() if k not in _top_level}
+    execute_write(f"DELETE FROM {table} WHERE id = :id", {"id": conn["id"]})
+    execute_write(
+        f"INSERT INTO {table} (id, name, provider, created_at, config_json, updated_at) "
+        f"VALUES (:id, :name, :provider, :created_at, :config_json, current_timestamp())",
+        {
+            "id": conn["id"],
+            "name": conn.get("name", ""),
+            "provider": conn.get("provider", ""),
+            "created_at": conn.get("created_at", ""),
+            "config_json": json.dumps(config),
+        },
+    )
+
+
+def _delete_connection_from_table(connection_id: str) -> None:
+    from server.db import execute_write
+    _ensure_connections_table()
+    table = _config_table("app_cloud_connections")
+    execute_write(f"DELETE FROM {table} WHERE id = :id", {"id": connection_id})
+
+
 def _load_connections() -> list[dict]:
-    """Load cloud connections from disk, migrating legacy Azure-only file if needed."""
-    # Try new file first
+    """Load cloud connections from Delta table, falling back to local file."""
+    try:
+        conns = _load_connections_from_table()
+        if conns:
+            return conns
+        # Table empty — check file for migration data
+    except Exception as e:
+        logger.warning(f"Could not load connections from Delta table: {e}")
+
+    # Fallback: local file
+    file_conns = _load_connections_from_file()
+    if file_conns:
+        try:
+            _save_all_connections_to_table(file_conns)
+            logger.info(f"Migrated {len(file_conns)} cloud connection(s) from file to Delta table")
+        except Exception as e:
+            logger.warning(f"Could not migrate connections to Delta: {e}")
+    return file_conns
+
+
+def _load_connections_from_file() -> list[dict]:
+    """Load cloud connections from local JSON files (legacy / dev fallback)."""
     if os.path.exists(CLOUD_CONNECTIONS_FILE):
         try:
             with open(CLOUD_CONNECTIONS_FILE) as f:
                 return json.load(f)
         except (json.JSONDecodeError, IOError):
             return []
-
-    # Fall back to legacy Azure file and migrate
     if os.path.exists(AZURE_CONNECTIONS_FILE):
         try:
             with open(AZURE_CONNECTIONS_FILE) as f:
                 connections = json.load(f)
-            # Add provider field to legacy connections
             for conn in connections:
                 if "provider" not in conn:
                     conn["provider"] = "azure"
-            # Save to new file
-            _save_connections(connections)
+            _save_connections_to_file(connections)
             return connections
         except (json.JSONDecodeError, IOError):
             return []
-
     return []
 
 
-def _save_connections(connections: list[dict]) -> None:
-    """Save cloud connections to disk."""
+def _save_connections_to_file(connections: list[dict]) -> None:
     os.makedirs(SETTINGS_DIR, exist_ok=True)
     with open(CLOUD_CONNECTIONS_FILE, "w") as f:
         json.dump(connections, f, indent=2)
+
+
+def _save_connections(connections: list[dict]) -> None:
+    """Save cloud connections to Delta table (primary) and file (dev fallback)."""
+    try:
+        _save_all_connections_to_table(connections)
+    except Exception as e:
+        logger.warning(f"Could not save connections to Delta table: {e}")
+    _save_connections_to_file(connections)
 
 
 def _mask_connection(conn: dict) -> dict:
@@ -172,6 +319,11 @@ async def get_tables_status(request: Request):
         "daily_query_stats",
         "dbsql_cost_per_query",
         "app_user_permissions",
+        "app_contract_settings",
+        "app_cloud_connections",
+        "app_webhook_settings",
+        "app_warehouse_settings",
+        "app_telemetry_settings",
     ]
     # Which tables are conceptually "materialized views" (rebuilt on schedule)
     # vs persistent managed tables
@@ -192,7 +344,10 @@ async def get_tables_status(request: Request):
     date_expr_overrides = {
         "dbsql_cost_per_query": "CAST(MAX(start_time) AS DATE)",
     }
-    no_date_tables = {"app_user_permissions"}
+    no_date_tables = {
+        "app_user_permissions", "app_contract_settings", "app_cloud_connections",
+        "app_webhook_settings", "app_warehouse_settings", "app_telemetry_settings",
+    }
 
     min_date_expr_overrides = {
         "dbsql_cost_per_query": "CAST(MIN(start_time) AS DATE)",
@@ -334,11 +489,52 @@ _CONTRACT_EMPTY = {"start_date": None, "end_date": None, "total_commit_usd": Non
 
 
 def _load_contract_settings() -> dict:
+    """Load contract settings from Delta table, falling back to local file."""
+    try:
+        from server.db import execute_query
+        table = _config_table("app_contract_settings")
+        rows = execute_query(f"SELECT * FROM {table} LIMIT 1", None, no_cache=True)
+        if rows:
+            r = rows[0]
+            return {
+                "start_date": r.get("start_date"),
+                "end_date": r.get("end_date"),
+                "total_commit_usd": r.get("total_commit_usd"),
+                "notes": r.get("notes") or "",
+            }
+    except Exception as e:
+        logger.warning(f"Could not load contract from Delta table: {e}")
+
+    # Fallback: local file — migrate to Delta if data present
     try:
         with open(_CONTRACT_SETTINGS_FILE) as f:
-            return json.load(f)
+            data = json.load(f)
+        if data.get("start_date"):
+            try:
+                _save_contract_to_table(data)
+                logger.info("Migrated contract settings from file to Delta table")
+            except Exception as e:
+                logger.warning(f"Could not migrate contract settings to Delta: {e}")
+        return data
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return _CONTRACT_EMPTY.copy()
+
+
+def _save_contract_to_table(data: dict) -> None:
+    from server.db import execute_write
+    _ensure_contract_table()
+    table = _config_table("app_contract_settings")
+    execute_write(f"DELETE FROM {table}", None)
+    execute_write(
+        f"INSERT INTO {table} (start_date, end_date, total_commit_usd, notes, updated_at) "
+        f"VALUES (:start_date, :end_date, :total_commit_usd, :notes, current_timestamp())",
+        {
+            "start_date": data["start_date"],
+            "end_date": data["end_date"],
+            "total_commit_usd": float(data["total_commit_usd"]),
+            "notes": data.get("notes") or "",
+        },
+    )
 
 
 @router.get("/contract")
@@ -374,6 +570,11 @@ async def save_contract_settings(body: dict):
         "total_commit_usd": float(commit),
         "notes": (body.get("notes") or "").strip(),
     }
+    # Write to Delta table (primary) and file (dev fallback)
+    try:
+        _save_contract_to_table(data)
+    except Exception as e:
+        logger.warning(f"Could not save contract to Delta table: {e}")
     os.makedirs(os.path.dirname(_CONTRACT_SETTINGS_FILE), exist_ok=True)
     with open(_CONTRACT_SETTINGS_FILE, "w") as f:
         json.dump(data, f)
@@ -423,6 +624,10 @@ async def trigger_mv_refresh(request: Request, lookback_days: int = 730):
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(None, lambda: _run_mv_refresh(user_token=user_token, lookback_days=lookback_days))
+        failed = {k: v for k, v in result.items() if isinstance(v, str) and v.startswith("error:")}
+        if failed:
+            return {"status": "partial_error", "lookback_days": lookback_days, "result": result,
+                    "errors": failed, "message": f"{len(failed)} table(s) failed to refresh"}
         return {"status": "ok", "lookback_days": lookback_days, "result": result}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -515,18 +720,61 @@ async def list_warehouses():
 
 
 def _load_warehouse_settings() -> dict:
-    """Load saved warehouse preference from disk."""
+    """Load warehouse preference from Delta table, falling back to local file."""
+    try:
+        from server.db import execute_query
+        table = _config_table("app_warehouse_settings")
+        rows = execute_query(f"SELECT * FROM {table} LIMIT 1", None, no_cache=True)
+        if rows:
+            r = rows[0]
+            return {
+                "warehouse_id": r.get("warehouse_id") or "",
+                "http_path": r.get("http_path") or "",
+                "warehouse_name": r.get("warehouse_name") or "",
+                "switched_at": r.get("switched_at") or "",
+            }
+    except Exception as e:
+        logger.warning(f"Could not load warehouse settings from Delta table: {e}")
+
     if os.path.exists(WAREHOUSE_SETTINGS_FILE):
         try:
             with open(WAREHOUSE_SETTINGS_FILE) as f:
-                return json.load(f)
+                data = json.load(f)
+            if data.get("warehouse_id"):
+                try:
+                    _save_warehouse_to_table(data)
+                    logger.info("Migrated warehouse settings from file to Delta table")
+                except Exception as e:
+                    logger.warning(f"Could not migrate warehouse settings to Delta: {e}")
+            return data
         except (json.JSONDecodeError, IOError):
-            return {}
+            pass
     return {}
 
 
+def _save_warehouse_to_table(settings: dict) -> None:
+    from server.db import execute_write
+    _ensure_warehouse_table()
+    table = _config_table("app_warehouse_settings")
+    execute_write(f"DELETE FROM {table}", None)
+    execute_write(
+        f"INSERT INTO {table} (warehouse_id, http_path, warehouse_name, switched_at, updated_at) "
+        f"VALUES (:warehouse_id, :http_path, :warehouse_name, :switched_at, current_timestamp())",
+        {
+            "warehouse_id": settings.get("warehouse_id") or "",
+            "http_path": settings.get("http_path") or "",
+            "warehouse_name": settings.get("warehouse_name") or "",
+            "switched_at": settings.get("switched_at") or "",
+        },
+    )
+
+
 def _save_warehouse_settings(settings: dict) -> None:
-    """Save warehouse preference to disk."""
+    """Save warehouse preference to Delta table (primary) and file (dev fallback)."""
+    try:
+        _save_warehouse_to_table(settings)
+    except Exception as e:
+        logger.warning(f"Could not save warehouse settings to Delta table: {e}")
     os.makedirs(SETTINGS_DIR, exist_ok=True)
     with open(WAREHOUSE_SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
@@ -665,7 +913,11 @@ async def create_cloud_connection(request: Request, conn: CloudConnectionCreate)
         })
 
     connections.append(new_conn)
-    _save_connections(connections)
+    try:
+        _upsert_connection_to_table(new_conn)
+    except Exception as e:
+        logger.warning(f"Could not save connection to Delta table: {e}")
+    _save_connections_to_file(connections)
 
     logger.info(f"Created {conn.provider.upper()} connection: {conn.name}")
 
@@ -691,7 +943,11 @@ async def delete_cloud_connection(request: Request, connection_id: str):
     if len(connections) == original_count:
         raise HTTPException(status_code=404, detail="Connection not found")
 
-    _save_connections(connections)
+    try:
+        _delete_connection_from_table(connection_id)
+    except Exception as e:
+        logger.warning(f"Could not delete connection from Delta table: {e}")
+    _save_connections_to_file(connections)
     logger.info(f"Deleted cloud connection: {connection_id}")
     return {"status": "deleted", "id": connection_id}
 
@@ -710,18 +966,51 @@ class WebhookSettings(BaseModel):
 
 
 def _load_webhook_settings() -> dict:
-    """Load webhook settings from disk."""
+    """Load webhook settings from Delta table, falling back to local file."""
+    try:
+        from server.db import execute_query
+        table = _config_table("app_webhook_settings")
+        rows = execute_query(f"SELECT * FROM {table} LIMIT 1", None, no_cache=True)
+        if rows:
+            return {"slack_webhook_url": rows[0].get("slack_webhook_url") or ""}
+    except Exception as e:
+        logger.warning(f"Could not load webhook settings from Delta table: {e}")
+
+    # Fallback: file
     if os.path.exists(WEBHOOK_SETTINGS_FILE):
         try:
             with open(WEBHOOK_SETTINGS_FILE) as f:
-                return json.load(f)
+                data = json.load(f)
+            if data.get("slack_webhook_url"):
+                try:
+                    _save_webhook_to_table(data)
+                    logger.info("Migrated webhook settings from file to Delta table")
+                except Exception as e:
+                    logger.warning(f"Could not migrate webhook settings to Delta: {e}")
+            return data
         except (json.JSONDecodeError, IOError):
-            return {}
+            pass
     return {}
 
 
+def _save_webhook_to_table(settings: dict) -> None:
+    from server.db import execute_write
+    _ensure_webhook_table()
+    table = _config_table("app_webhook_settings")
+    execute_write(f"DELETE FROM {table}", None)
+    execute_write(
+        f"INSERT INTO {table} (slack_webhook_url, updated_at) "
+        f"VALUES (:url, current_timestamp())",
+        {"url": settings.get("slack_webhook_url") or ""},
+    )
+
+
 def _save_webhook_settings(settings: dict) -> None:
-    """Save webhook settings to disk."""
+    """Save webhook settings to Delta table (primary) and file (dev fallback)."""
+    try:
+        _save_webhook_to_table(settings)
+    except Exception as e:
+        logger.warning(f"Could not save webhook settings to Delta table: {e}")
     os.makedirs(SETTINGS_DIR, exist_ok=True)
     with open(WEBHOOK_SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
@@ -815,16 +1104,59 @@ class TelemetrySettings(BaseModel):
 
 
 def _load_telemetry_settings() -> dict:
+    """Load telemetry settings from Delta table, falling back to local file."""
+    try:
+        from server.db import execute_query
+        table = _config_table("app_telemetry_settings")
+        rows = execute_query(f"SELECT * FROM {table} LIMIT 1", None, no_cache=True)
+        if rows:
+            r = rows[0]
+            return {
+                "catalog": r.get("catalog") or "",
+                "schema_name": r.get("schema_name") or "",
+                "table_prefix": r.get("table_prefix") or "",
+            }
+    except Exception as e:
+        logger.warning(f"Could not load telemetry settings from Delta table: {e}")
+
     if os.path.exists(TELEMETRY_SETTINGS_FILE):
         try:
             with open(TELEMETRY_SETTINGS_FILE) as f:
-                return json.load(f)
+                data = json.load(f)
+            if data.get("catalog"):
+                try:
+                    _save_telemetry_to_table(data)
+                    logger.info("Migrated telemetry settings from file to Delta table")
+                except Exception as e:
+                    logger.warning(f"Could not migrate telemetry settings to Delta: {e}")
+            return data
         except (json.JSONDecodeError, IOError):
-            return {}
+            pass
     return {}
 
 
+def _save_telemetry_to_table(settings: dict) -> None:
+    from server.db import execute_write
+    _ensure_telemetry_table()
+    table = _config_table("app_telemetry_settings")
+    execute_write(f"DELETE FROM {table}", None)
+    execute_write(
+        f"INSERT INTO {table} (catalog, schema_name, table_prefix, updated_at) "
+        f"VALUES (:catalog, :schema_name, :table_prefix, current_timestamp())",
+        {
+            "catalog": settings.get("catalog") or "",
+            "schema_name": settings.get("schema_name") or "",
+            "table_prefix": settings.get("table_prefix") or "",
+        },
+    )
+
+
 def _save_telemetry_settings(settings: dict) -> None:
+    """Save telemetry settings to Delta table (primary) and file (dev fallback)."""
+    try:
+        _save_telemetry_to_table(settings)
+    except Exception as e:
+        logger.warning(f"Could not save telemetry settings to Delta table: {e}")
     os.makedirs(SETTINGS_DIR, exist_ok=True)
     with open(TELEMETRY_SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
@@ -942,7 +1274,7 @@ def _save_user_permissions_to_table(admins: list[str], consumers: list[str]) -> 
 
 
 @router.get("/user-permissions")
-async def get_user_permissions() -> dict:
+async def get_user_permissions(request: Request) -> dict:
     """Return the admin and consumer user lists."""
     perms = _load_user_permissions()
     try:
@@ -951,6 +1283,8 @@ async def get_user_permissions() -> dict:
         perms["table_location"] = f"{catalog}.{schema}.app_user_permissions"
     except Exception:
         perms["table_location"] = None
+    # Tell the UI who the current user is so it can show implicit admin status
+    perms["current_user"] = request.headers.get("X-Forwarded-Email", os.getenv("USER", "dev@local"))
     return perms
 
 

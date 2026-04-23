@@ -45,10 +45,10 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
   const itemsPerPage = 10;
   if (isLoading) {
     return (
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <div className="flex h-48 flex-col items-center justify-center gap-3">
           <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-          <p className="text-sm text-gray-400">Loading workspaces...</p>
+          <p className="text-sm text-gray-500">Loading workspaces...</p>
         </div>
       </div>
     );
@@ -56,7 +56,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
 
   if (!data || !data.workspaces?.length) {
     return (
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <h3 className="mb-4 text-lg font-semibold text-gray-900">
           Spend by Workspace
         </h3>
@@ -87,7 +87,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
   const paginatedData = filteredWorkspaces.slice(startIndex, endIndex);
 
   return (
-    <div className="animate-fade-in rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+    <div className="animate-fade-in rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">
           Spend by Workspace
@@ -103,7 +103,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
               />
               Show historical ({historicalCount})
                 <span className="relative group ml-0.5">
-                  <svg className="inline h-3 w-3 text-gray-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                   <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Workspaces whose names could not be resolved — likely decommissioned or inaccessible</span>
                 </span>
             </label>
@@ -184,7 +184,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
                       </span>
                     ))}
                     {(!ws.top_products || ws.top_products.length === 0) && (
-                      <span className="text-xs text-gray-400">-</span>
+                      <span className="text-xs text-gray-500">-</span>
                     )}
                   </div>
                 </td>
@@ -192,13 +192,13 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
                   <div className="flex flex-wrap gap-1">
                     {(ws.top_users || []).map((u) => (
                       <div key={u} className="flex flex-col gap-0.5">
-                        <span className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 max-w-35 truncate" title={u}>
+                        <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 max-w-35 truncate" title={u}>
                           {formatIdentity(u)}
                         </span>
                       </div>
                     ))}
                     {(!ws.top_users || ws.top_users.length === 0) && (
-                      <span className="text-xs text-gray-400">-</span>
+                      <span className="text-xs text-gray-500">-</span>
                     )}
                   </div>
                 </td>

@@ -16,6 +16,7 @@ import { PricingProvider, usePricing } from "@/context/PricingContext";
 import { Footer } from "@/components/Footer";
 import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure.png";
+import gcpLogo from "@/assets/gcp.svg";
 
 // Retry a dynamic import once on failure (handles cold-start chunk load errors)
 function lazyWithRetry<T>(factory: () => Promise<T>): Promise<T> {
@@ -504,7 +505,7 @@ function Dashboard() {
                     </span>
                   )}
                   <img
-                    src={detectedCloudFromUrl === "AZURE" ? azureLogo : awsLogo}
+                    src={detectedCloudFromUrl === "AZURE" ? azureLogo : detectedCloudFromUrl === "GCP" ? gcpLogo : awsLogo}
                     alt={detectedCloudFromUrl}
                     className="h-5 w-5 object-contain"
                   />
@@ -522,7 +523,7 @@ function Dashboard() {
                 <div className="flex items-center gap-3">
                   <span className="text-sm opacity-75">Loading account info...</span>
                   <img
-                    src={detectedCloudFromUrl === "AZURE" ? azureLogo : awsLogo}
+                    src={detectedCloudFromUrl === "AZURE" ? azureLogo : detectedCloudFromUrl === "GCP" ? gcpLogo : awsLogo}
                     alt={detectedCloudFromUrl}
                     className="h-5 w-5 object-contain"
                   />
@@ -785,14 +786,14 @@ function Dashboard() {
         <Suspense fallback={
           <div className="flex h-64 flex-col items-center justify-center gap-3">
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: '#FF3621' }} />
-            <p className="text-sm text-gray-400">Loading...</p>
+            <p className="text-sm text-gray-500">Loading...</p>
           </div>
         }>
         {activeTab === "dbu" ? (
           bundleLoading ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-              <p className="text-sm text-gray-400">Loading DBU spend data...</p>
+              <p className="text-sm text-gray-500">Loading DBU spend data...</p>
             </div>
           ) : (
           <div className="space-y-6">
@@ -821,9 +822,9 @@ function Dashboard() {
                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
               >
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: '#FFF0ED' }}>
                     <svg
-                      className="h-5 w-5 text-purple-600"
+                      className="h-5 w-5" style={{ color: '#FF3621' }}
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -844,7 +845,7 @@ function Dashboard() {
                   </div>
                 </div>
                 <svg
-                  className={`h-5 w-5 text-gray-400 transition-transform ${showGenie ? "rotate-180" : ""}`}
+                  className={`h-5 w-5 text-gray-500 transition-transform ${showGenie ? "rotate-180" : ""}`}
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -1037,7 +1038,7 @@ class TabErrorBoundary extends React.Component<
   render() {
     if (this.state.error) {
       return (
-        <div className="flex flex-col items-center justify-center py-16 px-8 rounded-lg bg-white border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="flex flex-col items-center justify-center py-16 px-8 rounded-lg bg-white border " style={{ borderColor: '#E5E5E5' }}>
           <div className="text-3xl mb-3">⚠️</div>
           <h3 className="text-lg font-semibold text-gray-900 mb-1">
             {this.props.tabName ? `${this.props.tabName} encountered an error` : "Something went wrong"}
@@ -1052,7 +1053,7 @@ class TabErrorBoundary extends React.Component<
           >
             Try Again
           </button>
-          <details className="mt-4 text-xs text-gray-400">
+          <details className="mt-4 text-xs text-gray-500">
             <summary className="cursor-pointer">Error details</summary>
             <pre className="mt-2 whitespace-pre-wrap">{this.state.error.message}</pre>
           </details>

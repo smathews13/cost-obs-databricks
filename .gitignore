@@ -20,8 +20,7 @@ client/dist/
 .env.*.local
 .env.*
 
-# Deployment configs (contain workspace-specific IDs — copy from app.yaml.example)
-app.yaml
+# Deployment variant overrides (workspace-specific — configure via Databricks Apps UI)
 app.*.yaml
 
 # App settings (contains secrets)

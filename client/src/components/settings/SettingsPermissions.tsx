@@ -5,6 +5,7 @@ interface UserPermissions {
   admins: string[];
   consumers: string[];
   table_location?: string | null;
+  current_user?: string | null;
 }
 
 interface AuthStatus {
@@ -167,7 +168,7 @@ export function SettingsPermissions() {
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
           <span className="font-medium">Permissions table: </span>
           <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-800">{permissions.table_location}</code>
-          <span className="ml-2 text-gray-400">— stored in Unity Catalog, persists across deploys</span>
+          <span className="ml-2 text-gray-500">— stored in Unity Catalog, persists across deploys</span>
         </div>
       )}
 
@@ -177,7 +178,18 @@ export function SettingsPermissions() {
         <p className="mb-3 text-xs text-gray-500">Admins can view all data and change app settings.</p>
         <div className="mb-3 space-y-2">
           {(permissions?.admins ?? []).length === 0 ? (
-            <p className="text-xs text-gray-400 italic">No explicit admins listed — all unlisted users are admins by default.</p>
+            <div className="space-y-2">
+              {permissions?.current_user && (
+                <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 opacity-60">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600">Admin</span>
+                    <span className="text-sm text-gray-800">{permissions.current_user}</span>
+                    <span className="text-xs text-gray-400 italic">(you — default admin)</span>
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-gray-500 italic">No admins explicitly configured. All users are admins by default. Add specific users below to restrict admin access to only those listed.</p>
+            </div>
           ) : (
             (permissions?.admins ?? []).map((email) => (
               <div key={email} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2">
@@ -215,7 +227,7 @@ export function SettingsPermissions() {
         <p className="mb-3 text-xs text-gray-500">Consumers can view dashboards but cannot change app settings.</p>
         <div className="mb-3 space-y-2">
           {(permissions?.consumers ?? []).length === 0 ? (
-            <p className="text-xs text-gray-400 italic">No consumers listed.</p>
+            <p className="text-xs text-gray-500 italic">No consumers listed.</p>
           ) : (
             (permissions?.consumers ?? []).map((email) => (
               <div key={email} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2">
@@ -251,7 +263,7 @@ export function SettingsPermissions() {
       <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
           <div className="flex items-center gap-2">
-            <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
             </svg>
             <h4 className="text-sm font-semibold text-gray-900">Query Authentication Mode</h4>

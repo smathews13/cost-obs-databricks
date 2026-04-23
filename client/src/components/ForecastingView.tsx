@@ -67,24 +67,24 @@ export function ForecastingView(_props: ForecastingViewProps) {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg border bg-white p-5 shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg border bg-white p-5 " style={{ borderColor: '#E5E5E5' }}>
           <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Current Month (MTD)</p>
           <p className="mt-2 text-2xl font-bold text-gray-900">{formatCurrency(data.currentMonthSpend)}</p>
           <p className="mt-1 text-xs text-gray-500">through today</p>
         </div>
-        <div className="rounded-lg border bg-white p-5 shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg border bg-white p-5 " style={{ borderColor: '#E5E5E5' }}>
           <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Projected Month-End</p>
           <p className="mt-2 text-2xl font-bold text-indigo-600">{formatCurrency(data.projectedMonthEnd)}</p>
           <p className="mt-1 text-xs text-gray-500">estimated total for this month</p>
         </div>
-        <div className="rounded-lg border bg-white p-5 shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg border bg-white p-5 " style={{ borderColor: '#E5E5E5' }}>
           <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Next Month Forecast</p>
           <p className="mt-2 text-2xl font-bold text-gray-900">{formatCurrency(data.nextMonthForecast)}</p>
           <p className="mt-1 text-xs text-gray-500">
             {formatCurrency(data.confidenceInterval.low)} – {formatCurrency(data.confidenceInterval.high)}
           </p>
         </div>
-        <div className="rounded-lg border bg-white p-5 shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg border bg-white p-5 " style={{ borderColor: '#E5E5E5' }}>
           <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Trend</p>
           <div className="mt-2 flex items-baseline gap-2">
             <p className="text-2xl font-bold text-amber-600">+{data.trendPercent}%</p>
@@ -99,14 +99,14 @@ export function ForecastingView(_props: ForecastingViewProps) {
       {/* Charts Row */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Forecast Chart Placeholder */}
-        <div className="rounded-lg border bg-white p-6 shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg border bg-white p-6 " style={{ borderColor: '#E5E5E5' }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Monthly Spend Forecast</h3>
           <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50">
             <svg className="h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
             </svg>
-            <p className="text-sm font-medium text-gray-400">Time-series forecast chart</p>
-            <p className="text-xs text-gray-400">Actual spend vs. projected with confidence bands</p>
+            <p className="text-sm font-medium text-gray-500">Time-series forecast chart</p>
+            <p className="text-xs text-gray-500">Actual spend vs. projected with confidence bands</p>
             {/* Mini mockup of chart data */}
             <div className="mt-2 flex items-end gap-1">
               {data.monthlyHistory.map((m) => (
@@ -115,7 +115,7 @@ export function ForecastingView(_props: ForecastingViewProps) {
                     className={`w-6 rounded-t ${m.actual !== null ? 'bg-indigo-400' : 'bg-indigo-200 border border-dashed border-indigo-300'}`}
                     style={{ height: `${((m.actual || m.forecast || 0) / 200000) * 80 + 20}px` }}
                   />
-                  <span className="text-[9px] text-gray-400">{m.month.split(' ')[0].slice(0, 3)}</span>
+                  <span className="text-[9px] text-gray-500">{m.month.split(' ')[0].slice(0, 3)}</span>
                 </div>
               ))}
             </div>
@@ -123,21 +123,21 @@ export function ForecastingView(_props: ForecastingViewProps) {
         </div>
 
         {/* Spend by Category Forecast */}
-        <div className="rounded-lg border bg-white p-6 shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg border bg-white p-6 " style={{ borderColor: '#E5E5E5' }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Category Growth Forecast</h3>
           <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50">
             <svg className="h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
             </svg>
-            <p className="text-sm font-medium text-gray-400">Category breakdown with projections</p>
-            <p className="text-xs text-gray-400">Side-by-side current vs. forecasted allocation</p>
+            <p className="text-sm font-medium text-gray-500">Category breakdown with projections</p>
+            <p className="text-xs text-gray-500">Side-by-side current vs. forecasted allocation</p>
           </div>
         </div>
       </div>
 
       {/* Growth Drivers Table */}
-      <div className="rounded-lg border bg-white p-6 shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg border bg-white p-6 " style={{ borderColor: '#E5E5E5' }}>
         <h3 className="mb-4 text-lg font-semibold text-gray-900">Top Growth Drivers</h3>
         <p className="mb-4 text-sm text-gray-500">Categories contributing most to projected cost increases</p>
         <div className="overflow-x-auto">
@@ -184,7 +184,7 @@ export function ForecastingView(_props: ForecastingViewProps) {
       </div>
 
       {/* Query Origin Attribution */}
-      <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="rounded-lg border border-gray-200 bg-white p-6">
         <div className="mb-3 flex items-center gap-2">
           <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">
             Experimental
@@ -198,8 +198,8 @@ export function ForecastingView(_props: ForecastingViewProps) {
           <svg className="mx-auto mb-3 h-10 w-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
-          <p className="text-sm font-medium text-gray-400">Under development</p>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="text-sm font-medium text-gray-500">Under development</p>
+          <p className="mt-1 text-xs text-gray-500">
             Requires <code className="rounded bg-gray-100 px-1">system.query.history</code> access and the <code className="rounded bg-gray-100 px-1">dbsql_cost_per_query</code> materialized view.
           </p>
         </div>
@@ -207,7 +207,7 @@ export function ForecastingView(_props: ForecastingViewProps) {
 
       {/* Budget Scenarios */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="rounded-lg border bg-white p-5 shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg border bg-white p-5 " style={{ borderColor: '#E5E5E5' }}>
           <div className="flex items-center gap-2 mb-3">
             <div className="h-3 w-3 rounded-full bg-green-400" />
             <h4 className="text-sm font-semibold text-gray-900">Optimistic</h4>
@@ -215,7 +215,7 @@ export function ForecastingView(_props: ForecastingViewProps) {
           <p className="text-2xl font-bold text-green-600">{formatCurrency(data.confidenceInterval.low)}</p>
           <p className="mt-1 text-xs text-gray-500">Assumes reduced weekend/off-hours usage and better autoscaling</p>
         </div>
-        <div className="rounded-lg border-2 border-indigo-200 bg-indigo-50 p-5 shadow-sm">
+        <div className="rounded-lg border-2 border-indigo-200 bg-indigo-50 p-5 ">
           <div className="flex items-center gap-2 mb-3">
             <div className="h-3 w-3 rounded-full bg-indigo-400" />
             <h4 className="text-sm font-semibold text-gray-900">Most Likely</h4>
@@ -223,7 +223,7 @@ export function ForecastingView(_props: ForecastingViewProps) {
           <p className="text-2xl font-bold text-indigo-600">{formatCurrency(data.nextMonthForecast)}</p>
           <p className="mt-1 text-xs text-gray-500">Based on trailing 90-day weighted moving average</p>
         </div>
-        <div className="rounded-lg border bg-white p-5 shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg border bg-white p-5 " style={{ borderColor: '#E5E5E5' }}>
           <div className="flex items-center gap-2 mb-3">
             <div className="h-3 w-3 rounded-full bg-red-400" />
             <h4 className="text-sm font-semibold text-gray-900">Pessimistic</h4>

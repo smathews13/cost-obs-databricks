@@ -2858,18 +2858,10 @@ async def get_contract_burndown() -> dict[str, Any]:
     Reads contract terms from .settings/contract_settings.json.
     If not configured, returns {"configured": false}.
     """
-    import json as _json
-    import os as _os
     from datetime import date as _date, timedelta as _td
+    from server.routers.settings import _load_contract_settings
 
-    contract_file = _os.path.join(
-        _os.path.dirname(__file__), "..", "..", ".settings", "contract_settings.json"
-    )
-    try:
-        with open(contract_file) as f:
-            contract = _json.load(f)
-    except (FileNotFoundError, _json.JSONDecodeError, OSError):
-        return {"configured": False}
+    contract = _load_contract_settings()
 
     start_str = contract.get("start_date") or ""
     end_str = contract.get("end_date") or ""

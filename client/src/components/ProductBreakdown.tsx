@@ -26,7 +26,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   "ETL - Batch": "#10B981",
   "ETL - Streaming": "#14B8A6",
   Interactive: "#F59E0B",
-  Serverless: "#8B5CF6",
+  Serverless: "#06B6D4",
   "Model Serving": "#EC4899",
   "Vector Search": "#EF4444",
   "Fine-Tuning": "#F97316",
@@ -36,7 +36,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const COLOR_ROTATION = [
   "#1B5162", "#FF3621", "#06B6D4", "#10B981", "#F59E0B",
-  "#8B5CF6", "#EC4899", "#EF4444", "#14B8A6", "#6B7280",
+  "#3B82F6", "#EC4899", "#EF4444", "#14B8A6", "#6B7280",
   "#3B82F6", "#F97316",
 ];
 
@@ -97,11 +97,11 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
           onClick={() => setDropdownOpen(!dropdownOpen)}
           className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
         >
-          <svg className="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="h-3.5 w-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
           </svg>
           Filter
-          <svg className={`h-3 w-3 text-gray-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className={`h-3 w-3 text-gray-500 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </button>
@@ -153,14 +153,14 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
 
   if (showLoading) {
     return (
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">Spend by Product</h3>
           {workspaceSelector}
         </div>
         <div className="flex h-48 flex-col items-center justify-center gap-3">
           <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-          <p className="text-sm text-gray-400">Loading product breakdown...</p>
+          <p className="text-sm text-gray-500">Loading product breakdown...</p>
         </div>
       </div>
     );
@@ -168,7 +168,7 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
 
   if (!displayData || displayData.products.length === 0) {
     return (
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">Spend by Product</h3>
           {workspaceSelector}
@@ -190,7 +190,7 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
     }));
 
   return (
-    <div className="animate-fade-in rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5', overflow: 'visible' }}>
+    <div className="animate-fade-in rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5', overflow: 'visible' }}>
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold text-gray-900">Spend by Product</h3>

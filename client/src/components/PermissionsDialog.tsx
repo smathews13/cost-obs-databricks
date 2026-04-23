@@ -172,9 +172,9 @@ export function PermissionsDialog() {
       >
         <div className="w-full max-w-md rounded-xl bg-white p-8 text-center shadow-2xl border border-gray-200">
           {isLoading ? (
-            <Loader2 className="mx-auto h-10 w-10 text-gray-400 mb-4 animate-spin" />
+            <Loader2 className="mx-auto h-10 w-10 text-gray-500 mb-4 animate-spin" />
           ) : (
-            <Shield className="mx-auto h-10 w-10 text-gray-400 mb-4" />
+            <Shield className="mx-auto h-10 w-10 text-gray-500 mb-4" />
           )}
           <p className="text-lg font-medium text-gray-700">
             {isLoading ? "Post-deployment initial setup — this could take a few minutes" : "Unable to check permissions"}
@@ -423,7 +423,7 @@ export function PermissionsDialog() {
                 <h3 className="font-semibold text-gray-900">GRANT SQL Preview</h3>
                 <button
                   onClick={() => setPreviewTable(null)}
-                  className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                  className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-600"
                 >
                   <X className="h-5 w-5" />
                 </button>

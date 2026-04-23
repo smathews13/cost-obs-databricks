@@ -25,9 +25,9 @@ export function SettingsGeneral({ localSettings, updateSetting, saveStatus, setS
           </svg>
           <h4 className="text-sm font-semibold text-gray-900">Dashboard Defaults</h4>
         </div>
-        <div className="space-y-3">
+        <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
           {/* Default Date Range */}
-          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3">
+          <div className="flex items-center justify-between px-4 py-3">
             <div>
               <div className="text-sm font-medium text-gray-900">Default Date Range</div>
               <div className="text-xs text-gray-500">Time window shown on dashboard load</div>
@@ -46,7 +46,7 @@ export function SettingsGeneral({ localSettings, updateSetting, saveStatus, setS
           </div>
 
           {/* Auto-Refresh Interval */}
-          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3">
+          <div className="flex items-center justify-between px-4 py-3">
             <div>
               <div className="text-sm font-medium text-gray-900">Auto-Refresh Interval</div>
               <div className="text-xs text-gray-500">Automatically refresh dashboard data</div>
@@ -64,7 +64,7 @@ export function SettingsGeneral({ localSettings, updateSetting, saveStatus, setS
           </div>
 
           {/* Compact Mode */}
-          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3 dark-mode:border-dm-border dark-mode:bg-dm-surface">
+          <div className="flex items-center justify-between px-4 py-3 dark-mode:border-dm-border dark-mode:bg-dm-surface">
             <div>
               <div className="text-sm font-medium text-gray-900">Compact Mode</div>
               <div className="text-xs text-gray-500">Reduce spacing for denser data display</div>
@@ -77,7 +77,7 @@ export function SettingsGeneral({ localSettings, updateSetting, saveStatus, setS
           </div>
 
           {/* Dark Mode */}
-          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3">
+          <div className="flex items-center justify-between px-4 py-3">
             <div>
               <div className="text-sm font-medium text-gray-900">Dark Mode</div>
               <div className="text-xs text-gray-500">Switch to a dark color scheme</div>
@@ -99,53 +99,51 @@ export function SettingsGeneral({ localSettings, updateSetting, saveStatus, setS
           </svg>
           <h4 className="text-sm font-semibold text-gray-900">Alert Thresholds</h4>
         </div>
-        <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-3">
-            <div className="rounded-lg border border-gray-200 bg-white p-3">
-              <div className="text-xs font-medium text-gray-700 mb-1.5">Spike Threshold</div>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  min={5}
-                  max={100}
-                  value={localSettings.alertSpikePercent}
-                  onChange={(e) => updateSetting("alertSpikePercent", Number(e.target.value) || 20)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm text-right focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                />
-                <span className="text-sm text-gray-400">%</span>
-              </div>
-              <div className="text-xs text-gray-400 mt-1">Day-over-day change</div>
+        <div className="grid grid-cols-3 gap-4 rounded-lg border border-gray-200 px-4 py-3">
+          <div>
+            <div className="text-xs font-medium text-gray-700 mb-1.5">Spike Threshold</div>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={5}
+                max={100}
+                value={localSettings.alertSpikePercent}
+                onChange={(e) => updateSetting("alertSpikePercent", Number(e.target.value) || 20)}
+                className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm text-right focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+              />
+              <span className="text-sm text-gray-500">%</span>
             </div>
-            <div className="rounded-lg border border-gray-200 bg-white p-3">
-              <div className="text-xs font-medium text-gray-700 mb-1.5">Daily Budget</div>
-              <div className="flex items-center gap-1">
-                <span className="text-sm text-gray-400">$</span>
-                <input
-                  type="number"
-                  min={0}
-                  step={1000}
-                  value={localSettings.alertDailyBudget}
-                  onChange={(e) => updateSetting("alertDailyBudget", Number(e.target.value) || 0)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm text-right focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                />
-              </div>
-              <div className="text-xs text-gray-400 mt-1">Alert above this amount</div>
+            <div className="text-xs text-gray-500 mt-1">Day-over-day change</div>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-gray-700 mb-1.5">Daily Budget</div>
+            <div className="flex items-center gap-1">
+              <span className="text-sm text-gray-500">$</span>
+              <input
+                type="number"
+                min={0}
+                step={1000}
+                value={localSettings.alertDailyBudget}
+                onChange={(e) => updateSetting("alertDailyBudget", Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm text-right focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+              />
             </div>
-            <div className="rounded-lg border border-gray-200 bg-white p-3">
-              <div className="text-xs font-medium text-gray-700 mb-1.5">Workspace Budget</div>
-              <div className="flex items-center gap-1">
-                <span className="text-sm text-gray-400">$</span>
-                <input
-                  type="number"
-                  min={0}
-                  step={1000}
-                  value={localSettings.alertWorkspaceBudget}
-                  onChange={(e) => updateSetting("alertWorkspaceBudget", Number(e.target.value) || 0)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm text-right focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                />
-              </div>
-              <div className="text-xs text-gray-400 mt-1">Per-workspace limit</div>
+            <div className="text-xs text-gray-500 mt-1">Alert above this amount</div>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-gray-700 mb-1.5">Workspace Budget</div>
+            <div className="flex items-center gap-1">
+              <span className="text-sm text-gray-500">$</span>
+              <input
+                type="number"
+                min={0}
+                step={1000}
+                value={localSettings.alertWorkspaceBudget}
+                onChange={(e) => updateSetting("alertWorkspaceBudget", Number(e.target.value) || 0)}
+                className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm text-right focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+              />
             </div>
+            <div className="text-xs text-gray-500 mt-1">Per-workspace limit</div>
           </div>
         </div>
       </div>
@@ -158,8 +156,8 @@ export function SettingsGeneral({ localSettings, updateSetting, saveStatus, setS
           </svg>
           <h4 className="text-sm font-semibold text-gray-900">Notifications</h4>
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-3">
-          <div className="mb-1.5">
+        <div className="rounded-lg border border-gray-200 px-4 py-3">
+          <div className="mb-2">
             <div className="text-sm font-medium text-gray-900">Slack Webhook URL</div>
             <div className="text-xs text-gray-500">Receive alert notifications in Slack</div>
           </div>
@@ -202,12 +200,10 @@ export function SettingsGeneral({ localSettings, updateSetting, saveStatus, setS
           </svg>
           <h4 className="text-sm font-semibold text-gray-900">Export & Branding</h4>
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white p-3">
-          <div className="flex items-center justify-between mb-1.5">
-            <div>
-              <div className="text-sm font-medium text-gray-900">Company Name</div>
-              <div className="text-xs text-gray-500">Appears in PDF report headers</div>
-            </div>
+        <div className="rounded-lg border border-gray-200 px-4 py-3">
+          <div className="mb-2">
+            <div className="text-sm font-medium text-gray-900">Company Name</div>
+            <div className="text-xs text-gray-500">Appears in PDF report headers</div>
           </div>
           <input
             type="text"
@@ -228,8 +224,8 @@ export function SettingsGeneral({ localSettings, updateSetting, saveStatus, setS
           </svg>
           <h4 className="text-sm font-semibold text-gray-900">System</h4>
         </div>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3">
+        <div className="divide-y divide-gray-100 rounded-lg border border-gray-200">
+          <div className="flex items-center justify-between px-4 py-3">
             <div>
               <div className="text-sm font-medium text-gray-900">Permissions & Disclaimer Dialog</div>
               <div className="text-xs text-gray-500">Re-show the system table permissions checklist on next page load</div>
@@ -241,7 +237,7 @@ export function SettingsGeneral({ localSettings, updateSetting, saveStatus, setS
               Re-enable
             </button>
           </div>
-          <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3">
+          <div className="flex items-center justify-between px-4 py-3">
             <div>
               <div className="text-sm font-medium text-gray-900">Re-run Setup Wizard</div>
               <div className="text-xs text-gray-500">Clear the setup completion flag and re-launch the first-run wizard</div>

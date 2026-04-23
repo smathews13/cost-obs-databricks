@@ -47,7 +47,7 @@ export function SettingsTabs({ localVisibility, toggleTab, visibleCount, enableU
             >
               <div className="flex items-center gap-3">
                 <div className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />
-                <span className={`font-medium ${checked ? "text-gray-900" : "text-gray-400"}`}>{label}</span>
+                <span className={`font-medium ${checked ? "text-gray-900" : "text-gray-500"}`}>{label}</span>
               </div>
               <div className="relative">
                 <input type="checkbox" checked={checked} onChange={() => toggleTab(key)} className="sr-only" disabled={checked && visibleCount <= 1} />

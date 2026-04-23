@@ -27,7 +27,7 @@ interface AppsCostCenterProps {
   workspaceNameMap?: Record<string, string>;
 }
 
-const APP_COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#8B5CF6", "#EC4899", "#EF4444", "#6B7280", "#3B82F6"];
+const APP_COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#3B82F6", "#EC4899", "#EF4444", "#6B7280", "#3B82F6"];
 
 const PIE_COLORS = {
   active: "#10B981",   // green
@@ -278,7 +278,7 @@ function AppHostingComparison({
             </div>
           </div>
 
-          <p className="mt-3 text-[11px] text-gray-400 italic">
+          <p className="mt-3 text-[11px] text-gray-500 italic">
             Estimates based on AWS EC2 (m5.large) on-demand pricing and typical enterprise infrastructure costs.
             Year 1 includes one-time setup costs for DevOps, security, and data access layers.
             Actual costs vary by organization size, compliance requirements, and engineering team rates.
@@ -467,7 +467,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-        <p className="text-sm text-gray-400">Loading Apps data...</p>
+        <p className="text-sm text-gray-500">Loading Apps data...</p>
       </div>
     );
   }
@@ -649,7 +649,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* App Status Breakdown — Pie Chart */}
         {pieData.length > 0 && (
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">App Status Breakdown</h3>
             <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">
               <ResponsiveContainer width="100%" height={250} className="max-w-xs">
@@ -701,7 +701,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
         )}
 
         {/* Spend Over Time — daily */}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Apps Spend Over Time</h3>
           {dailyTimeseries.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
@@ -746,7 +746,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
       </div>
 
       {/* App Grid — each app is a clickable tile */}
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="shrink-0 text-lg font-semibold text-gray-900">
             Apps by Spend
@@ -820,7 +820,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
             )}
             {/* Search */}
             <div className="relative">
-              <svg className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
@@ -833,7 +833,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-600"
                 >
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -884,7 +884,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                 <div>
                   <h4 className="text-base font-semibold text-gray-900">{selectedApp.app_name}</h4>
                   {selectedApp.app_name !== selectedApp.app_id && (
-                    <p className="text-[10px] text-gray-400 font-mono">{selectedApp.app_id}</p>
+                    <p className="text-[10px] text-gray-500 font-mono">{selectedApp.app_id}</p>
                   )}
                   <div className="flex items-center gap-3">
                     {liveEndpoint(selectedApp) && (
@@ -912,7 +912,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
               </div>
               <button
                 onClick={() => setSelectedApp(null)}
-                className="rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600"
+                className="rounded p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-600"
               >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -963,7 +963,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                         </div>
                         <span className="text-[10px] text-gray-500">{sku.percentage.toFixed(1)}%</span>
                       </div>
-                      <p className="mt-0.5 text-[10px] text-gray-400">{formatNumber(sku.total_dbus)} DBUs</p>
+                      <p className="mt-0.5 text-[10px] text-gray-500">{formatNumber(sku.total_dbus)} DBUs</p>
                     </div>
                   ))}
                 </div>
@@ -1042,7 +1042,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                     {app.app_name}
                   </span>
                   {/* Spend label */}
-                  <span className="text-[9px] text-gray-400">
+                  <span className="text-[9px] text-gray-500">
                     {formatCurrency(app.total_spend)}
                   </span>
                 </button>
@@ -1058,7 +1058,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
         {/* Pagination */}
         {filteredApps.length > 0 && (
           <div className="mt-4 flex items-center justify-between">
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-500">
               {filteredApps.length} app{filteredApps.length !== 1 ? "s" : ""}
               {searchQuery ? ` matching "${searchQuery}"` : ""}
             </span>
@@ -1105,7 +1105,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
         const paginatedArtifacts = filteredArtifacts.slice((safePage - 1) * artifactsPerPage, safePage * artifactsPerPage);
 
         return (
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">Connected Artifacts</h3>
             <p className="mb-3 text-xs text-gray-500">Model serving endpoints, SQL warehouses, and other Databricks resources used by deployed apps.</p>
 
@@ -1140,7 +1140,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
 
             {/* Search */}
             <div className="mb-4 relative">
-              <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
@@ -1209,7 +1209,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                         </td>
                         <td className="px-3 py-3">
                           <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${
-                            artifact.artifact_type === 'SERVING_ENDPOINT' ? 'bg-purple-100 text-purple-700' :
+                            artifact.artifact_type === 'SERVING_ENDPOINT' ? 'bg-blue-50 text-blue-700' :
                             artifact.artifact_type === 'SQL_WAREHOUSE' ? 'bg-blue-100 text-blue-700' :
                             artifact.artifact_type === 'SECRET' ? 'bg-yellow-100 text-yellow-700' :
                             artifact.artifact_type === 'JOB' ? 'bg-green-100 text-green-700' :

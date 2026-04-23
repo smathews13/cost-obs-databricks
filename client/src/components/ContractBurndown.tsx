@@ -39,7 +39,7 @@ function KPICard({ label, value, sub, highlight }: KPICardProps) {
     <div className="rounded-lg border border-gray-200 bg-white p-4 flex flex-col gap-1">
       <div className="text-xs text-gray-500">{label}</div>
       <div className={`text-lg font-semibold tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="text-xs text-gray-400">{sub}</div>}
+      {sub && <div className="text-xs text-gray-500">{sub}</div>}
     </div>
   );
 }
@@ -103,11 +103,13 @@ export function ContractBurndown() {
   const kpis = burndown?.kpis;
   const series = burndown?.daily_series ?? [];
 
-  const paceLabel = kpis?.pace_status === "under" ? "AHEAD OF PACE" : kpis?.pace_status === "over" ? "BEHIND PACE" : "ON PACE";
-  const paceColor = kpis?.pace_status === "under" ? "bg-green-50 text-green-700 border-green-200" : kpis?.pace_status === "over" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200";
+  const paceLabel = kpis?.pace_status === "under" ? "UNDER PACE" : kpis?.pace_status === "over" ? "OVER PACE" : "ON PACE";
+  const paceColor = kpis?.pace_status === "under" ? "bg-amber-50 text-amber-700 border-amber-200" : kpis?.pace_status === "over" ? "bg-red-50 text-red-700 border-red-200" : "bg-green-50 text-green-700 border-green-200";
 
-  const projectedAfterEnd = kpis?.projected_end_date && burndown?.contract?.end_date
-    ? kpis.projected_end_date > burndown.contract.end_date
+  // projected_end_date = when the commit is exhausted at current burn rate.
+  // If that date is BEFORE the contract end, spend will run out early — that's the risk case.
+  const projectedEarlyExhaustion = kpis?.projected_end_date && burndown?.contract?.end_date
+    ? kpis.projected_end_date < burndown.contract.end_date
     : false;
 
   // Chart data: downsample to ~200 points for performance
@@ -242,7 +244,7 @@ export function ContractBurndown() {
               {paceLabel}
             </span>
             <span className="text-xs text-gray-500">
-              {kpis.pace_status === "under" ? "Spending below the ideal straight-line pace." : kpis.pace_status === "over" ? "Spending ahead of the ideal straight-line pace." : "Spending on track with the ideal straight-line pace."}
+              {kpis.pace_status === "under" ? "Spending slower than the ideal straight-line pace — full commit may not be utilized by contract end." : kpis.pace_status === "over" ? "Spending faster than the ideal straight-line pace — commit may be exhausted before contract end." : "Spending on track with the ideal straight-line pace."}
             </span>
           </div>
 
@@ -254,10 +256,10 @@ export function ContractBurndown() {
             <KPICard label="Days Elapsed" value={fmt(kpis.days_elapsed)} sub="of contract" />
             <KPICard label="Days Remaining" value={fmt(kpis.days_remaining)} />
             <KPICard
-              label="Projected End"
+              label="Commit Exhausted"
               value={kpis.projected_end_date}
-              highlight={projectedAfterEnd ? "red" : "green"}
-              sub={projectedAfterEnd ? "Commits at risk of overrun" : "On track to stay within budget"}
+              highlight={projectedEarlyExhaustion ? "red" : "green"}
+              sub={projectedEarlyExhaustion ? "Commit exhausted before contract end" : "Commit lasts through contract end"}
             />
           </div>
 
@@ -331,7 +333,7 @@ export function ContractBurndown() {
       )}
 
       {burndownLoading && contractSettings?.start_date && (
-        <div className="text-center py-12 text-sm text-gray-400">Loading burn-down data…</div>
+        <div className="text-center py-12 text-sm text-gray-500">Loading burn-down data…</div>
       )}
     </div>
   );

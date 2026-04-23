@@ -30,9 +30,9 @@ function MessageBubble({ message }: { message: GenieMessage }) {
         {isPending ? (
           <div className="flex items-center gap-2">
             <div className="flex gap-1">
-              <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.3s]" />
-              <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.15s]" />
-              <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400" />
+              <div className="h-2 w-2 animate-pulse rounded-full bg-gray-400 [animation-delay:-0.4s]" />
+              <div className="h-2 w-2 animate-pulse rounded-full bg-gray-400 [animation-delay:-0.2s]" />
+              <div className="h-2 w-2 animate-pulse rounded-full bg-gray-400" />
             </div>
             <span className="text-sm text-gray-500">Thinking — this could take a minute...</span>
           </div>
@@ -44,7 +44,7 @@ function MessageBubble({ message }: { message: GenieMessage }) {
             {message.sql && (
               <div className="mt-3 rounded bg-gray-800 p-3">
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-xs font-medium text-gray-400">SQL Query</span>
+                  <span className="text-xs font-medium text-gray-500">SQL Query</span>
                   <button
                     onClick={() => navigator.clipboard.writeText(message.sql || "")}
                     className="text-xs text-blue-400 hover:text-blue-300"
@@ -101,7 +101,7 @@ function MessageBubble({ message }: { message: GenieMessage }) {
           </>
         )}
 
-        <p className={`mt-1 text-xs ${isUser ? "text-blue-200" : "text-gray-400"}`}>
+        <p className={`mt-1 text-xs ${isUser ? "text-blue-200" : "text-gray-500"}`}>
           {formatTimestamp(message.timestamp)}
         </p>
       </div>
@@ -177,7 +177,7 @@ export function GenieChatView() {
                 <button
                   key={idx}
                   onClick={() => setInput(suggestion)}
-                  className="rounded-lg border border-gray-200 px-3 py-2 text-left text-xs text-gray-700 hover:border-purple-300 hover:bg-purple-50"
+                  className="rounded-lg border border-gray-200 px-3 py-2 text-left text-xs text-gray-700 hover:border-gray-300 hover:bg-gray-50"
                 >
                   {suggestion}
                 </button>
@@ -203,7 +203,7 @@ export function GenieChatView() {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask a question about your cost data..."
             disabled={isLoading}
-            className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-[#FF3621] focus:outline-none focus:ring-1 focus:ring-[#FF3621] disabled:bg-gray-50 disabled:text-gray-400"
+            className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-[#FF3621] focus:outline-none focus:ring-1 focus:ring-[#FF3621] disabled:bg-gray-50 disabled:text-gray-500"
             style={{
               borderColor: input ? '#FF3621' : undefined,
             }}

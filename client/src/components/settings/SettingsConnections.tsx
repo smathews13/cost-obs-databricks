@@ -43,7 +43,7 @@ export function SettingsConnections({
 
       {/* Default cloud environment connection */}
       <div className="mb-6">
-        <div className="text-xs font-medium uppercase tracking-wider text-gray-400 mb-2">Default Environment</div>
+        <div className="text-xs font-medium uppercase tracking-wider text-gray-500 mb-2">Default Environment</div>
         {cloudProvider ? (
           <div
             className="flex items-center justify-between rounded-lg border-2 border-dashed p-3"
@@ -66,12 +66,12 @@ export function SettingsConnections({
                   </span>
                   <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-500">Default</span>
                 </div>
-                <div className="text-xs text-gray-400 font-mono truncate max-w-md">{cloudProvider.host}</div>
+                <div className="text-xs text-gray-500 font-mono truncate max-w-md">{cloudProvider.host}</div>
               </div>
             </div>
           </div>
         ) : (
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-400">
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-500">
             No workspace connection detected
           </div>
         )}
@@ -81,15 +81,15 @@ export function SettingsConnections({
       <div>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
-            <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
             </svg>
-            <div className="text-xs font-medium uppercase tracking-wider text-gray-400">External Connections</div>
+            <div className="text-xs font-medium uppercase tracking-wider text-gray-500">External Connections</div>
           </div>
           <div className="relative group">
             <button
               disabled
-              className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-400"
+              className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-500"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -106,7 +106,7 @@ export function SettingsConnections({
           <svg className="mx-auto h-8 w-8 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
           </svg>
-          <p className="mt-2 text-sm font-medium text-gray-400">External connections coming soon</p>
+          <p className="mt-2 text-sm font-medium text-gray-500">External connections coming soon</p>
           <p className="text-xs text-gray-300">Connect to other apps and services from here</p>
         </div>
       </div>

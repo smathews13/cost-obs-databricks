@@ -24,7 +24,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   "ETL - Batch": "#10B981", // Emerald
   "ETL - Streaming": "#14B8A6", // Teal
   Interactive: "#F59E0B", // Amber
-  Serverless: "#8B5CF6", // Violet
+  Serverless: "#06B6D4", // Violet
   "Model Serving": "#EC4899", // Pink
   Other: "#6B7280", // Gray
 };
@@ -40,7 +40,7 @@ function formatDate(dateStr: string): string {
 export const SpendChart = memo(function SpendChart({ data, isLoading }: SpendChartProps) {
   if (isLoading) {
     return (
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <h3 className="mb-4 text-lg font-semibold text-gray-900">
           Spend Over Time
         </h3>
@@ -51,7 +51,7 @@ export const SpendChart = memo(function SpendChart({ data, isLoading }: SpendCha
 
   if (!data || data.timeseries.length === 0) {
     return (
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <h3 className="mb-4 text-lg font-semibold text-gray-900">
           Spend Over Time
         </h3>
@@ -64,7 +64,7 @@ export const SpendChart = memo(function SpendChart({ data, isLoading }: SpendCha
   }
 
   return (
-    <div className="animate-fade-in rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+    <div className="animate-fade-in rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
       <h3 className="mb-4 text-lg font-semibold text-gray-900">Spend Over Time</h3>
       <ResponsiveContainer width="100%" height={320}>
         <AreaChart

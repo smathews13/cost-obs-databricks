@@ -63,7 +63,7 @@ const COLORS = {
   untagged: "#ef4444",
 };
 
-const TAG_COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#8B5CF6", "#EC4899", "#EF4444", "#6B7280"];
+const TAG_COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#3B82F6", "#EC4899", "#EF4444", "#6B7280"];
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("en-US", {
@@ -349,7 +349,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-        <p className="text-sm text-gray-400">Loading tagging data...</p>
+        <p className="text-sm text-gray-500">Loading tagging data...</p>
       </div>
     );
   }
@@ -470,7 +470,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
     };
 
     return (
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">Untagged Resources</h3>
           <span className="text-sm text-red-600">
@@ -534,7 +534,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
                             <p className="text-gray-300 mb-1">Used by {tag.usageCount} resources</p>
                             {tag.examples.length > 0 && (
                               <div>
-                                <p className="text-gray-400 text-[10px] uppercase">Example values:</p>
+                                <p className="text-gray-500 text-[10px] uppercase">Example values:</p>
                                 <div className="flex flex-wrap gap-1 mt-1">
                                   {tag.examples.map((ex, i) => (
                                     <span key={i} className="rounded bg-gray-700 px-1.5 py-0.5">{ex}</span>
@@ -556,7 +556,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
         {/* Search + Historical */}
         <div className="mb-4 flex items-center gap-4">
           <div className="relative flex-1">
-            <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input
@@ -569,7 +569,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
             {searchQuery && (
               <button
                 onClick={() => { setSearchQuery(""); setCurrentPage(1); }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-600"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -583,7 +583,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
               className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
             Show historical ({historicalCount})
             <span className="relative group ml-0.5">
-              <svg className="inline h-3 w-3 text-gray-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               <span className="absolute bottom-full right-0 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Resources whose names could not be resolved — likely deleted or from inaccessible workspaces</span>
             </span>
           </label>
@@ -688,14 +688,14 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
                               </svg>
                             </a>
                             {displayId && (hasDistinctName || activeUntaggedTab === "clusters" || activeUntaggedTab === "warehouses") && (
-                              <span className="max-w-xs truncate text-xs text-gray-400">{displayId}</span>
+                              <span className="max-w-xs truncate text-xs text-gray-500">{displayId}</span>
                             )}
                           </div>
                         ) : (
                           <div className="flex flex-col gap-0.5">
                             <span className="max-w-xs truncate font-medium text-gray-900">{displayName}</span>
                             {displayId && (hasDistinctName || activeUntaggedTab === "clusters" || activeUntaggedTab === "warehouses") && (
-                              <span className="max-w-xs truncate text-xs text-gray-400">{displayId}</span>
+                              <span className="max-w-xs truncate text-xs text-gray-500">{displayId}</span>
                             )}
                           </div>
                         )}
@@ -705,14 +705,14 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
                         <td key={col.key} className="px-6 py-4 text-sm text-gray-600">
                           {item[col.key] ? (
                             col.key === "owner" ? (
-                              <span className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 max-w-40 truncate" title={item[col.key]}>
+                              <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 max-w-40 truncate" title={item[col.key]}>
                                 {formatIdentity(item[col.key])}
                               </span>
                             ) : (
                               <span className="max-w-40 truncate block" title={item[col.key]}>{item[col.key]}</span>
                             )
                           ) : (
-                            <span className="text-xs text-gray-400">-</span>
+                            <span className="text-xs text-gray-500">-</span>
                           )}
                         </td>
                       ))}
@@ -981,7 +981,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
       {/* Tag Coverage + Tag Coverage Over Time — side by side */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Tag Coverage Pie Chart */}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Total Tag Coverage</h3>
           {coveragePieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -1011,7 +1011,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
         </div>
 
         {/* Tag Coverage Over Time */}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Tag Coverage Over Time</h3>
           {data.timeseries?.timeseries?.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -1056,7 +1056,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
       {/* Spend by Tag + Spend by Key — side by side */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Spend by Tag Table (left) */}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">
               Spend by Tag
@@ -1192,7 +1192,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
         </div>
 
         {/* Spend by Key Bar Chart (right) */}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">Spend by Key</h3>
             {availableTagKeys.length > 0 && (
@@ -1323,7 +1323,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
 
       {/* Tag Drilldown Modal */}
       {selectedTag && createPortal(
-        <div className="fixed inset-0 z-9999 flex items-center justify-center bg-black/50" onClick={() => setSelectedTag(null)}>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" onClick={() => setSelectedTag(null)}>
           <div className="mx-4 w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1332,7 +1332,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
                   Top 5 Objects — {selectedTag.tag_value}
                 </h3>
               </div>
-              <button onClick={() => setSelectedTag(null)} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+              <button onClick={() => setSelectedTag(null)} className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-600">
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -1365,7 +1365,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
                           <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
                             obj.object_type === 'Cluster' ? 'bg-blue-100 text-blue-700' :
                             obj.object_type === 'Job' ? 'bg-green-100 text-green-700' :
-                            obj.object_type === 'SQL Warehouse' ? 'bg-purple-100 text-purple-700' :
+                            obj.object_type === 'SQL Warehouse' ? 'bg-blue-50 text-blue-700' :
                             obj.object_type === 'Pipeline' ? 'bg-cyan-100 text-cyan-700' :
                             obj.object_type === 'Serving Endpoint' ? 'bg-pink-100 text-pink-700' :
                             'bg-gray-100 text-gray-700'
@@ -1388,7 +1388,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate }: Taggin
                 </table>
               </div>
             ) : (
-              <div className="flex h-40 items-center justify-center text-gray-400">
+              <div className="flex h-40 items-center justify-center text-gray-500">
                 No objects found for this tag
               </div>
             )}

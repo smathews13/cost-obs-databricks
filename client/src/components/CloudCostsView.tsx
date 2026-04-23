@@ -70,7 +70,7 @@ type SortDirection = "asc" | "desc";
 // Base color palette for instance family charts (cycled by index)
 const FAMILY_PALETTE = [
   "#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B",
-  "#8B5CF6", "#EC4899", "#EF4444", "#6B7280",
+  "#3B82F6", "#EC4899", "#EF4444", "#6B7280",
 ];
 
 // Known instance family -> color overrides for consistency
@@ -80,7 +80,7 @@ const INSTANCE_COLORS: Record<string, string> = {
   m4: "#10B981", m5: "#10B981", m5d: "#34D399", m5n: "#6EE7B7",
   m6i: "#6EE7B7", m6id: "#A7F3D0", m7g: "#059669", m7gd: "#047857", m7i: "#34D399",
   r5: "#F59E0B", r5d: "#FBBF24", r6id: "#FDE68A", r6gd: "#FCD34D", r8gd: "#D97706",
-  c5: "#8B5CF6", c5d: "#A78BFA", c6gd: "#7C3AED",
+  c5: "#3B82F6", c5d: "#60A5FA", c6gd: "#1D4ED8",
   g4dn: "#EC4899", g5: "#F472B6",
   p3: "#EF4444",
   // Fleet types
@@ -88,7 +88,7 @@ const INSTANCE_COLORS: Record<string, string> = {
   // Azure VM series
   Standard_D: "#1B5162", Standard_DS: "#2D7A96",
   Standard_E: "#10B981", Standard_ES: "#34D399",
-  Standard_F: "#8B5CF6", Standard_FS: "#A78BFA",
+  Standard_F: "#3B82F6", Standard_FS: "#60A5FA",
   Standard_L: "#F59E0B", Standard_LS: "#FBBF24",
   Standard_M: "#EF4444",
   Standard_NC: "#EC4899", Standard_ND: "#F472B6", Standard_NV: "#14B8A6",
@@ -315,6 +315,7 @@ export function CloudCostsView({
   const cloud = infraData?.cloud || detectedCloud || "AWS";
   const cloudDisplayName = cloud.toUpperCase() === "AZURE" ? "Azure" : cloud.toUpperCase() === "GCP" ? "GCP" : "AWS";
   const isAzure = cloud.toUpperCase() === "AZURE";
+  const isGCP = cloud.toUpperCase() === "GCP";
 
   // Per-cloud actual data availability
   const awsActualAvailable = actualData?.available === true;
@@ -375,7 +376,7 @@ export function CloudCostsView({
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-        <p className="text-sm text-gray-400">Loading cloud costs...</p>
+        <p className="text-sm text-gray-500">Loading cloud costs...</p>
       </div>
     );
   }
@@ -454,7 +455,7 @@ export function CloudCostsView({
         {/* Charts Row */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Charge Type Breakdown */}
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by Charge Type</h3>
             {chargeTypePieData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
@@ -484,7 +485,7 @@ export function CloudCostsView({
           </div>
 
           {/* Cost Over Time */}
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">Actual Azure Cost Over Time</h3>
             {timeseries?.timeseries && timeseries.timeseries.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
@@ -518,7 +519,7 @@ export function CloudCostsView({
 
         {/* Clusters Table */}
         {byCluster?.clusters && byCluster.clusters.length > 0 && (
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">Actual Azure Costs by Cluster</h3>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -608,7 +609,7 @@ export function CloudCostsView({
         {/* Charts row */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Cost by Service pie */}
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by GCP Service</h3>
             {servicePieData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
@@ -625,7 +626,7 @@ export function CloudCostsView({
           </div>
 
           {/* Daily timeseries */}
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">GCP Cost Over Time</h3>
             {timeseries?.timeseries && timeseries.timeseries.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
@@ -645,7 +646,7 @@ export function CloudCostsView({
 
         {/* By Project table */}
         {byProject?.projects && byProject.projects.length > 0 && (
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by GCP Project</h3>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -676,7 +677,7 @@ export function CloudCostsView({
 
         {/* By Service table */}
         {byService?.services && byService.services.length > 0 && (
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by GCP Service</h3>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -794,7 +795,7 @@ export function CloudCostsView({
         {/* Charts Row */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Charge Type Breakdown */}
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by Charge Type</h3>
             {chargeTypePieData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
@@ -824,7 +825,7 @@ export function CloudCostsView({
           </div>
 
           {/* Cost Over Time */}
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">Actual AWS Cost Over Time</h3>
             {timeseries?.timeseries && timeseries.timeseries.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
@@ -858,7 +859,7 @@ export function CloudCostsView({
 
         {/* Clusters Table */}
         {byCluster?.clusters && byCluster.clusters.length > 0 && (
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">Actual AWS Costs by Cluster</h3>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
@@ -997,6 +998,14 @@ export function CloudCostsView({
                     <li><strong>Not included:</strong> Managed Disk storage (P10 ~$19.71/mo, P20 ~$38.40/mo per disk), outbound bandwidth ($0.087/GB)</li>
                     <li>Actual costs may vary by region, SKU availability, and subscription discounts</li>
                   </ul>
+                ) : isGCP ? (
+                  <ul className="list-inside list-disc space-y-1">
+                    <li>Estimates <strong>Compute Engine On-Demand</strong> costs (us-central1, Linux) per node based on cluster machine types</li>
+                    <li>Node uptime is derived from DBU hours — clusters are billed for every node-hour while running</li>
+                    <li>Pricing sourced from GCP public pricing (2025); us-central1 rates used as baseline</li>
+                    <li><strong>Not included:</strong> Persistent Disk storage (~$0.04/GB-month SSD), egress charges, Google Cloud Storage</li>
+                    <li>Actual costs may vary by region, Committed Use Discounts, and Spot VM usage</li>
+                  </ul>
                 ) : (
                   <ul className="list-inside list-disc space-y-1">
                     <li>Estimates <strong>EC2 On-Demand</strong> costs (us-east-1, Linux) per node based on cluster instance types</li>
@@ -1017,7 +1026,7 @@ export function CloudCostsView({
                   />
                   <span className="text-xs text-orange-600">Minimize from now on</span>
                 </label>
-                <span className="text-xs text-orange-500 italic">For exact costs, integrate {isAzure ? "Azure Cost Management" : "AWS CUR 2.0"} below ↓</span>
+                <span className="text-xs text-orange-500 italic">For exact costs, integrate {isAzure ? "Azure Cost Management" : isGCP ? "GCP Billing Export" : "AWS CUR 2.0"} below ↓</span>
               </div>
             </>
           )}
@@ -1035,7 +1044,7 @@ export function CloudCostsView({
           <div className="flex rounded-lg bg-gray-100 p-1">
             <button
               disabled
-              className="cursor-not-allowed rounded-md px-4 py-1.5 text-sm font-medium text-gray-400"
+              className="cursor-not-allowed rounded-md px-4 py-1.5 text-sm font-medium text-gray-500"
               title={`Configure ${isAzure ? "Azure Cost Management Export" : "AWS CUR"} to enable actual costs`}
             >
               Actual Costs
@@ -1069,7 +1078,7 @@ export function CloudCostsView({
       {/* Additional cloud integrations section */}
       {cloudIntegrations.length > 0 && (
         <div className="mt-3 space-y-2">
-          <div className="text-xs font-medium uppercase tracking-wider text-gray-400">Additional Cloud Integrations</div>
+          <div className="text-xs font-medium uppercase tracking-wider text-gray-500">Additional Cloud Integrations</div>
           {cloudIntegrations.map((integration) => (
             <div key={integration.id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5">
               <div className="flex items-center gap-2">
@@ -1082,7 +1091,7 @@ export function CloudCostsView({
                 >
                   {integration.label}
                 </span>
-                <span className="text-sm text-gray-700">{integration.cloud === "azure" ? "Azure Cost Management Export" : "AWS CUR 2.0"}</span>
+                <span className="text-sm text-gray-700">{integration.cloud === "azure" ? "Azure Cost Management Export" : integration.cloud === "gcp" ? "GCP Billing Export (BigQuery)" : "AWS CUR 2.0"}</span>
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Setup in progress</span>
               </div>
               <div className="flex items-center gap-2">
@@ -1094,7 +1103,7 @@ export function CloudCostsView({
                 </button>
                 <button
                   onClick={() => removeIntegration(integration.id)}
-                  className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500"
+                  className="rounded p-1 text-gray-500 hover:bg-red-50 hover:text-red-500"
                   title="Remove integration"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1114,7 +1123,7 @@ export function CloudCostsView({
       <div className="space-y-6">
         {ModeToggle}
         {CurSetupBanner}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Infrastructure Costs</h3>
           <p className="text-sm text-amber-600">{data.error}</p>
         </div>
@@ -1127,7 +1136,7 @@ export function CloudCostsView({
       <div className="space-y-6">
         {ModeToggle}
         {CurSetupBanner}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Infrastructure Costs</h3>
           <div className="flex h-32 flex-col items-center justify-center gap-2 text-gray-500">
             <p className="text-base font-medium">No cluster data available</p>
@@ -1300,7 +1309,17 @@ export function CloudCostsView({
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Est. Total Cloud Cost</p>
+              <p className="text-sm font-medium text-gray-500 flex items-center gap-1">
+                Est. Total Cloud Cost
+                <span className="inline-flex items-center group relative">
+                  <svg className="h-3.5 w-3.5 text-gray-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="pointer-events-none absolute bottom-5 left-0 z-[9999] w-72 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                    Estimated {cloudDisplayName} VM cost for cluster compute nodes, derived from DBU hours × cloud instance pricing ({cloudDisplayName === "GCP" ? "us-central1" : cloudDisplayName === "Azure" ? "East US" : "us-east-1"} on-demand rates). Separate from Databricks DBU spend shown in the page header.
+                  </span>
+                </span>
+              </p>
               <p className="text-2xl font-semibold text-gray-900">{formatCurrency(cloudSummary.totalCost)}</p>
               {startDate && endDate && <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>}
             </div>
@@ -1382,12 +1401,12 @@ export function CloudCostsView({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Infrastructure Cost Over Time Chart */}
         {(infraTimeseriesLoading || timeseriesLoading) ? (
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Cost Over Time</h3>
             <div className="h-80 animate-pulse rounded bg-gray-200" />
           </div>
         ) : (infraTimeseriesData?.timeseries && infraTimeseriesData.timeseries.length > 0) ? (
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Cost Over Time</h3>
             <ResponsiveContainer width="100%" height={320}>
               <AreaChart
@@ -1433,7 +1452,7 @@ export function CloudCostsView({
             </ResponsiveContainer>
           </div>
         ) : (filteredTimeseriesData && filteredTimeseriesData.length > 0) ? (
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">{cloudDisplayName} Cost Over Time</h3>
               {timeseriesFamilies.length > 0 && (
@@ -1522,7 +1541,7 @@ export function CloudCostsView({
         ) : null}
 
         {/* Usage by Instance Family */}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Usage by Instance Family</h3>
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={familyChartData} layout="vertical" margin={{ left: 10, right: 20 }}>
@@ -1550,12 +1569,20 @@ export function CloudCostsView({
       </div>
 
       {/* Clusters Table */}
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Estimated {cloudDisplayName} Costs by Cluster</h3>
             <p className="text-sm text-gray-500">
-              {sortedClusters.length} cluster{sortedClusters.length !== 1 ? "s" : ""}{selectedFamilies.size > 0 ? ` · ${[...selectedFamilies].join(", ")} only` : ""}
+              {sortedClusters.length} cluster{sortedClusters.length !== 1 ? "s" : ""}{selectedFamilies.size > 0 ? ` · ${[...selectedFamilies].join(", ")} only` : ""}{" "}
+              <span className="inline-flex items-center gap-1 group relative">
+                <svg className="h-3.5 w-3.5 text-gray-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="pointer-events-none absolute bottom-5 left-0 z-[9999] w-72 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                  Estimated {cloudDisplayName} VM cost for cluster compute nodes, derived from DBU hours × cloud instance pricing ({cloudDisplayName === "GCP" ? "us-central1" : cloudDisplayName === "Azure" ? "East US" : "us-east-1"} on-demand rates). This is separate from Databricks DBU spend shown in the page header, which reflects actual Databricks billing.
+                </span>
+              </span>
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1574,7 +1601,7 @@ export function CloudCostsView({
                       onClick={(e) => { e.stopPropagation(); setTableFamily(""); setCurrentPage(1); }}
                     >×</span>
                   ) : (
-                    <svg className={`h-3 w-3 text-gray-400 transition-transform ${familyFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className={`h-3 w-3 text-gray-500 transition-transform ${familyFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   )}
@@ -1613,7 +1640,7 @@ export function CloudCostsView({
                       onClick={(e) => { e.stopPropagation(); setTableWorkspace(""); setCurrentPage(1); }}
                     >×</span>
                   ) : (
-                    <svg className={`h-3 w-3 text-gray-400 transition-transform ${workspaceFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className={`h-3 w-3 text-gray-500 transition-transform ${workspaceFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
                   )}
@@ -1653,7 +1680,7 @@ export function CloudCostsView({
               <span>Show historical clusters</span>
             </label>
             <div className="group relative">
-              <svg className="h-4 w-4 cursor-help text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-4 w-4 cursor-help text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div className="invisible absolute right-0 top-6 z-10 w-72 rounded-lg bg-gray-900 p-3 text-xs text-white opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
@@ -1690,7 +1717,7 @@ export function CloudCostsView({
                       Est. Cost <SortIcon field="estimated_aws_cost" />
                     </span>
                     <div className="group relative">
-                      <svg className="h-3.5 w-3.5 cursor-help text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="h-3.5 w-3.5 cursor-help text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                       <div className="invisible absolute right-0 top-6 z-10 w-72 rounded-lg bg-gray-900 p-3 text-xs text-white opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
@@ -1817,7 +1844,7 @@ export function CloudCostsView({
                               Historical cluster
                             </span>
                             <div className="relative">
-                              <svg className="h-3 w-3 cursor-help text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg className="h-3 w-3 cursor-help text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
                               <div className="invisible absolute left-0 top-6 z-10 w-64 rounded-lg bg-gray-900 p-3 text-xs text-white opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
@@ -1853,7 +1880,15 @@ export function CloudCostsView({
                   Total ({sortedClusters.length} clusters)
                 </td>
                 <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-bold text-gray-900">
-                  {formatCurrency(data.total_estimated_cost)}
+                  <span className="inline-flex items-center justify-end gap-1 group relative">
+                    {formatCurrency(data.total_estimated_cost)}
+                    <svg className="h-3.5 w-3.5 text-gray-400 cursor-help flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="pointer-events-none absolute bottom-6 right-0 z-[9999] w-72 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-normal text-gray-600 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
+                      Estimated {cloudDisplayName} VM cost based on DBU hours × cloud instance pricing ({cloudDisplayName === "GCP" ? "us-central1" : cloudDisplayName === "Azure" ? "East US" : "us-east-1"} on-demand rates). This differs from the Databricks DBU spend shown in the page header, which reflects actual billed usage from system.billing.usage.
+                    </span>
+                  </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-medium text-gray-700">
                   {formatNumber(data.total_dbu_hours)}
@@ -1952,7 +1987,7 @@ export function CloudCostsView({
               </div>
               <button
                 onClick={() => setShowIntegrationWizard(false)}
-                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-600"
               >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1996,7 +2031,7 @@ export function CloudCostsView({
                       <div>
                         <div className="flex items-center justify-center gap-2">
                           <span className="font-semibold text-gray-900">Amazon Web Services</span>
-                          {!isAzure && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">Default</span>}
+                          {!isAzure && !isGCP && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">Default</span>}
                         </div>
                         <div className="mt-0.5 text-xs text-gray-500">AWS CUR 2.0 Standard Data Export</div>
                       </div>
@@ -2014,6 +2049,7 @@ export function CloudCostsView({
                       <div>
                         <div className="flex items-center justify-center gap-2">
                           <span className="font-semibold text-gray-900">Google Cloud</span>
+                          {isGCP && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700">Default</span>}
                         </div>
                         <div className="mt-0.5 text-xs text-gray-500">GCP Billing Export via BigQuery</div>
                       </div>
@@ -2078,7 +2114,7 @@ export function CloudCostsView({
                               </svg>
                             ) : step}
                           </span>
-                          <span className={`flex-1 font-medium ${isChecked ? "text-gray-400 line-through" : isLast ? "text-orange-900" : "text-gray-900"}`}>{title}</span>
+                          <span className={`flex-1 font-medium ${isChecked ? "text-gray-500 line-through" : isLast ? "text-orange-900" : "text-gray-900"}`}>{title}</span>
                           {/* Explicit checkbox */}
                           <span
                             role="checkbox"
@@ -2093,7 +2129,7 @@ export function CloudCostsView({
                               </svg>
                             )}
                           </span>
-                          <svg className={`flex-shrink-0 h-5 w-5 text-gray-400 transition-transform ${wizardExpandedStep === step ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <svg className={`flex-shrink-0 h-5 w-5 text-gray-500 transition-transform ${wizardExpandedStep === step ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                           </svg>
                         </button>
@@ -2189,6 +2225,75 @@ export function CloudCostsView({
                                     <div className="overflow-x-auto rounded-md bg-gray-900 p-3 text-xs text-gray-100">
                                       <pre>{"databricks api post /api/2.0/genie/spaces --profile cloud-infra-cost \\\n  --json @Azure_cost_reporting_genie_space_azure_billing.json"}</pre>
                                     </div>
+                                  </div>
+                                </>
+                              )
+                            ) : wizardCloud === "gcp" ? (
+                              step === 1 ? (
+                                <>
+                                  <p className="mb-3">Enable GCP Billing Export in the <a href="https://console.cloud.google.com/billing" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Google Cloud Billing Console</a> to stream billing data to BigQuery.</p>
+                                  <ol className="space-y-2">
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">a.</span><span>In the Billing console, select your billing account → <strong>Billing export</strong></span></li>
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">b.</span><span>Under <strong>BigQuery export</strong>, click <strong>Edit settings</strong> for <em>Standard usage cost</em></span></li>
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">c.</span><span>Choose or create a BigQuery project and dataset, then click <strong>Save</strong></span></li>
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">d.</span><span>Note the project ID and dataset name — you'll need them in Step 4</span></li>
+                                  </ol>
+                                  <div className="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-800">
+                                    <strong>⏱ Note:</strong> Initial export takes up to 48 hours. After that, data is exported daily. Enable <em>Detailed usage cost</em> as well if you want resource-level breakdown.
+                                  </div>
+                                </>
+                              ) : step === 2 ? (
+                                <>
+                                  <p className="mb-3">Create a GCP Service Account with read access to the BigQuery billing dataset.</p>
+                                  <ol className="space-y-2">
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">a.</span><span>In the <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">IAM console</a>, create a new service account in the BigQuery project</span></li>
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">b.</span><span>Grant the service account <strong>BigQuery Data Viewer</strong> and <strong>BigQuery Job User</strong> roles</span></li>
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">c.</span><span>Create and download a <strong>JSON key</strong> for the service account</span></li>
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">d.</span><span>Store the JSON key securely — it will be referenced in the Databricks asset bundle config</span></li>
+                                  </ol>
+                                </>
+                              ) : step === 3 ? (
+                                <>
+                                  <p className="mb-3">Create a <a href="https://docs.databricks.com/gcp/en/connect/unity-catalog/cloud-storage/gcs.html" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">GCS External Location</a> in Unity Catalog so the bundle can write staging data.</p>
+                                  <ol className="space-y-2">
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">a.</span><span>Create a GCS bucket in your GCP project for staging</span></li>
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">b.</span><span>In Databricks, go to <strong>Catalog → External Data → Storage Credentials → Create credential</strong> and choose <strong>GCP Service Account</strong></span></li>
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">c.</span><span>Go to <strong>External Locations → Create external location</strong>, set URL to <code className="rounded bg-gray-200 px-1">gs://your-bucket/</code></span></li>
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">d.</span><span>Click <strong>Test connection</strong> to verify access</span></li>
+                                  </ol>
+                                </>
+                              ) : step === 4 ? (
+                                <>
+                                  <p className="mb-3">Clone the <a href="https://github.com/databricks-solutions/cloud-infra-costs/tree/main/gcp" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">cloud-infra-costs/gcp</a> project, configure <code className="rounded bg-gray-200 px-1">databricks.yml</code>, then deploy.</p>
+                                  <p className="mb-2 font-medium text-gray-700">Required DAB variables:</p>
+                                  <div className="overflow-x-auto rounded-md bg-white text-xs mb-3">
+                                    <table className="w-full border-collapse">
+                                      <thead><tr className="bg-gray-100"><th className="border border-gray-200 px-2 py-1 text-left">Variable</th><th className="border border-gray-200 px-2 py-1 text-left">Default</th></tr></thead>
+                                      <tbody>
+                                        <tr><td className="border border-gray-200 px-2 py-1 font-mono">catalog</td><td className="border border-gray-200 px-2 py-1 font-mono">billing</td></tr>
+                                        <tr><td className="border border-gray-200 px-2 py-1 font-mono">schema</td><td className="border border-gray-200 px-2 py-1 font-mono">gcp</td></tr>
+                                        <tr><td className="border border-gray-200 px-2 py-1 font-mono">bq_project_id</td><td className="border border-gray-200 px-2 py-1 text-red-600">required</td></tr>
+                                        <tr><td className="border border-gray-200 px-2 py-1 font-mono">bq_dataset</td><td className="border border-gray-200 px-2 py-1 text-red-600">required</td></tr>
+                                        <tr><td className="border border-gray-200 px-2 py-1 font-mono">warehouse_id</td><td className="border border-gray-200 px-2 py-1 text-red-600">required</td></tr>
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                  <ol className="space-y-2">
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">a.</span><span>Authenticate: <code className="rounded bg-gray-200 px-1">databricks configure</code></span></li>
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">b.</span><span>Deploy: <code className="rounded bg-gray-200 px-1">databricks bundle deploy --target dev</code></span></li>
+                                    <li className="flex gap-2"><span className="font-medium text-gray-700">c.</span><span>Run: <code className="rounded bg-gray-200 px-1">databricks bundle run</code></span></li>
+                                  </ol>
+                                </>
+                              ) : (
+                                <>
+                                  <p className="mb-3">Once deployed, verify the job ran successfully and billing data is flowing into the gold table.</p>
+                                  <ul className="space-y-1 mb-4">
+                                    <li>• Check <strong>Workflows</strong> for <code className="rounded bg-gray-200 px-1">gcp_cost_job</code> — runs daily</li>
+                                    <li>• Verify <strong>bronze → silver → gold</strong> tables exist in <code className="rounded bg-gray-200 px-1">billing.gcp</code></li>
+                                    <li>• Open the deployed <strong>dashboard</strong> to confirm cost data is visible</li>
+                                  </ul>
+                                  <div className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">
+                                    <strong>ℹ️ Note:</strong> GCP billing export includes Compute Engine, Cloud Storage, networking, and all other GCP services. BigQuery export data typically reflects costs with a 1-day lag.
                                   </div>
                                 </>
                               )

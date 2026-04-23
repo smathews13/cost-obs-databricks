@@ -93,7 +93,7 @@ interface EditUseCaseModalProps {
 const STAGE_COLORS: Record<UseCaseStage, { bg: string; text: string; border: string }> = {
   Live: { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-200' },
   Development: { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200' },
-  Planned: { bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-200' },
+  Planned: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   Inactive: { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200' },
 };
 
@@ -543,7 +543,7 @@ function CreateUseCaseModal({ isOpen, onClose, existingTags }: CreateUseCaseModa
                   <button
                     type="button"
                     onClick={() => setShowObjectPicker(false)}
-                    className="ml-auto text-gray-400 hover:text-gray-600"
+                    className="ml-auto text-gray-500 hover:text-gray-600"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -603,7 +603,7 @@ function CreateUseCaseModal({ isOpen, onClose, existingTags }: CreateUseCaseModa
                       className="flex items-center justify-between p-2 rounded-md bg-white border border-gray-200"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <Icon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <Icon className="h-4 w-4 text-gray-500 flex-shrink-0" />
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">
                             {obj.object_name || obj.object_id}
@@ -614,7 +614,7 @@ function CreateUseCaseModal({ isOpen, onClose, existingTags }: CreateUseCaseModa
                       <button
                         type="button"
                         onClick={() => removePendingObject(obj.object_id, obj.object_type)}
-                        className="text-gray-400 hover:text-red-600 p-1"
+                        className="text-gray-500 hover:text-red-600 p-1"
                         title="Remove"
                       >
                         <X className="h-4 w-4" />
@@ -905,7 +905,7 @@ function EditUseCaseModal({ useCase, isOpen, onClose, existingTags }: EditUseCas
           </div>
           <button
             onClick={() => { setUpdateError(null); onClose(); }}
-            className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-600 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -1177,7 +1177,7 @@ function EditUseCaseModal({ useCase, isOpen, onClose, existingTags }: EditUseCas
                   <button
                     type="button"
                     onClick={() => setShowObjectPicker(false)}
-                    className="ml-auto text-gray-400 hover:text-gray-600"
+                    className="ml-auto text-gray-500 hover:text-gray-600"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -1243,7 +1243,7 @@ function EditUseCaseModal({ useCase, isOpen, onClose, existingTags }: EditUseCas
                       className="flex items-center justify-between p-2 rounded-md bg-white border border-gray-200"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <Icon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <Icon className="h-4 w-4 text-gray-500 flex-shrink-0" />
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">
                             {obj.object_name || obj.object_id}
@@ -1255,7 +1255,7 @@ function EditUseCaseModal({ useCase, isOpen, onClose, existingTags }: EditUseCas
                         type="button"
                         onClick={() => removeObjectMutation.mutate(obj.mapping_id)}
                         disabled={removeObjectMutation.isPending}
-                        className="text-gray-400 hover:text-red-600 p-1"
+                        className="text-gray-500 hover:text-red-600 p-1"
                         title="Remove from use case"
                       >
                         <X className="h-4 w-4" />
@@ -1473,7 +1473,7 @@ export default function UseCases() {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-        <p className="text-sm text-gray-400">Loading use cases...</p>
+        <p className="text-sm text-gray-500">Loading use cases...</p>
       </div>
     );
   }
@@ -1503,7 +1503,7 @@ export default function UseCases() {
       {/* Summary Cards */}
       {summary && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <div className="flex items-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
                 <Package className="h-6 w-6 text-orange-600" />
@@ -1515,7 +1515,7 @@ export default function UseCases() {
             </div>
           </div>
 
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <div className="flex items-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
                 <TrendingUp className="h-6 w-6 text-orange-600" />
@@ -1527,7 +1527,7 @@ export default function UseCases() {
             </div>
           </div>
 
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <div className="flex items-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
                 <Users className="h-6 w-6 text-orange-600" />
@@ -1544,7 +1544,7 @@ export default function UseCases() {
       )}
 
       {/* Use Cases List */}
-      <div className="rounded-lg bg-white border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white border " style={{ borderColor: '#E5E5E5' }}>
         <div className="border-b px-6 py-4" style={{ borderColor: '#E5E5E5' }}>
           <h2 className="text-lg font-semibold text-gray-900">All Use Cases</h2>
         </div>
@@ -1642,7 +1642,7 @@ export default function UseCases() {
                         ) : (
                           <button
                             onClick={() => setDeleteConfirmId(uc.use_case_id)}
-                            className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                            className="rounded p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
                             title="Delete use case"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -1657,7 +1657,7 @@ export default function UseCases() {
           </div>
         ) : (
           <div className="flex h-64 flex-col items-center justify-center text-center">
-            <Package className="h-12 w-12 text-gray-400" />
+            <Package className="h-12 w-12 text-gray-500" />
             <p className="mt-2 text-sm font-medium text-gray-900">No use cases yet</p>
             <p className="mt-1 text-sm text-gray-500">Create your first use case to start tracking spend</p>
             <button
@@ -1673,7 +1673,7 @@ export default function UseCases() {
 
       {/* Spend Distribution Chart - moved below table */}
       {summary && summary.use_cases.length > 0 && (
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <h2 className="mb-4 text-lg font-semibold text-gray-900">Spend Distribution by Use Case</h2>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
@@ -1699,7 +1699,7 @@ export default function UseCases() {
 
       {/* Monthly Consumption Chart */}
       {monthlyChartData.length > 0 && (
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <div className="mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Monthly Consumption by Use Case</h2>
             <p className="text-sm text-gray-500">Monthly spend with use case go-live markers</p>

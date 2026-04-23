@@ -14,7 +14,7 @@ function InfoTooltip({ text }: { text: string }) {
       <button
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
-        className="text-gray-400 hover:text-gray-600"
+        className="text-gray-500 hover:text-gray-600"
         aria-label="More info"
       >
         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -34,7 +34,7 @@ import type { UserSpend } from "@/hooks/useBillingData";
 import type { DateRange } from "@/types/billing";
 import { formatIdentity, isServicePrincipal } from "@/utils/identity";
 
-const COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#8B5CF6", "#EC4899", "#EF4444", "#6B7280", "#3B82F6"];
+const COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#06B6D4", "#EC4899", "#EF4444", "#6B7280", "#3B82F6"];
 
 const PRODUCT_COLORS: Record<string, string> = {
   "ETL - Batch": "#1B5162",
@@ -42,7 +42,7 @@ const PRODUCT_COLORS: Record<string, string> = {
   "Interactive": "#10B981",
   "SQL": "#14B8A6",
   "Serverless": "#F59E0B",
-  "Model Serving": "#8B5CF6",
+  "Model Serving": "#06B6D4",
   "Fine-Tuning": "#EC4899",
   "Vector Search": "#EF4444",
   "AI Functions": "#FF3621",
@@ -78,7 +78,7 @@ function UserDetailModal({ user, onClose }: { user: UserSpend; onClose: () => vo
             </div>
             <p className="text-xs text-gray-500 mt-0.5">{user.active_days} active days · {user.workspace_count} workspace{user.workspace_count !== 1 ? "s" : ""}</p>
           </div>
-          <button onClick={onClose} className="ml-4 shrink-0 rounded-lg p-1.5 hover:bg-gray-100 text-gray-400">
+          <button onClick={onClose} className="ml-4 shrink-0 rounded-lg p-1.5 hover:bg-gray-100 text-gray-500">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -95,7 +95,7 @@ function UserDetailModal({ user, onClose }: { user: UserSpend; onClose: () => vo
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
               <p className="text-xs text-gray-500">Total DBUs</p>
               <p className="text-lg font-bold text-gray-900">{user.total_dbus.toFixed(0)}</p>
-              <p className="text-xs text-gray-400 mt-0.5">{fmt(user.total_spend)} spend</p>
+              <p className="text-xs text-gray-500 mt-0.5">{fmt(user.total_spend)} spend</p>
             </div>
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
               <p className="text-xs text-gray-500">Primary product</p>
@@ -166,7 +166,7 @@ function ProductDrilldown({ topUsers }: { topUsers: UserSpend[] }) {
     : [];
 
   return (
-    <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+    <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
       <h3 className="text-lg font-medium text-gray-900 mb-4">User Spend by Product</h3>
       <div className="space-y-2.5 mt-2">
         {sorted.map(([product, spend]) => {
@@ -181,9 +181,9 @@ function ProductDrilldown({ topUsers }: { topUsers: UserSpend[] }) {
                 <div className="flex justify-between text-xs mb-1">
                   <span className={`font-medium ${isSelected ? 'text-[#FF3621]' : 'text-gray-600 group-hover:text-gray-900'}`}>
                     {product}
-                    <span className="ml-1 text-gray-400 text-[10px]">{isSelected ? '▲' : '▼'}</span>
+                    <span className="ml-1 text-gray-500 text-[10px]">{isSelected ? '▲' : '▼'}</span>
                   </span>
-                  <span className="font-medium text-gray-800">{fmt(spend)} <span className="text-gray-400">({pct.toFixed(1)}%)</span></span>
+                  <span className="font-medium text-gray-800">{fmt(spend)} <span className="text-gray-500">({pct.toFixed(1)}%)</span></span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-gray-100">
                   <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: isSelected ? '#FF3621' : (PRODUCT_COLORS[product] || '#999') }} />
@@ -191,12 +191,12 @@ function ProductDrilldown({ topUsers }: { topUsers: UserSpend[] }) {
               </button>
               {isSelected && top5.length > 0 && (
                 <div className="mt-2 mb-1 ml-2 rounded-lg border border-gray-100 bg-gray-50 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Top users — {product}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Top users — {product}</p>
                   <div className="space-y-1.5">
                     {top5.map((u, i) => (
                       <div key={u.email} className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-gray-400 w-3 shrink-0">{i + 1}.</span>
+                          <span className="text-gray-500 w-3 shrink-0">{i + 1}.</span>
                           <span className="text-gray-700 truncate">{formatIdentity(u.email)}</span>
                         </div>
                         <span className="ml-3 font-medium text-gray-800 shrink-0">{fmt(u.spend)}</span>
@@ -320,7 +320,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-        <p className="text-sm text-gray-400">Loading user spend data…</p>
+        <p className="text-sm text-gray-500">Loading user spend data…</p>
       </div>
     );
   }
@@ -392,7 +392,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                 <InfoTooltip text="Distinct users (humans and service principals) with any DBU spend in the selected date range, across all products." />
               </p>
               <p className="text-2xl font-semibold text-gray-900">{summary?.user_count?.toLocaleString() ?? "—"}</p>
-              <p className="text-xs text-gray-400">Across all products</p>
+              <p className="text-xs text-gray-500">Across all products</p>
               <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
             </div>
           </div>
@@ -422,7 +422,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
             <div className="min-w-0">
               <p className="text-sm text-gray-500">Top spender</p>
               <p className="text-2xl font-semibold text-gray-900">{topUsers[0] ? fmt(topUsers[0].total_spend) : "—"}</p>
-              {topUsers[0] && <p className="text-xs text-gray-400 truncate">{displayUser(topUsers[0].user_email)}</p>}
+              {topUsers[0] && <p className="text-xs text-gray-500 truncate">{displayUser(topUsers[0].user_email)}</p>}
               <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
             </div>
           </div>
@@ -443,9 +443,9 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                   {summary.spend_growth_pct >= 0 ? "+" : ""}{summary.spend_growth_pct}%
                 </p>
               ) : (
-                <p className="text-2xl font-semibold text-gray-400">—</p>
+                <p className="text-2xl font-semibold text-gray-500">—</p>
               )}
-              <p className="text-xs text-gray-400">First vs second half</p>
+              <p className="text-xs text-gray-500">First vs second half</p>
               <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
             </div>
           </div>
@@ -467,7 +467,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
       {/* Charts row */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Top users bar chart */}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <h3 className="text-lg font-medium text-gray-900 mb-4">Top Users by Spend</h3>
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={barData} layout="vertical" margin={{ left: 8, right: 24, top: 0, bottom: 0 }}>
@@ -494,7 +494,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
       {/* User growth charts — always last 6 months */}
       {data?.user_growth && data.user_growth.length > 1 && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="text-lg font-medium text-gray-900 mb-1 flex items-center">
               Monthly Active Users
               <InfoTooltip text="Distinct users (humans + service principals) with any DBU spend in that calendar month. Always shows the last 6 months regardless of the date filter above." />
@@ -511,7 +511,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <h3 className="text-lg font-medium text-gray-900 mb-1">Monthly User Growth</h3>
             <p className="text-xs text-gray-500 mb-4">New users appearing for the first time each month — last 6 months</p>
             <ResponsiveContainer width="100%" height={300}>
@@ -529,7 +529,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
       )}
 
       {/* User table */}
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="rounded-xl border border-gray-200 bg-white ">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-900">All Users by Spend</h2>
           <div className="flex flex-wrap items-center gap-2">
@@ -544,7 +544,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                 {typeFilter !== "all" ? (
                   <span className="opacity-75 hover:opacity-100 ml-0.5 cursor-pointer" onClick={(e) => { e.stopPropagation(); setTypeFilter("all"); setPage(0); }}>×</span>
                 ) : (
-                  <svg className={`h-3 w-3 text-gray-400 transition-transform ${typeFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  <svg className={`h-3 w-3 text-gray-500 transition-transform ${typeFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                 )}
               </button>
               {typeFilterOpen && (
@@ -576,7 +576,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                 {productFilter !== "all" ? (
                   <span className="opacity-75 hover:opacity-100 ml-0.5 cursor-pointer" onClick={(e) => { e.stopPropagation(); setProductFilter("all"); setPage(0); }}>×</span>
                 ) : (
-                  <svg className={`h-3 w-3 text-gray-400 transition-transform ${productFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  <svg className={`h-3 w-3 text-gray-500 transition-transform ${productFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                 )}
               </button>
               {productFilterOpen && (
@@ -604,7 +604,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                 className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 {sortBy === "spend" ? "Spend" : sortBy === "dbus" ? "DBUs" : "Active Days"}
-                <svg className={`h-3 w-3 text-gray-400 transition-transform ${sortOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                <svg className={`h-3 w-3 text-gray-500 transition-transform ${sortOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
               </button>
               {sortOpen && (
                 <div className="absolute left-0 top-full z-10 mt-1 w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
@@ -675,7 +675,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                       <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600">{u.primary_product}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <button onClick={() => setSelectedUser(u)} className="text-xs text-gray-400 hover:text-gray-700 underline">
+                      <button onClick={() => setSelectedUser(u)} className="text-xs text-gray-500 hover:text-gray-700 underline">
                         Details
                       </button>
                     </td>
@@ -684,7 +684,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-sm text-gray-400">
+                  <td colSpan={6} className="px-5 py-8 text-center text-sm text-gray-500">
                     {searchQuery || typeFilter !== "all" || productFilter !== "all" ? "No users match your filters." : "No user spend data found for this date range."}
                   </td>
                 </tr>
@@ -694,7 +694,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
         </div>
         {filtered.length > 0 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100">
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-500">
               {filtered.length} result{filtered.length !== 1 ? "s" : ""}
             </span>
             {totalPages > 1 && (

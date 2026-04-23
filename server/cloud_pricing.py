@@ -280,6 +280,109 @@ AZURE_INSTANCE_PRICING: dict[str, float] = {
     "Standard_A8m_v2": 0.50,
 }
 
+# GCP Compute Engine On-Demand pricing (us-central1, Linux, 2025)
+# Source: https://cloud.google.com/compute/vm-instance-pricing
+GCP_INSTANCE_PRICING: dict[str, float] = {
+    # N2 standard (balanced)
+    "n2-standard-2": 0.0971,
+    "n2-standard-4": 0.1942,
+    "n2-standard-8": 0.3885,
+    "n2-standard-16": 0.7769,
+    "n2-standard-32": 1.5539,
+    "n2-standard-48": 2.3308,
+    "n2-standard-64": 3.1077,
+    "n2-standard-96": 4.6616,
+    "n2-standard-128": 6.2154,
+    # N2 high-memory
+    "n2-highmem-2": 0.1310,
+    "n2-highmem-4": 0.2620,
+    "n2-highmem-8": 0.5241,
+    "n2-highmem-16": 1.0481,
+    "n2-highmem-32": 2.0962,
+    "n2-highmem-48": 3.1443,
+    "n2-highmem-64": 4.1924,
+    "n2-highmem-96": 6.2887,
+    "n2-highmem-128": 8.3849,
+    # N2 high-CPU
+    "n2-highcpu-2": 0.0717,
+    "n2-highcpu-4": 0.1433,
+    "n2-highcpu-8": 0.2866,
+    "n2-highcpu-16": 0.5733,
+    "n2-highcpu-32": 1.1466,
+    "n2-highcpu-48": 1.7199,
+    "n2-highcpu-64": 2.2932,
+    "n2-highcpu-96": 3.4398,
+    # E2 standard (cost-optimized)
+    "e2-standard-2": 0.0670,
+    "e2-standard-4": 0.1340,
+    "e2-standard-8": 0.2681,
+    "e2-standard-16": 0.5362,
+    "e2-standard-32": 1.0723,
+    # E2 high-memory
+    "e2-highmem-2": 0.0902,
+    "e2-highmem-4": 0.1804,
+    "e2-highmem-8": 0.3608,
+    "e2-highmem-16": 0.7215,
+    # E2 high-CPU
+    "e2-highcpu-2": 0.0504,
+    "e2-highcpu-4": 0.1007,
+    "e2-highcpu-8": 0.2015,
+    "e2-highcpu-16": 0.4030,
+    "e2-highcpu-32": 0.8059,
+    # C2 compute-optimized
+    "c2-standard-4": 0.2088,
+    "c2-standard-8": 0.4176,
+    "c2-standard-16": 0.8352,
+    "c2-standard-30": 1.5660,
+    "c2-standard-60": 3.1321,
+    # C2D compute-optimized (AMD EPYC)
+    "c2d-standard-2": 0.0908,
+    "c2d-standard-4": 0.1816,
+    "c2d-standard-8": 0.3631,
+    "c2d-standard-16": 0.7262,
+    "c2d-standard-32": 1.4524,
+    "c2d-standard-56": 2.5418,
+    "c2d-standard-112": 5.0836,
+    # N1 general-purpose (legacy)
+    "n1-standard-1": 0.0475,
+    "n1-standard-2": 0.0950,
+    "n1-standard-4": 0.1900,
+    "n1-standard-8": 0.3800,
+    "n1-standard-16": 0.7600,
+    "n1-standard-32": 1.5200,
+    "n1-standard-64": 3.0400,
+    "n1-standard-96": 4.5600,
+    "n1-highmem-2": 0.1252,
+    "n1-highmem-4": 0.2503,
+    "n1-highmem-8": 0.5005,
+    "n1-highmem-16": 1.0010,
+    "n1-highmem-32": 2.0021,
+    "n1-highmem-64": 4.0042,
+    "n1-highmem-96": 6.0064,
+    "n1-highcpu-2": 0.0709,
+    "n1-highcpu-4": 0.1418,
+    "n1-highcpu-8": 0.2836,
+    "n1-highcpu-16": 0.5672,
+    "n1-highcpu-32": 1.1344,
+    "n1-highcpu-64": 2.2688,
+    "n1-highcpu-96": 3.4032,
+    # GPU instances (A100)
+    "a2-highgpu-1g": 3.6730,
+    "a2-highgpu-2g": 7.3460,
+    "a2-highgpu-4g": 14.6920,
+    "a2-highgpu-8g": 29.3840,
+    "a2-megagpu-16g": 55.7390,
+    # GPU instances (L4)
+    "g2-standard-4": 0.7020,
+    "g2-standard-8": 1.1960,
+    "g2-standard-12": 1.6900,
+    "g2-standard-16": 2.1840,
+    "g2-standard-24": 3.1730,
+    "g2-standard-32": 4.1610,
+    "g2-standard-48": 6.1380,
+    "g2-standard-96": 12.2760,
+}
+
 # Default hourly cost when instance type is not found
 DEFAULT_HOURLY_COST = 0.50
 
@@ -303,8 +406,9 @@ def get_instance_pricing(instance_type: str | None, cloud: str) -> float:
         return AWS_INSTANCE_PRICING.get(instance_type, DEFAULT_HOURLY_COST)
     elif cloud_upper == "AZURE":
         return AZURE_INSTANCE_PRICING.get(instance_type, DEFAULT_HOURLY_COST)
+    elif cloud_upper == "GCP":
+        return GCP_INSTANCE_PRICING.get(instance_type, DEFAULT_HOURLY_COST)
     else:
-        # Try both pricing tables for unknown cloud
         price = AWS_INSTANCE_PRICING.get(instance_type)
         if price:
             return price
@@ -341,10 +445,14 @@ def get_instance_family(instance_type: str | None, cloud: str) -> str:
             # Return with "Standard_" prefix to match frontend expectations
             return f"Standard_{family}" if family else "unknown"
         return "unknown"
+    elif cloud_upper == "GCP":
+        # GCP format: <family>-<type>-<size>
+        # Examples: n2-standard-4, e2-highmem-8, c2-standard-16, a2-highgpu-1g
+        parts = instance_type.split("-")
+        return parts[0] if parts else "unknown"
     else:
         # AWS format: <family>.<size>
         # Examples: m5.xlarge, i3.2xlarge, g4dn.xlarge
-        # Family is the full prefix before the dot (e.g., m5, i3, g4dn)
         parts = instance_type.split(".")
         if parts and parts[0]:
             return parts[0]
@@ -388,6 +496,8 @@ def generate_pricing_sql_values(cloud: str) -> str:
 
     if cloud_upper == "AZURE":
         pricing = AZURE_INSTANCE_PRICING
+    elif cloud_upper == "GCP":
+        pricing = GCP_INSTANCE_PRICING
     else:
         pricing = AWS_INSTANCE_PRICING
 
@@ -404,6 +514,8 @@ def get_instance_families_for_cloud(cloud: str) -> list[str]:
 
     if cloud_upper == "AZURE":
         return ["D", "E", "F", "L", "NC", "ND", "NV", "A"]
+    elif cloud_upper == "GCP":
+        return ["n2", "n1", "e2", "c2", "c2d", "a2", "g2"]
     else:
         return ["i3", "i3en", "i4i", "m5", "m5d", "m6i", "m7i", "r5", "r5d", "r6i", "r7i", "c5", "c5d", "c6i", "c7i", "g4dn", "g5", "g6", "p3"]
 
@@ -431,6 +543,14 @@ INSTANCE_FAMILY_COLORS: dict[str, str] = {
     "NC": "#ec4899",
     "ND": "#ef4444",
     "A": "#6b7280",
+    # GCP families
+    "n2": "#22c55e",
+    "n1": "#4ade80",
+    "e2": "#3b82f6",
+    "c2": "#f59e0b",
+    "c2d": "#fbbf24",
+    "a2": "#ef4444",
+    "g2": "#ec4899",
     # Default
     "unknown": "#6b7280",
 }

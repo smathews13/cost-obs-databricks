@@ -83,7 +83,7 @@ function CheckDetails({ name, details }: { name: string; details: Record<string,
     return <p className="text-xs text-red-600 font-mono">{String(details.error)}</p>;
   }
   if (details.skipped) {
-    return <p className="text-xs text-gray-400 italic">{String(details.skipped)}</p>;
+    return <p className="text-xs text-gray-500 italic">{String(details.skipped)}</p>;
   }
 
   const rows: { label: string; value: string }[] = [];
@@ -108,7 +108,7 @@ function CheckDetails({ name, details }: { name: string; details: Record<string,
       <div className="space-y-1">
         {rows.map((r) => <DetailRow key={r.label} label={r.label} value={r.value} />)}
         <div className="mt-2 border-t border-gray-100 pt-2">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">By Category</p>
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">By Category</p>
           <div className="space-y-0.5">
             {cats.map((c) => (
               <div key={c.category} className="flex items-center justify-between text-xs">
@@ -158,7 +158,7 @@ function CheckDetails({ name, details }: { name: string; details: Record<string,
           {skus.map((s) => (
             <div key={s.sku_name + s.cloud} className="text-xs">
               <span className="font-mono text-gray-700">{s.sku_name}</span>
-              <span className="ml-1 text-gray-400">({s.cloud})</span>
+              <span className="ml-1 text-gray-500">({s.cloud})</span>
               <span className="ml-2 text-gray-500">{s.active_prices} prices · ${s.min_price}–${s.max_price}</span>
             </div>
           ))}
@@ -192,7 +192,7 @@ function CheckDetails({ name, details }: { name: string; details: Record<string,
         {rows.map((r) => <DetailRow key={r.label} label={r.label} value={r.value} />)}
         {mismatches && mismatches.length > 0 && (
           <div className="mt-2 border-t border-gray-100 pt-2 space-y-1">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Mismatches</p>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Mismatches</p>
             {mismatches.map((m) => (
               <div key={m.date} className="flex items-center justify-between text-xs">
                 <span className="font-mono text-gray-600">{m.date}</span>
@@ -256,7 +256,7 @@ function CheckCard({ check }: { check: CheckResult }) {
         </span>
 
         <svg
-          className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+          className={`h-4 w-4 shrink-0 text-gray-500 transition-transform ${expanded ? "rotate-180" : ""}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />

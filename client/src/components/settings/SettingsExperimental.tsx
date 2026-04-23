@@ -118,7 +118,7 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
               </button>
             </div>
             {accountPricesLoading ? (
-              <p className="text-xs text-gray-400">Loading...</p>
+              <p className="text-xs text-gray-500">Loading...</p>
             ) : !accountPrices?.available ? (
               <span className="inline-flex items-center rounded-full bg-red-50 border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600">
                 {accountPrices?.message || "Pricing tables not accessible"}
@@ -133,7 +133,7 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
                     onChange={e => setPriceSearch(e.target.value)}
                     className="rounded border border-gray-200 px-2 py-1.5 text-xs w-64 focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
                   />
-                  <span className="text-xs text-gray-400">{accountPrices.count} SKUs</span>
+                  <span className="text-xs text-gray-500">{accountPrices.count} SKUs</span>
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-gray-200 max-h-64">
                   <table className="min-w-full divide-y divide-gray-200 text-xs">
@@ -162,7 +162,7 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
                                 </span>
                               )}
                             </td>
-                            <td className="px-3 py-2 text-gray-400">{p.usage_unit}</td>
+                            <td className="px-3 py-2 text-gray-500">{p.usage_unit}</td>
                           </tr>
                         ))}
                     </tbody>
@@ -316,21 +316,45 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
             </div>
           </div>
 
-          {/* Cost Forecasting — coming soon */}
+          {/* Unity AI Gateway — coming soon */}
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-3 opacity-50 cursor-not-allowed select-none">
             <div className="flex items-center gap-2">
-              <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2" />
               </svg>
-              <span className="text-sm font-medium text-gray-400">Cost Forecasting</span>
-              <div className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-400 border border-gray-200">
+              <span className="text-sm font-medium text-gray-500">Unity AI Gateway</span>
+              <div className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500 border border-gray-200">
                 Coming Soon
               </div>
             </div>
             <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-white px-3 py-2.5">
               <div>
-                <p className="text-xs font-medium text-gray-400">Enable forecasting</p>
-                <p className="text-xs text-gray-400 mt-0.5">
+                <p className="text-xs font-medium text-gray-500">Enable Unity AI Gateway insights</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Surface token consumption, cost-per-model, top requesters, and cache efficiency from <code className="rounded bg-gray-100 px-0.5">system.ai_gateway.usage</code> in the AI/ML tab. Requires AI Gateway endpoints to be enabled.
+                </p>
+              </div>
+              <div className="relative inline-flex h-5 w-9 shrink-0 rounded-full bg-gray-200 cursor-not-allowed">
+                <span className="pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform translate-x-0" />
+              </div>
+            </div>
+          </div>
+
+          {/* Cost Forecasting — coming soon */}
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-3 opacity-50 cursor-not-allowed select-none">
+            <div className="flex items-center gap-2">
+              <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+              </svg>
+              <span className="text-sm font-medium text-gray-500">Cost Forecasting</span>
+              <div className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500 border border-gray-200">
+                Coming Soon
+              </div>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-white px-3 py-2.5">
+              <div>
+                <p className="text-xs font-medium text-gray-500">Enable forecasting</p>
+                <p className="text-xs text-gray-500 mt-0.5">
                   Add a Forecasting tab that projects future consumption based on historical usage patterns, including month-end estimates and budget scenario modeling.
                 </p>
               </div>

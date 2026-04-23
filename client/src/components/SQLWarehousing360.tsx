@@ -30,7 +30,7 @@ interface SQLWarehousing360Props {
 
 // Colors for query source types
 const SOURCE_TYPE_COLORS: Record<string, string> = {
-  "GENIE SPACE": "#8B5CF6",
+  "GENIE SPACE": "#3B82F6",
   "AI/BI DASHBOARD": "#1B5162",
   "LEGACY DASHBOARD": "#06B6D4",
   "SQL QUERY": "#10B981",
@@ -40,7 +40,7 @@ const SOURCE_TYPE_COLORS: Record<string, string> = {
   Unknown: "#6B7280",
 };
 
-const COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#8B5CF6", "#EC4899", "#EF4444", "#6B7280"];
+const COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#3B82F6", "#EC4899", "#EF4444", "#6B7280"];
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("en-US", {
@@ -353,7 +353,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-        <p className="text-sm text-gray-400">Loading query analytics...</p>
+        <p className="text-sm text-gray-500">Loading query analytics...</p>
       </div>
     );
   }
@@ -366,23 +366,23 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
     <div className="space-y-6">
       {/* Query-level Cost Attribution */}
       {!hasQueryData ? (
-        <div className="rounded-lg border border-purple-200 bg-purple-50 p-6">
-          <h3 className="text-lg font-semibold text-purple-800">Query-level Cost Attribution Not Available</h3>
-          <p className="mt-2 text-sm text-purple-700">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
+          <h3 className="text-lg font-semibold text-gray-900">Query-level Cost Attribution Not Available</h3>
+          <p className="mt-2 text-sm text-gray-600">
             The <code className="rounded bg-orange-100 px-1">dbsql_cost_per_query</code> table has not been created yet.
           </p>
-          <p className="mt-2 text-sm text-purple-700">
+          <p className="mt-2 text-sm text-gray-600">
             This feature provides granular query-level cost attribution for all DBSQL queries, including:
           </p>
-          <ul className="mt-2 list-inside list-disc text-sm text-purple-700">
+          <ul className="mt-2 list-inside list-disc text-sm text-gray-600">
             <li>Cost breakdown by query source (Genie, Dashboards, SQL Editor, Jobs)</li>
             <li>Per-user query spend analysis</li>
             <li>Most expensive query identification</li>
             <li>Deep links to query profiles</li>
           </ul>
 
-          <div className="mt-4 rounded-lg bg-white p-4 border border-purple-200">
-            <h4 className="font-medium text-purple-800">Create Materialized Views</h4>
+          <div className="mt-4 rounded-lg bg-white p-4 border border-amber-100">
+            <h4 className="font-medium text-gray-900">Create Materialized Views</h4>
             <p className="mt-1 text-sm text-gray-600">
               Click the button below to create all required materialized views. This process runs in the background and may take a few minutes.
             </p>
@@ -400,7 +400,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 </button>
               )}
               {setupStatus === "loading" && (
-                <div className="flex items-center gap-2 text-purple-600">
+                <div className="flex items-center gap-2 text-gray-600">
                   <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -528,7 +528,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   <div className="text-2xl font-semibold text-gray-900">
                     {formatCurrency(summary?.total_spend || 0)}
                   </div>
-                  <div className="mt-1 text-xs text-gray-400">
+                  <div className="mt-1 text-xs text-gray-500">
                     {formatNumber(summary?.total_dbus || 0)} DBUs
                   </div>
                   <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend &rarr;</p>
@@ -547,7 +547,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   <div className="text-2xl font-semibold text-gray-900">
                     {formatNumber(summary?.total_queries || 0)}
                   </div>
-                  <div className="mt-1 text-xs text-gray-400">
+                  <div className="mt-1 text-xs text-gray-500">
                     Avg: {formatCurrency(summary?.avg_cost_per_query || 0)}/query
                   </div>
                   <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend &rarr;</p>
@@ -566,7 +566,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   <div className="text-2xl font-semibold text-gray-900">
                     {formatNumber(summary?.unique_users || 0)}
                   </div>
-                  <div className="mt-1 text-xs text-gray-400">
+                  <div className="mt-1 text-xs text-gray-500">
                     Across {formatNumber(summary?.unique_warehouses || 0)} warehouses
                   </div>
                   <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend &rarr;</p>
@@ -585,7 +585,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   <div className="text-2xl font-semibold text-gray-900">
                     {formatDuration(summary?.avg_duration_seconds || 0)}
                   </div>
-                  <div className="mt-1 text-xs text-gray-400">
+                  <div className="mt-1 text-xs text-gray-500">
                     Per query execution
                   </div>
                   <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend &rarr;</p>
@@ -609,7 +609,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
           {/* Daily Query Costs + Top Users — side by side */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* Timeseries Chart */}
-            <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+            <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
               <h3 className="mb-4 text-lg font-semibold text-gray-900">Query Spend by Source</h3>
               {timeseriesData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
@@ -635,14 +635,14 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="flex h-[300px] items-center justify-center text-gray-400">
+                <div className="flex h-[300px] items-center justify-center text-gray-500">
                   No timeseries data available
                 </div>
               )}
             </div>
 
             {/* Top Users Bar Chart */}
-            <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+            <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
               <h3 className="mb-4 text-lg font-semibold text-gray-900">Top Users by Query Spend</h3>
               {userBarData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
@@ -669,7 +669,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="flex h-[300px] items-center justify-center text-gray-400">
+                <div className="flex h-[300px] items-center justify-center text-gray-500">
                   No user data available
                 </div>
               )}
@@ -678,7 +678,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
 
           {/* Warehouse Spend by Type + Warehouse Count by Size — side by side */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
               <h3 className="mb-4 text-lg font-semibold text-gray-900">Warehouse Spend by Type</h3>
               {(() => {
                 const whTypeTs = (queryData as any)?.warehouse_type_timeseries;
@@ -686,7 +686,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 const whTypes: string[] = whTypeTs?.warehouse_types || [];
                 if (tsData.length === 0) {
                   return (
-                    <div className="flex h-[300px] items-center justify-center text-gray-400">
+                    <div className="flex h-[300px] items-center justify-center text-gray-500">
                       No warehouse type timeseries data available
                     </div>
                   );
@@ -729,7 +729,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
           </div>
 
           {/* Warehouse Count by Size */}
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5', overflow: 'visible' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5', overflow: 'visible' }}>
               {(() => {
                 const allWh = queryData?.by_warehouse?.warehouses || [];
                 // Build workspace list with names
@@ -755,7 +755,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   if (s === "UNKNOWN") continue;
                   bySize[s] = (bySize[s] || 0) + 1;
                 }
-                const sizeColors = ["#1B5162", "#06B6D4", "#10B981", "#F59E0B", "#FF3621", "#8B5CF6", "#EC4899", "#EF4444"];
+                const sizeColors = ["#1B5162", "#06B6D4", "#10B981", "#F59E0B", "#FF3621", "#3B82F6", "#EC4899", "#EF4444"];
                 const chartData = Object.entries(bySize)
                   .sort((a, b) => b[1] - a[1])
                   .map(([name, count]) => ({ name: name.replace(/_/g, " "), count }));
@@ -776,11 +776,11 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                               onClick={() => setWhSizeDropdownOpen(!whSizeDropdownOpen)}
                               className="inline-flex items-center gap-1.5 rounded-full border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
                             >
-                              <svg className="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg className="h-3.5 w-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
                               </svg>
                               Filter
-                              <svg className={`h-3 w-3 text-gray-400 transition-transform ${whSizeDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg className={`h-3 w-3 text-gray-500 transition-transform ${whSizeDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                               </svg>
                             </button>
@@ -837,7 +837,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                         </BarChart>
                       </ResponsiveContainer>
                     ) : (
-                      <div className="flex h-[300px] items-center justify-center text-gray-400">No warehouse data available</div>
+                      <div className="flex h-[300px] items-center justify-center text-gray-500">No warehouse data available</div>
                     )}
                   </>
                 );
@@ -846,7 +846,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
           </div>
 
           {/* Query Source Breakdown — full width */}
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
               <h3 className="mb-4 text-lg font-semibold text-gray-900">Query Source Breakdown</h3>
               {queryData.by_source?.sources && queryData.by_source.sources.length > 0 ? (
                 <div className="overflow-x-auto">
@@ -884,7 +884,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                                 style={{ backgroundColor: SOURCE_TYPE_COLORS[source.query_source_type] || "#6b7280" }}
                               />
                               <span className="font-medium text-gray-900">{source.query_source_type}</span>
-                              <svg className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg className="h-3 w-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                               </svg>
                             </div>
@@ -918,14 +918,14 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   </table>
                 </div>
               ) : (
-                <div className="flex h-40 items-center justify-center text-gray-400">
+                <div className="flex h-40 items-center justify-center text-gray-500">
                   No source breakdown available
                 </div>
               )}
           </div>
 
           {/* Top Expensive Queries Table */}
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <div className="mb-4 flex flex-col gap-2">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-lg font-semibold text-gray-900">Most Expensive Queries</h3>
@@ -935,7 +935,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                     className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
                   Show historical ({historicalQueryCount})
                   <span className="relative group ml-0.5">
-                    <svg className="inline h-3 w-3 text-gray-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                     <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Queries with unknown users or unavailable previews</span>
                   </span>
                 </label>
@@ -1029,7 +1029,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          <span className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 max-w-40 truncate" title={query.executed_by}>
+                          <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 max-w-40 truncate" title={query.executed_by}>
                             {formatIdentity(query.executed_by)}
                           </span>
                         </td>
@@ -1039,7 +1039,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                               href={query.query_profile_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="block truncate font-mono text-xs text-purple-600 hover:text-purple-800 hover:underline"
+                              className="block truncate font-mono text-xs text-blue-600 hover:text-blue-800 hover:underline"
                               title="Click to view query profile"
                             >
                               {query.statement_preview}
@@ -1075,7 +1075,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 )}
               </div>
             ) : (
-              <div className="flex h-40 items-center justify-center text-gray-400">
+              <div className="flex h-40 items-center justify-center text-gray-500">
                 No query data available
               </div>
             )}
@@ -1093,7 +1093,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
           </div>
           <div className="flex items-center gap-3">
             {warehouseHealth && (
-              <span className="text-xs text-gray-400">{warehouseHealth.warehouses_analyzed} warehouse{warehouseHealth.warehouses_analyzed !== 1 ? "s" : ""} analyzed</span>
+              <span className="text-xs text-gray-500">{warehouseHealth.warehouses_analyzed} warehouse{warehouseHealth.warehouses_analyzed !== 1 ? "s" : ""} analyzed</span>
             )}
             {/* Issue type filter */}
             {warehouseHealth?.recommendations?.length ? (
@@ -1116,7 +1116,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300" style={{ borderTopColor: "#FF3621" }} />
           </div>
         ) : !warehouseHealth?.available || !warehouseHealth.recommendations.length ? (
-          <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm text-gray-400">
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500">
             {warehouseHealth?.available === false
               ? "Warehouse health data unavailable. Requires system.compute.warehouse_events access."
               : "No rightsizing recommendations — all warehouses appear appropriately sized."}
@@ -1220,7 +1220,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   Top 5 Queries — {selectedSource}
                 </h3>
               </div>
-              <button onClick={() => setSelectedSource(null)} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+              <button onClick={() => setSelectedSource(null)} className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-600">
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -1247,7 +1247,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                     {sourceQueries.map((q, idx) => (
                       <tr key={q.statement_id || idx} className="hover:bg-gray-50">
                         <td className="px-4 py-3">
-                          <span className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 max-w-40 truncate" title={q.executed_by}>
+                          <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 max-w-40 truncate" title={q.executed_by}>
                             {formatIdentity(q.executed_by)}
                           </span>
                         </td>
@@ -1273,7 +1273,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                               </a>
                             )}
                             {!q.query_profile_url && !q.source_url && (
-                              <span className="text-xs text-gray-400">-</span>
+                              <span className="text-xs text-gray-500">-</span>
                             )}
                           </div>
                         </td>
@@ -1283,7 +1283,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 </table>
               </div>
             ) : (
-              <div className="flex h-40 items-center justify-center text-gray-400">
+              <div className="flex h-40 items-center justify-center text-gray-500">
                 No queries found for this source type
               </div>
             )}

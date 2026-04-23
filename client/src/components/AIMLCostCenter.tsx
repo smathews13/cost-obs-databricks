@@ -26,7 +26,7 @@ interface AIMLCostCenterProps {
 
 // Stable category-to-color mapping for consistent colors across pie + timeseries
 const CATEGORY_COLORS: Record<string, string> = {
-  "Serverless Inference": "#8B5CF6",
+  "Serverless Inference": "#06B6D4",
   "Model Training": "#1B5162",
   "Feature Engineering": "#14B8A6",
   "GPU Clusters": "#EF4444",
@@ -38,7 +38,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   "Vector Search": "#3B82F6",
   "Fine Tuning": "#F97316",
 };
-const FALLBACK_COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#8B5CF6", "#EC4899", "#EF4444", "#6B7280"];
+const FALLBACK_COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#3B82F6", "#EC4899", "#EF4444", "#6B7280"];
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -183,7 +183,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-        <p className="text-sm text-gray-400">Loading AI/ML data...</p>
+        <p className="text-sm text-gray-500">Loading AI/ML data...</p>
       </div>
     );
   }
@@ -353,7 +353,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
       {/* Charts Row */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Spend Over Time */}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">AI/ML Spend Over Time</h3>
           {data.timeseries?.timeseries?.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -387,7 +387,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
         </div>
 
         {/* Category Breakdown Pie Chart */}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by Category</h3>
           {pieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -418,11 +418,11 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
       {/* Top Endpoints & Top Models Side-by-Side */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Top Endpoints Table */}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <div className="mb-4 flex items-center gap-2">
             <h3 className="text-lg font-semibold text-gray-900">Top Serverless Endpoints</h3>
             <div className="group relative">
-              <svg className="h-4 w-4 text-gray-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-4 w-4 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div className="absolute left-0 top-6 z-50 hidden w-72 rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-600 shadow-lg group-hover:block">
@@ -483,11 +483,11 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
         </div>
 
         {/* Top Models Table */}
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
           <div className="mb-4 flex items-center gap-2">
             <h3 className="text-lg font-semibold text-gray-900">Top Models</h3>
             <div className="group relative">
-              <svg className="h-4 w-4 text-gray-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-4 w-4 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div className="absolute left-0 top-6 z-50 hidden w-72 rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-600 shadow-lg group-hover:block">
@@ -559,7 +559,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
       </div>
 
       {/* ML Runtime Clusters Table */}
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         {(() => {
           const allMlClusters = data.ml_clusters?.clusters || [];
           const isHistoricalMlCluster = (c: typeof allMlClusters[0]) => !c.cluster_name || c.cluster_name === c.cluster_id || c.cluster_name === "Unknown";
@@ -595,7 +595,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
                         className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
                       Show historical ({historicalMlCount})
                       <span className="relative group ml-0.5">
-                        <svg className="inline h-3 w-3 text-gray-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Clusters whose names could not be resolved — likely terminated or from inaccessible workspaces</span>
                       </span>
                     </label>
@@ -613,7 +613,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
                         {mlRuntimeFilter ? (
                           <span className="opacity-75 hover:opacity-100 ml-0.5" onClick={(e) => { e.stopPropagation(); setMlRuntimeFilter(null); setMlClustersPage(1); }}>×</span>
                         ) : (
-                          <svg className={`h-3 w-3 text-gray-400 transition-transform ${mlRuntimeFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                          <svg className={`h-3 w-3 text-gray-500 transition-transform ${mlRuntimeFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                         )}
                       </button>
                       {mlRuntimeFilterOpen && (
@@ -681,17 +681,17 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
                                 )}
                                 <div className="flex items-center gap-2">
                                   {isHistoricalMlCluster(cluster) && <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">Historical</span>}
-                                  <span className="text-xs text-gray-400 truncate max-w-[200px]">{cluster.cluster_id}</span>
+                                  <span className="text-xs text-gray-500 truncate max-w-[200px]">{cluster.cluster_id}</span>
                                 </div>
                               </div>
                             </td>
                             <td className="px-4 py-4 text-sm text-gray-500 max-w-[200px] truncate" title={cluster.runtime_version}>{cluster.runtime_version}</td>
                             <td className="px-4 py-4">
                               {cluster.owner ? (
-                                <span className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 max-w-40 truncate" title={cluster.owner}>
+                                <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 max-w-40 truncate" title={cluster.owner}>
                                   {formatIdentity(cluster.owner)}
                                 </span>
-                              ) : <span className="text-sm text-gray-400">—</span>}
+                              ) : <span className="text-sm text-gray-500">—</span>}
                             </td>
                             <td className="whitespace-nowrap px-4 py-4 text-right text-sm text-gray-500">{formatNumber(cluster.total_dbus)}</td>
                             <td className="whitespace-nowrap px-4 py-4 text-right text-sm text-gray-900">{formatCurrency(cluster.total_spend)}</td>
@@ -724,7 +724,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
       </div>
 
       {/* Agent Bricks Table */}
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         {(() => {
           const allAgents = data.agent_bricks?.agents || [];
           const isHistoricalAgent = (a: typeof allAgents[0]) => a.agent_name === "Unknown" || a.agent_name === a.endpoint_id;
@@ -756,7 +756,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
                       />
                       Show historical ({historicalAgentCount})
                       <span className="relative group ml-0.5">
-                        <svg className="inline h-3 w-3 text-gray-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Agents whose names could not be resolved — likely deleted or renamed</span>
                       </span>
                     </label>
@@ -826,7 +826,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host }: AI
                                       <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">Historical</span>
                                     )}
                                     {agent.endpoint_id && agent.endpoint_id !== agent.agent_name && (
-                                      <span className="max-w-[200px] truncate text-xs text-gray-400">{agent.endpoint_id}</span>
+                                      <span className="max-w-[200px] truncate text-xs text-gray-500">{agent.endpoint_id}</span>
                                     )}
                                   </div>
                                 </div>

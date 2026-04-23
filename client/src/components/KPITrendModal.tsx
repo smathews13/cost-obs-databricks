@@ -99,7 +99,7 @@ export function KPITrendModal({
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-600 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -236,7 +236,7 @@ export function KPITrendModal({
               </div>
             </>
           ) : (
-            <div className="flex h-64 flex-col items-center justify-center text-gray-400">
+            <div className="flex h-64 flex-col items-center justify-center text-gray-500">
               <p className="text-lg font-medium">No data available</p>
               <p className="text-sm">Try selecting a different date range</p>
             </div>

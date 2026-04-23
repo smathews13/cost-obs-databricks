@@ -245,7 +245,7 @@ function AlertDetailModal({
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-600 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -338,7 +338,7 @@ function AlertDetailModal({
                                   <td className="px-4 py-3 text-right text-sm text-gray-500">
                                     {prev ? formatCurrency(prev.spend) : "--"}
                                   </td>
-                                  <td className={`px-4 py-3 text-right text-sm font-medium ${delta !== null ? (delta > 0 ? "text-red-600" : delta < 0 ? "text-green-600" : "text-gray-500") : "text-gray-400"}`}>
+                                  <td className={`px-4 py-3 text-right text-sm font-medium ${delta !== null ? (delta > 0 ? "text-red-600" : delta < 0 ? "text-green-600" : "text-gray-500") : "text-gray-500"}`}>
                                     {delta !== null ? `${delta > 0 ? "+" : ""}${formatCurrency(delta)}` : "new"}
                                   </td>
                                 </>
@@ -387,7 +387,7 @@ function AlertDetailModal({
                                   <td className="px-4 py-3 text-right text-sm text-gray-500">
                                     {prev ? formatCurrency(prev.spend) : "--"}
                                   </td>
-                                  <td className={`px-4 py-3 text-right text-sm font-medium ${delta !== null ? (delta > 0 ? "text-red-600" : delta < 0 ? "text-green-600" : "text-gray-500") : "text-gray-400"}`}>
+                                  <td className={`px-4 py-3 text-right text-sm font-medium ${delta !== null ? (delta > 0 ? "text-red-600" : delta < 0 ? "text-green-600" : "text-gray-500") : "text-gray-500"}`}>
                                     {delta !== null ? `${delta > 0 ? "+" : ""}${formatCurrency(delta)}` : "new"}
                                   </td>
                                 </>
@@ -436,7 +436,7 @@ function AlertDetailModal({
                                   <td className="px-4 py-3 text-right text-sm text-gray-500">
                                     {prev ? formatCurrency(prev.spend) : "--"}
                                   </td>
-                                  <td className={`px-4 py-3 text-right text-sm font-medium ${delta !== null ? (delta > 0 ? "text-red-600" : delta < 0 ? "text-green-600" : "text-gray-500") : "text-gray-400"}`}>
+                                  <td className={`px-4 py-3 text-right text-sm font-medium ${delta !== null ? (delta > 0 ? "text-red-600" : delta < 0 ? "text-green-600" : "text-gray-500") : "text-gray-500"}`}>
                                     {delta !== null ? `${delta > 0 ? "+" : ""}${formatCurrency(delta)}` : "new"}
                                   </td>
                                 </>
@@ -559,7 +559,7 @@ function CreateAlertModal({
           <h2 className="text-xl font-semibold text-gray-900">Create New Alert</h2>
           <button
             onClick={onClose}
-            className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-600 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -686,11 +686,11 @@ function AlertCard({ alert, onClick }: { alert: Alert; onClick?: () => void }) {
 
   return (
     <div
-      className={`rounded-lg border-l-4 bg-white p-4 shadow transition-all ${
+      className={`rounded-lg border p-4 transition-all ${
         alert.severity === "high"
-          ? "border-red-500"
-          : "border-yellow-500"
-      } ${onClick ? "cursor-pointer hover:shadow-md hover:scale-[1.01]" : ""}`}
+          ? "border-red-200 bg-red-50"
+          : "border-amber-200 bg-amber-50"
+      } ${onClick ? "cursor-pointer hover:shadow-sm hover:scale-[1.01]" : ""}`}
       onClick={onClick}
     >
       <div className="flex items-start justify-between">
@@ -919,15 +919,15 @@ export default function Alerts() {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-        <p className="text-sm text-gray-400">Loading alerts...</p>
+        <p className="text-sm text-gray-500">Loading alerts...</p>
       </div>
     );
   }
 
   if (alertsError && dbAlertsError) {
     return (
-      <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-lg bg-white border shadow-sm p-8" style={{ borderColor: '#E5E5E5' }}>
-        <AlertTriangle className="h-10 w-10 text-gray-400" />
+      <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-lg bg-white border p-8" style={{ borderColor: '#E5E5E5' }}>
+        <AlertTriangle className="h-10 w-10 text-gray-500" />
         <p className="text-base font-medium text-gray-700">Alerts data unavailable</p>
         <p className="text-sm text-gray-500 text-center max-w-md">
           Could not load alert data. This may happen if the system tables are not accessible or the workspace is not configured yet.
@@ -963,7 +963,7 @@ export default function Alerts() {
       {/* Summary stats - moved above Databricks SQL Alerts */}
       {data && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <div className="flex items-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
                 <AlertTriangle className="h-6 w-6 text-orange-600" />
@@ -974,7 +974,7 @@ export default function Alerts() {
               </div>
             </div>
           </div>
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <div className="flex items-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
                 <Calendar className="h-6 w-6 text-orange-600" />
@@ -987,7 +987,7 @@ export default function Alerts() {
               </div>
             </div>
           </div>
-          <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+          <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
             <div className="flex items-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
                 <Bell className="h-6 w-6 text-orange-600" />
@@ -1093,7 +1093,7 @@ export default function Alerts() {
                       <>
                         <button
                           onClick={() => setDeleteConfirmId(alert.id)}
-                          className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                          className="rounded-lg p-2 text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
                           title="Delete alert"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -1103,7 +1103,7 @@ export default function Alerts() {
                             href={alertUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                            className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-600 transition-colors"
                             title="Open in Databricks"
                           >
                             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1120,7 +1120,7 @@ export default function Alerts() {
           </div>
         ) : (
           <div className="mt-4 rounded-lg border-2 border-dashed border-gray-300 p-8 text-center">
-            <Settings className="mx-auto h-12 w-12 text-gray-400" />
+            <Settings className="mx-auto h-12 w-12 text-gray-500" />
             <p className="mt-2 text-sm font-medium text-gray-900">
               No Databricks SQL Alerts configured
             </p>
@@ -1167,7 +1167,7 @@ export default function Alerts() {
           </div>
         ) : (
           <div className="flex h-64 flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-300 bg-gray-50">
-            <Bell className="h-12 w-12 text-gray-400" />
+            <Bell className="h-12 w-12 text-gray-500" />
             <p className="mt-2 text-sm font-medium text-gray-900">
               No alerts found
             </p>
@@ -1179,7 +1179,7 @@ export default function Alerts() {
       </div>
 
       {/* Reports & Alerts section */}
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="rounded-xl border border-gray-200 bg-white">
         <button
           onClick={() => setReportsOpen(o => !o)}
           className="flex w-full items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition-colors rounded-xl"
@@ -1195,7 +1195,7 @@ export default function Alerts() {
               <p className="text-xs text-gray-500">Configure weekly spend reports and user-level spend alerts</p>
             </div>
           </div>
-          <svg className={`h-5 w-5 text-gray-400 transition-transform ${reportsOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className={`h-5 w-5 text-gray-500 transition-transform ${reportsOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
         </button>
@@ -1219,9 +1219,9 @@ export default function Alerts() {
                 </button>
               </div>
               {configLoading ? (
-                <p className="text-sm text-gray-400">Loading…</p>
+                <p className="text-sm text-gray-500">Loading…</p>
               ) : (reportConfig?.weekly_reports ?? []).length === 0 ? (
-                <div className="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-400">
+                <div className="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-500">
                   No weekly report recipients configured yet.
                 </div>
               ) : (
@@ -1234,7 +1234,7 @@ export default function Alerts() {
                         </div>
                         <div>
                           <p className="text-sm font-medium text-gray-800">{r.name}</p>
-                          <p className="text-xs text-gray-400">{r.email} · every {r.send_day.charAt(0).toUpperCase() + r.send_day.slice(1)}</p>
+                          <p className="text-xs text-gray-500">{r.email} · every {r.send_day.charAt(0).toUpperCase() + r.send_day.slice(1)}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1250,7 +1250,7 @@ export default function Alerts() {
                           </span>
                         )}
                         <button onClick={() => deleteWeeklyReport.mutate(r.email)}
-                          className="rounded-lg p-1 text-gray-400 hover:text-red-500 hover:bg-red-50">
+                          className="rounded-lg p-1 text-gray-500 hover:text-red-500 hover:bg-red-50">
                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                           </svg>
@@ -1278,9 +1278,9 @@ export default function Alerts() {
                 </button>
               </div>
               {configLoading ? (
-                <p className="text-sm text-gray-400">Loading…</p>
+                <p className="text-sm text-gray-500">Loading…</p>
               ) : (reportConfig?.user_alerts ?? []).length === 0 ? (
-                <div className="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-400">
+                <div className="rounded-lg border border-dashed border-gray-200 px-4 py-6 text-center text-sm text-gray-500">
                   No user-level alerts configured yet.
                 </div>
               ) : (
@@ -1295,7 +1295,7 @@ export default function Alerts() {
                         </div>
                         <div>
                           <p className="text-sm font-medium text-gray-800">{a.name}</p>
-                          <p className="text-xs text-gray-400">
+                          <p className="text-xs text-gray-500">
                             {a.email}
                             {a.threshold_amount != null && ` · Threshold: ${fmt(a.threshold_amount)}`}
                             {a.spike_percent != null && ` · Spike: ${a.spike_percent}%`}
@@ -1303,7 +1303,7 @@ export default function Alerts() {
                         </div>
                       </div>
                       <button onClick={() => deleteUserAlert.mutate(a.email)}
-                        className="rounded-lg p-1 text-gray-400 hover:text-red-500 hover:bg-red-50">
+                        className="rounded-lg p-1 text-gray-500 hover:text-red-500 hover:bg-red-50">
                         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>

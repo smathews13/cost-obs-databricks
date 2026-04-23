@@ -169,7 +169,7 @@ export function SettingsConfig({
       )}
 
       {configLoading ? (
-        <div className="py-8 text-center text-sm text-gray-400">Loading configuration...</div>
+        <div className="py-8 text-center text-sm text-gray-500">Loading configuration...</div>
       ) : (
         <>
           {/* SQL Warehouse */}
@@ -187,7 +187,7 @@ export function SettingsConfig({
                   <div className="flex items-center gap-2">
                     <span className={`inline-block h-2 w-2 rounded-full ${appConfig.warehouse.state === "RUNNING" ? "bg-green-500" : appConfig.warehouse.state === "STOPPED" ? "bg-gray-400" : "bg-yellow-500"}`} />
                     <span className="text-sm font-medium text-gray-900">{appConfig.warehouse.name || appConfig.warehouse.id}</span>
-                    <span className="text-xs text-gray-400">({appConfig.warehouse.size || "—"}) · {appConfig.warehouse.state}</span>
+                    <span className="text-xs text-gray-500">({appConfig.warehouse.size || "—"}) · {appConfig.warehouse.state}</span>
                   </div>
                 </div>
               </div>
@@ -198,9 +198,9 @@ export function SettingsConfig({
                 <div className="text-xs text-gray-500">Select a different SQL warehouse to power the app</div>
               </div>
               {warehousesLoading ? (
-                <div className="py-3 text-center text-sm text-gray-400">Loading warehouses...</div>
+                <div className="py-3 text-center text-sm text-gray-500">Loading warehouses...</div>
               ) : warehouses.length === 0 ? (
-                <div className="py-3 text-center text-sm text-gray-400">No warehouses found</div>
+                <div className="py-3 text-center text-sm text-gray-500">No warehouses found</div>
               ) : (
                 <>
                 <div className="space-y-1.5 max-h-48 overflow-y-auto">
@@ -223,7 +223,7 @@ export function SettingsConfig({
                         <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${wh.state === "RUNNING" ? "bg-green-500" : wh.state === "STOPPED" ? "bg-gray-400" : "bg-yellow-500"}`} />
                         <div className="min-w-0">
                           <div className="font-medium text-gray-900 truncate">{wh.name}</div>
-                          <div className="text-xs text-gray-400">{wh.size || "—"} · {wh.state}</div>
+                          <div className="text-xs text-gray-500">{wh.size || "—"} · {wh.state}</div>
                         </div>
                       </div>
                       {wh.is_current ? (
@@ -231,7 +231,7 @@ export function SettingsConfig({
                           Active
                         </span>
                       ) : (
-                        <span className="shrink-0 text-xs text-gray-400">
+                        <span className="shrink-0 text-xs text-gray-500">
                           {wh.state === "STOPPED" ? "Will start" : "Select"}
                         </span>
                       )}
@@ -296,7 +296,7 @@ export function SettingsConfig({
                   placeholder={appConfig?.identity?.display_name || "e.g., Cost Observability"}
                   className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                 />
-                <p className="mt-1 text-xs text-gray-400">
+                <p className="mt-1 text-xs text-gray-500">
                   Overrides the app name shown in the header. Leave blank to use the default ({appConfig?.identity?.display_name || "service principal name"}).
                 </p>
               </div>
@@ -404,7 +404,7 @@ export function SettingsConfig({
                     </button>
                   )}
                 </div>
-                <p className="mt-1 text-[11px] text-gray-400">
+                <p className="mt-1 text-[11px] text-gray-500">
                   Enter an existing Genie Space ID, or click Auto-Create to deploy one automatically using your workspace's billing tables.
                 </p>
                 {genieCreateStatus && (
@@ -428,7 +428,7 @@ export function SettingsConfig({
               <div className="flex items-center gap-2">
                 {/* Last refresh indicator */}
                 {tablesStatus?.refresh_status === null || tablesStatus?.refresh_status === undefined ? (
-                  <span className="text-xs text-gray-400">Last refresh: unknown</span>
+                  <span className="text-xs text-gray-500">Last refresh: unknown</span>
                 ) : tablesStatus.refresh_status.status === "error" ? (
                   <span className="text-xs text-red-500">Last refresh failed</span>
                 ) : tablesStatus.refresh_status.stale ? (
@@ -436,7 +436,7 @@ export function SettingsConfig({
                     Stale (&gt;26h)
                   </span>
                 ) : (
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-500">
                     {tablesStatus.refresh_status.hours_since_refresh < 1
                       ? "Refreshed &lt;1h ago"
                       : `Refreshed ${tablesStatus.refresh_status.hours_since_refresh}h ago`}
@@ -458,7 +458,7 @@ export function SettingsConfig({
                 <button
                   onClick={handleMvRefresh}
                   disabled={mvRefreshing}
-                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title="Rebuild materialized views with selected lookback period"
                 >
                   <svg className={`h-3.5 w-3.5 ${mvRefreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -470,7 +470,7 @@ export function SettingsConfig({
             </div>
 
             {/* Lookback period note */}
-            <p className="mb-3 text-xs text-gray-400">
+            <p className="mb-3 text-xs text-gray-500">
               Tables are built from <strong className="text-gray-500">2 years</strong> of history by default.
               Use the period selector above to rebuild with a different window — shorter periods rebuild faster, longer periods capture more historical trend data.
             </p>
@@ -478,7 +478,7 @@ export function SettingsConfig({
             {/* Catalog / Schema location */}
             <div className="mb-3 rounded-lg border border-gray-200 bg-white p-3 space-y-2">
               {catalogLoading ? (
-                <div className="text-xs text-gray-400">Loading...</div>
+                <div className="text-xs text-gray-500">Loading...</div>
               ) : catalogEditing ? (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -563,7 +563,7 @@ export function SettingsConfig({
                         setCatalogError(null);
                         setCatalogEditing(true);
                       }}
-                      className="rounded px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                      className="rounded px-2 py-1 text-xs text-gray-500 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                     >
                       Change
                     </button>
@@ -603,7 +603,7 @@ export function SettingsConfig({
 
             {/* Table list */}
             {tablesLoading ? (
-              <div className="py-3 text-center text-xs text-gray-400">Checking tables...</div>
+              <div className="py-3 text-center text-xs text-gray-500">Checking tables...</div>
             ) : tablesStatus?.tables?.length ? (
               <div className="rounded-lg border border-gray-200 overflow-hidden">
                 <table className="min-w-full divide-y divide-gray-100 text-xs">
@@ -637,11 +637,11 @@ export function SettingsConfig({
                               <span className="ml-1 text-red-400" title={t.error}>⚠</span>
                             )}
                           </td>
-                          <td className="px-3 py-2 text-gray-400">
+                          <td className="px-3 py-2 text-gray-500">
                             {t.table_type ? (
                               <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${
                                 t.table_type === "Materialized View" ? "bg-blue-50 text-blue-600" :
-                                t.table_type === "Telemetry" ? "bg-purple-50 text-purple-600" :
+                                t.table_type === "Telemetry" ? "bg-gray-100 text-gray-600" :
                                 "bg-gray-100 text-gray-500"
                               }`}>
                                 {t.table_type}
@@ -686,7 +686,7 @@ export function SettingsConfig({
                 </table>
               </div>
             ) : (
-              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-400">Could not retrieve table status</div>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-500">Could not retrieve table status</div>
             )}
           </div>
 
@@ -698,7 +698,7 @@ export function SettingsConfig({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
                 <h4 className="text-sm font-semibold text-gray-900">App Telemetry</h4>
-                <span className="inline-flex items-center rounded-full bg-purple-50 border border-purple-200 px-2 py-0.5 text-[10px] font-medium text-purple-700">OpenTelemetry</span>
+                <span className="inline-flex items-center rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-600">OpenTelemetry</span>
               </div>
               {!telemetryEditing && !telemetryLoading && (
                 <button
@@ -715,9 +715,9 @@ export function SettingsConfig({
             </div>
 
             {/* What is OTel telemetry */}
-            <div className="mb-3 rounded-lg border border-purple-100 bg-purple-50 p-3 space-y-2">
-              <p className="text-xs font-medium text-purple-900">How Databricks Apps telemetry works</p>
-              <p className="text-[11px] text-purple-800 leading-relaxed">
+            <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+              <p className="text-xs font-medium text-gray-900">How Databricks Apps telemetry works</p>
+              <p className="text-[11px] text-gray-600 leading-relaxed">
                 Databricks Apps automatically collects OpenTelemetry (OTel) data from every app and writes it to Delta tables in your Unity Catalog.
                 This is handled entirely by the <strong>Databricks Apps platform</strong> — the app itself does not write these tables.
               </p>
@@ -727,17 +727,17 @@ export function SettingsConfig({
                   { table: "otel_metrics", label: "Metrics", desc: "CPU/memory usage, request rates, active connections, queue depth" },
                   { table: "otel_logs", label: "Logs", desc: "Structured log lines from uvicorn and all Python loggers" },
                 ].map(({ table, label, desc }) => (
-                  <div key={table} className="rounded border border-purple-200 bg-white px-2.5 py-2 space-y-0.5">
+                  <div key={table} className="rounded border border-gray-200 bg-white px-2.5 py-2 space-y-0.5">
                     <div className="flex items-center gap-1.5">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-purple-400" />
-                      <code className="text-[10px] font-mono font-semibold text-purple-700">{table}</code>
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-gray-400" />
+                      <code className="text-[10px] font-mono font-semibold text-gray-700">{table}</code>
                     </div>
                     <p className="text-[10px] font-medium text-gray-700">{label}</p>
                     <p className="text-[10px] text-gray-500 leading-snug">{desc}</p>
                   </div>
                 ))}
               </div>
-              <p className="text-[11px] text-purple-700 pt-1">
+              <p className="text-[11px] text-gray-600 pt-1">
                 <strong>Different from Storage:</strong> The Storage section above shows tables <em>this app creates</em> (materialized views of system.billing data). The OTel tables below are created by Databricks and contain telemetry about the app itself — not cost data.
                 Configure the catalog/schema below so the Storage section can show their status alongside your materialized views.
               </p>
@@ -746,7 +746,7 @@ export function SettingsConfig({
             {/* Location config — same pattern as Storage Location */}
             <div className="rounded-lg border border-gray-200 bg-white p-3">
               {telemetryLoading ? (
-                <div className="text-xs text-gray-400">Loading...</div>
+                <div className="text-xs text-gray-500">Loading...</div>
               ) : telemetryEditing ? (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -778,7 +778,7 @@ export function SettingsConfig({
                       className="flex-1 rounded border border-gray-200 px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
                       placeholder="optional, e.g. cost_obs_"
                     />
-                    <span className="text-[10px] text-gray-400 shrink-0">→ {telemetryDraft.table_prefix || ""}otel_spans</span>
+                    <span className="text-[10px] text-gray-500 shrink-0">→ {telemetryDraft.table_prefix || ""}otel_spans</span>
                   </div>
                   {telemetryError && <p className="text-xs text-red-500">{telemetryError}</p>}
                   <div className="flex items-center gap-2 pt-1">
@@ -820,15 +820,15 @@ export function SettingsConfig({
               ) : (
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-gray-500">Catalog</span>
-                  <span className="rounded-md bg-purple-50 border border-purple-200 px-2 py-0.5 text-xs font-mono font-medium text-purple-800">{telemetry?.catalog || "—"}</span>
+                  <span className="rounded-md bg-gray-50 border border-gray-200 px-2 py-0.5 text-xs font-mono font-medium text-gray-700">{telemetry?.catalog || "—"}</span>
                   <span className="text-gray-300">·</span>
                   <span className="text-xs text-gray-500">Schema</span>
-                  <span className="rounded-md bg-purple-50 border border-purple-200 px-2 py-0.5 text-xs font-mono font-medium text-purple-800">{telemetry?.schema_name || "—"}</span>
+                  <span className="rounded-md bg-gray-50 border border-gray-200 px-2 py-0.5 text-xs font-mono font-medium text-gray-700">{telemetry?.schema_name || "—"}</span>
                   {telemetry?.table_prefix && (
                     <>
                       <span className="text-gray-300">·</span>
                       <span className="text-xs text-gray-500">Prefix</span>
-                      <span className="rounded-md bg-purple-50 border border-purple-200 px-2 py-0.5 text-xs font-mono font-medium text-purple-800">{telemetry.table_prefix}</span>
+                      <span className="rounded-md bg-gray-50 border border-gray-200 px-2 py-0.5 text-xs font-mono font-medium text-gray-700">{telemetry.table_prefix}</span>
                     </>
                   )}
                   {telemetry?.is_default && (

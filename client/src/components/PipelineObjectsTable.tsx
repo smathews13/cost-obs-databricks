@@ -57,10 +57,10 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
 
   if (isLoading) {
     return (
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <div className="flex h-48 flex-col items-center justify-center gap-3">
           <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-300" style={{ borderTopColor: '#FF3621' }} />
-          <p className="text-sm text-gray-400">Loading pipelines...</p>
+          <p className="text-sm text-gray-500">Loading pipelines...</p>
         </div>
       </div>
     );
@@ -68,7 +68,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
 
   if (data?.error) {
     return (
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <h3 className="mb-4 text-lg font-semibold text-gray-900">ETL Breakdown</h3>
         <p className="text-sm text-amber-600">{data.error}</p>
       </div>
@@ -77,7 +77,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
 
   if (!data || data.objects.length === 0) {
     return (
-      <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
         <h3 className="mb-4 text-lg font-semibold text-gray-900">ETL Breakdown</h3>
         <div className="flex h-32 flex-col items-center justify-center gap-2 text-gray-500">
           <p className="text-base font-medium">No pipeline objects found</p>
@@ -118,14 +118,14 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
   const historicalCount = data.objects.filter((o) => isHistorical(o)).length;
 
   return (
-    <div className="animate-fade-in rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: '#E5E5E5' }}>
+    <div className="animate-fade-in rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
       <div className="mb-4 flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-1.5">
               ETL Breakdown
               <span className="relative group">
-                <svg className="h-4 w-4 text-gray-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="h-4 w-4 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-80 rounded-lg bg-gray-900 px-3 py-2 text-xs text-white shadow-lg z-20">
@@ -148,7 +148,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
                 />
                 Show historical ({historicalCount})
                 <span className="relative group ml-0.5">
-                  <svg className="inline h-3 w-3 text-gray-400 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                   <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Objects whose names could not be resolved — likely deleted or from inaccessible workspaces</span>
                 </span>
               </label>
@@ -315,11 +315,11 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
                   </td>
                   <td className="px-3 py-3">
                     {obj.owner ? (
-                      <span className="inline-flex rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 max-w-40 truncate" title={obj.owner}>
+                      <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 max-w-40 truncate" title={obj.owner}>
                         {formatIdentity(obj.owner)}
                       </span>
                     ) : (
-                      <span className="text-xs text-gray-400">-</span>
+                      <span className="text-xs text-gray-500">-</span>
                     )}
                   </td>
                   <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-medium text-gray-900">

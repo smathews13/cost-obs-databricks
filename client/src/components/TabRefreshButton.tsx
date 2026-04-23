@@ -25,7 +25,7 @@ export function TabRefreshButton({ onRefresh }: TabRefreshButtonProps) {
         onClick={handleClick}
         disabled={spinning}
         aria-label="Refresh tab data"
-        className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-400 shadow-sm transition-colors hover:border-gray-300 hover:text-gray-600 disabled:cursor-not-allowed"
+        className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white p-2 text-gray-500 shadow-sm transition-colors hover:border-gray-300 hover:text-gray-600 disabled:cursor-not-allowed"
       >
         <svg
           className={`h-4 w-4 ${spinning ? "animate-spin" : ""}`}

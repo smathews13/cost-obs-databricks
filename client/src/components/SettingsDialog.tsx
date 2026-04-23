@@ -274,7 +274,7 @@ export function SettingsDialog({ isOpen, onClose, onTabVisibilityChange, onSetti
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900">App Settings</h3>
               </div>
-              <button onClick={onClose} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-500">
+              <button onClick={onClose} className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-500">
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -324,8 +324,7 @@ export function SettingsDialog({ isOpen, onClose, onTabVisibilityChange, onSetti
                     setSaveStatus("All settings reset to defaults");
                     setTimeout(() => setSaveStatus(null), 3000);
                   }}
-                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-90"
-                  style={{ backgroundColor: '#FF3621' }}
+                  className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 transition-colors hover:bg-red-50"
                 >
                   Reset to Default
                 </button>
