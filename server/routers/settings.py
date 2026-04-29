@@ -90,6 +90,38 @@ def _ensure_telemetry_table() -> None:
     )
 
 
+def _ensure_auth_mode_table() -> None:
+    _ensure_config_table(
+        f"CREATE TABLE IF NOT EXISTS {_config_table('app_auth_settings')} "
+        f"(mode STRING, updated_at TIMESTAMP) USING DELTA"
+    )
+
+
+def _save_auth_mode_to_table(mode: str) -> None:
+    from server.db import execute_write
+    _ensure_auth_mode_table()
+    table = _config_table("app_auth_settings")
+    execute_write(f"DELETE FROM {table}", None)
+    execute_write(
+        f"INSERT INTO {table} (mode, updated_at) VALUES (:mode, current_timestamp())",
+        {"mode": mode},
+    )
+
+
+def restore_auth_mode_from_delta() -> None:
+    """Read saved auth mode from Delta table and apply it. Called at startup after warehouse ready."""
+    try:
+        from server.db import execute_query, set_auth_mode_override
+        table = _config_table("app_auth_settings")
+        rows = execute_query(f"SELECT mode FROM {table} LIMIT 1", None, no_cache=True)
+        if rows and rows[0].get("mode"):
+            mode = rows[0]["mode"]
+            set_auth_mode_override(mode)
+            logger.info(f"Restored auth mode override from Delta table: {mode}")
+    except Exception as e:
+        logger.warning(f"Could not restore auth mode from Delta table (non-fatal): {e}")
+
+
 class CloudConnectionCreate(BaseModel):
     name: str
     provider: str  # "azure", "aws", "gcp"

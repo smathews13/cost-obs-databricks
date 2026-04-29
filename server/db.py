@@ -66,6 +66,12 @@ def set_auth_mode_override(mode: str) -> None:
     else:
         _auth_mode = "unknown"
         logger.info("Auth mode override saved: auto-detect (reset)")
+    # Also persist to Delta table so the override survives app restarts/redeployments
+    try:
+        from server.routers.settings import _save_auth_mode_to_table
+        _save_auth_mode_to_table(mode)
+    except Exception as e:
+        logger.warning(f"Could not save auth mode to Delta table (non-fatal): {e}")
 
 from cachetools import TTLCache
 from databricks import sql
