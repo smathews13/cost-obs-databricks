@@ -458,6 +458,15 @@ def _is_scope_error(exc: Exception) -> bool:
     return "required scopes" in msg or "does not have required scopes" in msg
 
 
+def _is_permission_error(exc: Exception) -> bool:
+    """Return True if exception indicates the user token lacks table/schema privileges."""
+    msg = str(exc).lower()
+    return any(s in msg for s in (
+        "permission_denied", "insufficient_privileges", "not authorized",
+        "user does not have", "does not have privilege",
+    ))
+
+
 @contextmanager
 def get_connection() -> Generator[Any, None, None]:
     """Get a Databricks SQL connection as a context manager.
@@ -559,6 +568,9 @@ def execute_write(query: str, params: dict[str, Any] | None = None) -> int:
         if _is_scope_error(exc) and _user_token.get():
             _lock_auth_mode("sp")
             affected_rows = _run(force_sp=True)
+        elif _is_permission_error(exc) and _user_token.get():
+            logger.warning(f"User token permission denied on write, retrying as SP: {exc}")
+            affected_rows = _run(force_sp=True)
         else:
             raise
 
@@ -614,6 +626,12 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
         if _is_scope_error(exc) and _user_token.get():
             # Token present but lacks sql scope — lock to SP for all future requests
             _lock_auth_mode("sp")
+            result = _run(force_sp=True)
+        elif _is_permission_error(exc) and _user_token.get():
+            # Token has sql scope but user lacks table privileges — retry as SP.
+            # Don't lock permanently: this may be table-specific and the admin
+            # can resolve it by setting Force SP in Settings → Permissions.
+            logger.warning(f"User token permission denied, retrying as SP: {exc}")
             result = _run(force_sp=True)
         else:
             raise
