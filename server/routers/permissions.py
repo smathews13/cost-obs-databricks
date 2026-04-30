@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -12,6 +13,23 @@ from server.db import get_workspace_client
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _get_check_client():
+    """WorkspaceClient for permission checks.
+
+    Always uses the user OAuth token if one is in context — ignores auth_mode
+    so the permissions display reflects the actual requesting user, not the
+    globally locked identity. Falls back to the SP singleton when no token present.
+    """
+    from server.db import _user_token
+    from databricks.sdk import WorkspaceClient
+    user_token = _user_token.get()
+    if user_token:
+        host = os.getenv("DATABRICKS_HOST", "")
+        if host:
+            return WorkspaceClient(host=host, token=user_token, auth_type="pat")
+    return get_workspace_client()
 
 # Dedicated executor so permissions checks don't contend with startup tasks
 _permissions_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="permissions")
@@ -80,7 +98,7 @@ def check_table_access(table: str) -> tuple[bool, str]:
     """
     # SDK check first — fast, no warehouse required, works during cold-start
     try:
-        w = get_workspace_client()
+        w = _get_check_client()
         w.tables.get(table)
         return True, ""
     except Exception as e:
@@ -114,7 +132,7 @@ def check_table_access(table: str) -> tuple[bool, str]:
 def _get_current_user() -> tuple[str, str]:
     """Return (email, display_name) for the current identity."""
     try:
-        w = get_workspace_client()
+        w = _get_check_client()
         current_user = w.current_user.me()
         email = current_user.user_name or "unknown"
         name = current_user.display_name or email

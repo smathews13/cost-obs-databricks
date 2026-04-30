@@ -586,17 +586,43 @@ function WelcomeStep({ config, cloud, loading, onWarehouseSelected }: { config: 
 }
 
 function PermissionsStep({ permissions, loading, onRetry }: { permissions: PermissionsData | null; loading: boolean; onRetry: () => void }) {
+  const [grantRunning, setGrantRunning] = useState(false);
+  const [grantResult, setGrantResult] = useState<{ ok: boolean; applied: number; failed: number; errors: string[] } | null>(null);
+
+  const applyGrants = async () => {
+    setGrantRunning(true);
+    setGrantResult(null);
+    try {
+      const res = await fetch("/api/setup/grant-sp-system-access", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      setGrantResult({
+        ok: body.ok ?? res.ok,
+        applied: body.applied ?? 0,
+        failed: body.failed ?? 0,
+        errors: body.errors ?? [],
+      });
+      if (body.ok || res.ok) {
+        setTimeout(() => onRetry(), 800);
+      }
+    } catch {
+      setGrantResult({ ok: false, applied: 0, failed: 1, errors: ["Network error — check server logs"] });
+    } finally {
+      setGrantRunning(false);
+    }
+  };
+
   if (loading) return <LoadingSpinner text="Checking permissions and setting up — this could take a minute" />;
 
   if (!permissions) return <div className="text-sm text-gray-500">Failed to load permissions.</div>;
 
   const { summary } = permissions;
+  const missingRequired = permissions.permissions.filter((p) => !p.granted && p.required);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-600">
-          System table access required for cost analytics.
+          System table access required for cost analytics. Results shown as your current user identity.
         </p>
         <button onClick={onRetry} className="text-xs text-blue-600 hover:underline">Recheck</button>
       </div>
@@ -607,7 +633,10 @@ function PermissionsStep({ permissions, loading, onRetry }: { permissions: Permi
         </div>
       ) : (
         <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-700">
-          Missing {summary.required_count - summary.required_granted} required permission(s). Run the GRANT statements below as a workspace admin.
+          Missing {summary.required_count - summary.required_granted} required permission(s) for the app's service principal.
+          {missingRequired.some(p => p.table.startsWith("system.billing")) && (
+            <span className="block mt-1 text-xs">Billing tables require metastore admin access to grant — your own account may already have access, but the SP needs explicit grants for nightly data refresh.</span>
+          )}
         </div>
       )}
 
@@ -631,32 +660,63 @@ function PermissionsStep({ permissions, loading, onRetry }: { permissions: Permi
       </div>
 
       {!summary.all_required_granted && (
-        <div className="rounded-lg bg-gray-50 p-3">
-          <p className="mb-2 text-xs font-medium text-gray-600">Run as metastore admin in a SQL editor:</p>
-          <pre className="overflow-x-auto text-xs text-gray-800">
-            {(() => {
-              const missing = permissions.permissions.filter((p) => !p.granted && p.required);
-              const sp = permissions.user.email;
-              const lines: string[] = [];
-              const seenCatalogs = new Set<string>();
-              const seenSchemas = new Set<string>();
-              for (const p of missing) {
-                const parts = p.table.split(".");
-                const catalog = parts[0];
-                const schema = parts.slice(0, 2).join(".");
-                if (!seenCatalogs.has(catalog)) {
-                  lines.push(`GRANT USE CATALOG ON CATALOG ${catalog} TO \`${sp}\`;`);
-                  seenCatalogs.add(catalog);
-                }
-                if (!seenSchemas.has(schema)) {
-                  lines.push(`GRANT USE SCHEMA ON SCHEMA ${schema} TO \`${sp}\`;`);
-                  seenSchemas.add(schema);
-                }
-                lines.push(`GRANT SELECT ON TABLE ${p.table} TO \`${sp}\`;`);
-              }
-              return lines.join("\n");
-            })()}
-          </pre>
+        <div className="space-y-3">
+          {/* Auto-apply */}
+          <div className="rounded-lg border border-[#FF3621]/20 bg-orange-50 p-3 space-y-2">
+            <p className="text-xs font-medium text-gray-800">Apply SP grants automatically</p>
+            <p className="text-[11px] text-gray-600">
+              Grants the app's service principal access to all required system tables using your current identity.
+              You must be a <strong>metastore admin</strong> for this to succeed.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={applyGrants}
+                disabled={grantRunning}
+                className="rounded-md bg-[#FF3621] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#e02e1a] disabled:opacity-50 transition-colors"
+              >
+                {grantRunning ? "Applying grants…" : "Apply SP Grants"}
+              </button>
+              {grantResult && (
+                <span className={`text-[11px] font-medium ${grantResult.ok ? "text-green-700" : "text-red-600"}`}>
+                  {grantResult.ok
+                    ? `✓ ${grantResult.applied} grant(s) applied — rechecking…`
+                    : `${grantResult.failed} failed. ${grantResult.errors[0] ?? "Check server logs."}`}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* SQL fallback */}
+          <details className="rounded-lg border border-gray-200 bg-gray-50 text-xs">
+            <summary className="cursor-pointer px-3 py-2 font-medium text-gray-600 hover:text-gray-800">
+              Manual SQL (if you prefer to run grants yourself)
+            </summary>
+            <div className="border-t border-gray-200 px-3 py-2">
+              <pre className="overflow-x-auto text-xs text-gray-800">
+                {(() => {
+                  const sp = permissions.user.email;
+                  const lines: string[] = [];
+                  const seenCatalogs = new Set<string>();
+                  const seenSchemas = new Set<string>();
+                  for (const p of missingRequired) {
+                    const parts = p.table.split(".");
+                    const catalog = parts[0];
+                    const schema = parts.slice(0, 2).join(".");
+                    if (!seenCatalogs.has(catalog)) {
+                      lines.push(`GRANT USE CATALOG ON CATALOG ${catalog} TO \`${sp}\`;`);
+                      seenCatalogs.add(catalog);
+                    }
+                    if (!seenSchemas.has(schema)) {
+                      lines.push(`GRANT USE SCHEMA ON SCHEMA ${schema} TO \`${sp}\`;`);
+                      seenSchemas.add(schema);
+                    }
+                    lines.push(`GRANT SELECT ON TABLE ${p.table} TO \`${sp}\`;`);
+                  }
+                  return lines.join("\n");
+                })()}
+              </pre>
+            </div>
+          </details>
         </div>
       )}
     </div>

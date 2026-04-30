@@ -27,7 +27,7 @@ export function SettingsPermissions() {
   const [modeError, setModeError] = useState<string | null>(null);
   const [modeSuccess, setModeSuccess] = useState<string | null>(null);
   const [grantRunning, setGrantRunning] = useState(false);
-  const [grantResult, setGrantResult] = useState<string | null>(null);
+  const [grantResult, setGrantResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const { data: permissions, isLoading } = useQuery<UserPermissions>({
     queryKey: ["user-permissions"],
@@ -96,13 +96,20 @@ export function SettingsPermissions() {
     try {
       const res = await fetch("/api/setup/grant-sp-system-access", { method: "POST" });
       const body = await res.json().catch(() => ({}));
-      if (res.ok && body.status === "ok") {
-        setGrantResult(`Grants applied for ${body.sp_client_id} on ${body.catalog}.${body.schema} + system tables.`);
+      if (body.ok || (res.ok && body.status === "ok")) {
+        const detail = body.applied != null
+          ? `${body.applied} grant(s) applied for ${body.sp_client_id}.`
+          : `Grants applied for ${body.sp_client_id}.`;
+        setGrantResult({ ok: true, message: detail });
+        queryClient.invalidateQueries({ queryKey: ["settings-auth-status"] });
+        await refetchAuth();
       } else {
-        setGrantResult(body.reason ?? body.detail ?? "Grant run completed (check server logs for details).");
+        const err = body.errors?.[0] ?? body.reason ?? body.detail ?? "Grant run completed — check server logs.";
+        const extra = body.failed ? ` (${body.failed} failed, ${body.applied ?? 0} applied)` : "";
+        setGrantResult({ ok: false, message: err + extra });
       }
     } catch {
-      setGrantResult("Network error running grants.");
+      setGrantResult({ ok: false, message: "Network error running grants." });
     } finally {
       setGrantRunning(false);
     }
@@ -438,7 +445,9 @@ export function SettingsPermissions() {
                   {grantRunning ? "Running grants…" : "Re-run SP grants"}
                 </button>
                 {grantResult && (
-                  <span className="text-[11px] text-amber-800">{grantResult}</span>
+                  <span className={`text-[11px] font-medium ${grantResult.ok ? "text-green-700" : "text-red-600"}`}>
+                    {grantResult.ok ? "✓ " : "✗ "}{grantResult.message}
+                  </span>
                 )}
               </div>
             </div>

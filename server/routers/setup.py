@@ -45,14 +45,20 @@ SYSTEM_TABLE_GRANTS = [
 ]
 
 
-def _grant_sp_schema_access(catalog: str, schema: str) -> None:
+def _grant_sp_schema_access(catalog: str, schema: str) -> dict:
     """Grant the app's SP identity all required permissions via UC REST API.
 
     Uses the SDK grants API directly — no SQL warehouse required, so this
     works even when the warehouse is stopped or the SP has no CAN_USE yet.
     Warehouse CAN_USE is granted via the permissions REST API.
+
+    Always uses the user OAuth token when present, bypassing any auth_mode lock,
+    because the granting user (not the SP) needs metastore admin privileges.
+
+    Returns {"ok": bool, "sp_client_id": str, "applied": int, "failed": int, "errors": list}
     """
-    from server.db import get_user_workspace_client
+    from server.db import _user_token, get_workspace_client
+    from databricks.sdk import WorkspaceClient
     from databricks.sdk.service.catalog import SecurableType, PermissionsChange, Privilege
 
     _PRIV_MAP = {
@@ -65,10 +71,21 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> None:
     sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
     if not sp_client_id:
         logger.warning("DATABRICKS_CLIENT_ID not set — skipping SP grants")
-        return
+        return {"ok": False, "sp_client_id": "", "applied": 0, "failed": 0,
+                "errors": ["DATABRICKS_CLIENT_ID not set — app has no service principal to grant"]}
 
-    w = get_user_workspace_client()
+    # Always use user token for grants — the user needs metastore admin, not the SP.
+    # Bypass auth_mode lock intentionally: even if queries are locked to SP mode,
+    # the grant operation must run as the human user who has the privileges.
+    user_token = _user_token.get()
+    host = os.getenv("DATABRICKS_HOST", "")
+    if user_token and host:
+        w = WorkspaceClient(host=host, token=user_token, auth_type="pat")
+    else:
+        w = get_workspace_client()
+
     ok = failed = 0
+    errors: list[str] = []
 
     def _uc_grant(securable_type: SecurableType, full_name: str, *privileges: str):
         nonlocal ok, failed
@@ -87,6 +104,7 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> None:
                 ok += 1
             else:
                 logger.warning(f"UC grant failed ({full_name}): {e}")
+                errors.append(f"{full_name}: {str(e)[:120]}")
                 failed += 1
 
     # System catalog + schemas + tables
@@ -107,6 +125,14 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> None:
     # Grant CAN_USE on the SQL warehouse via REST API (not SQL — works even
     # when the SP has no warehouse access yet, making it self-healing on redeploy)
     _grant_warehouse_can_use(w, sp_client_id)
+
+    return {
+        "ok": failed == 0,
+        "sp_client_id": sp_client_id,
+        "applied": ok,
+        "failed": failed,
+        "errors": errors,
+    }
 
 
 def _grant_warehouse_can_use(w, sp_client_id: str) -> None:
@@ -301,7 +327,7 @@ async def get_bootstrap_state() -> dict[str, Any]:
 
 
 @router.post("/grant-sp-system-access")
-async def grant_sp_system_access() -> dict[str, Any]:
+async def grant_sp_system_access(request: Request) -> dict[str, Any]:
     """Re-run all SP grants using the current user's OAuth token.
 
     Call this after a git deploy when the new SP is missing system table or
@@ -310,12 +336,20 @@ async def grant_sp_system_access() -> dict[str, Any]:
     Returns a summary of how many grants were applied.
     """
     from server.materialized_views import get_catalog_schema
-    catalog, schema = get_catalog_schema()
-    sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
-    if not sp_client_id:
-        return {"status": "skipped", "reason": "DATABRICKS_CLIENT_ID not set"}
-    _grant_sp_schema_access(catalog, schema)
-    return {"status": "ok", "sp_client_id": sp_client_id, "catalog": catalog, "schema": schema}
+
+    # Set the user token explicitly so _grant_sp_schema_access bypasses auth_mode lock
+    user_token = request.headers.get("x-forwarded-access-token", "")
+    ctx_tok = _db_user_token.set(user_token)
+    try:
+        catalog, schema = get_catalog_schema()
+        result = _grant_sp_schema_access(catalog, schema)
+    finally:
+        _db_user_token.reset(ctx_tok)
+
+    result["catalog"] = catalog
+    result["schema"] = schema
+    result["status"] = "ok" if result["ok"] else "partial"
+    return result
 
 
 @router.post("/create-tables")
