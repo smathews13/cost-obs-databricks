@@ -681,6 +681,28 @@ async def get_auth_status_endpoint():
     return get_auth_status()
 
 
+@router.get("/billing-access")
+async def check_billing_access():
+    """Test whether the SP can read system.billing.usage.
+
+    Always runs as the service principal (clears user token) so the result
+    reflects SP grants, not the current user's OAuth permissions.
+    Used by the frontend to detect missing post-deploy SP grants.
+    """
+    from server.db import _user_token, execute_query
+    tok = _user_token.set("")
+    try:
+        execute_query("SELECT 1 FROM system.billing.usage LIMIT 1", no_cache=True)
+        return {"ok": True}
+    except Exception as e:
+        err = str(e)
+        if any(s in err.lower() for s in ("permission_denied", "insufficient_privileges", "not authorized", "user does not have")):
+            return {"ok": False, "reason": "grants_missing"}
+        return {"ok": False, "reason": "error", "error": err[:200]}
+    finally:
+        _user_token.reset(tok)
+
+
 class AuthModeRequest(BaseModel):
     mode: str  # "sp" | "auto"
 
