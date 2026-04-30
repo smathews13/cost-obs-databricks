@@ -142,6 +142,25 @@ def _get_current_user() -> tuple[str, str]:
         return "unknown", "Unknown User"
 
 
+def _get_sp_info() -> dict[str, str]:
+    """Return the app service principal's client_id and display_name.
+
+    Always uses the SP singleton (not the user token) — we're describing the
+    app's own identity, not the requesting user's identity.
+    Cached indefinitely per process since the SP doesn't change at runtime.
+    """
+    sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
+    try:
+        w = get_workspace_client()
+        me = w.current_user.me()
+        display_name = me.display_name or me.user_name or sp_client_id
+        app_id = me.user_name or sp_client_id
+        return {"client_id": sp_client_id or app_id, "display_name": display_name}
+    except Exception as e:
+        logger.debug(f"Could not fetch SP identity: {e}")
+        return {"client_id": sp_client_id, "display_name": sp_client_id}
+
+
 def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
     """Run all permission checks and user lookup in parallel.
 
@@ -159,13 +178,14 @@ def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
 
     from concurrent.futures import as_completed
 
-    # Fire table checks + user lookup all in parallel
-    with ThreadPoolExecutor(max_workers=len(REQUIRED_PERMISSIONS) + 1) as pool:
+    # Fire table checks + user lookup + SP info all in parallel
+    with ThreadPoolExecutor(max_workers=len(REQUIRED_PERMISSIONS) + 2) as pool:
         future_to_table = {
             pool.submit(check_table_access, perm["table"]): perm["table"]
             for perm in REQUIRED_PERMISSIONS
         }
         user_future = pool.submit(_get_current_user)
+        sp_future = pool.submit(_get_sp_info)
 
         access_results: dict[str, tuple[bool, str]] = {}
         for future in as_completed(future_to_table):
@@ -173,6 +193,7 @@ def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
             access_results[table] = future.result()
 
         user_email, user_name = user_future.result()
+        sp_info = sp_future.result()
 
     # Assemble results
     results = []
@@ -219,6 +240,7 @@ def _check_permissions_sync(bypass_cache: bool = False) -> dict[str, Any]:
             "email": user_email,
             "name": user_name,
         },
+        "sp": sp_info,
         "help_url": "https://docs.databricks.com/en/admin/system-tables/index.html",
     }
 

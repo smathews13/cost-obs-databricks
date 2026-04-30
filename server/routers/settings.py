@@ -677,8 +677,26 @@ async def trigger_mv_refresh(request: Request, lookback_days: int = 730):
 @router.get("/auth-status")
 async def get_auth_status_endpoint():
     """Return current auth mode for the settings UI indicator."""
-    from server.db import get_auth_status
-    return get_auth_status()
+    import os as _os
+    from server.db import get_auth_status, get_workspace_client
+    status = get_auth_status()
+    # Add SP identity and catalog/schema so the UI renders accurate GRANT SQL without placeholders
+    try:
+        me = get_workspace_client().current_user.me()
+        status["sp_display_name"] = me.display_name or me.user_name or ""
+        status["sp_client_id"] = _os.getenv("DATABRICKS_CLIENT_ID", me.user_name or "")
+    except Exception:
+        status["sp_display_name"] = ""
+        status["sp_client_id"] = _os.getenv("DATABRICKS_CLIENT_ID", "")
+    try:
+        from server.db import get_catalog_schema
+        cat, sch = get_catalog_schema()
+        status["catalog"] = cat
+        status["schema"] = sch
+    except Exception:
+        status["catalog"] = ""
+        status["schema"] = ""
+    return status
 
 
 @router.get("/billing-access")

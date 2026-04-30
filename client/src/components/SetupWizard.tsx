@@ -36,6 +36,7 @@ interface PermissionsData {
     ready_to_use: boolean;
   };
   user: { email: string; name: string };
+  sp: { client_id: string; display_name: string };
   help_url: string;
 }
 
@@ -694,7 +695,11 @@ function PermissionsStep({ permissions, loading, onRetry }: { permissions: Permi
             <div className="border-t border-gray-200 px-3 py-2">
               <pre className="overflow-x-auto text-xs text-gray-800">
                 {(() => {
-                  const sp = permissions.user.email;
+                  const userEmail = permissions.user.email;
+                  const spName = permissions.sp?.display_name || permissions.sp?.client_id || "app-service-principal";
+                  const principals = userEmail && spName && userEmail !== spName
+                    ? `\`${userEmail}\`, \`${spName}\``
+                    : `\`${spName || userEmail}\``;
                   const lines: string[] = [];
                   const seenCatalogs = new Set<string>();
                   const seenSchemas = new Set<string>();
@@ -703,14 +708,14 @@ function PermissionsStep({ permissions, loading, onRetry }: { permissions: Permi
                     const catalog = parts[0];
                     const schema = parts.slice(0, 2).join(".");
                     if (!seenCatalogs.has(catalog)) {
-                      lines.push(`GRANT USE CATALOG ON CATALOG ${catalog} TO \`${sp}\`;`);
+                      lines.push(`GRANT USE CATALOG ON CATALOG ${catalog} TO ${principals};`);
                       seenCatalogs.add(catalog);
                     }
                     if (!seenSchemas.has(schema)) {
-                      lines.push(`GRANT USE SCHEMA ON SCHEMA ${schema} TO \`${sp}\`;`);
+                      lines.push(`GRANT USE SCHEMA ON SCHEMA ${schema} TO ${principals};`);
                       seenSchemas.add(schema);
                     }
-                    lines.push(`GRANT SELECT ON TABLE ${p.table} TO \`${sp}\`;`);
+                    lines.push(`GRANT SELECT ON TABLE ${p.table} TO ${principals};`);
                   }
                   return lines.join("\n");
                 })()}

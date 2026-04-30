@@ -18,6 +18,10 @@ interface AuthStatus {
   token_scopes: string[];
   user_email: string | null;
   override_mode: "sp" | "auto" | null;
+  sp_client_id: string;
+  sp_display_name: string;
+  catalog: string;
+  schema: string;
 }
 
 export function SettingsPermissions() {
@@ -453,34 +457,52 @@ export function SettingsPermissions() {
             </div>
 
           {/* SP grants reference */}
-          {(isSP || noToken) && (
+          {(isSP || noToken) && authStatus && (
             <details className="rounded-lg border border-gray-200 bg-gray-50 text-xs">
               <summary className="cursor-pointer px-4 py-2.5 font-medium text-gray-700 hover:text-gray-900">
-                Required SP grants (run as catalog owner or metastore admin)
+                Required SP grants (run as metastore admin)
               </summary>
               <div className="border-t border-gray-200 px-4 py-3 space-y-2">
-                <p className="text-gray-500 text-[11px]">Run in a SQL editor with catalog admin privileges. Replace <code className="rounded bg-gray-100 px-1">your_catalog</code> and <code className="rounded bg-gray-100 px-1">your_schema</code> with your app's catalog and schema, and <code className="rounded bg-gray-100 px-1">sp_client_id</code> with your SP's client ID (found in Databricks Apps → app identity).</p>
-                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-                  <strong>Note:</strong> Warehouse access cannot be granted via SQL. Grant <strong>CAN USE</strong> to the SP via the Databricks UI: SQL Warehouses → [warehouse name] → Permissions tab. The app also attempts to grant this automatically on startup.
-                </p>
-                <pre className="rounded bg-gray-900 px-4 py-3 text-[11px] text-green-400 overflow-x-auto leading-relaxed whitespace-pre">{`-- System tables (billing + query history)
-GRANT USE CATALOG ON CATALOG system TO \`<sp_client_id>\`;
-GRANT USE SCHEMA ON SCHEMA system.billing TO \`<sp_client_id>\`;
-GRANT SELECT ON TABLE system.billing.usage TO \`<sp_client_id>\`;
-GRANT SELECT ON TABLE system.billing.list_prices TO \`<sp_client_id>\`;
-GRANT SELECT ON TABLE system.billing.account_prices TO \`<sp_client_id>\`;
-GRANT USE SCHEMA ON SCHEMA system.query TO \`<sp_client_id>\`;
-GRANT SELECT ON TABLE system.query.history TO \`<sp_client_id>\`;
-GRANT USE SCHEMA ON SCHEMA system.compute TO \`<sp_client_id>\`;
-GRANT SELECT ON TABLE system.compute.clusters TO \`<sp_client_id>\`;
-GRANT USE SCHEMA ON SCHEMA system.lakeflow TO \`<sp_client_id>\`;
-GRANT SELECT ON TABLE system.lakeflow.pipelines TO \`<sp_client_id>\`;
+                {(() => {
+                  const spName = authStatus.sp_display_name || authStatus.sp_client_id || "<service-principal>";
+                  const userEmail = authStatus.user_email;
+                  const principals = userEmail && userEmail !== spName
+                    ? `\`${userEmail}\`, \`${spName}\``
+                    : `\`${spName}\``;
+                  const cat = authStatus.catalog || "<your_catalog>";
+                  const sch = authStatus.schema || "<your_schema>";
+                  return (
+                    <>
+                      <p className="text-gray-500 text-[11px]">
+                        Grants for <strong>{spName}</strong>{userEmail ? <> and <strong>{userEmail}</strong></> : null}.
+                        Run in a SQL editor as metastore admin.
+                      </p>
+                      <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                        <strong>Note:</strong> Warehouse access cannot be granted via SQL. Grant <strong>CAN USE</strong> to the SP via: SQL Warehouses → [warehouse name] → Permissions tab. The app also grants this automatically on startup.
+                      </p>
+                      <pre className="rounded bg-gray-900 px-4 py-3 text-[11px] text-green-400 overflow-x-auto leading-relaxed whitespace-pre">{
+`-- System tables (billing + query history)
+GRANT USE CATALOG ON CATALOG system TO ${principals};
+GRANT USE SCHEMA ON SCHEMA system.billing TO ${principals};
+GRANT SELECT ON TABLE system.billing.usage TO ${principals};
+GRANT SELECT ON TABLE system.billing.list_prices TO ${principals};
+GRANT SELECT ON TABLE system.billing.account_prices TO ${principals};
+GRANT USE SCHEMA ON SCHEMA system.query TO ${principals};
+GRANT SELECT ON TABLE system.query.history TO ${principals};
+GRANT USE SCHEMA ON SCHEMA system.compute TO ${principals};
+GRANT SELECT ON TABLE system.compute.clusters TO ${principals};
+GRANT USE SCHEMA ON SCHEMA system.lakeflow TO ${principals};
+GRANT SELECT ON TABLE system.lakeflow.pipelines TO ${principals};
 
 -- App schema (materialized views)
-GRANT USE CATALOG ON CATALOG <your_catalog> TO \`<sp_client_id>\`;
-GRANT USE SCHEMA ON SCHEMA <your_catalog>.<your_schema> TO \`<sp_client_id>\`;
-GRANT CREATE TABLE ON SCHEMA <your_catalog>.<your_schema> TO \`<sp_client_id>\`;
-GRANT SELECT ON SCHEMA <your_catalog>.<your_schema> TO \`<sp_client_id>\`;`}</pre>
+GRANT USE CATALOG ON CATALOG \`${cat}\` TO ${principals};
+GRANT USE SCHEMA ON SCHEMA \`${cat}\`.\`${sch}\` TO ${principals};
+GRANT CREATE TABLE ON SCHEMA \`${cat}\`.\`${sch}\` TO ${principals};
+GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO ${principals};`
+                      }</pre>
+                    </>
+                  );
+                })()}
               </div>
             </details>
           )}
