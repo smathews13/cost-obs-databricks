@@ -451,10 +451,10 @@ export function SettingsPermissions() {
               </summary>
               <div className="border-t border-gray-200 px-4 py-3 space-y-2">
                 <p className="text-gray-500 text-[11px]">Run in a SQL editor with catalog admin privileges. Replace <code className="rounded bg-gray-100 px-1">your_catalog</code> and <code className="rounded bg-gray-100 px-1">your_schema</code> with your app's catalog and schema, and <code className="rounded bg-gray-100 px-1">sp_client_id</code> with your SP's client ID (found in Databricks Apps → app identity).</p>
-                <pre className="rounded bg-gray-900 px-4 py-3 text-[11px] text-green-400 overflow-x-auto leading-relaxed whitespace-pre">{`-- Warehouse access
-GRANT CAN_USE ON SQL WAREHOUSE <warehouse_name> TO \`<sp_client_id>\`;
-
--- System tables (billing + query history)
+                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                  <strong>Note:</strong> Warehouse access cannot be granted via SQL. Grant <strong>CAN USE</strong> to the SP via the Databricks UI: SQL Warehouses → [warehouse name] → Permissions tab. The app also attempts to grant this automatically on startup.
+                </p>
+                <pre className="rounded bg-gray-900 px-4 py-3 text-[11px] text-green-400 overflow-x-auto leading-relaxed whitespace-pre">{`-- System tables (billing + query history)
 GRANT USE CATALOG ON CATALOG system TO \`<sp_client_id>\`;
 GRANT USE SCHEMA ON SCHEMA system.billing TO \`<sp_client_id>\`;
 GRANT SELECT ON TABLE system.billing.usage TO \`<sp_client_id>\`;

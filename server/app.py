@@ -243,8 +243,8 @@ def setup_system_table_grants():
                 f"GRANT CREATE TABLE ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
                 f"GRANT SELECT ON SCHEMA {catalog}.{schema} TO `{sp_client_id}`",
             ]
-            if warehouse_id:
-                sp_schema_grants.append(f"GRANT CAN_USE ON SQL WAREHOUSE `{warehouse_id}` TO `{sp_client_id}`")
+            # Warehouse CAN_USE must be granted via REST API — SQL syntax is invalid.
+            # setup.py _grant_warehouse_can_use() handles this on each setup/status call.
             sp_ok = 0
             for grant_sql in sp_schema_grants:
                 try:

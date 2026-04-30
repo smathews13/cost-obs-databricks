@@ -460,11 +460,7 @@ function WelcomeStep({ config, cloud, loading, onWarehouseSelected }: { config: 
               <div className="space-y-2">
                 <p className="text-xs text-red-700 font-medium">No warehouses visible to this app.</p>
                 <p className="text-xs text-amber-700">A workspace admin needs to grant the app's service principal <span className="font-mono font-semibold">CAN USE</span> on at least one SQL warehouse.</p>
-                {config?.identity?.user_name && (
-                  <div className="rounded bg-gray-800 px-3 py-2 font-mono text-xs text-green-400">
-                    GRANT USE ON WAREHOUSE &lt;name&gt; TO `{config.identity.user_name}`;
-                  </div>
-                )}
+                <p className="text-xs text-amber-600">Grant <strong>CAN USE</strong> to the service principal via the Databricks UI: SQL Warehouses → [warehouse name] → Permissions tab. Warehouse access cannot be granted via SQL.</p>
                 <p className="text-xs text-amber-600">After granting access, restart the app and try again. Alternatively, set <span className="font-mono">DATABRICKS_HTTP_PATH</span> directly in app.yaml.</p>
               </div>
             ) : (
@@ -636,12 +632,30 @@ function PermissionsStep({ permissions, loading, onRetry }: { permissions: Permi
 
       {!summary.all_required_granted && (
         <div className="rounded-lg bg-gray-50 p-3">
-          <p className="mb-2 text-xs font-medium text-gray-600">Run as workspace admin:</p>
+          <p className="mb-2 text-xs font-medium text-gray-600">Run as metastore admin in a SQL editor:</p>
           <pre className="overflow-x-auto text-xs text-gray-800">
-            {permissions.permissions
-              .filter((p) => !p.granted && p.required)
-              .map((p) => `GRANT SELECT ON ${p.table} TO \`${permissions.user.email}\`;`)
-              .join("\n")}
+            {(() => {
+              const missing = permissions.permissions.filter((p) => !p.granted && p.required);
+              const sp = permissions.user.email;
+              const lines: string[] = [];
+              const seenCatalogs = new Set<string>();
+              const seenSchemas = new Set<string>();
+              for (const p of missing) {
+                const parts = p.table.split(".");
+                const catalog = parts[0];
+                const schema = parts.slice(0, 2).join(".");
+                if (!seenCatalogs.has(catalog)) {
+                  lines.push(`GRANT USE CATALOG ON CATALOG ${catalog} TO \`${sp}\`;`);
+                  seenCatalogs.add(catalog);
+                }
+                if (!seenSchemas.has(schema)) {
+                  lines.push(`GRANT USE SCHEMA ON SCHEMA ${schema} TO \`${sp}\`;`);
+                  seenSchemas.add(schema);
+                }
+                lines.push(`GRANT SELECT ON TABLE ${p.table} TO \`${sp}\`;`);
+              }
+              return lines.join("\n");
+            })()}
           </pre>
         </div>
       )}
