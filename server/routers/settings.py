@@ -398,7 +398,7 @@ async def get_tables_status(request: Request):
     def _get_table_owner(fqn: str) -> str | None:
         try:
             from server.db import get_workspace_client
-            info = get_workspace_client().tables.get(fqn)
+            info = get_workspace_client().tables.get(fqn.replace("`", ""))
             return info.owner or None
         except Exception:
             return None

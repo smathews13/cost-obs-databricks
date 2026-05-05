@@ -548,38 +548,33 @@ function Dashboard() {
                 </svg>
                 <span className="text-sm opacity-75">Databricks Account</span>
               </div>
-              {accountInfo ? (
-                <div className="flex items-center gap-3">
-                  {accountInfo.account_name && (
-                    <span className="rounded px-2 py-0.5 text-xs font-mono" style={{ backgroundColor: 'rgba(255, 255, 255, 0.15)' }}>
-                      {accountInfo.account_name}
-                    </span>
-                  )}
-                  <img
-                    src={detectedCloudFromUrl === "AZURE" ? azureLogo : detectedCloudFromUrl === "GCP" ? gcpLogo : awsLogo}
-                    alt={detectedCloudFromUrl}
-                    className="h-5 w-5 object-contain"
-                  />
-                  {authStatus && (
-                    <span
-                      title={authStatus.identity === "user_oauth" ? "Queries running as your OAuth token" : authStatus.locked_to_sp ? "Locked to service principal (token failed scope check)" : "Queries running as service principal"}
-                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${authStatus.identity === "user_oauth" ? "bg-green-500/20 text-green-200" : "bg-amber-400/20 text-amber-200"}`}
-                    >
-                      <span className={`h-1.5 w-1.5 rounded-full ${authStatus.identity === "user_oauth" ? "bg-green-400" : "bg-amber-400"}`} />
-                      {authStatus.identity === "user_oauth" ? "OAuth" : "SP"}
-                    </span>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3">
+                <img
+                  src={detectedCloudFromUrl === "AZURE" ? azureLogo : detectedCloudFromUrl === "GCP" ? gcpLogo : awsLogo}
+                  alt={detectedCloudFromUrl}
+                  className="h-5 w-5 object-contain"
+                />
+                {accountInfo ? (
+                  <>
+                    {accountInfo.account_name && (
+                      <span className="rounded px-2 py-0.5 text-xs font-mono" style={{ backgroundColor: 'rgba(255, 255, 255, 0.15)' }}>
+                        {accountInfo.account_name}
+                      </span>
+                    )}
+                    {authStatus && (
+                      <span
+                        title={authStatus.identity === "user_oauth" ? "Queries running as your OAuth token" : authStatus.locked_to_sp ? "Locked to service principal (token failed scope check)" : "Queries running as service principal"}
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${authStatus.identity === "user_oauth" ? "bg-green-500/20 text-green-200" : "bg-amber-400/20 text-amber-200"}`}
+                      >
+                        <span className={`h-1.5 w-1.5 rounded-full ${authStatus.identity === "user_oauth" ? "bg-green-400" : "bg-amber-400"}`} />
+                        {authStatus.identity === "user_oauth" ? "OAuth" : "SP"}
+                      </span>
+                    )}
+                  </>
+                ) : (
                   <span className="text-sm opacity-75">Loading account info...</span>
-                  <img
-                    src={detectedCloudFromUrl === "AZURE" ? azureLogo : detectedCloudFromUrl === "GCP" ? gcpLogo : awsLogo}
-                    alt={detectedCloudFromUrl}
-                    className="h-5 w-5 object-contain"
-                  />
-                </div>
-              )}
+                )}
+              </div>
             </div>
             {user && (
               <div className="flex items-center gap-2">
