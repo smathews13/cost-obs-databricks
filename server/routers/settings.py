@@ -395,13 +395,22 @@ async def get_tables_status(request: Request):
             if tok is not None:
                 _user_token.reset(tok)
 
+    def _get_table_owner(fqn: str) -> str | None:
+        try:
+            from server.db import get_workspace_client
+            info = get_workspace_client().tables.get(fqn)
+            return info.owner or None
+        except Exception:
+            return None
+
     def _check_table_inner(table_name: str, fqn: str, table_type: str) -> dict:
         skip_date = table_name in no_date_tables
+        owner = _get_table_owner(fqn)
         try:
             if skip_date:
                 rows = execute_query(f"SELECT COUNT(*) as cnt FROM {fqn}")
                 cnt = rows[0]["cnt"] if rows else 0
-                return {"name": table_name, "table_type": table_type, "exists": True, "row_count": cnt, "min_date": None, "max_date": None, "days_behind": None}
+                return {"name": table_name, "table_type": table_type, "exists": True, "row_count": cnt, "min_date": None, "max_date": None, "days_behind": None, "owner": owner}
             else:
                 max_expr = date_expr_overrides.get(table_name, "MAX(usage_date)")
                 min_expr = min_date_expr_overrides.get(table_name, "MIN(usage_date)")
@@ -409,7 +418,7 @@ async def get_tables_status(request: Request):
                     f"SELECT COUNT(*) as cnt, {max_expr} as max_date, {min_expr} as min_date FROM {fqn}"
                 )
                 if not rows:
-                    return {"name": table_name, "table_type": table_type, "exists": True, "row_count": 0, "min_date": None, "max_date": None, "days_behind": None}
+                    return {"name": table_name, "table_type": table_type, "exists": True, "row_count": 0, "min_date": None, "max_date": None, "days_behind": None, "owner": owner}
                 cnt = rows[0].get("cnt", 0)
                 max_date = rows[0].get("max_date")
                 min_date = rows[0].get("min_date")
@@ -423,12 +432,12 @@ async def get_tables_status(request: Request):
                         days_behind = delta.days
                     except Exception:
                         pass
-                return {"name": table_name, "table_type": table_type, "exists": True, "row_count": int(cnt), "min_date": min_date_str, "max_date": max_date_str, "days_behind": days_behind}
+                return {"name": table_name, "table_type": table_type, "exists": True, "row_count": int(cnt), "min_date": min_date_str, "max_date": max_date_str, "days_behind": days_behind, "owner": owner}
         except Exception as e:
             err = str(e)
             if "TABLE_OR_VIEW_NOT_FOUND" in err or "does not exist" in err.lower() or "not found" in err.lower():
-                return {"name": table_name, "table_type": table_type, "exists": False, "row_count": None, "min_date": None, "max_date": None, "days_behind": None}
-            return {"name": table_name, "table_type": table_type, "exists": None, "row_count": None, "min_date": None, "max_date": None, "days_behind": None, "error": err[:200]}
+                return {"name": table_name, "table_type": table_type, "exists": False, "row_count": None, "min_date": None, "max_date": None, "days_behind": None, "owner": owner}
+            return {"name": table_name, "table_type": table_type, "exists": None, "row_count": None, "min_date": None, "max_date": None, "days_behind": None, "owner": owner, "error": err[:200]}
 
     # Config tables are created lazily on first save — not existing yet is expected
     CONFIG_TABLES = {
@@ -471,7 +480,7 @@ async def get_tables_status(request: Request):
                     results.append({
                         "name": name, "table_type": ttype, "exists": None,
                         "row_count": None, "max_date": None, "days_behind": None,
-                        "error": "timed out — warehouse may be starting up",
+                        "owner": None, "error": "timed out — warehouse may be starting up",
                     })
             logger.warning("Table status check timed out — warehouse likely cold")
 

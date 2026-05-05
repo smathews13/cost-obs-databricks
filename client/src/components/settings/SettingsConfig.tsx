@@ -73,6 +73,8 @@ export function SettingsConfig({
     identity: "user_oauth" | "service_principal";
     locked_to_sp: boolean;
     has_sql_scope: boolean | null;
+    sp_display_name?: string;
+    sp_client_id?: string;
   } | null>({
     queryKey: ["settings-auth-status"],
     queryFn: () => fetch("/api/settings/auth-status").then(r => r.json()).catch(() => null),
@@ -114,6 +116,7 @@ export function SettingsConfig({
       min_date: string | null;
       max_date: string | null;
       days_behind: number | null;
+      owner?: string | null;
       error?: string;
     }>;
   } | null>({
@@ -446,7 +449,7 @@ export function SettingsConfig({
               <div className="flex items-center gap-2">
                 {/* Last refresh indicator */}
                 {tablesStatus?.refresh_status === null || tablesStatus?.refresh_status === undefined ? (
-                  <span className="text-xs text-gray-500">Last refresh: unknown</span>
+                  <span className="text-xs text-gray-500">Last refresh: none</span>
                 ) : tablesStatus.refresh_status.status === "error" ? (
                   <span className="text-xs text-red-500">Last refresh failed</span>
                 ) : tablesStatus.refresh_status.stale ? (
@@ -635,13 +638,14 @@ export function SettingsConfig({
                 <table className="min-w-full divide-y divide-gray-100 text-xs">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-3 py-2 text-left font-medium text-gray-500">Table</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-500">Type</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500">Rows</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500">History</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500">Retention limit</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500">Latest date</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500">Freshness</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-500 cursor-help" title="Name of the materialized view or app table stored in your catalog">Table</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-500 cursor-help" title="Whether this is a materialized view (rebuilt from system tables) or a plain app config table">Type</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-500 cursor-help" title="The Unity Catalog owner of this table — amber if it differs from the current app identity, which may prevent rebuilds">Owner</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-500 cursor-help" title="Number of rows currently in the table">Rows</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-500 cursor-help" title="Span of data in the table — the time window between the oldest and newest record">History</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-500 cursor-help" title="Maximum data depth available from the source Databricks system table — data older than this cannot be captured regardless of rebuild window">Retention limit</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-500 cursor-help" title="The date of the most recent record in the table — data after this date is not yet reflected">Latest date</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-500 cursor-help" title="How far behind today the latest date is — 'Today' means the table is current; '29d behind' means the newest record is 29 days old and the table needs a rebuild">Freshness</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 bg-white">
@@ -652,9 +656,9 @@ export function SettingsConfig({
                         daily_usage_summary: "~3yr (billing.usage)",
                         daily_product_breakdown: "~3yr (billing.usage)",
                         daily_workspace_breakdown: "~3yr (billing.usage)",
-                        sql_tool_attribution: "~1yr (query.history)",
-                        daily_query_stats: "~1yr (query.history)",
-                        dbsql_cost_per_query: "~1yr (query.history)",
+                        sql_tool_attribution: "~13mo (query.history)",
+                        daily_query_stats: "~13mo (query.history)",
+                        dbsql_cost_per_query: "~13mo (query.history)",
                       };
                     return tablesStatus.tables.map((t) => {
                       const stale = t.days_behind != null && t.days_behind > 1;
@@ -688,6 +692,20 @@ export function SettingsConfig({
                                 {t.table_type}
                               </span>
                             ) : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-[11px]">
+                            {t.owner ? (() => {
+                              const currentIdentity = authStatus?.sp_display_name || authStatus?.sp_client_id;
+                              const mismatch = !!(currentIdentity && !t.owner.includes(currentIdentity) && !currentIdentity.includes(t.owner));
+                              return (
+                                <span
+                                  className={mismatch ? "text-amber-600 font-medium" : "text-gray-400"}
+                                  title={mismatch ? `Owned by a different principal than the current app identity (${currentIdentity}). Rebuild may require explicit permissions.` : t.owner}
+                                >
+                                  {t.owner.length > 28 ? t.owner.slice(0, 28) + "…" : t.owner}
+                                </span>
+                              );
+                            })() : <span className="text-gray-300">—</span>}
                           </td>
                           <td className="px-3 py-2 text-right text-gray-500 tabular-nums">
                             {t.row_count != null ? t.row_count.toLocaleString() : "—"}
