@@ -439,63 +439,14 @@ export function SettingsConfig({
 
           {/* Storage Location & Tables */}
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
-                </svg>
-                <h4 className="text-sm font-semibold text-gray-900">Storage Location & Tables</h4>
-              </div>
-              <div className="flex items-center gap-2">
-                {/* Last refresh indicator */}
-                {tablesStatus?.refresh_status === null || tablesStatus?.refresh_status === undefined ? (
-                  <span className="text-xs text-gray-500">Last refresh: none</span>
-                ) : tablesStatus.refresh_status.status === "error" ? (
-                  <span className="text-xs text-red-500">Last refresh failed</span>
-                ) : tablesStatus.refresh_status.stale ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                    Stale (&gt;26h)
-                  </span>
-                ) : (
-                  <span className="text-xs text-gray-500">
-                    {tablesStatus.refresh_status.hours_since_refresh < 1
-                      ? "Refreshed <1h ago"
-                      : `Refreshed ${tablesStatus.refresh_status.hours_since_refresh}h ago`}
-                  </span>
-                )}
-                <select
-                  value={lookbackDays}
-                  onChange={e => setLookbackDays(Number(e.target.value))}
-                  disabled={mvRefreshing}
-                  className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-[#FF3621] disabled:opacity-50"
-                  title="Lookback period for rebuild (default 2 years)"
-                >
-                  <option value={180}>6 months (default)</option>
-                  <option value={365}>1 year</option>
-                  <option value={730}>2 years</option>
-                  <option value={1095}>3 years</option>
-                </select>
-                <button
-                  onClick={handleMvRefresh}
-                  disabled={mvRefreshing}
-                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Rebuild materialized views with selected lookback period"
-                >
-                  <svg className={`h-3.5 w-3.5 ${mvRefreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  {mvRefreshing ? "Rebuilding…" : "Rebuild"}
-                </button>
-              </div>
+            <div className="flex items-center gap-2 mb-2">
+              <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+              </svg>
+              <h4 className="text-sm font-semibold text-gray-900">Storage Location & Tables</h4>
             </div>
 
-            {/* Lookback period note */}
-            <p className="mb-3 text-xs text-gray-500">
-              Tables are built from <strong className="text-gray-500">6 months</strong> of history by default.
-              Use the period selector above to rebuild with a different window — shorter periods rebuild faster, longer periods capture more historical trend data.
-            </p>
-
-            {/* Catalog / Schema location */}
+            {/* Catalog / Schema location — unified picker above rebuild controls */}
             <div className="mb-3 rounded-lg border border-gray-200 bg-white p-3 space-y-2">
               {catalogLoading ? (
                 <div className="text-xs text-gray-500">Loading...</div>
@@ -538,8 +489,19 @@ export function SettingsConfig({
                             const d = await res.json();
                             setCatalogError(d.detail || "Save failed");
                           } else {
+                            // Sync telemetry to same location so both always match
+                            await fetch("/api/settings/telemetry", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                catalog: catalogDraft.catalog,
+                                schema_name: catalogDraft.schema,
+                                table_prefix: telemetry?.table_prefix ?? "",
+                              }),
+                            });
                             setCatalogEditing(false);
                             await refetchCatalog();
+                            await refetchTelemetry();
                             await refetchTables();
                           }
                         } finally {
@@ -609,6 +571,50 @@ export function SettingsConfig({
                   Default from app.yaml: <span className="font-mono">{catalogInfo.env_catalog}.{catalogInfo.env_schema}</span>
                 </p>
               )}
+            </div>
+
+            {/* Last refresh + Rebuild controls */}
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                {tablesStatus?.refresh_status === null || tablesStatus?.refresh_status === undefined ? (
+                  <span className="text-xs text-gray-500">Last refresh: none</span>
+                ) : tablesStatus.refresh_status.status === "error" ? (
+                  <span className="text-xs text-red-500">Last refresh failed</span>
+                ) : tablesStatus.refresh_status.stale ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                    Stale (&gt;26h)
+                  </span>
+                ) : (
+                  <span className="text-xs text-gray-500">
+                    {tablesStatus.refresh_status.hours_since_refresh < 1
+                      ? "Refreshed <1h ago"
+                      : `Refreshed ${tablesStatus.refresh_status.hours_since_refresh}h ago`}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={lookbackDays}
+                  onChange={e => setLookbackDays(Number(e.target.value))}
+                  disabled={mvRefreshing}
+                  className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-[#FF3621] disabled:opacity-50"
+                >
+                  <option value={180}>6 months (default)</option>
+                  <option value={365}>1 year</option>
+                  <option value={730}>2 years</option>
+                  <option value={1095}>3 years</option>
+                </select>
+                <button
+                  onClick={handleMvRefresh}
+                  disabled={mvRefreshing}
+                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg className={`h-3.5 w-3.5 ${mvRefreshing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  {mvRefreshing ? "Rebuilding…" : "Rebuild"}
+                </button>
+              </div>
             </div>
 
             {/* Auth error banner */}
@@ -790,7 +796,7 @@ export function SettingsConfig({
                   }}
                   className="rounded border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50"
                 >
-                  {telemetry?.is_default ? "Override" : "Edit"}
+                  Set prefix
                 </button>
               )}
             </div>
@@ -819,37 +825,26 @@ export function SettingsConfig({
                 ))}
               </div>
               <p className="text-[11px] text-gray-600 pt-1">
-                <strong>Different from Storage:</strong> The Storage section above shows tables <em>this app creates</em> (materialized views of system.billing data). The OTel tables below are created by Databricks and contain telemetry about the app itself — not cost data.
-                Configure the catalog/schema below so the Storage section can show their status alongside your materialized views.
+                <strong>Different from Storage:</strong> The Storage section above shows tables <em>this app creates</em> (materialized views of system.billing data). The OTel tables are created by Databricks and contain telemetry about the app itself — not cost data.
               </p>
             </div>
 
-            {/* Location config — same pattern as Storage Location */}
-            <div className="rounded-lg border border-gray-200 bg-white p-3">
-              {telemetryLoading ? (
-                <div className="text-xs text-gray-500">Loading...</div>
-              ) : telemetryEditing ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <label className="w-14 text-xs text-gray-500 shrink-0">Catalog</label>
-                    <input
-                      type="text"
-                      value={telemetryDraft.catalog}
-                      onChange={e => setTelemetryDraft(d => ({ ...d, catalog: e.target.value }))}
-                      className="flex-1 rounded border border-gray-200 px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
-                      placeholder={appConfig?.storage_location?.catalog || "e.g. main"}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <label className="w-14 text-xs text-gray-500 shrink-0">Schema</label>
-                    <input
-                      type="text"
-                      value={telemetryDraft.schema_name}
-                      onChange={e => setTelemetryDraft(d => ({ ...d, schema_name: e.target.value }))}
-                      className="flex-1 rounded border border-gray-200 px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
-                      placeholder={appConfig?.storage_location?.schema || "e.g. default"}
-                    />
-                  </div>
+            {/* Location — shared with Storage Location picker */}
+            <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-gray-500">Location</span>
+                <span className="rounded-md bg-orange-50 border border-orange-200 px-2 py-0.5 text-xs font-mono font-medium text-orange-800">
+                  {catalogInfo?.catalog ?? appConfig?.storage_location?.catalog ?? "—"}
+                </span>
+                <span className="text-gray-300">·</span>
+                <span className="rounded-md bg-orange-50 border border-orange-200 px-2 py-0.5 text-xs font-mono font-medium text-orange-800">
+                  {catalogInfo?.schema ?? appConfig?.storage_location?.schema ?? "—"}
+                </span>
+                <span className="text-[10px] text-gray-400">(shared with app storage)</span>
+              </div>
+              {/* Table prefix — still configurable independently */}
+              {telemetryEditing ? (
+                <div className="space-y-2 pt-1 border-t border-gray-100">
                   <div className="flex items-center gap-2">
                     <label className="w-14 text-xs text-gray-500 shrink-0">Prefix</label>
                     <input
@@ -862,7 +857,7 @@ export function SettingsConfig({
                     <span className="text-[10px] text-gray-500 shrink-0">→ {telemetryDraft.table_prefix || ""}otel_spans</span>
                   </div>
                   {telemetryError && <p className="text-xs text-red-500">{telemetryError}</p>}
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex items-center gap-2">
                     <button
                       disabled={telemetrySaving}
                       onClick={async () => {
@@ -872,7 +867,11 @@ export function SettingsConfig({
                           const res = await fetch("/api/settings/telemetry", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify(telemetryDraft),
+                            body: JSON.stringify({
+                              catalog: catalogInfo?.catalog ?? "",
+                              schema_name: catalogInfo?.schema ?? "",
+                              table_prefix: telemetryDraft.table_prefix,
+                            }),
                           });
                           if (!res.ok) {
                             const d = await res.json().catch(() => ({}));
@@ -898,25 +897,13 @@ export function SettingsConfig({
                     </button>
                   </div>
                 </div>
-              ) : (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs text-gray-500">Catalog</span>
-                  <span className="rounded-md bg-gray-50 border border-gray-200 px-2 py-0.5 text-xs font-mono font-medium text-gray-700">{telemetry?.catalog || "—"}</span>
-                  <span className="text-gray-300">·</span>
-                  <span className="text-xs text-gray-500">Schema</span>
-                  <span className="rounded-md bg-gray-50 border border-gray-200 px-2 py-0.5 text-xs font-mono font-medium text-gray-700">{telemetry?.schema_name || "—"}</span>
-                  {telemetry?.table_prefix && (
-                    <>
-                      <span className="text-gray-300">·</span>
-                      <span className="text-xs text-gray-500">Prefix</span>
-                      <span className="rounded-md bg-gray-50 border border-gray-200 px-2 py-0.5 text-xs font-mono font-medium text-gray-700">{telemetry.table_prefix}</span>
-                    </>
-                  )}
-                  {telemetry?.is_default && (
-                    <span className="rounded-full bg-gray-100 border border-gray-200 px-2 py-0.5 text-[10px] text-gray-500">App default</span>
-                  )}
+              ) : telemetry?.table_prefix ? (
+                <div className="flex items-center gap-2 pt-1 border-t border-gray-100">
+                  <span className="text-xs text-gray-500">Prefix</span>
+                  <span className="rounded-md bg-gray-50 border border-gray-200 px-2 py-0.5 text-xs font-mono font-medium text-gray-700">{telemetry.table_prefix}</span>
+                  <span className="text-[10px] text-gray-400">→ {telemetry.table_prefix}otel_spans</span>
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
 

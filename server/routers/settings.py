@@ -405,18 +405,18 @@ async def get_tables_status(request: Request):
                 host = _os.getenv("DATABRICKS_HOST", "")
                 if host:
                     info = _WC(host=host, token=_captured_token, auth_type="pat").tables.get(plain)
-                    logger.info(f"[owner] user client {plain} -> {info.owner!r}")
+                    logger.debug(f"[owner] user client {plain} -> {info.owner!r}")
                     if info.owner is not None:
                         return info.owner or None
             except Exception as e:
-                logger.info(f"[owner] user client {plain} failed: {e}")
+                logger.debug(f"[owner] user client {plain} failed: {e}")
         try:
             from server.db import get_workspace_client
             info = get_workspace_client().tables.get(plain)
-            logger.info(f"[owner] SP client {plain} -> {info.owner!r}")
+            logger.debug(f"[owner] SP client {plain} -> {info.owner!r}")
             return info.owner or None
         except Exception as e:
-            logger.info(f"[owner] SP client {plain} failed: {e}")
+            logger.debug(f"[owner] SP client {plain} failed: {e}")
             return None
 
     def _check_table_inner(table_name: str, fqn: str, table_type: str) -> dict:
