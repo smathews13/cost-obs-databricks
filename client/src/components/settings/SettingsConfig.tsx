@@ -49,7 +49,7 @@ export function SettingsConfig({
   updateSetting,
 }: SettingsConfigProps) {
   const [mvRefreshing, setMvRefreshing] = useState(false);
-  const [lookbackDays, setLookbackDays] = useState(365);
+  const [lookbackDays, setLookbackDays] = useState(180);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -456,7 +456,7 @@ export function SettingsConfig({
                 ) : (
                   <span className="text-xs text-gray-500">
                     {tablesStatus.refresh_status.hours_since_refresh < 1
-                      ? "Refreshed &lt;1h ago"
+                      ? "Refreshed <1h ago"
                       : `Refreshed ${tablesStatus.refresh_status.hours_since_refresh}h ago`}
                   </span>
                 )}
@@ -467,11 +467,10 @@ export function SettingsConfig({
                   className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 bg-white focus:outline-none focus:ring-1 focus:ring-[#FF3621] disabled:opacity-50"
                   title="Lookback period for rebuild (default 2 years)"
                 >
-                  <option value={180}>6 months</option>
-                  <option value={365}>1 year (default)</option>
+                  <option value={180}>6 months (default)</option>
+                  <option value={365}>1 year</option>
                   <option value={730}>2 years</option>
                   <option value={1095}>3 years</option>
-                  <option value={1825}>5 years</option>
                 </select>
                 <button
                   onClick={handleMvRefresh}
@@ -489,7 +488,7 @@ export function SettingsConfig({
 
             {/* Lookback period note */}
             <p className="mb-3 text-xs text-gray-500">
-              Tables are built from <strong className="text-gray-500">1 year</strong> of history by default.
+              Tables are built from <strong className="text-gray-500">6 months</strong> of history by default.
               Use the period selector above to rebuild with a different window — shorter periods rebuild faster, longer periods capture more historical trend data.
             </p>
 
@@ -626,7 +625,7 @@ export function SettingsConfig({
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                 </svg>
-                Rebuilding materialized views in the background — this may take a few minutes. The table below will update automatically when complete.
+                Rebuilding materialized views in the background — this may take a few minutes. The tables below will update automatically when complete.
               </div>
             )}
             {tablesLoading ? (

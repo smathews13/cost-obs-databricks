@@ -653,7 +653,7 @@ async def reset_catalog_settings():
 
 
 @router.post("/refresh-mvs")
-async def trigger_mv_refresh(request: Request, background_tasks: BackgroundTasks, lookback_days: int = 730):
+async def trigger_mv_refresh(request: Request, background_tasks: BackgroundTasks, lookback_days: int = 180):
     """Kick off an MV rebuild in the background and return immediately.
 
     lookback_days: how many days of history to include (default 730 = 2 years).

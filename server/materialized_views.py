@@ -806,7 +806,7 @@ GROUP BY qq.statement_id
 """
 
 
-def create_materialized_views(catalog: str | None = None, schema: str | None = None, lookback_days: int = 730) -> dict:
+def create_materialized_views(catalog: str | None = None, schema: str | None = None, lookback_days: int = 180) -> dict:
     """Create all materialized view tables.
 
     Args:
@@ -928,7 +928,7 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
     return results
 
 
-def refresh_materialized_views(catalog: str | None = None, schema: str | None = None, lookback_days: int = 730) -> dict:
+def refresh_materialized_views(catalog: str | None = None, schema: str | None = None, lookback_days: int = 180) -> dict:
     """Refresh all materialized view tables (same as create - full refresh)."""
     return create_materialized_views(catalog, schema, lookback_days=lookback_days)
 
