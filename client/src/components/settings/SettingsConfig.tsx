@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, type UseMutationResult } from "@tanstack/react-query";
 import type { AppSettings } from "../SettingsDialog";
 
@@ -49,7 +49,12 @@ export function SettingsConfig({
   updateSetting,
 }: SettingsConfigProps) {
   const [mvRefreshing, setMvRefreshing] = useState(false);
-  const [lookbackDays, setLookbackDays] = useState(730);
+  const [lookbackDays, setLookbackDays] = useState(365);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
+  }, []);
 
   // Catalog/schema location override
   const { data: catalogInfo = null, isLoading: catalogLoading, refetch: refetchCatalog } = useQuery<{
@@ -118,13 +123,25 @@ export function SettingsConfig({
   });
 
   async function handleMvRefresh() {
+    if (mvRefreshing) return;
+    const prevRefreshTime = tablesStatus?.refresh_status?.last_refresh_utc ?? null;
     setMvRefreshing(true);
     try {
       await fetch(`/api/settings/refresh-mvs?lookback_days=${lookbackDays}`, { method: "POST" });
-      await refetchTables();
-    } finally {
-      setMvRefreshing(false);
+    } catch {
+      // fire-and-forget — server runs refresh in background
     }
+    const deadline = Date.now() + 10 * 60 * 1000;
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    pollIntervalRef.current = setInterval(async () => {
+      const result = await refetchTables();
+      const newTime = result.data?.refresh_status?.last_refresh_utc;
+      if ((newTime && newTime !== prevRefreshTime) || Date.now() > deadline) {
+        clearInterval(pollIntervalRef.current!);
+        pollIntervalRef.current = null;
+        setMvRefreshing(false);
+      }
+    }, 30_000);
   }
   const [genieCreating, setGenieCreating] = useState(false);
   const [genieCreateStatus, setGenieCreateStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -451,8 +468,8 @@ export function SettingsConfig({
                   title="Lookback period for rebuild (default 2 years)"
                 >
                   <option value={180}>6 months</option>
-                  <option value={365}>1 year</option>
-                  <option value={730}>2 years (default)</option>
+                  <option value={365}>1 year (default)</option>
+                  <option value={730}>2 years</option>
                   <option value={1095}>3 years</option>
                   <option value={1825}>5 years</option>
                 </select>
@@ -472,7 +489,7 @@ export function SettingsConfig({
 
             {/* Lookback period note */}
             <p className="mb-3 text-xs text-gray-500">
-              Tables are built from <strong className="text-gray-500">2 years</strong> of history by default.
+              Tables are built from <strong className="text-gray-500">1 year</strong> of history by default.
               Use the period selector above to rebuild with a different window — shorter periods rebuild faster, longer periods capture more historical trend data.
             </p>
 
@@ -603,10 +620,19 @@ export function SettingsConfig({
             )}
 
             {/* Table list */}
+            {mvRefreshing && (
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-800">
+                <svg className="h-3.5 w-3.5 animate-spin shrink-0 text-[#FF3621]" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                </svg>
+                Rebuilding materialized views in the background — this may take a few minutes. The table below will update automatically when complete.
+              </div>
+            )}
             {tablesLoading ? (
               <div className="py-3 text-center text-xs text-gray-500">Checking tables...</div>
             ) : tablesStatus?.tables?.length ? (
-              <div className="rounded-lg border border-gray-200 overflow-hidden">
+              <div className={`rounded-lg border border-gray-200 overflow-hidden transition-opacity duration-300 ${mvRefreshing ? "opacity-50" : ""}`}>
                 <table className="min-w-full divide-y divide-gray-100 text-xs">
                   <thead className="bg-gray-50">
                     <tr>
