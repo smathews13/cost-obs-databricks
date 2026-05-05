@@ -397,22 +397,31 @@ async def get_tables_status(request: Request):
 
     def _get_table_owner(fqn: str) -> str | None:
         plain = fqn.replace("`", "")
-        # Try user OAuth client first — has richer UC metadata visibility than SP
+        # Try user OAuth token directly — bypass _auth_mode lock which may force SP
+        # even when a valid user token is present (e.g. warehouse was cold at startup)
         if _captured_token:
             try:
-                from server.db import get_user_workspace_client
-                info = get_user_workspace_client().tables.get(plain)
-                owner = info.owner
-                if owner and owner.lower() not in ("unknown", ""):
-                    return owner
-            except Exception:
-                pass
+                import os as _os
+                from databricks.sdk import WorkspaceClient as _WC
+                host = _os.getenv("DATABRICKS_HOST", "")
+                if host:
+                    info = _WC(host=host, token=_captured_token, auth_type="pat").tables.get(plain)
+                    owner = info.owner
+                    if owner and owner.lower() not in ("unknown", ""):
+                        return owner
+                    logger.debug(f"User client tables.get({plain}) returned owner={owner!r}")
+            except Exception as e:
+                logger.debug(f"User client tables.get({plain}) failed: {e}")
         try:
             from server.db import get_workspace_client
             info = get_workspace_client().tables.get(plain)
             owner = info.owner
-            return owner if (owner and owner.lower() not in ("unknown", "")) else None
-        except Exception:
+            if owner and owner.lower() not in ("unknown", ""):
+                return owner
+            logger.debug(f"SP client tables.get({plain}) returned owner={owner!r}")
+            return None
+        except Exception as e:
+            logger.debug(f"SP client tables.get({plain}) failed: {e}")
             return None
 
     def _check_table_inner(table_name: str, fqn: str, table_type: str) -> dict:
