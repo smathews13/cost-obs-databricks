@@ -639,12 +639,24 @@ export function SettingsConfig({
                       <th className="px-3 py-2 text-left font-medium text-gray-500">Type</th>
                       <th className="px-3 py-2 text-right font-medium text-gray-500">Rows</th>
                       <th className="px-3 py-2 text-right font-medium text-gray-500">History</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-500">Retention limit</th>
                       <th className="px-3 py-2 text-right font-medium text-gray-500">Latest date</th>
                       <th className="px-3 py-2 text-right font-medium text-gray-500">Freshness</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 bg-white">
-                    {tablesStatus.tables.map((t) => {
+                    {(() => {
+                      // Source system table determines effective retention limit.
+                      // billing.usage retains ~3yr; query.history retains ~1yr.
+                      const RETENTION: Record<string, string> = {
+                        daily_usage_summary: "~3yr (billing.usage)",
+                        daily_product_breakdown: "~3yr (billing.usage)",
+                        daily_workspace_breakdown: "~3yr (billing.usage)",
+                        sql_tool_attribution: "~1yr (query.history)",
+                        daily_query_stats: "~1yr (query.history)",
+                        dbsql_cost_per_query: "~1yr (query.history)",
+                      };
+                    return tablesStatus.tables.map((t) => {
                       const stale = t.days_behind != null && t.days_behind > 1;
                       const missing = t.exists === false && !t.optional;
                       const notConfigured = t.exists === false && t.optional;
@@ -692,6 +704,9 @@ export function SettingsConfig({
                               return `${months}mo`;
                             })() : "—"}
                           </td>
+                          <td className="px-3 py-2 text-right text-gray-400 text-[11px]">
+                            {RETENTION[t.name] ?? "—"}
+                          </td>
                           <td className="px-3 py-2 text-right font-mono text-gray-500">
                             {t.max_date ? t.max_date.slice(0, 10) : "—"}
                           </td>
@@ -710,7 +725,7 @@ export function SettingsConfig({
                           </td>
                         </tr>
                       );
-                    })}
+                    })})()}
                   </tbody>
                 </table>
               </div>
