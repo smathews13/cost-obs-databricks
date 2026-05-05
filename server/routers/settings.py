@@ -397,8 +397,7 @@ async def get_tables_status(request: Request):
 
     def _get_table_owner(fqn: str) -> str | None:
         plain = fqn.replace("`", "")
-        # Try user OAuth token directly — bypass _auth_mode lock which may force SP
-        # even when a valid user token is present (e.g. warehouse was cold at startup)
+        # Try user OAuth token directly — bypass _auth_mode lock
         if _captured_token:
             try:
                 import os as _os
@@ -406,22 +405,18 @@ async def get_tables_status(request: Request):
                 host = _os.getenv("DATABRICKS_HOST", "")
                 if host:
                     info = _WC(host=host, token=_captured_token, auth_type="pat").tables.get(plain)
-                    owner = info.owner
-                    if owner and owner.lower() not in ("unknown", ""):
-                        return owner
-                    logger.debug(f"User client tables.get({plain}) returned owner={owner!r}")
+                    logger.info(f"[owner] user client {plain} -> {info.owner!r}")
+                    if info.owner is not None:
+                        return info.owner or None
             except Exception as e:
-                logger.debug(f"User client tables.get({plain}) failed: {e}")
+                logger.info(f"[owner] user client {plain} failed: {e}")
         try:
             from server.db import get_workspace_client
             info = get_workspace_client().tables.get(plain)
-            owner = info.owner
-            if owner and owner.lower() not in ("unknown", ""):
-                return owner
-            logger.debug(f"SP client tables.get({plain}) returned owner={owner!r}")
-            return None
+            logger.info(f"[owner] SP client {plain} -> {info.owner!r}")
+            return info.owner or None
         except Exception as e:
-            logger.debug(f"SP client tables.get({plain}) failed: {e}")
+            logger.info(f"[owner] SP client {plain} failed: {e}")
             return None
 
     def _check_table_inner(table_name: str, fqn: str, table_type: str) -> dict:

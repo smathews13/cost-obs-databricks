@@ -711,6 +711,9 @@ export function SettingsConfig({
                           </td>
                           <td className="px-3 py-2 text-[11px]">
                             {t.owner ? (() => {
+                              if (t.owner.toLowerCase() === "unknown") {
+                                return <span className="italic text-gray-400" title="Owner could not be resolved by Unity Catalog">unknown</span>;
+                              }
                               const currentIdentity = authStatus?.sp_display_name || authStatus?.sp_client_id;
                               const mismatch = !!(currentIdentity && !t.owner.includes(currentIdentity) && !currentIdentity.includes(t.owner));
                               return (
