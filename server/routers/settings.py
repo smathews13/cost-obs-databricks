@@ -399,7 +399,8 @@ async def get_tables_status(request: Request):
         try:
             from server.db import get_workspace_client
             info = get_workspace_client().tables.get(fqn.replace("`", ""))
-            return info.owner or None
+            owner = info.owner
+            return owner if (owner and owner.lower() not in ("unknown", "")) else None
         except Exception:
             return None
 

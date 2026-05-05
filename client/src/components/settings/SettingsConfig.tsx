@@ -638,14 +638,30 @@ export function SettingsConfig({
                 <table className="min-w-full divide-y divide-gray-100 text-xs">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-3 py-2 text-left font-medium text-gray-500 cursor-help" title="Name of the materialized view or app table stored in your catalog">Table</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-500 cursor-help" title="Whether this is a materialized view (rebuilt from system tables) or a plain app config table">Type</th>
-                      <th className="px-3 py-2 text-left font-medium text-gray-500 cursor-help" title="The Unity Catalog owner of this table — amber if it differs from the current app identity, which may prevent rebuilds">Owner</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500 cursor-help" title="Number of rows currently in the table">Rows</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500 cursor-help" title="Span of data in the table — the time window between the oldest and newest record">History</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500 cursor-help" title="Maximum data depth available from the source Databricks system table — data older than this cannot be captured regardless of rebuild window">Retention limit</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500 cursor-help" title="The date of the most recent record in the table — data after this date is not yet reflected">Latest date</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500 cursor-help" title="How far behind today the latest date is — 'Today' means the table is current; '29d behind' means the newest record is 29 days old and the table needs a rebuild">Freshness</th>
+                      {[
+                        { label: "Table", tip: "Name of the materialized view or app table stored in your catalog", align: "left" },
+                        { label: "Type", tip: "Whether this is a materialized view (rebuilt from system tables) or a plain app config table", align: "left" },
+                        { label: "Owner", tip: "The Unity Catalog owner of this table — shown in amber if it differs from the current app identity, which may prevent rebuilds", align: "left" },
+                        { label: "Rows", tip: "Number of rows currently in the table", align: "right" },
+                        { label: "History", tip: "Span of data in the table — the time window between the oldest and newest record", align: "right" },
+                        { label: "Retention limit", tip: "Maximum data depth available from the source Databricks system table — data older than this cannot be captured regardless of rebuild window", align: "right" },
+                        { label: "Latest date", tip: "The date of the most recent record in the table — data after this date is not yet reflected", align: "right" },
+                        { label: "Freshness", tip: "How far behind today the latest date is — 'Today' means the table is current; '29d behind' means the newest record is 29 days old and the table needs a rebuild", align: "right" },
+                      ].map(({ label, tip, align }) => (
+                        <th key={label} className={`px-3 py-2 text-${align} font-medium text-gray-500`}>
+                          <span className="inline-flex items-center gap-1">
+                            {label}
+                            <span className="relative group">
+                              <svg className="h-3 w-3 text-gray-400 cursor-help flex-shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                                <path fillRule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z" clipRule="evenodd" />
+                              </svg>
+                              <span className={`pointer-events-none invisible absolute ${align === "right" ? "right-0" : "left-0"} bottom-full z-[9999] mb-1.5 w-56 rounded-lg bg-gray-900 px-2.5 py-2 text-[11px] leading-snug text-white opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100`}>
+                                {tip}
+                              </span>
+                            </span>
+                          </span>
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 bg-white">
