@@ -396,9 +396,20 @@ async def get_tables_status(request: Request):
                 _user_token.reset(tok)
 
     def _get_table_owner(fqn: str) -> str | None:
+        plain = fqn.replace("`", "")
+        # Try user OAuth client first — has richer UC metadata visibility than SP
+        if _captured_token:
+            try:
+                from server.db import get_user_workspace_client
+                info = get_user_workspace_client().tables.get(plain)
+                owner = info.owner
+                if owner and owner.lower() not in ("unknown", ""):
+                    return owner
+            except Exception:
+                pass
         try:
             from server.db import get_workspace_client
-            info = get_workspace_client().tables.get(fqn.replace("`", ""))
+            info = get_workspace_client().tables.get(plain)
             owner = info.owner
             return owner if (owner and owner.lower() not in ("unknown", "")) else None
         except Exception:
