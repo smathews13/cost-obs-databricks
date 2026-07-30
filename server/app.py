@@ -29,6 +29,40 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ── On-demand warehouse warming ──────────────────────────────────────────────
+# Replaces the old fixed-interval keepalive loop. A single SELECT 1 is fired in
+# the background on the first real user request after an idle gap, so the
+# warehouse is warm for actual usage without being pinned online 24x7. When no
+# one is using the app (e.g. overnight), nothing fires and the warehouse
+# auto-stops as intended. The gap is set below the warehouse's auto_stop window
+# so an actively-used session stays warm, but it is user-triggered, never a timer.
+_WARM_INTERVAL_SECONDS = 8 * 60  # warm at most once per 8 min of active use
+_last_warm_ts = 0.0
+_warm_lock = threading.Lock()
+
+
+def maybe_warm_warehouse() -> None:
+    """If it's been longer than _WARM_INTERVAL_SECONDS since the last warm, fire a
+    single SELECT 1 in a background thread. Cheap, non-blocking, best-effort — a
+    user request never waits on it and a failure is swallowed."""
+    global _last_warm_ts
+    now = time.time()
+    with _warm_lock:
+        if now - _last_warm_ts < _WARM_INTERVAL_SECONDS:
+            return
+        _last_warm_ts = now  # reserve the slot before spawning to avoid a thundering herd
+
+    def _warm() -> None:
+        try:
+            from server.db import execute_query as _wq
+            _wq("SELECT 1", None, no_cache=True)
+            logger.debug("On-demand warehouse warm OK")
+        except Exception as _we:
+            logger.debug("On-demand warehouse warm failed (non-fatal): %s", _we)
+
+    threading.Thread(target=_warm, daemon=True, name="warehouse-warm").start()
+
+
 class UserAuthMiddleware:
     """Propagate x-forwarded-access-token into the db layer's ContextVar.
 
@@ -74,6 +108,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         # Skip logging for high-frequency keepalive / health endpoints
         if request.url.path in self._SILENT_PATHS:
             return await call_next(request)
+
+        # On-demand warehouse warm: a real user hit a real /api/ endpoint, so warm
+        # the warehouse in the background (throttled, non-blocking) for snappy queries.
+        # Not triggered by health/ping or static assets — so an idle app never warms.
+        if request.url.path.startswith("/api/"):
+            maybe_warm_warehouse()
 
         # Generate request ID for correlation
         request_id = str(uuid.uuid4())[:8]
@@ -874,27 +914,15 @@ async def lifespan(app: FastAPI):
                 logger.error(f"MV rebuild scheduler error: {e}")
                 await asyncio.sleep(3600)  # retry in 1h on unexpected error
 
-    async def _warehouse_keepalive_loop():
-        """Ping warehouse every 5 min to prevent auto-stop on idle.
-
-        With auto_stop_mins=10, a 5-minute keepalive ensures the warehouse
-        stays RUNNING while the app is live — eliminating cold-start timeouts
-        caused by nightly inactivity.
-        """
-        while True:
-            await asyncio.sleep(300)
-            try:
-                from server.db import execute_query as _kq
-                await asyncio.to_thread(lambda: _kq("SELECT 1", None, no_cache=True))
-                logger.debug("Warehouse keepalive OK")
-            except Exception as _ke:
-                logger.debug("Warehouse keepalive failed (non-fatal): %s", _ke)
-
-    keepalive_task = asyncio.create_task(_warehouse_keepalive_loop())
+    # NOTE: the old timer-based _warehouse_keepalive_loop() (a SELECT 1 every 5 min,
+    # forever) was removed — it pinned the (often shared) warehouse RUNNING ~24x7 and
+    # racked up serverless cost even overnight with zero users. Warming is now
+    # on-demand: the first real user request after an idle gap fires a single SELECT 1
+    # (see maybe_warm_warehouse + RequestLoggingMiddleware). No users → no warming →
+    # the warehouse auto-stops as intended.
     scheduler_task = asyncio.create_task(_daily_mv_refresh_loop())
     yield
     scheduler_task.cancel()
-    keepalive_task.cancel()
     try:
         from server.routers.setup import shutdown_readiness_executor
         shutdown_readiness_executor()
