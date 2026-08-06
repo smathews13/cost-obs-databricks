@@ -971,6 +971,13 @@ export interface QueryCostTimeseriesResponse {
   end_date: string;
 }
 
+export interface RegionScope {
+  billing_workspace_count: number;
+  in_region_workspace_count: number;
+  missing_workspace_count: number;
+  limited: boolean;
+}
+
 export interface DBSQLDashboardBundle {
   available: boolean;
   message?: string;
@@ -980,6 +987,7 @@ export interface DBSQLDashboardBundle {
   by_warehouse?: QueryCostByWarehouseResponse;
   top_queries?: TopQueriesResponse;
   timeseries?: QueryCostTimeseriesResponse;
+  region_scope?: RegionScope;
   start_date: string;
   end_date: string;
 }
