@@ -840,6 +840,12 @@ async def get_app_links() -> dict:
         # folder-browser id. Git deploys report a repo path (no workspace object).
         dep = body.get("active_deployment") or {}
         git_backed = bool(dep.get("git_source"))
+        # Git deploy: the source lives in the Git repo, not a workspace folder.
+        git_url = ""
+        if git_backed:
+            gs = dep.get("git_source") or {}
+            git_url = ((gs.get("git_repository") or {}).get("url")
+                       or (body.get("git_repository") or {}).get("url") or "")
         src_path = "" if git_backed else (dep.get("source_code_path") or "")
         if isinstance(src_path, str) and src_path.startswith("/Workspace/"):
             try:
@@ -849,7 +855,7 @@ async def get_app_links() -> dict:
                     folder_id = str(oid)
             except Exception as exc:
                 logger.info("app-links: could not resolve folder id for %s: %s", src_path, exc)
-        return {"body": body, "folder_id": folder_id}
+        return {"body": body, "folder_id": folder_id, "git_url": git_url}
 
     try:
         resolved = await asyncio.to_thread(_resolve)
@@ -869,13 +875,21 @@ async def get_app_links() -> dict:
     wsid = m.group(1) if m else (os.getenv("DATABRICKS_WORKSPACE_ID") or "").strip()
     org = f"?o={wsid}" if wsid else ""
 
-    # The app's page in Databricks Apps — where compute, logs and deployments live.
-    out["app_page_url"] = f"{host}/apps/{app_name}{org}"
+    # The app's page in Databricks Apps (apps-v2 UI) — compute, logs, deployments.
+    out["app_page_url"] = f"{host}/apps-v2/app/{app_name}/overview{org}"
 
-    # Source code in the workspace: the folder holding what is serving, when the
-    # workspace resolved one; otherwise the app page (a Git deploy has no folder).
+    # Source code: the workspace folder that holds what is serving, when the
+    # workspace resolved one; otherwise the Git repository the app deploys from
+    # (a Git deploy has no workspace folder). Left blank if neither — never the
+    # same target as the backend link.
     fid = resolved.get("folder_id") or ""
-    out["source_code_url"] = f"{host}/browse/folders/{fid}{org}" if fid else out["app_page_url"]
+    git_url = resolved.get("git_url") or ""
+    if fid:
+        out["source_code_url"] = f"{host}/browse/folders/{fid}{org}"
+    elif git_url:
+        out["source_code_url"] = git_url
+    else:
+        out["source_code_url"] = ""
     return out
 
 
@@ -940,10 +954,12 @@ async def preview_mv_source(catalog: str, schema: str) -> dict:
 @router.post("/mv-sources")
 async def add_mv_source(request: Request, body: dict) -> dict:
     """Add (or replace by label) an additional MV source and rebuild the unified
-    views. Admin-only. The source's tables must match the app's MV structure."""
-    _require_admin(request)
+    views. The source's tables must match the app's MV structure.
+
+    Not gated on the app admin role — registering a shared-view source only ever
+    adds read-only data on top of this workspace's own, never replacing it."""
     from server.db import get_mv_sources, save_mv_sources, get_catalog_schema
-    from server.materialized_views import rebuild_unified_views
+    from server.materialized_views import rebuild_unified_views, _MV_TABLES
 
     label = (body.get("label") or "").strip()
     catalog = (body.get("catalog") or "").strip()
@@ -954,8 +970,19 @@ async def add_mv_source(request: Request, body: dict) -> dict:
     if catalog == cat and schema == sch:
         raise HTTPException(status_code=400, detail="Source cannot be the app's own catalog.schema.")
 
+    # Optional per-source view selection (multiselect in the Browse UI). None means
+    # "include every matching view" (backward-compatible with pre-picker sources).
+    tables = body.get("tables")
+    if tables is not None:
+        tables = [t for t in tables if t in _MV_TABLES]
+        if not tables:
+            raise HTTPException(status_code=400, detail="Select at least one view to include.")
+
     sources = [s for s in get_mv_sources() if s.get("label") != label]
-    sources.append({"label": label, "catalog": catalog, "schema": schema})
+    entry = {"label": label, "catalog": catalog, "schema": schema}
+    if tables is not None:
+        entry["tables"] = tables
+    sources.append(entry)
     save_mv_sources(sources)
     summary = await asyncio.to_thread(rebuild_unified_views)
     _invalidate_mv_caches()
@@ -964,8 +991,7 @@ async def add_mv_source(request: Request, body: dict) -> dict:
 
 @router.delete("/mv-sources")
 async def remove_mv_source(request: Request, label: str = None) -> dict:
-    """Remove an additional MV source by label and rebuild unified views. Admin-only."""
-    _require_admin(request)
+    """Remove an additional MV source by label and rebuild unified views."""
     from server.db import get_mv_sources, save_mv_sources
     from server.materialized_views import rebuild_unified_views
 
