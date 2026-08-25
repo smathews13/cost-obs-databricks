@@ -545,9 +545,7 @@ export function SettingsConfig({
                       {[
                         { label: "Table", tip: "Name of the materialized view or app table stored in your catalog", align: "left" },
                         { label: "Type", tip: "Whether this is a materialized view (rebuilt from system tables) or a plain app config table", align: "left" },
-                        { label: "Owner", tip: "The Unity Catalog owner of this table — shown in amber if it differs from the current app identity, which may prevent rebuilds", align: "left" },
                         { label: "Rows", tip: "Number of rows currently in the table", align: "right" },
-                        { label: "History", tip: "Span of data in the table — the time window between the oldest and newest record", align: "right" },
                         { label: "Retention limit", tip: "Maximum data depth available from the source Databricks system table — data older than this cannot be captured regardless of rebuild window", align: "right" },
                         { label: "Latest date", tip: "The date of the most recent record in the table — data after this date is not yet reflected", align: "right" },
                         { label: "Freshness", tip: "How far behind today the latest date is — 'Today' means the table is current; '29d behind' means the newest record is 29 days old and the table needs a rebuild", align: "right" },
@@ -623,50 +621,8 @@ export function SettingsConfig({
                               </span>
                             ) : t.error ? <ColWarn error={t.error} /> : "—"}
                           </td>
-                          <td className="px-3 py-2 text-[11px]">
-                            {t.owner ? (() => {
-                              if (t.owner.toLowerCase() === "unknown") {
-                                return <span className="italic text-gray-500" title="Owner could not be resolved by Unity Catalog">unknown</span>;
-                              }
-                              // UC stores owners as client ID (UUID) — compare against sp_client_id,
-                              // not sp_display_name which is a human-readable name and won't match.
-                              const currentIdentity = authStatus?.sp_client_id || authStatus?.sp_display_name;
-                              const ownerLower = t.owner.toLowerCase();
-                              const idLower = (currentIdentity || "").toLowerCase();
-                              const mismatch = !!(currentIdentity && !ownerLower.includes(idLower) && !idLower.includes(ownerLower));
-                              const label = t.owner.length > 16 ? t.owner.slice(0, 16) + "…" : t.owner;
-                              if (mismatch) {
-                                return (
-                                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono font-semibold text-amber-700" title={`Owned by a different principal than the current app identity (${currentIdentity}). Rebuild may require explicit permissions.\n\nOwner: ${t.owner}`}>
-                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                                    {label}
-                                    <span className="opacity-60">SP</span>
-                                  </span>
-                                );
-                              }
-                              return (
-                                <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 font-mono font-semibold text-green-700" title={t.owner}>
-                                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                                  {label}
-                                  <span className="opacity-60">SP</span>
-                                </span>
-                              );
-                            })() : t.error ? <><span className="text-gray-300">—</span><ColWarn error={t.error} /></> : <span className="text-gray-300">—</span>}
-                          </td>
                           <td className="px-3 py-2 text-right text-gray-500 tabular-nums">
                             {t.row_count != null ? t.row_count.toLocaleString() : t.error ? <><span className="text-gray-300">—</span><ColWarn error={t.error} align="right" /></> : "—"}
-                          </td>
-                          <td className="px-3 py-2 text-right text-gray-500 tabular-nums">
-                            {t.min_date && t.max_date ? (() => {
-                              const start = new Date(t.min_date.slice(0, 10));
-                              const end = new Date(t.max_date.slice(0, 10));
-                              const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
-                              const years = Math.floor(months / 12);
-                              const remMonths = months % 12;
-                              if (years > 0 && remMonths > 0) return `${years}yr ${remMonths}mo`;
-                              if (years > 0) return `${years}yr`;
-                              return `${months}mo`;
-                            })() : t.error ? <><span className="text-gray-300">—</span><ColWarn error={t.error} align="right" /></> : "—"}
                           </td>
                           <td className="px-3 py-2 text-right text-gray-500 text-[11px]">
                             {RETENTION[t.name] ?? "—"}

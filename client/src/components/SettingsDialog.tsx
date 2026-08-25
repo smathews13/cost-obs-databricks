@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SettingsAccuracyChecks, SettingsDebugger } from "./settings";
@@ -124,6 +124,20 @@ function saveAppSettings(settings: AppSettings) {
 type NavKey = "general" | "tabs" | "alerts" | "data" | "access" | "resources" | "experimental";
 type Overlay = "setup" | "debugger" | "accuracy" | null;
 
+export interface SettingsCapabilities {
+  smtp_configured: boolean;
+  workspace_names_available: boolean;
+  account_prices_available: boolean;
+  is_admin: boolean;
+}
+interface UnifiedSettings {
+  general?: Record<string, unknown>;
+  tab_visibility?: Partial<TabVisibility>;
+  thresholds?: { spike_threshold_percent?: number; daily_budget?: number; workspace_budget?: number; anomaly_sensitivity?: "low" | "medium" | "high" };
+  experimental?: { exp_setup_wizard_link?: boolean; exp_debugger_link?: boolean };
+  capabilities?: SettingsCapabilities;
+}
+
 interface SettingsDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -163,6 +177,42 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
     queryKey: ["app-config"],
     queryFn: () => fetch("/api/settings/config").then(r => { if (!r.ok) throw new Error(); return r.json(); }),
   });
+
+  // Unified settings aggregator (Phase 2). Seeds the modal from the server; falls back
+  // to localStorage/defaults when unavailable so the modal still works pre-migration.
+  const { data: unified } = useQuery<UnifiedSettings | null>({
+    queryKey: ["unified-settings"],
+    queryFn: () => fetch("/api/settings").then(r => r.ok ? r.json() : null).catch(() => null),
+    staleTime: 60 * 1000,
+  });
+  const caps = unified?.capabilities;
+  const seededRef = useRef(false);
+  useEffect(() => {
+    if (!unified || dirty || seededRef.current) return;
+    seededRef.current = true;
+    const g = (unified.general || {}) as Record<string, unknown>;
+    const num = (v: unknown, d: number) => (typeof v === "number" ? v : d);
+    setLocalSettings((prev) => ({
+      ...prev,
+      companyName: (g.company_name as string) ?? prev.companyName,
+      appDisplayName: (g.app_display_name as string) ?? prev.appDisplayName,
+      defaultDateRangeDays: (num(g.default_date_range_days, prev.defaultDateRangeDays) as AppSettings["defaultDateRangeDays"]),
+      defaultLandingTab: (g.default_landing_tab as string) ?? prev.defaultLandingTab,
+      refreshIntervalMinutes: (num(g.auto_refresh_minutes, prev.refreshIntervalMinutes) as AppSettings["refreshIntervalMinutes"]),
+      density: (g.density as AppSettings["density"]) ?? prev.density,
+      theme: (g.theme as AppSettings["theme"]) ?? prev.theme,
+      showWorkspaceNames: typeof g.show_workspace_names === "boolean" ? g.show_workspace_names : prev.showWorkspaceNames,
+      enableUseCaseTracking: typeof g.enable_use_case_tracking === "boolean" ? g.enable_use_case_tracking : prev.enableUseCaseTracking,
+      enableAccuracyChecks: typeof g.enable_accuracy_checks === "boolean" ? g.enable_accuracy_checks : prev.enableAccuracyChecks,
+      alertSpikePercent: num(unified.thresholds?.spike_threshold_percent, prev.alertSpikePercent),
+      alertDailyBudget: num(unified.thresholds?.daily_budget, prev.alertDailyBudget),
+      alertWorkspaceBudget: num(unified.thresholds?.workspace_budget, prev.alertWorkspaceBudget),
+      anomalySensitivity: unified.thresholds?.anomaly_sensitivity ?? prev.anomalySensitivity,
+      expSetupWizardLink: unified.experimental?.exp_setup_wizard_link ?? prev.expSetupWizardLink,
+      expDebuggerLink: unified.experimental?.exp_debugger_link ?? prev.expDebuggerLink,
+    }));
+    if (unified.tab_visibility) setLocalVisibility((prev) => ({ ...prev, ...unified.tab_visibility }));
+  }, [unified, dirty]);
 
   const appName = localSettings.appDisplayName || appConfig?.identity?.display_name || "Cost Observability";
   const version = appConfig?.version?.commit_sha;
@@ -218,18 +268,31 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
     onSettingsChange(settings);
     onTabVisibilityChange(localVisibility);
     setLocalSettings(settings);
-    // Persist server-backed settings (thresholds always; webhook only when changed).
-    fetch("/api/settings/alert-thresholds", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spike_threshold_percent: settings.alertSpikePercent, daily_budget: settings.alertDailyBudget, workspace_budget: settings.alertWorkspaceBudget }),
-      signal: AbortSignal.timeout(10000),
-    }).catch(() => {});
+    // One Save = one PUT to the unified aggregator, which dispatches each sub-object
+    // to its domain store (app_settings / alert-thresholds / webhook). Price basis and
+    // refresh schedule save immediately via their own controls, so they're omitted here.
+    const body: Record<string, unknown> = {
+      general: {
+        company_name: settings.companyName, app_display_name: settings.appDisplayName,
+        default_date_range_days: settings.defaultDateRangeDays, default_landing_tab: settings.defaultLandingTab,
+        auto_refresh_minutes: settings.refreshIntervalMinutes, density: settings.density, theme: settings.theme,
+        show_workspace_names: settings.showWorkspaceNames,
+        enable_use_case_tracking: settings.enableUseCaseTracking, enable_accuracy_checks: settings.enableAccuracyChecks,
+      },
+      tab_visibility: localVisibility,
+      thresholds: {
+        spike_threshold_percent: settings.alertSpikePercent, daily_budget: settings.alertDailyBudget,
+        workspace_budget: settings.alertWorkspaceBudget, anomaly_sensitivity: settings.anomalySensitivity,
+      },
+      experimental: { exp_setup_wizard_link: settings.expSetupWizardLink, exp_debugger_link: settings.expDebuggerLink },
+    };
     if (settings.slackWebhookUrl && settings.slackWebhookUrl !== appSettings.slackWebhookUrl) {
-      fetch("/api/settings/webhook", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slack_webhook_url: settings.slackWebhookUrl }), signal: AbortSignal.timeout(10000),
-      }).catch(() => {});
+      body.webhook = { slack_webhook_url: settings.slackWebhookUrl };
     }
+    fetch("/api/settings", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
+    }).then(() => rqClient.invalidateQueries({ queryKey: ["unified-settings"] })).catch(() => {});
     setDirty(false);
     toast(landingHidden ? "Settings saved — landing tab reset to first visible" : "Settings saved");
   };
@@ -322,10 +385,10 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
               )}
               {overlay === "accuracy" && <SettingsAccuracyChecks />}
 
-              {!overlay && nav === "general" && <GeneralSection localSettings={localSettings} updateSetting={updateSetting} tabVisibility={localVisibility} />}
+              {!overlay && nav === "general" && <GeneralSection localSettings={localSettings} updateSetting={updateSetting} tabVisibility={localVisibility} caps={caps} />}
               {!overlay && nav === "tabs" && <DashboardTabsSection localVisibility={localVisibility} toggleTab={toggleTab} enableUseCaseTracking={localSettings.enableUseCaseTracking} />}
-              {!overlay && nav === "alerts" && <AlertsSection localSettings={localSettings} updateSetting={updateSetting} />}
-              {!overlay && nav === "data" && <DataTablesSection localSettings={localSettings} updateSetting={updateSetting} />}
+              {!overlay && nav === "alerts" && <AlertsSection localSettings={localSettings} updateSetting={updateSetting} caps={caps} />}
+              {!overlay && nav === "data" && <DataTablesSection localSettings={localSettings} updateSetting={updateSetting} caps={caps} />}
               {!overlay && nav === "access" && <AccessSection />}
               {!overlay && nav === "resources" && <ResourcesSection />}
               {!overlay && nav === "experimental" && <ExperimentalSection localSettings={localSettings} updateSetting={updateSetting} />}

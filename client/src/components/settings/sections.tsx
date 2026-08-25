@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AppSettings, TabVisibility } from "../SettingsDialog";
+import type { AppSettings, TabVisibility, SettingsCapabilities } from "../SettingsDialog";
 import { SettingsConfig } from "./SettingsConfig";
 import type { AppConfigInfo } from "./SettingsConfig";
 import { SettingsPermissions } from "./SettingsPermissions";
@@ -24,10 +24,11 @@ const ext = (
 interface CommonProps {
   localSettings: AppSettings;
   updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  caps?: SettingsCapabilities;
 }
 
 // ── General ──────────────────────────────────────────────────────────────────
-export function GeneralSection({ localSettings, updateSetting, tabVisibility }: CommonProps & { tabVisibility: TabVisibility }) {
+export function GeneralSection({ localSettings, updateSetting, tabVisibility, caps }: CommonProps & { tabVisibility: TabVisibility }) {
   const toast = useToast();
   const qc = useQueryClient();
   const [spCopied, setSpCopied] = useState(false);
@@ -101,7 +102,10 @@ export function GeneralSection({ localSettings, updateSetting, tabVisibility }: 
         <Row label="Theme" helper="Color scheme."
           control={<Select value={localSettings.theme} onChange={(v) => updateSetting("theme", v as AppSettings["theme"])}
             options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "Match system" }]} />} />
-        <Row label="Price basis" helper="Account prices read from system.billing.account_prices (private preview). Saves immediately."
+        <Row label="Price basis"
+          helper={caps && !caps.account_prices_available
+            ? "system.billing.account_prices not accessible (private preview) — account prices fall back to list prices. Saves immediately."
+            : "Account prices read from system.billing.account_prices (private preview). Saves immediately."}
           control={<Select value={pricing?.use_account_prices ? "account" : "list"} onChange={(v) => setPricing(v === "account")}
             options={[{ value: "list", label: "List prices" }, { value: "account", label: "Account prices" }]} />} />
       </Group>
@@ -133,7 +137,7 @@ export function DashboardTabsSection({ localVisibility, toggleTab, enableUseCase
 }
 
 // ── Alerts & notifications ──────────────────────────────────────────────────
-export function AlertsSection({ localSettings, updateSetting }: CommonProps) {
+export function AlertsSection({ localSettings, updateSetting, caps }: CommonProps) {
   const toast = useToast();
   const { data: webhookStatus } = useQuery<{ configured: boolean } | null>({
     queryKey: ["settings-webhook-status"], queryFn: () => fetch("/api/settings/webhook").then(r => r.json()).catch(() => null), staleTime: 300000,
@@ -167,8 +171,9 @@ export function AlertsSection({ localSettings, updateSetting }: CommonProps) {
                 }}>Send test</SecondaryButton>
             </div>
           } />
-        <Row label="Email recipients" helper="Requires SMTP configuration (SMTP_* environment variables)."
-          control={<TextInput value="" onChange={() => {}} placeholder="Comma-separated addresses" disabled width={260} />} />
+        <Row label="Email recipients"
+          helper={caps?.smtp_configured ? "Comma-separated addresses for alert emails." : "Requires SMTP configuration (SMTP_* environment variables)."}
+          control={<TextInput value="" onChange={() => {}} placeholder="Comma-separated addresses" disabled={!caps?.smtp_configured} width={260} />} />
       </Group>
     </div>
   );
@@ -260,7 +265,7 @@ function ScheduleGroup() {
 }
 
 // ── Data & tables ─────────────────────────────────────────────────────────────
-export function DataTablesSection({ localSettings, updateSetting }: CommonProps) {
+export function DataTablesSection({ localSettings, updateSetting, caps }: CommonProps) {
   const { data: appConfig, isLoading } = useQuery<AppConfigInfo | undefined>({
     queryKey: ["app-config"], queryFn: () => fetch("/api/settings/config").then(r => r.json()).catch(() => undefined),
   });
@@ -273,8 +278,11 @@ export function DataTablesSection({ localSettings, updateSetting }: CommonProps)
           control={<MonoChip>{loc ? `${loc.catalog}.${loc.schema}` : "—"}</MonoChip>} />
         <Row label="Workspace filter" helper="Set at deploy time via COST_OBS_WORKSPACES. Redeploy to change."
           control={<span style={{ fontSize: 12, color: T.textSecondary }}>All workspaces</span>} />
-        <Row label="Workspace display names" helper="Names from system.access.workspaces_latest; falls back to IDs if the grant is missing."
-          control={<Toggle checked={localSettings.showWorkspaceNames} onChange={(v) => updateSetting("showWorkspaceNames", v)} />} />
+        <Row label="Workspace display names"
+          helper={caps && !caps.workspace_names_available
+            ? "Grant missing — showing IDs. Names come from system.access.workspaces_latest once the SP can read it."
+            : "Show resolved names from system.access.workspaces_latest instead of IDs."}
+          control={<Toggle checked={localSettings.showWorkspaceNames} disabled={caps ? !caps.workspace_names_available : false} onChange={(v) => updateSetting("showWorkspaceNames", v)} />} />
       </Group>
       <ScheduleGroup />
       {/* Managed tables + shared sources + rebuild + danger zone — reused from the
