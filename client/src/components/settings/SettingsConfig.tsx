@@ -4,7 +4,7 @@ import type { AppSettings } from "../SettingsDialog";
 import { READINESS_QUERY_KEY } from "@/hooks/useFeatureAvailability";
 import { MvSourcesSection } from "./MvSourcesSection";
 
-interface AppConfigInfo {
+export interface AppConfigInfo {
   warehouse: { id: string; name: string | null; size: string | null; state: string; source?: "app_resource" | "http_path" | "none" } | null;
   identity: { display_name: string | null; user_name: string | null } | null;
   storage_location: { catalog: string; schema: string; catalog_source?: "env_var" | "default"; schema_source?: "env_var" | "default" } | null;
@@ -17,6 +17,10 @@ interface SettingsConfigProps {
   saveStatus: string | null;
   localSettings: AppSettings;
   updateSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  // When set, render only these blocks (used by the new left-nav settings modal to
+  // re-house Storage & Tables under "Data & tables" while identity/warehouse live
+  // in General/Resources). Omitted = render everything (legacy behavior).
+  only?: Array<"warehouse" | "identity" | "storage">;
 }
 
 function ColWarn({ error, align = "left" }: { error: string; align?: "left" | "right" }) {
@@ -48,7 +52,9 @@ export function SettingsConfig({
   saveStatus,
   localSettings,
   updateSetting,
+  only,
 }: SettingsConfigProps) {
+  const show = (b: "warehouse" | "identity" | "storage") => !only || only.includes(b);
   const queryClient = useQueryClient();
   const [mvRefreshing, setMvRefreshing] = useState(_mvRefreshing);
   const [mvLastResult, setMvLastResult] = useState<string | null>(_mvLastResult);
@@ -252,7 +258,7 @@ export function SettingsConfig({
       ) : (
         <>
           {/* SQL Warehouse */}
-          <div>
+          <div style={{ display: show("warehouse") ? undefined : "none" }}>
             <div className="flex items-center gap-2 mb-3 flex-wrap">
               <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
@@ -290,7 +296,7 @@ export function SettingsConfig({
           </div>
 
           {/* App Identity */}
-          <div>
+          <div style={{ display: show("identity") ? undefined : "none" }}>
             <div className="flex items-center gap-2 mb-3">
               <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -373,7 +379,7 @@ export function SettingsConfig({
           </div>
 
           {/* Storage Location & Tables */}
-          <div id="storage-location-tables">
+          <div id="storage-location-tables" style={{ display: show("storage") ? undefined : "none" }}>
             <div className="flex items-center gap-2 mb-2">
               <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
