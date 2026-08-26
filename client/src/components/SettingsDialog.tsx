@@ -178,6 +178,14 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
     queryFn: () => fetch("/api/settings/config").then(r => { if (!r.ok) throw new Error(); return r.json(); }),
   });
 
+  // Friendly SP name for the header (identity.display_name from /config is just the
+  // SP client-id UUID; sp_display_name is the human label).
+  const { data: authStatus } = useQuery<{ sp_display_name?: string } | null>({
+    queryKey: ["settings-auth-status"],
+    queryFn: () => fetch("/api/settings/auth-status").then(r => r.ok ? r.json() : null).catch(() => null),
+    staleTime: 60 * 1000,
+  });
+
   // Unified settings aggregator (Phase 2). Seeds the modal from the server; falls back
   // to localStorage/defaults when unavailable so the modal still works pre-migration.
   const { data: unified } = useQuery<UnifiedSettings | null>({
@@ -214,7 +222,16 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
     if (unified.tab_visibility) setLocalVisibility((prev) => ({ ...prev, ...unified.tab_visibility }));
   }, [unified, dirty]);
 
-  const appName = localSettings.appDisplayName || appConfig?.identity?.display_name || "Cost Observability";
+  // Prefer a real display name; never show the raw SP client-id UUID. Falls back to
+  // the app's product name.
+  const isUuid = (s?: string | null) => !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.trim());
+  const spName = authStatus?.sp_display_name;
+  const idName = appConfig?.identity?.display_name;
+  const appName =
+    localSettings.appDisplayName ||
+    (spName && !isUuid(spName) ? spName : "") ||
+    (idName && !isUuid(idName) ? idName : "") ||
+    "cost-obs-v1";
   const version = appConfig?.version?.commit_sha;
 
   useEffect(() => {
@@ -388,7 +405,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
               {localSettings.enableAccuracyChecks && (
                 <button onClick={() => setOverlay("accuracy")} style={footerLink(overlay === "accuracy")}>Accuracy checks</button>
               )}
-              <div style={{ fontSize: 11, color: T.textFaint, padding: "4px 10px", fontFamily: undefined }}>cost-obs{version ? ` · ${version.slice(0, 7)}` : ""}</div>
+              <div style={{ fontSize: 11, color: T.textFaint, padding: "4px 10px", fontFamily: undefined }}>cost-obs-v1{version ? ` · ${version.slice(0, 7)}` : ""}</div>
             </div>
           </div>
 
