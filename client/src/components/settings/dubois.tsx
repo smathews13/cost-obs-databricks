@@ -202,11 +202,11 @@ export function SecondaryButton({ children, onClick, disabled }: { children: Rea
   );
 }
 
-export function DangerOutlineButton({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
+export function DangerOutlineButton({ children, onClick, disabled }: { children: ReactNode; onClick?: () => void; disabled?: boolean }) {
   return (
     <button
-      type="button" onClick={onClick}
-      style={{ height: 32, borderRadius: 4, padding: "0 14px", fontSize: 13, fontWeight: 500, color: T.dangerFg, backgroundColor: "#FFFFFF", border: `1px solid ${T.dangerBorder}`, cursor: "pointer" }}
+      type="button" onClick={onClick} disabled={disabled}
+      style={{ height: 32, borderRadius: 4, padding: "0 14px", fontSize: 13, fontWeight: 500, color: disabled ? T.textFaint : T.dangerFg, backgroundColor: "#FFFFFF", border: `1px solid ${disabled ? T.borderControl : T.dangerBorder}`, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.7 : 1 }}
     >
       {children}
     </button>

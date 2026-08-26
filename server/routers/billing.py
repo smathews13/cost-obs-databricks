@@ -1413,13 +1413,22 @@ async def get_workspace_list(
         _background_tasks.add(_t)
         _t.add_done_callback(_background_tasks.discard)
 
+    # Admin pref: when workspace display names are off, return IDs (name=null) even
+    # where a name resolved. `historical` still reflects true name availability so the
+    # toggle never mislabels a live workspace.
+    try:
+        from server.routers.settings import workspace_names_enabled
+        show_names = workspace_names_enabled()
+    except Exception:
+        show_names = True
+
     try:
         rows = await asyncio.wait_for(asyncio.to_thread(_fetch_rows), timeout=30.0)
         return {
             "workspaces": [
                 {
                     "id": r["workspace_id"],
-                    "name": r["workspace_name"],
+                    "name": (r["workspace_name"] if show_names else None),
                     # No name resolvable from any source => workspace no longer exists.
                     "historical": not (r.get("workspace_name") and str(r["workspace_name"]).strip()),
                 }

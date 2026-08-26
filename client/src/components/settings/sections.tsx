@@ -266,7 +266,7 @@ function ScheduleGroup() {
 
 // ── Data & tables ─────────────────────────────────────────────────────────────
 export function DataTablesSection({ localSettings, updateSetting, caps }: CommonProps) {
-  const { data: appConfig, isLoading } = useQuery<AppConfigInfo | undefined>({
+  const { data: appConfig } = useQuery<AppConfigInfo | undefined>({
     queryKey: ["app-config"], queryFn: () => fetch("/api/settings/config").then(r => r.json()).catch(() => undefined),
   });
   const loc = appConfig?.storage_location;
@@ -285,12 +285,9 @@ export function DataTablesSection({ localSettings, updateSetting, caps }: Common
           control={<Toggle checked={localSettings.showWorkspaceNames} disabled={caps ? !caps.workspace_names_available : false} onChange={(v) => updateSetting("showWorkspaceNames", v)} />} />
       </Group>
       <ScheduleGroup />
-      {/* Managed tables + shared sources + rebuild + danger zone — reused from the
-          existing Config surface (storage block only), which carries the proven
-          table-status polling, MV-source browser, rebuild and drop-tables flows. */}
-      <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, padding: 16 }}>
-        <SettingsConfig only={["storage"]} configLoading={isLoading} appConfig={appConfig} saveStatus={null} localSettings={localSettings} updateSetting={updateSetting} />
-      </div>
+      {/* Shared Delta-Sharing sources + managed-tables status/rebuild/history/danger —
+          DuBois-styled, self-contained (owns the table-status polling + rebuild + drop). */}
+      <SettingsConfig />
     </div>
   );
 }

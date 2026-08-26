@@ -299,12 +299,35 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
 
   const handleReset = () => {
     if (!window.confirm("Reset all settings to defaults?")) return;
-    setLocalSettings({ ...DEFAULT_APP_SETTINGS });
+    const d = DEFAULT_APP_SETTINGS;
+    setLocalSettings({ ...d });
     setLocalVisibility({ ...DEFAULT_VISIBILITY });
-    saveAppSettings({ ...DEFAULT_APP_SETTINGS });
+    saveAppSettings({ ...d });
     saveTabVisibility({ ...DEFAULT_VISIBILITY });
-    onSettingsChange({ ...DEFAULT_APP_SETTINGS });
+    onSettingsChange({ ...d });
     onTabVisibilityChange({ ...DEFAULT_VISIBILITY });
+    // Persist the reset to the server too, so it survives reopen (the modal re-seeds
+    // from GET /api/settings). Admin-only on the server; no-op for consumers.
+    seededRef.current = true; // don't let the in-flight GET re-seed over the reset
+    fetch("/api/settings", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        general: {
+          company_name: d.companyName, app_display_name: d.appDisplayName,
+          default_date_range_days: d.defaultDateRangeDays, default_landing_tab: d.defaultLandingTab,
+          auto_refresh_minutes: d.refreshIntervalMinutes, density: d.density, theme: d.theme,
+          show_workspace_names: d.showWorkspaceNames,
+          enable_use_case_tracking: d.enableUseCaseTracking, enable_accuracy_checks: d.enableAccuracyChecks,
+        },
+        tab_visibility: DEFAULT_VISIBILITY,
+        thresholds: {
+          spike_threshold_percent: d.alertSpikePercent, daily_budget: d.alertDailyBudget,
+          workspace_budget: d.alertWorkspaceBudget, anomaly_sensitivity: d.anomalySensitivity,
+        },
+        experimental: { exp_setup_wizard_link: d.expSetupWizardLink, exp_debugger_link: d.expDebuggerLink },
+      }),
+      signal: AbortSignal.timeout(10000),
+    }).then(() => rqClient.invalidateQueries({ queryKey: ["unified-settings"] })).catch(() => {});
     setDirty(false);
     toast("Settings reset to defaults");
   };

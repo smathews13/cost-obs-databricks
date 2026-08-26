@@ -596,8 +596,9 @@ function Dashboard() {
   const wsFilterList = useMemo(
     () => (wsListData?.workspaces ?? []).map(w => {
       const name = workspaceNameMap[w.id] || w.name || null;
-      // No resolvable name => workspace no longer exists in the account.
-      return { workspace_id: w.id, workspace_name: name, historical: !name };
+      // Trust the server's `historical` (computed from the true resolved name), so the
+      // "workspace display names" toggle nulling names never mislabels a live workspace.
+      return { workspace_id: w.id, workspace_name: name, historical: w.historical ?? !name };
     }),
     [wsListData?.workspaces, workspaceNameMap],
   );
