@@ -2032,7 +2032,7 @@ _APP_SETTINGS_DEFAULTS: dict = {
     "default_landing_tab": "dbu",
     "auto_refresh_minutes": 0,
     "density": "comfortable",
-    "theme": "system",
+    "theme": "light",
     "show_workspace_names": True,
     "anomaly_sensitivity": "medium",
     "exp_setup_wizard_link": False,

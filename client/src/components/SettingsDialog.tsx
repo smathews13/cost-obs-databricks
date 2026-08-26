@@ -77,7 +77,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   compactMode: false,
   darkMode: false,
   density: "comfortable",
-  theme: "system",
+  theme: "light",
   defaultLandingTab: "dbu",
   showWorkspaceNames: true,
   anomalySensitivity: "medium",
