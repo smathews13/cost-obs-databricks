@@ -1017,10 +1017,28 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
     `detail=1` (used by the settings modal, not the top-nav filter) adds each
     source's `share_last_updated` via a DESCRIBE DETAIL probe — kept off the default
     path so the frequently-polled nav filter stays fast."""
-    from server.db import get_mv_sources, get_local_source_label
+    from server.db import get_mv_sources, get_local_source_label, save_mv_sources
     sources = get_mv_sources()
     if detail:
         def _enrich():
+            # Back-fill the `cloud` tag for any source missing it — sources added
+            # before cloud detection existed (or when it transiently missed at add
+            # time) have no cloud, so the settings card renders no logo and the label
+            # in default color. Detect now and PERSIST, so the fast nav path (which
+            # never re-detects) gets it too. Detection is cheap and this path (the
+            # settings modal) is infrequent.
+            changed = False
+            for s in sources:
+                if not s.get("cloud"):
+                    c = _detect_source_cloud(s.get("catalog"))
+                    if c:
+                        s["cloud"] = c
+                        changed = True
+            if changed:
+                try:
+                    save_mv_sources(sources)
+                except Exception as e:
+                    logger.debug("Could not persist back-filled source cloud (non-fatal): %s", e)
             for s in sources:
                 s["share_last_updated"] = _share_last_updated(s.get("catalog"), s.get("schema"), s.get("tables"))
             return sources

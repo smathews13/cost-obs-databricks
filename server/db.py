@@ -444,18 +444,32 @@ def read_delta_unified_view_tables() -> list[str]:
 
 
 def write_delta_unified_view_tables(tables: list[str]) -> None:
-    """Persist the built-unified-view list to the durable Delta table (replace-all)."""
+    """Persist the built-unified-view list to the durable Delta table, ATOMICALLY.
+
+    Uses a single `INSERT OVERWRITE` (one statement) rather than a DELETE followed by
+    per-row INSERTs. The old row-by-row loop could partially fail (a transient error /
+    timeout mid-loop) and silently persist a TRUNCATED list — which is how
+    `daily_usage_summary` dropped out of routing and the MV source-label filter went
+    dead after a redeploy wiped the local cache. One statement can't half-apply.
+    """
     try:
         table = _unified_views_table()
         if not table:
             return
         _ensure_unified_views_table()
-        execute_write(f"DELETE FROM {table}", None)
-        for t in tables:
-            execute_write(
-                f"INSERT INTO {table} (table_name, updated_at) VALUES (:t, current_timestamp())",
-                {"t": t},
-            )
+        clean = [t for t in tables if isinstance(t, str) and t.strip()]
+        if not clean:
+            # No unified views → empty the table (single statement).
+            execute_write(f"DELETE FROM {table}", None)
+            return
+        # Build one multi-row VALUES clause. Names are our own MV table identifiers,
+        # but single-quote-escape defensively. INSERT OVERWRITE atomically replaces
+        # all rows, so an interrupted write leaves the prior list intact rather than
+        # a partial one.
+        values = ", ".join(
+            "('" + t.replace("'", "''") + "', current_timestamp())" for t in clean
+        )
+        execute_write(f"INSERT OVERWRITE {table} VALUES {values}", None)
     except Exception as e:
         logger.warning("Could not persist unified-view list to Delta (non-fatal): %s", e)
 
@@ -1561,6 +1575,7 @@ def execute_queries_parallel(
     Returns:
         Dictionary mapping query names to results
     """
+    import contextvars
     import threading
     from concurrent.futures import Future, wait as _cfwait, ALL_COMPLETED
 
@@ -1598,9 +1613,17 @@ def execute_queries_parallel(
         future: Future = Future()
         futures_map[future] = name
 
-        def _run(f=future, fn=_timed(name, func)):
+        # Snapshot the CURRENT (request) context per query and run the worker inside
+        # it. Raw threads don't inherit ContextVars, so without this the workers see
+        # the DEFAULTS for _source_labels (→ the MV source-label filter silently does
+        # nothing on every bundle endpoint) and _user_token (→ user-auth reads fall
+        # back to the SP). copy_context() is called here in the request thread so each
+        # worker gets an independent, correctly-populated snapshot.
+        _ctx = contextvars.copy_context()
+
+        def _run(f=future, fn=_timed(name, func), ctx=_ctx):
             try:
-                f.set_result(fn())
+                f.set_result(ctx.run(fn))
             except Exception as e:
                 f.set_exception(e)
 
