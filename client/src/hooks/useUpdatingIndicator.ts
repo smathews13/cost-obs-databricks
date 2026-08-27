@@ -10,25 +10,33 @@ export function useUpdatingIndicator(maxMs = 12000): { updating: boolean; arm: (
   const fetching = useIsFetching();
   const [updating, setUpdating] = useState(false);
   const sawInFlight = useRef(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const grace = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxT = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stop = () => {
+    setUpdating(false);
+    sawInFlight.current = false;
+    if (grace.current) { clearTimeout(grace.current); grace.current = null; }
+    if (maxT.current) { clearTimeout(maxT.current); maxT.current = null; }
+  };
 
   useEffect(() => {
     if (!updating) return;
-    if (fetching > 0) {
-      sawInFlight.current = true;
-    } else if (sawInFlight.current) {
-      setUpdating(false);
-      sawInFlight.current = false;
-    }
+    if (fetching > 0) sawInFlight.current = true;
+    else if (sawInFlight.current) stop();   // a real fetch cycle completed
   }, [updating, fetching]);
 
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  useEffect(() => () => { if (grace.current) clearTimeout(grace.current); if (maxT.current) clearTimeout(maxT.current); }, []);
 
   const arm = () => {
     sawInFlight.current = false;
     setUpdating(true);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => { setUpdating(false); sawInFlight.current = false; }, maxMs);
+    if (grace.current) clearTimeout(grace.current);
+    if (maxT.current) clearTimeout(maxT.current);
+    // If no fetch has started shortly after the change, the result was served from
+    // cache (query key within staleTime) — clear rather than hang on the safety timer.
+    grace.current = setTimeout(() => { if (!sawInFlight.current) stop(); }, 500);
+    maxT.current = setTimeout(stop, maxMs);  // hard safety so it can never stick
   };
 
   return { updating, arm };
