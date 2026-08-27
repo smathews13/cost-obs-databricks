@@ -380,14 +380,60 @@ _MV_UNIFIED_TABLES_FILE = os.path.join(
 )
 
 
-def get_unified_view_tables() -> list[str]:
-    """MV table names that currently have a built `<name>__unified` view.
+# Short-lived cache of the unified views that physically exist in the app schema.
+# Routing (apply_mv_overrides) hits get_unified_view_tables per query, so we can't
+# query information_schema every time — cache it briefly.
+_unified_views_live: dict[str, Any] = {"tables": None, "checked_at": 0.0}
+_UNIFIED_VIEWS_LIVE_TTL = 300  # 5 minutes
 
-    Read order: local .settings file (fast), then the durable Delta table (survives
-    redeploys AND is consistent across the app's multiple uvicorn workers — the file
-    is per-container and wiped on redeploy, so on its own it silently drops back to
-    base-table reads, which is why an added shared source stopped affecting the UI).
+
+def _list_existing_unified_views() -> list[str] | None:
+    """The MV tables that ACTUALLY have a `<name>__unified` view in the app schema.
+
+    This is the authoritative routing source: a view that exists is routable. It
+    sidesteps the written registry, which drifts when `rebuild_unified_views` probes
+    time out on a cold warehouse at startup (a table is wrongly deemed "missing",
+    never registered, and routing silently falls back to the base table — which
+    kills the MV source-label filter for that table). Cached ~5min. None on error.
     """
+    now = time.time()
+    if _unified_views_live["tables"] is not None and (now - _unified_views_live["checked_at"]) < _UNIFIED_VIEWS_LIVE_TTL:
+        return _unified_views_live["tables"]
+    try:
+        catalog, schema = get_catalog_schema()
+        if not catalog or not schema:
+            return None
+        rows = execute_query(
+            "SELECT table_name FROM system.information_schema.tables "
+            "WHERE table_catalog = :c AND table_schema = :s AND table_name LIKE :p",
+            {"c": catalog, "s": schema, "p": f"%{MV_UNIFIED_SUFFIX}"},
+            no_cache=True,
+        )
+        suffix_len = len(MV_UNIFIED_SUFFIX)
+        names = [
+            r["table_name"][:-suffix_len]
+            for r in (rows or [])
+            if str(r.get("table_name", "")).endswith(MV_UNIFIED_SUFFIX)
+        ]
+        _unified_views_live["tables"] = names
+        _unified_views_live["checked_at"] = now
+        return names
+    except Exception as e:
+        logger.debug("Could not list existing unified views (non-fatal): %s", e)
+        return None
+
+
+def get_unified_view_tables() -> list[str]:
+    """MV table names that currently have a `<name>__unified` view to route through.
+
+    Authoritative source is the views that PHYSICALLY EXIST in the app schema
+    (`_list_existing_unified_views`, cached ~5min) — a view that exists is routable,
+    so routing self-heals regardless of registry drift. Falls back to the local
+    .settings file, then the durable Delta table, only if that lookup fails.
+    """
+    live = _list_existing_unified_views()
+    if live is not None:
+        return live
     try:
         with open(_MV_UNIFIED_TABLES_FILE) as f:
             data = json.load(f)
@@ -402,6 +448,10 @@ def save_unified_view_tables(tables: list[str]) -> None:
     """Record which MV tables have a built unified view — local file (fast) + durable
     Delta table (cross-worker + survives redeploys)."""
     clean = [t for t in tables if isinstance(t, str)]
+    # Views just changed — drop the live-existence cache so routing re-reads the
+    # actual __unified views on the next query instead of a stale snapshot.
+    _unified_views_live["tables"] = None
+    _unified_views_live["checked_at"] = 0.0
     try:
         os.makedirs(os.path.dirname(_MV_UNIFIED_TABLES_FILE), exist_ok=True)
         with open(_MV_UNIFIED_TABLES_FILE, "w") as f:
