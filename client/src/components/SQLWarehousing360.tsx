@@ -20,7 +20,7 @@ import { format, parseISO } from "date-fns";
 import type { GranularBreakdownResponse, DBSQLDashboardBundle, QueryCostByWarehouse } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
-import { Spinner } from "./Spinner";
+import { LoadingPanels, Spinner } from "./Spinner";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
@@ -415,12 +415,14 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
   };
 
   if (isLoading || queryData == null || queryData.available === false) {
-    return (
-      <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <Spinner size="lg" />
-        <p className="text-sm text-gray-500">Loading query analytics...</p>
-      </div>
-    );
+    return <LoadingPanels sections={[
+      "Query Spend Summary",
+      "Spend by Source",
+      "Warehouse Spend",
+      "SKU Breakdown",
+      "Top Users by Query Spend",
+      "Top Queries",
+    ]} />;
   }
 
   const summary = queryData.summary;
@@ -1063,9 +1065,9 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
               </div>
             </div>
             {topQueriesLoading && sortedQueries.length === 0 ? (
-              <div className="flex h-32 items-center justify-center gap-3">
-                <Spinner size="sm" className="h-6! w-6!" />
-                <span className="text-sm text-gray-500">Loading top queries...</span>
+              <div className="flex h-32 flex-col items-center justify-center gap-2">
+                <Spinner size="md" />
+                <span className="text-sm text-gray-500">Loading top queries…</span>
               </div>
             ) : sortedQueries.length > 0 ? (
               <div className="overflow-x-auto">
@@ -1499,8 +1501,9 @@ export function WarehouseRightsizingView({ host }: { host?: string | null }) {
       </div>
 
       {healthLoading ? (
-        <div className="flex h-24 items-center justify-center">
-          <Spinner size="sm" className="h-6! w-6!" />
+        <div className="flex h-32 flex-col items-center justify-center gap-2">
+          <Spinner size="md" />
+          <span className="text-sm text-gray-500">Loading rightsizing recommendations…</span>
         </div>
       ) : !warehouseHealth?.available || !warehouseHealth.recommendations.length ? (
         <div className="rounded-lg p-4 text-sm" style={{ background: C.oatPage, color: warehouseHealth?.available === false ? C.slate : C.greenInk }}>
@@ -1825,8 +1828,9 @@ export function WarehouseIdleTimeView({
       </div>
 
       {isLoading ? (
-        <div className="flex h-24 items-center justify-center">
-          <Spinner size="sm" className="h-6! w-6!" />
+        <div className="flex h-32 flex-col items-center justify-center gap-2">
+          <Spinner size="md" />
+          <span className="text-sm text-gray-500">Loading idle-time analysis…</span>
         </div>
       ) : !data?.available || !data.warehouses.length ? (
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500">

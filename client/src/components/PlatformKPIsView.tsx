@@ -8,7 +8,7 @@ import { formatNumber, formatBytesNoDecimal, formatRowCount, formatDurationSecon
 import { useFeatureAvailability } from "@/hooks/useFeatureAvailability";
 import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
-import { Spinner } from "@/components/Spinner";
+import { LoadingPanels, Spinner } from "@/components/Spinner";
 
 interface PlatformKPIsViewProps {
   data: PlatformKPIsResponse | undefined;
@@ -184,12 +184,12 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
   };
 
   if (isLoading) {
-    return (
-      <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <Spinner size="lg" />
-        <p className="text-sm text-gray-500">Loading platform KPIs...</p>
-      </div>
-    );
+    return <LoadingPanels sections={[
+      "Platform KPIs",
+      "Data Activity",
+      "Compute Activity",
+      "Spend Changes and Trends",
+    ]} />;
   }
 
   if (!data) {

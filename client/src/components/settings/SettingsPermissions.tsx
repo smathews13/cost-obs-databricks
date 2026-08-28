@@ -4,6 +4,7 @@ import { ReadinessChecks, normalizeReadinessResult } from "./ReadinessChecks";
 import type { ReadinessResult } from "./ReadinessChecks";
 import { READINESS_QUERY_KEY } from "@/hooks/useFeatureAvailability";
 import { Group, Row, Select, SecondaryButton, LinkButton, MonoChip, Callout, useToast, T, MONO } from "./dubois";
+import { Spinner } from "@/components/Spinner";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -142,7 +143,12 @@ export function SettingsPermissions() {
   const noToken = !authStatus?.token_present;
 
   if (isLoading) {
-    return <div style={{ padding: "32px 0", textAlign: "center", fontSize: 13, color: T.textSecondary }}>Loading permissions…</div>;
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-12" style={{ color: T.textSecondary }}>
+        <Spinner size="md" />
+        <span className="text-sm">Loading permissions…</span>
+      </div>
+    );
   }
 
   const overall = readiness?.overall;

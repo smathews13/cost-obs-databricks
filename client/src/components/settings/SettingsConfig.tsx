@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { READINESS_QUERY_KEY } from "@/hooks/useFeatureAvailability";
 import { MvSourcesSection } from "./MvSourcesSection";
 import { Group, Select, SecondaryButton, DangerOutlineButton, TextInput, Callout, T, MONO } from "./dubois";
+import { Spinner } from "@/components/Spinner";
 
 // Kept for the Data & tables section's storage-location chip (it imports this type).
 export interface AppConfigInfo {
@@ -211,7 +212,10 @@ export function SettingsConfig() {
 
       {/* Table */}
       {tablesLoading ? (
-        <div style={{ padding: "12px 0", textAlign: "center", fontSize: 12, color: T.textSecondary }}>Checking tables…</div>
+        <div className="flex items-center justify-center gap-2 py-6" style={{ color: T.textSecondary }}>
+          <Spinner size="sm" />
+          <span className="text-xs">Checking tables…</span>
+        </div>
       ) : tablesStatus?.tables?.length ? (
         <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflow: "hidden", opacity: mvRefreshing ? 0.5 : 1, transition: "opacity 300ms" }}>
           <div style={{ overflowX: "auto" }}>

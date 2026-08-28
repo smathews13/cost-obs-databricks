@@ -6,7 +6,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis
 import { formatCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
 import { PageHero } from "@/components/brand";
-import { Spinner } from "@/components/Spinner";
+import { LoadingPanels, Spinner } from "@/components/Spinner";
 
 type UseCaseStage = 'Live' | 'Development' | 'Planned' | 'Inactive';
 
@@ -1471,12 +1471,12 @@ export default function UseCases() {
   })();
 
   if (isLoading || summaryLoading) {
-    return (
-      <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <Spinner size="lg" />
-        <p className="text-sm text-gray-500">Loading use cases...</p>
-      </div>
-    );
+    return <LoadingPanels sections={[
+      "Use Case Summary",
+      "Use Cases",
+      "Monthly Consumption",
+      "Tracked Objects",
+    ]} />;
   }
 
   return (

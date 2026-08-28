@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure.png";
 import gcpLogo from "@/assets/gcp.svg";
+import { Spinner } from "@/components/Spinner";
 
 type Cloud = "gcp" | "aws" | "azure";
 
@@ -193,7 +194,10 @@ export function MvSourcesSection() {
       </div>
 
       {isLoading ? (
-        <div className="text-xs text-gray-500">Loading…</div>
+        <div className="flex items-center gap-2 py-3 text-xs text-gray-500">
+          <Spinner size="sm" />
+          <span>Loading…</span>
+        </div>
       ) : sources.length > 0 ? (
         <div className="space-y-1.5">
           {sources.map((s) => {

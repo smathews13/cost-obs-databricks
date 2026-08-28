@@ -71,11 +71,11 @@ const BASE_BUNDLE_AVAILABLE: DBSQLDashboardBundle = {
 // ---------------------------------------------------------------------------
 
 describe("SQLWarehousing360: available=false renders loading state", () => {
-  it("shows the shared loading indicator", () => {
+  it("shows a shared loading indicator for every SQL panel", () => {
     renderSQLView({ available: false, start_date: "2026-01-01", end_date: "2026-01-31" });
 
-    expect(screen.getByRole("status", { name: /loading/i })).toBeInTheDocument();
-    expect(screen.getByText(/loading query analytics/i)).toBeInTheDocument();
+    expect(screen.getAllByRole("status", { name: /loading/i })).toHaveLength(6);
+    expect(screen.getByText("Top Queries")).toBeInTheDocument();
   });
 
   it("does NOT show the KPI summary cards", () => {

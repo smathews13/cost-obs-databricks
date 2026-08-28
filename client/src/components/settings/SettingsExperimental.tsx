@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { AppSettings } from "../SettingsDialog";
 import { usePricing } from "@/context/PricingContext";
+import { Spinner } from "@/components/Spinner";
 
 interface SettingsExperimentalProps {
   localSettings: AppSettings;
@@ -118,7 +119,10 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
               </button>
             </div>
             {accountPricesLoading ? (
-              <p className="text-xs text-gray-500">Loading...</p>
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <Spinner size="sm" />
+                <span>Loading…</span>
+              </div>
             ) : !accountPrices?.available ? (
               <span className="inline-flex items-center rounded-full bg-red-50 border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600">
                 {accountPrices?.message || "Pricing tables not accessible"}

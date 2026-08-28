@@ -16,7 +16,7 @@ import type { AppsDashboardBundle, AppsApp, AppsConnectedArtifact, DateRange } f
 import { useAppsDashboardBundle } from "@/hooks/useBillingData";
 import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
-import { Spinner } from "./Spinner";
+import { LoadingPanels } from "./Spinner";
 import { formatIdentity } from "@/utils/identity";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
@@ -577,12 +577,12 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
   }, [data?.timeseries]);
 
   if (isLoading) {
-    return (
-      <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <Spinner size="lg" />
-        <p className="text-sm text-gray-500">Loading Apps data...</p>
-      </div>
-    );
+    return <LoadingPanels sections={[
+      "Apps Spend Over Time",
+      "Apps by Spend",
+      "Connected Resources",
+      "App Hosting Cost Comparison",
+    ]} />;
   }
 
   if (isError) {

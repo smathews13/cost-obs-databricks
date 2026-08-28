@@ -1,3 +1,5 @@
+import { Spinner } from "@/components/Spinner";
+
 type CloudProvider = "azure" | "aws" | "gcp";
 
 interface CloudConnection {
@@ -32,6 +34,7 @@ interface SettingsConnectionsProps {
 
 export function SettingsConnections({
   cloudProvider,
+  connectionsLoading,
 }: SettingsConnectionsProps) {
   return (
     <div>
@@ -42,7 +45,12 @@ export function SettingsConnections({
       {/* Default cloud environment connection */}
       <div className="mb-6">
         <div className="text-xs font-medium uppercase tracking-wider text-gray-500 mb-2">Default Environment</div>
-        {cloudProvider ? (
+        {connectionsLoading ? (
+          <div className="flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-gray-50 py-6 text-sm text-gray-500">
+            <Spinner size="md" />
+            <span>Loading workspace connection…</span>
+          </div>
+        ) : cloudProvider ? (
           <div
             className="flex items-center justify-between rounded-lg border-2 border-dashed p-3"
             style={{ borderColor: PROVIDER_META[cloudProvider.provider].color + '60' }}

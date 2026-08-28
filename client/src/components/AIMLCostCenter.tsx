@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { VirtualizedList } from "./VirtualizedList";
-import { Spinner } from "./Spinner";
+import { LoadingPanels } from "./Spinner";
 
 function InfoTooltip({ text }: { text: string }) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -387,12 +387,14 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
   }, [endpointsWorkspaceFilterKey]);
 
   if (isLoading) {
-    return (
-      <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <Spinner size="lg" />
-        <p className="text-sm text-gray-500">Loading AI/ML data...</p>
-      </div>
-    );
+    return <LoadingPanels sections={[
+      "AI/ML Spend Over Time",
+      "Cost by AI Spend Category",
+      "Top Model Serving Endpoints",
+      "Top Models",
+      "ML Runtime Clusters",
+      "Agent Bricks",
+    ]} />;
   }
 
   if (!data) {

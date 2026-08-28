@@ -92,7 +92,7 @@ import { generateCostReport } from "@/utils/pdfExport";
 import { generateCostCSV } from "@/utils/csvExport";
 import { C } from "@/theme";
 import { CostObsLockup, VersionPill, PageHero, Chip } from "@/components/brand";
-import { Spinner } from "@/components/Spinner";
+import { LoadingPanels, Spinner } from "@/components/Spinner";
 
 // Keep the Databricks Apps pod warm while the tab is open.
 // Cold starts take 30s to 1min; a lightweight ping every 4 min prevents idle suspension.
@@ -857,7 +857,9 @@ function Dashboard() {
           <div className="flex w-full items-center justify-between gap-8">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <img src="/databricks.svg" alt="" className="h-6 w-6" />
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+                  <img src="/databricks.svg" alt="" className="h-4.5 w-4.5" />
+                </span>
                 <span className="text-sm opacity-75">Databricks Account</span>
               </div>
               <div className="flex items-center gap-3">
@@ -943,7 +945,10 @@ function Dashboard() {
                     ) : null}
                   </>
                 ) : (
-                  <span className="text-sm opacity-75">Loading account info...</span>
+                  <span className="flex items-center gap-2 text-sm opacity-75">
+                    <Spinner size="xs" />
+                    Loading account info…
+                  </span>
                 )}
               </div>
             </div>
@@ -1204,22 +1209,20 @@ function Dashboard() {
         }>
         {activeTab === "dbu" ? (
           (!warehouseStatus || bundleLoading) ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <Spinner size="lg" />
-              <p className="text-sm text-gray-500">Loading DBU spend data...</p>
-            </div>
+            <LoadingPanels sections={[
+              "Spend Over Time",
+              "Spend by Product",
+              "Spend by SKU",
+              "Workspace Breakdown",
+              "Jobs and Pipelines",
+              "Interactive Compute",
+            ]} />
           ) : (
           <TabErrorBoundary tabName="$DBU Spend">
           <div className="space-y-6">
             {/* Header */}
             <PageHero
-              icon={
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M20 4H4L7 8L4 12H20L17 8L20 4Z" opacity="0.9"/>
-                  <path d="M20 8H4L7 12L4 16H20L17 12L20 8Z" opacity="0.7"/>
-                  <path d="M20 12H4L7 16L4 20H20L17 16L20 12Z" opacity="0.5"/>
-                </svg>
-              }
+              icon={<span className="font-mono text-xl font-bold">$</span>}
               title="$DBU Spend"
               subtitle={
                 <>

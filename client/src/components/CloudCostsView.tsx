@@ -5,7 +5,7 @@ import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure.png";
 import gcpLogo from "@/assets/gcp.svg";
 import { KPITrendModal } from "./KPITrendModal";
-import { Spinner } from "./Spinner";
+import { LoadingPanels, Spinner } from "./Spinner";
 import {
   BarChart,
   Bar,
@@ -369,12 +369,12 @@ export function CloudCostsView({
   ));
 
   if (showLoading) {
-    return (
-      <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <Spinner size="lg" />
-        <p className="text-sm text-gray-500">Loading cloud costs...</p>
-      </div>
-    );
+    return <LoadingPanels sections={[
+      "Infrastructure Costs",
+      "Cluster Costs",
+      "Usage by Instance Family",
+      "Cluster Cost Breakdown",
+    ]} />;
   }
 
   if (costMode === "actual" && activeActualCloud === "AZURE" && azureActualData?.available) {

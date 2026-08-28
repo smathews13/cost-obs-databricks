@@ -1,8 +1,9 @@
-<p align="center">
-  <img src="client/public/brand/costobs-lockup.svg" alt="cost-obs" width="320">
-</p>
-
-<h1 align="center">cost-obs app for Databricks</h1>
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="client/public/brand/costobs-lockup-white.svg">
+    <img src="client/public/brand/costobs-lockup.svg" alt="cost-obs" width="260">
+  </picture>
+</div>
 
 [![Deploy to Databricks](https://img.shields.io/badge/Deploy%20to-Databricks-FF3621?style=for-the-badge&logo=databricks&logoColor=white)](https://accounts.cloud.databricks.com/select-workspace?destination_url=/apps/install?repo_url=https://github.com/smathews13/cost-obs-databricks)
 

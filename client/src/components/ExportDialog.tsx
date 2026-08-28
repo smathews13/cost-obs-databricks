@@ -143,9 +143,9 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
           className="animate-dialog relative w-full max-w-4xl overflow-hidden"
           style={{
             background: C.card,
-            border: `1px solid ${C.hairline}`,
-            borderRadius: 12,
-            boxShadow: "var(--sh-modal)",
+            border: "1px solid var(--dob-border-group, #E0E5EA)",
+            borderRadius: 8,
+            boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -153,11 +153,8 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
           <div className="px-6 py-5" style={{ background: C.navy, borderBottom: `1px solid ${C.hairline}` }}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div
-                  className="flex h-11 w-11 shrink-0 items-center justify-center"
-                  style={{ background: C.white, borderRadius: 8 }}
-                >
-                  <CostObsMark className="h-8 w-8" />
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center">
+                  <CostObsMark className="h-9 w-9" whiteOrbit />
                 </div>
                 <div>
                   <h3 id="export-dialog-title" className="text-lg font-bold leading-tight" style={{ color: C.white }}>
