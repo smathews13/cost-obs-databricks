@@ -58,7 +58,7 @@ export function AzureActualView({ azureActualData, cloudTabSwitcher, onSwitchToE
         </div>
       </div>
 
-      <div className="rounded-lg p-6 text-white shadow" style={{ background: 'linear-gradient(to right, #0078D4, #50B4F9)' }}>
+      <div className="rounded-lg p-6 text-white shadow" style={{ background: "linear-gradient(to right, var(--azure-hero-start), var(--azure-hero-end))" }}>
         <div className="flex items-center justify-between">
           <div className="flex-1">
             <div className="flex items-center gap-2 flex-wrap">

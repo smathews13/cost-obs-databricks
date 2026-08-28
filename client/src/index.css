@@ -58,6 +58,8 @@
   --green: #00A972;
   --green-ink: #00754F;
   --green-tint: #DDF3E8;
+  --success-fill: #008A5E;
+  --success-fill-hover: #006F4B;
   --amber: #FFAB00;
   --amber-ink: #7A5200;
   --amber-tint: #FFF3D6;
@@ -73,6 +75,10 @@
   --busy: #FFB3A6;
   --cal-mid: #D2F0E1;
   --cal-oor: #C9C4BB;
+  --azure-hero-start: #0078D4;
+  --azure-hero-end: #50B4F9;
+  --gcp-hero-start: #4285F4;
+  --gcp-hero-end: #8AB4F8;
   --r-chip: 4px;
   --r-ctl: 8px;
   --r-card: 12px;
@@ -457,6 +463,49 @@ button.rounded-full[class*="px-"] {
   --dm-warning: #D29922;
   --dm-error: #CF222E;
   --border: 220 13% 20%;
+  --oat-page: #1B1F23;
+  --card-surface: var(--dm-surface);
+  --oat-med: var(--dm-surface-raised);
+  --hairline: var(--dm-border);
+  --row-hover: var(--dm-surface-raised);
+  --grid-line: var(--dm-border);
+  --ink: #F1F4F6;
+  --body: #D7DCE1;
+  --slate: #ACB8C2;
+  --muted: #8996A1;
+  --lava: #FF6B57;
+  --lava-hover: #FF8A78;
+  --coral: #FF7A66;
+  --coral-tint: rgba(255, 107, 87, 0.14);
+  --coral-brd: rgba(255, 138, 120, 0.34);
+  --green: #3DD6A0;
+  --green-ink: #70E0B8;
+  --green-tint: rgba(61, 214, 160, 0.14);
+  --success-fill: #167A58;
+  --success-fill-hover: #1B936B;
+  --amber: #F8BC45;
+  --amber-ink: #F5CF7A;
+  --amber-tint: rgba(248, 188, 69, 0.14);
+  --maroon: #FF8798;
+  --maroon-tint: rgba(255, 105, 128, 0.14);
+  --s1: #FF7A66;
+  --s2: #72BED1;
+  --s3: #3DD6A0;
+  --s4: #F8BC45;
+  --s5: #9BB7C2;
+  --status-dot: #52E0A8;
+  --baseline: #59616A;
+  --busy: #A75247;
+  --cal-mid: #276750;
+  --cal-oor: #59616A;
+  --azure-hero-start: #174F73;
+  --azure-hero-end: #216B8F;
+  --gcp-hero-start: #294E80;
+  --gcp-hero-end: #416C9F;
+  --sh-card: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --sh-hover: 0 4px 14px rgba(0, 0, 0, 0.40);
+  --sh-menu: 0 8px 28px rgba(0, 0, 0, 0.48);
+  --sh-modal: 0 24px 64px rgba(0, 0, 0, 0.62);
   color-scheme: dark;
 }
 
@@ -488,8 +537,7 @@ button.rounded-full[class*="px-"] {
 .dark-mode .border-gray-300:not([class*="animate-spin"]) {
   border-color: var(--dm-border) !important;
 }
-.dark-mode [style*="border-color: rgb(229, 229, 229)"],
-.dark-mode [style*="borderColor"]:not([class*="animate-spin"]) {
+.dark-mode [style*="border-color: rgb(229, 229, 229)"] {
   border-color: var(--dm-border) !important;
 }
 
@@ -506,6 +554,14 @@ button.rounded-full[class*="px-"] {
 .dark-mode .text-gray-400 {
   color: #9CA3AF !important;
 }
+.dark-mode .text-gray-300 {
+  color: var(--dm-text-muted) !important;
+}
+.dark-mode .hover\:text-gray-900:hover,
+.dark-mode .hover\:text-gray-800:hover,
+.dark-mode .hover\:text-gray-700:hover {
+  color: var(--dm-text) !important;
+}
 
 
 /* ── Inputs and selects ── */
@@ -518,6 +574,10 @@ button.rounded-full[class*="px-"] {
 }
 .dark-mode input::placeholder,
 .dark-mode textarea::placeholder {
+  color: var(--dm-text-muted) !important;
+}
+.dark-mode .placeholder-gray-400::placeholder,
+.dark-mode .placeholder\:text-gray-400::placeholder {
   color: var(--dm-text-muted) !important;
 }
 
@@ -540,6 +600,9 @@ button.rounded-full[class*="px-"] {
 }
 .dark-mode .hover\:bg-gray-50:hover {
   background-color: var(--dm-surface-raised) !important;
+}
+.dark-mode .hover\:bg-blue-50:hover {
+  background-color: rgba(74, 159, 216, 0.15) !important;
 }
 .dark-mode .even\:bg-gray-50:nth-child(even) {
   background-color: rgba(58, 61, 65, 0.5) !important;
@@ -606,6 +669,22 @@ button.rounded-full[class*="px-"] {
 .dark-mode .bg-orange-100 {
   background-color: rgba(255, 54, 33, 0.15) !important;
 }
+.dark-mode .bg-cyan-50,
+.dark-mode .bg-cyan-100,
+.dark-mode .bg-teal-50,
+.dark-mode .bg-teal-100 {
+  background-color: rgba(45, 212, 191, 0.14) !important;
+}
+.dark-mode .bg-purple-50,
+.dark-mode .bg-purple-100,
+.dark-mode .bg-indigo-50,
+.dark-mode .bg-indigo-100 {
+  background-color: rgba(167, 139, 250, 0.14) !important;
+}
+.dark-mode .bg-emerald-50,
+.dark-mode .bg-emerald-100 {
+  background-color: rgba(52, 211, 153, 0.14) !important;
+}
 
 /* Colored borders for banners */
 .dark-mode .border-green-200 { border-color: rgba(46, 164, 79, 0.3) !important; }
@@ -614,6 +693,11 @@ button.rounded-full[class*="px-"] {
 .dark-mode .border-amber-200 { border-color: rgba(210, 153, 34, 0.3) !important; }
 .dark-mode .border-blue-200 { border-color: rgba(74, 159, 216, 0.3) !important; }
 .dark-mode .border-orange-200 { border-color: rgba(255, 54, 33, 0.2) !important; }
+.dark-mode .border-cyan-200,
+.dark-mode .border-teal-200 { border-color: rgba(45, 212, 191, 0.3) !important; }
+.dark-mode .border-purple-200,
+.dark-mode .border-indigo-200,
+.dark-mode .border-indigo-300 { border-color: rgba(167, 139, 250, 0.3) !important; }
 
 /* ── Sticky header scroll shadow ── */
 header.sticky {
@@ -628,6 +712,10 @@ header.sticky {
 .dark-mode .text-amber-700, .dark-mode .text-amber-600 { color: #fbbf24 !important; }
 .dark-mode .text-red-700, .dark-mode .text-red-600 { color: #f87171 !important; }
 .dark-mode .text-teal-700, .dark-mode .text-teal-600 { color: #2dd4bf !important; }
+.dark-mode .text-cyan-900, .dark-mode .text-cyan-800, .dark-mode .text-cyan-700, .dark-mode .text-cyan-600 { color: #67e8f9 !important; }
+.dark-mode .text-purple-900, .dark-mode .text-purple-800, .dark-mode .text-purple-700, .dark-mode .text-purple-600,
+.dark-mode .text-indigo-900, .dark-mode .text-indigo-800, .dark-mode .text-indigo-700, .dark-mode .text-indigo-600 { color: #c4b5fd !important; }
+.dark-mode .text-emerald-900, .dark-mode .text-emerald-800, .dark-mode .text-emerald-700, .dark-mode .text-emerald-600 { color: #6ee7b7 !important; }
 
 /* ── Progress bars / percentage bars ── */
 .dark-mode .bg-gray-200 {
@@ -692,6 +780,9 @@ header.sticky {
 .dark-mode .divide-gray-200 > * + * {
   border-color: var(--dm-border) !important;
 }
+.dark-mode .divide-gray-100 > * + * {
+  border-color: var(--dm-border) !important;
+}
 
 /* ── Ring colors (focus states) ── */
 .dark-mode .ring-gray-400,
@@ -715,8 +806,7 @@ header.sticky {
 /* ── Override inline border colors ──
    Many components use style={{ borderColor: '#E5E5E5' }}.
    Exclude spinners (they use borderTopColor for the visible arc). */
-.dark-mode [style*="border-color"]:not([class*="animate-spin"]),
-.dark-mode [style*="borderColor"]:not([class*="animate-spin"]) {
+.dark-mode [style*="border-color: rgb(229, 229, 229)"]:not([class*="animate-spin"]) {
   border-color: var(--dm-border) !important;
 }
 
@@ -787,6 +877,12 @@ header.sticky {
   background-color: var(--dm-surface-raised) !important;
   color: var(--dm-text) !important;
   border-color: var(--dm-border);
+}
+.dark-mode .bg-white\/60 {
+  background-color: rgba(58, 61, 65, 0.72) !important;
+}
+.dark-mode .hover\:border-gray-400:hover {
+  border-color: var(--dm-text-muted) !important;
 }
 
 /* ── Additional bg colors for code blocks / info chips ── */

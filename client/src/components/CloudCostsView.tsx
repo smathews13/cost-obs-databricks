@@ -810,7 +810,7 @@ export function CloudCostsView({
           style={{ borderColor: C.hairline }}
           onClick={() => startDate && endDate && setSelectedKPI({ kpi: "infra_cost", label: `Daily ${cloudDisplayName} Cluster Spend` })}
         >
-          <span className="absolute top-2 left-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amber, color: C.white }}>est.</span>
+          <span className="absolute top-2 left-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amberTint, color: C.amberInk, border: `1px solid ${C.hairline}` }}>est.</span>
           <div className="flex items-center">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -872,7 +872,7 @@ export function CloudCostsView({
           style={{ borderColor: C.hairline }}
           onClick={() => startDate && endDate && setSelectedKPI({ kpi: "avg_cost_per_cluster", label: `Daily ${cloudDisplayName} Cost Per-Cluster` })}
         >
-          <span className="absolute top-2 left-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amber, color: C.white }}>est.</span>
+          <span className="absolute top-2 left-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amberTint, color: C.amberInk, border: `1px solid ${C.hairline}` }}>est.</span>
           <div className="flex items-center">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -906,12 +906,12 @@ export function CloudCostsView({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {(infraTimeseriesLoading || timeseriesLoading) ? (
           <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-            <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Cluster Costs{daysCount ? ` over ${daysCount} Days` : ""} <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide align-middle ml-1" style={{ backgroundColor: C.amber, color: C.white }}>est.</span></h3>
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Cluster Costs{daysCount ? ` over ${daysCount} Days` : ""} <span className="ml-1 inline-flex items-center rounded px-1.5 py-0.5 align-middle text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amberTint, color: C.amberInk, border: `1px solid ${C.hairline}` }}>est.</span></h3>
             <div className="flex h-80 items-center justify-center"><Spinner size="md" /></div>
           </div>
         ) : (infraTimeseriesData?.timeseries && infraTimeseriesData.timeseries.length > 0) ? (
           <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-            <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Cluster Costs{daysCount ? ` over ${daysCount} Days` : ""} <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide align-middle ml-1" style={{ backgroundColor: C.amber, color: C.white }}>est.</span></h3>
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Cluster Costs{daysCount ? ` over ${daysCount} Days` : ""} <span className="ml-1 inline-flex items-center rounded px-1.5 py-0.5 align-middle text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amberTint, color: C.amberInk, border: `1px solid ${C.hairline}` }}>est.</span></h3>
             <ResponsiveContainer width="100%" height={320}>
               <AreaChart data={infraTimeseriesData.timeseries} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                 <defs>
@@ -925,7 +925,7 @@ export function CloudCostsView({
                 <Tooltip
                   formatter={(value: number | undefined) => formatCurrency(value ?? 0)}
                   labelFormatter={(label) => format(parseISO(label as string), "MMM d, yyyy")}
-                  contentStyle={{ backgroundColor: C.white, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
+                  contentStyle={{ backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
                 />
                 <Area isAnimationActive={false} type="monotone" dataKey="Infrastructure Cost" stroke={C.s1} strokeWidth={2} fill="url(#infraCostGradient)" />
               </AreaChart>
@@ -934,7 +934,7 @@ export function CloudCostsView({
         ) : (filteredTimeseriesData && filteredTimeseriesData.length > 0) ? (
           <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">{cloudDisplayName} Cluster Costs{daysCount ? ` over ${daysCount} Days` : ""} <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide align-middle ml-1" style={{ backgroundColor: C.amber, color: C.white }}>est.</span></h3>
+              <h3 className="text-lg font-semibold text-gray-900">{cloudDisplayName} Cluster Costs{daysCount ? ` over ${daysCount} Days` : ""} <span className="ml-1 inline-flex items-center rounded px-1.5 py-0.5 align-middle text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amberTint, color: C.amberInk, border: `1px solid ${C.hairline}` }}>est.</span></h3>
               {timeseriesFamilies.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2">
                   <button
@@ -980,7 +980,7 @@ export function CloudCostsView({
                 <Tooltip
                   formatter={(value: number | undefined) => formatCurrency(value ?? 0)}
                   labelFormatter={(label) => format(parseISO(label as string), "MMM d, yyyy")}
-                  contentStyle={{ backgroundColor: C.white, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
+                  contentStyle={{ backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
                 />
                 <Area isAnimationActive={false} type="monotone" dataKey="AWS Cost" stroke={C.s1} strokeWidth={2} fill="url(#awsCostGradient)" />
               </AreaChart>
@@ -996,7 +996,7 @@ export function CloudCostsView({
               <YAxis type="category" dataKey="name" width={100} fontSize={12} stroke={C.muted} interval={0} />
               <Tooltip
                 formatter={(value: number | undefined) => [formatNumber(value ?? 0) + " DBU hours", "Usage"]}
-                contentStyle={{ backgroundColor: C.white, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
+                contentStyle={{ backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
               />
               <Bar isAnimationActive={false} dataKey="value" radius={[0, 4, 4, 0]}>
                 {familyChartData.map((entry, index) => (
@@ -1013,7 +1013,7 @@ export function CloudCostsView({
           <div>
             <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
               {cloudDisplayName} Cluster Leaderboard
-              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amber, color: C.white }}>est.</span>
+              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amberTint, color: C.amberInk, border: `1px solid ${C.hairline}` }}>est.</span>
               <span className="inline-flex items-center group relative">
                 <svg className="h-3.5 w-3.5 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />

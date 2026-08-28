@@ -96,8 +96,8 @@ export function UserGroupBreakdown({ data, isLoading }: UserGroupBreakdownProps)
             formatter={(value: number | undefined) => formatCurrency(value ?? 0)}
             labelFormatter={(label) => isGroups ? `Group: ${label}` : `User: ${label}`}
             contentStyle={{
-              backgroundColor: "white",
-              border: "1px solid #e5e7eb",
+              backgroundColor: C.card,
+              border: `1px solid ${C.hairline}`,
               borderRadius: "8px",
             }}
           />

@@ -222,7 +222,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
             {/* Quick actions */}
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold" style={{ color: C.navy }}>Report sections</div>
+                <div className="text-sm font-semibold" style={{ color: C.ink }}>Report sections</div>
                 <div className="mt-0.5 text-xs" style={{ color: C.slate }}>
                   {selectedCount} of {visibleKeys.length} selected
                 </div>
@@ -272,7 +272,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
                       style={{ accentColor: C.lava }}
                     />
                     <div className="flex-1">
-                      <div className="text-sm font-semibold leading-5" style={{ color: C.navy }}>{label}</div>
+                      <div className="text-sm font-semibold leading-5" style={{ color: C.ink }}>{label}</div>
                       <div className="mt-0.5 text-xs leading-[1.45]" style={{ color: C.slate }}>{description}</div>
                     </div>
                   </label>
@@ -294,7 +294,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
               type="button"
               onClick={onClose}
               className="px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:shadow-(--focus)"
-              style={{ color: C.navy, background: C.card, border: `1px solid ${C.hairline}`, borderRadius: 8 }}
+              style={{ color: C.ink, background: C.card, border: `1px solid ${C.hairline}`, borderRadius: 8 }}
             >
               Cancel
             </button>

@@ -3,7 +3,7 @@ import { APP_VERSION, C, FONT_MONO, FONT_SANS } from "@/theme";
 import { cn } from "@/lib/utils";
 
 export function CostObsMark({ className, whiteOrbit = false }: { className?: string; whiteOrbit?: boolean }) {
-  const orbit = whiteOrbit ? C.white : C.navy;
+  const orbit = whiteOrbit ? C.white : C.ink;
   return (
     <svg viewBox="0 0 48 48" fill="none" className={className} aria-hidden="true">
       <path d="M3 24 a21 8 0 0 1 42 0" stroke={orbit} strokeWidth="2.6" strokeLinecap="round" />
@@ -108,7 +108,7 @@ export function InfoPanel({
         </div>
         <div className="ml-3 flex-1">
           <button className="flex w-full items-center justify-between text-left" onClick={() => onToggle(!minimized)}>
-            <h3 className="text-sm font-semibold" style={{ color: C.navy }}>{title}</h3>
+            <h3 className="text-sm font-semibold" style={{ color: C.ink }}>{title}</h3>
             <svg className={cn("h-4 w-4 transition-transform", minimized ? "" : "rotate-180")} style={{ color: C.slate }} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>

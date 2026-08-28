@@ -22,6 +22,8 @@ export const C = {
   green: "var(--green)",
   greenInk: "var(--green-ink)",
   greenTint: "var(--green-tint)",
+  successFill: "var(--success-fill)",
+  successFillHover: "var(--success-fill-hover)",
   amber: "var(--amber)",
   amberInk: "var(--amber-ink)",
   amberTint: "var(--amber-tint)",

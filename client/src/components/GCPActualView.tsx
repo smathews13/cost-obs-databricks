@@ -46,7 +46,7 @@ export function GCPActualView({ gcpActualData, cloudTabSwitcher, onSwitchToEstim
         </div>
       </div>
 
-      <div className="rounded-lg p-6 text-white shadow" style={{ background: 'linear-gradient(to right, #4285F4, #8AB4F8)' }}>
+      <div className="rounded-lg p-6 text-white shadow" style={{ background: "linear-gradient(to right, var(--gcp-hero-start), var(--gcp-hero-end))" }}>
         <div className="flex items-center justify-between">
           <div className="flex-1">
             <div className="flex items-center gap-2 flex-wrap">

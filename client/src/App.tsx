@@ -774,7 +774,7 @@ function Dashboard() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4" style={{ backgroundColor: C.oatPage }}>
         <Spinner size="md" />
-        <p className="text-sm font-medium" style={{ color: C.navy }}>Checking setup status…</p>
+        <p className="text-sm font-medium" style={{ color: C.ink }}>Checking setup status…</p>
       </div>
     );
   }
@@ -786,7 +786,7 @@ function Dashboard() {
           <svg className="h-10 w-10 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
           </svg>
-          <h2 className="text-xl font-semibold" style={{ color: C.navy }}>SQL Warehouse unavailable</h2>
+          <h2 className="text-xl font-semibold" style={{ color: C.ink }}>SQL Warehouse unavailable</h2>
           <p className="text-sm" style={{ color: C.slate }}>The warehouse could not be reached. Check that your warehouse is running in the Databricks console.</p>
         </div>
       </div>
@@ -800,7 +800,7 @@ function Dashboard() {
           <div className="flex h-3 w-13 items-center justify-center">
             <Spinner size="xs" />
           </div>
-          <h2 className="text-xl font-semibold" style={{ color: C.navy }}>SQL Warehouse is starting up</h2>
+          <h2 className="text-xl font-semibold" style={{ color: C.ink }}>SQL Warehouse is starting up</h2>
           <p className="text-sm" style={{ color: C.slate }}>Dashboard data will load automatically once the warehouse is ready.</p>
         </div>
       </div>
@@ -809,7 +809,7 @@ function Dashboard() {
 
   return (
     <SpNameMapContext.Provider value={spNameMap}>
-    <div className="min-h-screen" style={{ backgroundColor: (appSettings.theme === "dark" || (appSettings.theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches)) ? '#1B1F23' : C.oatPage }}>
+    <div className="min-h-screen" style={{ backgroundColor: C.oatPage }}>
       {/* Setup incomplete banner: non-dismissable, shown when wizard was closed without finishing */}
       {setupIncomplete && (
         <div className="flex items-center justify-between gap-4 px-4 py-2.5 border-b" style={{ backgroundColor: C.coralTint, borderColor: C.coralBrd }}>

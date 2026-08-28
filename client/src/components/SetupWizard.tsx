@@ -123,7 +123,7 @@ function PermissionErrorBlock({ error, onGranted }: { error: string; onGranted: 
           onClick={handleGrant}
           disabled={grantStatus === "running" || grantStatus === "ok"}
           className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60 transition-colors"
-          style={{ backgroundColor: grantStatus === "ok" ? "#16a34a" : C.lava }}
+          style={{ backgroundColor: grantStatus === "ok" ? C.successFill : C.lava }}
         >
           {grantStatus === "running" && <Spinner size="xs" />}
           {grantStatus === "ok" ? "Granted!" : grantStatus === "running" ? "Granting…" : "Try to grant access"}

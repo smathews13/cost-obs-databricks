@@ -20,7 +20,7 @@ const fmtCurrency = (v: unknown) => formatCurrency(v as number);
 const fmtTooltip = (value: number | undefined) => formatCurrency(value ?? 0);
 const fmtTooltipLabel = (label: unknown) => `Product: ${label}`;
 const fmtYTick = (v: string) => (v.length > 18 ? v.substring(0, 18) + "..." : v);
-const TOOLTIP_STYLE = { backgroundColor: C.white, border: `1px solid ${C.hairline}`, borderRadius: "8px" } as const;
+const TOOLTIP_STYLE = { backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" } as const;
 const LABEL_STYLE = { fontSize: 11, fill: C.slate } as const;
 
 interface WsRowProps {

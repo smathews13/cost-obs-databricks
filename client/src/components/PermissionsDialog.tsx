@@ -152,7 +152,7 @@ export function PermissionsDialog() {
                 }}
                 disabled={!acknowledged}
                 className={`rounded-lg px-5 py-2 text-sm font-medium text-white transition-colors ${!acknowledged ? "opacity-50 cursor-not-allowed" : ""}`}
-                style={{ backgroundColor: acknowledged ? "#10b981" : C.muted }}
+                style={{ backgroundColor: acknowledged ? C.successFill : C.muted }}
               >
                 Continue to Dashboard
               </button>
@@ -498,15 +498,15 @@ export function PermissionsDialog() {
                 className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
                   !acknowledged ? "opacity-50 cursor-not-allowed" : ""
                 }`}
-                style={{ backgroundColor: !acknowledged ? C.muted : (data.summary.all_required_granted ? "#10b981" : C.lava) }}
+                style={{ backgroundColor: !acknowledged ? C.muted : (data.summary.all_required_granted ? C.successFill : C.lava) }}
                 onMouseEnter={(e) => {
                   if (acknowledged) {
-                    e.currentTarget.style.backgroundColor = data.summary.all_required_granted ? "#059669" : C.lavaHover;
+                    e.currentTarget.style.backgroundColor = data.summary.all_required_granted ? C.successFillHover : C.lavaHover;
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (acknowledged) {
-                    e.currentTarget.style.backgroundColor = data.summary.all_required_granted ? "#10b981" : C.lava;
+                    e.currentTarget.style.backgroundColor = data.summary.all_required_granted ? C.successFill : C.lava;
                   }
                 }}
               >

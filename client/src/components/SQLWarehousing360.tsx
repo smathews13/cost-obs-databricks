@@ -465,10 +465,10 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
             onToggle={handleMinimizeToggle}
           >
             <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-              <li><strong style={{ color: C.navy }}>Spend by Source:</strong> Click any source (Genie, AI/BI, SQL Editor, Jobs, Notebooks) to drill into the top queries from that source</li>
-              <li><strong style={{ color: C.navy }}>Warehouse Spend:</strong> Breakdown by warehouse type and utilization patterns</li>
-              <li><strong style={{ color: C.navy }}>SKU Breakdown:</strong> Spend split across Serverless, Pro, Classic, and other SQL SKUs</li>
-              <li><strong style={{ color: C.navy }}>Top Users by Query Spend:</strong> Human users and service principals ranked by SQL query cost</li>
+              <li><strong style={{ color: C.ink }}>Spend by Source:</strong> Click any source (Genie, AI/BI, SQL Editor, Jobs, Notebooks) to drill into the top queries from that source</li>
+              <li><strong style={{ color: C.ink }}>Warehouse Spend:</strong> Breakdown by warehouse type and utilization patterns</li>
+              <li><strong style={{ color: C.ink }}>SKU Breakdown:</strong> Spend split across Serverless, Pro, Classic, and other SQL SKUs</li>
+              <li><strong style={{ color: C.ink }}>Top Users by Query Spend:</strong> Human users and service principals ranked by SQL query cost</li>
             </ul>
           </InfoPanel>
 
@@ -751,7 +751,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                         labelFormatter={(label) => {
                           try { return format(parseISO(label as string), "MMM d, yyyy"); } catch { return label as string; }
                         }}
-                        contentStyle={{ backgroundColor: C.white, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
+                        contentStyle={{ backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
                       />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       {whTypes.map((wt) => (
@@ -886,7 +886,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                         <BarChart data={chartData} layout="vertical" margin={{ left: 20, right: 40 }}>
                           <XAxis type="number" stroke={C.muted} fontSize={12} tickMargin={8} />
                           <YAxis type="category" dataKey="name" width={80} stroke={C.muted} fontSize={12} tickMargin={8} />
-                          <Tooltip contentStyle={{ backgroundColor: C.white, border: `1px solid ${C.hairline}`, borderRadius: "8px" }} />
+                          <Tooltip contentStyle={{ backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" }} />
                           <Bar dataKey="count" name="Warehouses" radius={[0, 4, 4, 0]}>
                             {chartData.map((_, idx) => (
                               <Cell key={idx} fill={seriesColor(idx)} />
