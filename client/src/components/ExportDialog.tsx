@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { TabVisibility } from "@/components/SettingsDialog";
 import { C } from "@/theme";
 import { CostObsMark } from "@/components/brand";
+import { Spinner } from "@/components/Spinner";
 
 export interface ExportSections {
   summary: boolean;
@@ -29,6 +30,7 @@ interface ExportDialogProps {
   onClose: () => void;
   onExport: (sections: ExportSections, format: ExportFormat) => void;
   tabVisibility: TabVisibility;
+  dataLoading?: boolean;
 }
 
 // Map export sections to the tab that owns them: order matches tab nav so the
@@ -69,7 +71,7 @@ const sectionLabels: Record<keyof ExportSections, { label: string; description: 
   optimize: { label: "Optimize", description: "Warehouse rightsizing and idle-time opportunities" },
 };
 
-export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: ExportDialogProps) {
+export function ExportDialog({ isOpen, onClose, onExport, tabVisibility, dataLoading = false }: ExportDialogProps) {
   const visibleSections = useMemo(() => {
     const result: ExportSections = {} as ExportSections;
     for (const key of Object.keys(sectionToTab) as Array<keyof ExportSections>) {
@@ -125,6 +127,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
   const selectedCount = visibleKeys.filter((k) => sections[k]).length;
 
   const handleExport = () => {
+    if (dataLoading) return;
     onExport(sections, format);
     onClose();
   };
@@ -301,13 +304,18 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
             <button
               type="button"
               onClick={handleExport}
-              disabled={selectedCount === 0}
+              disabled={selectedCount === 0 || dataLoading}
+              aria-label={dataLoading ? "Preparing report data" : undefined}
               className="btn-brand inline-flex items-center gap-2 px-4 py-2 text-sm focus-visible:outline-none"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Export {selectedCount} section{selectedCount !== 1 ? "s" : ""} as {format.toUpperCase()}
+              {dataLoading ? <Spinner size="xs" /> : (
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.293.707l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              )}
+              {dataLoading
+                ? "Preparing report data…"
+                : `Export ${selectedCount} section${selectedCount !== 1 ? "s" : ""} as ${format.toUpperCase()}`}
             </button>
             </div>
           </div>

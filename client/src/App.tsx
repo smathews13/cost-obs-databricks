@@ -50,20 +50,6 @@ const WarehouseIdleTimeView = lazy(() => lazyWithRetry(() => import("@/component
 const OptimizeMethodologyPanel = lazy(() => lazyWithRetry(() => import("@/components/SQLWarehousing360").then(m => ({ default: m.OptimizeMethodologyPanel }))));
 const UsersGroups = lazy(() => lazyWithRetry(() => import("@/pages/UsersGroups")));
 
-// Preload all lazy chunks during browser idle time so tab switches are instant.
-// React.lazy caches the promise, so these import() calls prime the module cache
-// before the component ever renders.
-function preloadTabChunks() {
-  import("@/components/InteractiveBreakdown");
-  import("@/components/CloudCostsView");
-  import("@/components/PlatformKPIsView");
-  import("@/components/AIMLCostCenter");
-  import("@/components/AppsCostCenter");
-  import("@/components/TaggingHub");
-  import("@/components/SQLWarehousing360");
-  import("@/pages/UsersGroups");
-}
-
 import {
   useAccountInfo,
   useAWSActualCosts,
@@ -90,6 +76,7 @@ import { generateCostCSV } from "@/utils/csvExport";
 import { C } from "@/theme";
 import { CostObsLockup, VersionPill, PageHero, Chip } from "@/components/brand";
 import { LoadingPanels, Spinner } from "@/components/Spinner";
+import { isTabDataRequested } from "@/utils/tabDemand";
 
 // Keep the Databricks Apps pod warm while the tab is open.
 // Cold starts take 30s to 1min; a lightweight ping every 4 min prevents idle suspension.
@@ -106,7 +93,7 @@ function useKeepAlive() {
   }, []);
 }
 
-type ViewTab = "dbu" | "sql" | "infra" | "optimizer" | "kpis" | "aiml" | "apps" | "tagging" | "users-groups";
+type ViewTab = keyof TabVisibility;
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -239,11 +226,11 @@ function Dashboard() {
   const rqClient = useQueryClient();
 
   const handleTabRefresh = async () => {
-    await rqClient.cancelQueries();
-    // Await cache clear so server-side cache is empty before any query fires
+    await rqClient.cancelQueries({ type: "active" });
+    // Clear server caches so the active tab receives fresh data, but refetch only
+    // enabled observers. Disabled, unopened tabs remain dormant.
     await fetch("/api/cache/clear", { method: "POST" }).catch(() => {});
-    // refetchQueries bypasses enabled:false: forces all tab-gated queries to fetch too
-    await rqClient.refetchQueries({ type: "all" });
+    await rqClient.refetchQueries({ type: "active" });
   };
 
   // On every load, verify setup status with the server.
@@ -411,22 +398,31 @@ function Dashboard() {
     gcTime: Infinity,
   });
 
-  // Clear the chunk-reload guard and preload lazy chunks once the warehouse is
-  // confirmed warm. Gating preloading here prevents the browser's ES module
-  // registry from caching rejected import() promises during the risky startup
-  // window (SIGTERM switchover, cold warehouse, transient server errors).
+  // Clear the stale-chunk reload guard once the app is healthy. Tab chunks remain
+  // on demand: React.lazy downloads each one only when its tab is first opened.
   useEffect(() => {
     if (!warehouseReady) return;
     sessionStorage.removeItem("_chunk_reload");
-    if ("requestIdleCallback" in window) {
-      requestIdleCallback(preloadTabChunks, { timeout: 5000 });
-    } else {
-      setTimeout(preloadTabChunks, 2000);
-    }
   }, [warehouseReady]);
 
-  // Fast bundle for quick initial load (uses materialized views)
-  const { data: bundle, isLoading: bundleLoading } = useDashboardBundleFast(dateRange, selectedWorkspaceIds.length ? selectedWorkspaceIds : undefined, warehouseReady);
+  const requested = (tab: ViewTab) =>
+    Boolean(warehouseReady) && isTabDataRequested(tab, activeTab, showExportDialog, tabVisibility);
+  const dbuRequested = requested("dbu");
+  const sqlRequested = requested("sql");
+  const infraRequested = requested("infra");
+  const optimizerRequested = requested("optimizer");
+  const kpisRequested = requested("kpis");
+  const aimlRequested = requested("aiml");
+  const appsRequested = requested("apps");
+  const taggingRequested = requested("tagging");
+  const usersRequested = requested("users-groups");
+
+  // Fast bundle for the DBU tab and report exports (uses materialized views).
+  const { data: bundle, isLoading: bundleLoading } = useDashboardBundleFast(
+    dateRange,
+    selectedWorkspaceIds.length ? selectedWorkspaceIds : undefined,
+    dbuRequested,
+  );
 
   // Extract data from fast bundle: apply pricing multiplier when account prices are active
   const summary = useMemo(() => {
@@ -482,49 +478,38 @@ function Dashboard() {
 
   const _wsIds = selectedWorkspaceIds.length ? selectedWorkspaceIds : undefined;
 
-  // All tab queries gate on warehouseReady so nothing hits the warehouse before the health
-  // check confirms it is accepting queries. This prevents cold-warehouse contention and
-  // ensures the health check SQL probe is never competing with 15+ simultaneous queries.
-  const { data: sqlBreakdown, isLoading: sqlLoading } = useSqlBreakdown(dateRange, _wsIds, warehouseReady);
-  const { data: pipelineObjects, isLoading: pipelineLoading } = usePipelineObjects(dateRange, _wsIds, warehouseReady);
-  const { data: interactiveBreakdown, isLoading: interactiveLoading } = useInteractiveBreakdown(dateRange, _wsIds, warehouseReady);
-  const { data: skuBreakdown, isLoading: skuLoading } = useSKUBreakdown(dateRange, _wsIds, warehouseReady);
+  // Each tab now opts into only the queries it owns. React Query keeps settled data
+  // cached, so revisiting a tab is instant until its stale-time expires.
+  const { data: sqlBreakdown, isLoading: sqlLoading } = useSqlBreakdown(dateRange, _wsIds, sqlRequested);
+  const { data: pipelineObjects, isLoading: pipelineLoading } = usePipelineObjects(dateRange, _wsIds, dbuRequested);
+  const { data: interactiveBreakdown, isLoading: interactiveLoading } = useInteractiveBreakdown(dateRange, _wsIds, dbuRequested);
+  const { data: skuBreakdown, isLoading: skuLoading } = useSKUBreakdown(dateRange, _wsIds, dbuRequested);
 
-  const { data: infraBundle, isLoading: infraBundleLoading } = useInfraBundle(dateRange, _wsIds, warehouseReady);
+  const { data: infraBundle, isLoading: infraBundleLoading } = useInfraBundle(dateRange, _wsIds, infraRequested);
   const infraCosts = infraBundle?.infra_costs;
   const infraCostsTimeseries = infraBundle?.infra_timeseries;
 
-  const { data: kpisBundle, isLoading: kpisBundleLoading, isFetching: kpisBundleFetching } = useKPIsBundle(dateRange, _wsIds, warehouseReady);
+  const { data: kpisBundle, isLoading: kpisBundleLoading, isFetching: kpisBundleFetching } = useKPIsBundle(dateRange, _wsIds, kpisRequested);
   const spendAnomalies = kpisBundle?.anomalies;
   const platformKPIs = kpisBundle?.kpis;
   const anomaliesLoading = kpisBundleLoading;
   const kpisLoading = kpisBundleLoading;
 
-  const { data: aimlData, isLoading: aimlLoading } = useAIMLDashboardBundle(dateRange, _wsIds, warehouseReady);
-  const { data: appsData, isLoading: appsLoading } = useAppsDashboardBundle(dateRange, _wsIds, warehouseReady);
-  const { data: taggingData, isLoading: taggingLoading } = useTaggingDashboardBundle(dateRange, _wsIds, warehouseReady);
+  const { data: aimlData, isLoading: aimlLoading } = useAIMLDashboardBundle(dateRange, _wsIds, aimlRequested);
+  const { data: appsData, isLoading: appsLoading } = useAppsDashboardBundle(dateRange, _wsIds, appsRequested);
+  const { data: taggingData, isLoading: taggingLoading } = useTaggingDashboardBundle(dateRange, _wsIds, taggingRequested);
 
   // Cloud actual costs: no workspace filter
-  const { data: awsActualData, isLoading: awsActualLoading } = useAWSActualCosts(dateRange, warehouseReady);
-  const { data: azureActualData, isLoading: azureActualLoading } = useAzureActualCosts(dateRange, warehouseReady);
-  const { data: gcpActualData, isLoading: gcpActualLoading } = useGCPActualCosts(dateRange, warehouseReady);
+  const { data: awsActualData, isLoading: awsActualLoading } = useAWSActualCosts(dateRange, infraRequested);
+  const { data: azureActualData, isLoading: azureActualLoading } = useAzureActualCosts(dateRange, infraRequested);
+  const { data: gcpActualData, isLoading: gcpActualLoading } = useGCPActualCosts(dateRange, infraRequested);
 
-  const { data: dbsqlData, isLoading: dbsqlLoading, isError: dbsqlError } = useDBSQLQueryCosts(dateRange, _wsIds, warehouseReady);
-  const { data: dbsqlTopQueriesData, isLoading: dbsqlTopQueriesLoading } = useDBSQLTopQueries(dateRange, _wsIds, warehouseReady);
-  const { data: usersGroupsData, isLoading: usersGroupsLoading } = useUsersGroupsBundle(dateRange, _wsIds, warehouseReady);
-  const activeTabInitialLoading =
-    activeTab === "dbu" ? (!warehouseReady || bundleLoading) :
-    activeTab === "kpis" ? (!warehouseReady || kpisBundleLoading) :
-    activeTab === "aiml" ? (!warehouseReady || aimlLoading) :
-    activeTab === "apps" ? (!warehouseReady || appsLoading) :
-    activeTab === "tagging" ? (!warehouseReady || taggingLoading) :
-    activeTab === "sql" ? (!warehouseReady || sqlLoading || dbsqlLoading) :
-    activeTab === "users-groups" ? (!warehouseReady || usersGroupsLoading) :
-    false;
+  const { data: dbsqlData, isLoading: dbsqlLoading, isError: dbsqlError } = useDBSQLQueryCosts(dateRange, _wsIds, sqlRequested);
+  const { data: dbsqlTopQueriesData, isLoading: dbsqlTopQueriesLoading } = useDBSQLTopQueries(dateRange, _wsIds, sqlRequested);
+  const { data: usersGroupsData, isLoading: usersGroupsLoading } = useUsersGroupsBundle(dateRange, _wsIds, usersRequested);
 
-  // Optimizer tab: prefetch rightsizing and idle-time in background so the tab loads instantly,
-  // and capture the data so the PDF export can include it under the Optimize section.
-  const { data: optimizeRightsizingData } = useQuery<{
+  // Optimizer queries run when its tab or the report exporter requests them.
+  const { data: optimizeRightsizingData, isLoading: optimizeRightsizingLoading } = useQuery<{
     available: boolean;
     warehouses_analyzed: number;
     recommendations: Array<{
@@ -542,9 +527,9 @@ function Dashboard() {
     retry: false,
     // Deferred: only fire when the Optimize tab is actually opened. Previously
     // this prefetched at Dashboard mount and could starve concurrent bundles.
-    enabled: warehouseReady && activeTab === "optimizer",
+    enabled: optimizerRequested,
   });
-  const { data: optimizeIdleData } = useQuery<{
+  const { data: optimizeIdleData, isLoading: optimizeIdleLoading } = useQuery<{
     available: boolean;
     serverless_detected: boolean;
     warehouses: Array<{
@@ -572,10 +557,23 @@ function Dashboard() {
     staleTime: 30 * 60 * 1000,
     retry: false,
     // Deferred: only fire when the Optimize tab is actually opened.
-    enabled: warehouseReady && activeTab === "optimizer",
+    enabled: optimizerRequested,
   });
 
-  useQuery({ queryKey: ["available-tags"], queryFn: async () => { const r = await fetch("/api/tagging/available-tags"); if (!r.ok) return { tags: {}, count: 0 }; return r.json(); } });
+  const tabLoading: Record<ViewTab, boolean> = {
+    dbu: bundleLoading || skuLoading || pipelineLoading || interactiveLoading,
+    sql: sqlLoading || dbsqlLoading || dbsqlTopQueriesLoading,
+    infra: infraBundleLoading || awsActualLoading || azureActualLoading || gcpActualLoading,
+    optimizer: optimizeRightsizingLoading || optimizeIdleLoading,
+    kpis: kpisBundleLoading,
+    aiml: aimlLoading,
+    apps: appsLoading,
+    tagging: taggingLoading,
+    "users-groups": usersGroupsLoading,
+  };
+  const activeTabInitialLoading = !warehouseReady || tabLoading[activeTab];
+  const exportDataLoading = showExportDialog &&
+    (Object.keys(tabVisibility) as ViewTab[]).some((tab) => tabVisibility[tab] && tabLoading[tab]);
 
   // Workspace list for the filter dropdown: SQL-backed, only fire when warehouse is ready.
   const { data: wsListData, isLoading: wsListLoading } = useQuery<{ workspaces: { id: string; name: string; historical?: boolean }[] }>({
@@ -1389,6 +1387,7 @@ function Dashboard() {
         onClose={() => setShowExportDialog(false)}
         onExport={handleExport}
         tabVisibility={tabVisibility}
+        dataLoading={exportDataLoading}
       />
 
       <SettingsDialog
