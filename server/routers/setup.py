@@ -164,55 +164,18 @@ _CORE_REQUIRED_TABLES = frozenset({
 })
 
 def autodiscover_storage_location() -> tuple[str, str] | None:
-    """Find where the app's own MV tables already live and adopt that location.
+    """Use the central safe storage resolver and restore the local setup flag.
 
-    Runs when no catalog/schema is configured — the case on a workspace where DBFS
-    is disabled (so the app's durable override can't be stored there) and a redeploy
-    wiped `.settings/`. Without this the app forgets where its tables are and shows
-    "setup incomplete" even though the tables exist.
-
-    Searches system.information_schema for the CORE MV tables and adopts the single
-    location that holds all of them. Best-effort and conservative: if the location
-    is ambiguous (multiple schemas hold the core tables) it does nothing rather than
-    guess. On success it persists the location to `.settings` and writes the
-    setup-done flag (the tables existing means setup was completed). Returns
-    (catalog, schema) on success, else None.
+    ``server.db.get_catalog_schema`` owns discovery because every startup/API path
+    must apply the same owner, managed-catalog, marker-table, and ambiguity gates.
+    Keeping a second information-schema-only implementation here previously made it
+    possible for startup to adopt a shared or unrelated schema.
     """
     global _setup_confirmed_ready
-    from server.db import execute_query, save_catalog_schema
+    from server.db import get_catalog_schema
 
-    core = sorted(_CORE_REQUIRED_TABLES)
-    in_list = ", ".join("'" + t + "'" for t in core)
-    try:
-        rows = execute_query(
-            f"""SELECT table_catalog AS c, table_schema AS s, COUNT(*) AS n
-                FROM system.information_schema.tables
-                WHERE table_name IN ({in_list})
-                GROUP BY table_catalog, table_schema
-                ORDER BY n DESC""",
-            no_cache=True,
-        )
-    except Exception as e:
-        logger.warning("Storage auto-discovery query failed (non-fatal): %s", e)
-        return None
-
-    candidates = [(r["c"], r["s"]) for r in (rows or []) if int(r.get("n") or 0) >= len(core)]
-    if not candidates:
-        logger.info("Storage auto-discovery: no schema holds the core MV tables yet.")
-        return None
-    if len(candidates) > 1:
-        logger.warning(
-            "Storage auto-discovery ambiguous — %d schemas hold the core tables (%s); "
-            "leaving unconfigured so the setup wizard can pick.",
-            len(candidates), candidates,
-        )
-        return None
-
-    cat, sch = candidates[0]
-    try:
-        save_catalog_schema(cat, sch)
-    except Exception as e:
-        logger.warning("Storage auto-discovery: could not persist %s.%s: %s", cat, sch, e)
+    cat, sch = get_catalog_schema()
+    if not cat or not sch:
         return None
 
     # The tables exist, so setup was completed — restore the flag too (DBFS-free).
@@ -954,7 +917,9 @@ def _verify_built_objects_as_sp(catalog: str, schema: str) -> dict:
     """
     failed: list[str] = []
     errors: dict[str, str] = {}
-    for table in _MV_TABLES:
+    # Include the two persistence tables required for incremental refreshes and
+    # durable rebuild history, not just the dashboard-facing MVs.
+    for table in _MV_TABLES + ["app_mv_refresh_state", "app_refresh_log"]:
         try:
             _execute_as_sp(f"SELECT 1 FROM `{catalog}`.`{schema}`.`{table}` LIMIT 1")
         except Exception as e:
@@ -994,7 +959,8 @@ async def create_tables(
         _create_task_state["elapsed_seconds"] = 0
         _ALL_SETUP_TABLES = _MV_TABLES + [
             "app_response_cache", "app_user_permissions",
-            "app_mv_refresh_state", "app_schedule_settings", "app_workspace_filter",
+            "app_mv_refresh_state", "app_refresh_log", "app_schedule_settings",
+            "app_workspace_filter", "app_settings",
         ]
         _create_task_state["table_progress"] = {t: "pending" for t in _ALL_SETUP_TABLES}
         _persist_task_state()
@@ -1109,18 +1075,25 @@ def _create_tables_task(catalog: str, schema: str, user_token: str = ""):
         # Bootstrap all config tables now that the SP has schema-level permissions.
         # Each has its own _ensure_* function that runs CREATE TABLE IF NOT EXISTS.
         from server.db import _ensure_response_cache_table
+        from server.materialized_views import _ensure_refresh_state_table
         from server.routers.settings import (
             _ensure_permissions_table,
+            _ensure_app_settings_table,
             _ensure_refresh_log_table,
             _ensure_schedule_table,
             _ensure_workspace_filter_table,
         )
         _config_table_fns = [
+            (
+                "app_mv_refresh_state",
+                lambda: _ensure_refresh_state_table(catalog, schema),
+            ),
             ("app_response_cache",    _ensure_response_cache_table),
             ("app_user_permissions",  _ensure_permissions_table),
-            ("app_mv_refresh_state",  _ensure_refresh_log_table),
+            ("app_refresh_log",       _ensure_refresh_log_table),
             ("app_schedule_settings", _ensure_schedule_table),
             ("app_workspace_filter",  _ensure_workspace_filter_table),
+            ("app_settings",          _ensure_app_settings_table),
         ]
         for _tname, _fn in _config_table_fns:
             try:

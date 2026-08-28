@@ -51,7 +51,11 @@ beforeEach(() => {
 
 function renderSQLView(
   queryData: DBSQLDashboardBundle | undefined,
-  opts: { isLoading?: boolean; isError?: boolean } = {},
+  opts: {
+    isLoading?: boolean;
+    isError?: boolean;
+    topQueriesData?: import("@/types/billing").TopQueriesResponse;
+  } = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -61,6 +65,7 @@ function renderSQLView(
         queryData={queryData}
         isLoading={opts.isLoading ?? false}
         isError={opts.isError}
+        topQueriesData={opts.topQueriesData}
       />
     </QueryClientProvider>
   );
@@ -183,5 +188,79 @@ describe("SQLWarehousing360: available=true with zero-value summary renders $0",
     expect(
       screen.queryByText(/query-level cost attribution not available/i)
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("SQLWarehousing360: dashboard polish", () => {
+  const source = {
+    query_source_type: "JOB",
+    query_count: 2,
+    total_spend: 12,
+    total_dbus: 3,
+    avg_cost_per_query: 6,
+    percentage: 100,
+  };
+  const bundle: DBSQLDashboardBundle = {
+    ...BASE_BUNDLE_AVAILABLE,
+    by_source: {
+      available: true,
+      sources: [source],
+      total_spend: 12,
+      start_date: "2026-01-01",
+      end_date: "2026-01-31",
+    },
+    by_warehouse: {
+      available: true,
+      warehouses: [
+        { warehouse_id: "w1", warehouse_size: "SMALL", workspace_id: "1", query_count: 1, unique_users: 1, total_spend: 6, total_dbus: 1, percentage: 50 },
+        { warehouse_id: "w2", warehouse_size: "LARGE", workspace_id: "2", query_count: 1, unique_users: 1, total_spend: 6, total_dbus: 1, percentage: 50 },
+      ],
+      total_spend: 12,
+      start_date: "2026-01-01",
+      end_date: "2026-01-31",
+    },
+  };
+  const topQueriesData = {
+    available: true,
+    queries: [{
+      statement_id: "q1",
+      query_source_type: "JOB",
+      query_source_id: null,
+      executed_by: "user@example.com",
+      warehouse_id: "w1",
+      workspace_id: "1",
+      statement_preview: "SELECT 1",
+      duration_seconds: 1,
+      cost: 12,
+      dbus: 3,
+      query_profile_url: null,
+      source_url: null,
+      start_time: "2026-01-15T00:00:00Z",
+      end_time: "2026-01-15T00:00:01Z",
+    }],
+    start_date: "2026-01-01",
+    end_date: "2026-01-31",
+  };
+
+  it("uses the same full tinted source badge across source tables", () => {
+    renderSQLView(bundle, { topQueriesData });
+
+    const badges = screen.getAllByText("JOB");
+    expect(badges).toHaveLength(2);
+    const badgeStyles = badges.map((badge) => badge.getAttribute("style"));
+    badges.forEach((badge) => {
+      expect(badge).toHaveClass("rounded-full", "px-2", "py-1");
+      expect(badge.getAttribute("style")).toContain("background-color");
+      expect(badge.getAttribute("style")).toContain("color-mix");
+    });
+    expect(new Set(badgeStyles).size).toBe(1);
+  });
+
+  it("uses only the top-level workspace scope for warehouse counts", () => {
+    renderSQLView(bundle);
+
+    expect(screen.getByText("Warehouse Count by Size")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Search workspaces...")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Filtered to/i)).not.toBeInTheDocument();
   });
 });

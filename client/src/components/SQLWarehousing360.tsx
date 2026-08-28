@@ -17,9 +17,8 @@ import {
   LabelList,
 } from "recharts";
 import { format, parseISO } from "date-fns";
-import type { GranularBreakdownResponse, DBSQLDashboardBundle, QueryCostByWarehouse } from "@/types/billing";
+import type { GranularBreakdownResponse, DBSQLDashboardBundle } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
-import { VirtualizedList } from "./VirtualizedList";
 import { LoadingPanels, Spinner } from "./Spinner";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
@@ -49,6 +48,19 @@ const SOURCE_TYPE_COLORS: Record<string, string> = {
   "ALERT": C.s1,
   Unknown: C.slate,
 };
+
+function QuerySourceBadge({ sourceType }: { sourceType: string }) {
+  const color = SOURCE_TYPE_COLORS[sourceType] || C.slate;
+  return (
+    <span
+      className="inline-flex max-w-44 truncate rounded-full px-2 py-1 text-xs font-medium"
+      style={{ backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`, color }}
+      title={sourceType}
+    >
+      {sourceType}
+    </span>
+  );
+}
 
 const COST_TOOLTIP_TEXT = "Costs are estimates: the warehouse's billed DBU-hours are divided across all queries in the period, weighted by task duration. A fast query running during a low-activity window can inherit a large share of the hour's cost.";
 
@@ -149,26 +161,6 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
   const [querySourceFilters, setQuerySourceFilters] = useState<string[]>([]);
   const [querySourceDropdownOpen, setQuerySourceDropdownOpen] = useState(false);
   const [querySearch, setQuerySearch] = useState("");
-  const [warehouseSizeWsFilter, setWarehouseSizeWsFilter] = useState<string[]>([]);
-  const warehouseSizeWsInitialized = useRef(false);
-  const [whSizeDropdownOpen, setWhSizeDropdownOpen] = useState(false);
-  const [whSizeWsSearch, setWhSizeWsSearch] = useState("");
-  const whSizeDropdownRef = useRef<HTMLDivElement>(null);
-
-  // Close warehouse size dropdown on outside click; reset search on close so reopening starts fresh
-  useEffect(() => {
-    if (!whSizeDropdownOpen) {
-      setWhSizeWsSearch("");
-      return;
-    }
-    const handleClick = (e: MouseEvent) => {
-      if (whSizeDropdownRef.current && !whSizeDropdownRef.current.contains(e.target as Node)) {
-        setWhSizeDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [whSizeDropdownOpen]);
 
   // Derive current source queries from cache
   const sourceQueries = selectedSource ? (sourceQueriesCache[selectedSource] || []) : [];
@@ -226,9 +218,10 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
     if (!startDate || !endDate) return;
     for (const kpi of ["sql_queries", "sql_users", "avg_query_duration"]) {
       queryClient.prefetchQuery({
-        queryKey: ["platform-kpi-trend", kpi, startDate, endDate, "daily"],
+        queryKey: ["sql-platform-kpi-trend", kpi, startDate, endDate, "daily"],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
+          params.set("tab", "sql");
           const res = await fetch(`/api/billing/platform-kpi-trend?${params}`);
           if (!res.ok) throw new Error("prefetch failed");
           return res.json();
@@ -341,15 +334,6 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
       querySourceTypesInitialized.current = true;
     }
   }, [querySourceTypes]);
-
-  useEffect(() => {
-    if (warehouseSizeWsInitialized.current) return;
-    const wsIds = Array.from(new Set((queryData?.by_warehouse?.warehouses || []).map((w: any) => w.workspace_id).filter(Boolean))) as string[];
-    if (wsIds.length > 0) {
-      setWarehouseSizeWsFilter(wsIds);
-      warehouseSizeWsInitialized.current = true;
-    }
-  }, [queryData?.by_warehouse?.warehouses]);
 
   const isHistoricalQuery = (q: { executed_by: string; statement_preview: string }) =>
     !q.executed_by || q.executed_by === "Unknown" || q.statement_preview === "N/A";
@@ -495,7 +479,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
 
       {/* Query-level Cost Attribution */}
       <InfoPanel
-            title="SQL Warehousing: What's on this tab"
+            title="SQL tab methodology"
             minimized={infoMinimized}
             onToggle={handleMinimizeToggle}
           >
@@ -666,6 +650,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
               startDate={startDate}
               endDate={endDate}
               workspaceIds={workspaceIds}
+              queryKeyPrefix={selectedKPI.variant === "billing" ? "sql-kpi-trend" : "sql-platform-kpi-trend"}
             />
           )}
 
@@ -758,7 +743,12 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 const whTypeTs = warehouseTypeTimeseries;
                 const tsData = whTypeTs?.timeseries || [];
                 const whTypes: string[] = whTypeTs?.warehouse_types || [];
-                const typeColors: Record<string, string> = { SERVERLESS: C.s3, PRO: C.s5, CLASSIC: C.s4, Unknown: C.muted };
+                const typeColors: Record<string, string> = {
+                  SERVERLESS: C.s3,
+                  PRO: C.s5,
+                  CLASSIC: C.s4,
+                  UNCLASSIFIED: C.slate,
+                };
                 return (
                   <ResponsiveContainer width="100%" height={300}>
                     <AreaChart data={tsData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
@@ -800,26 +790,8 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
           {hasWarehouseSizeData && (
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline, overflow: 'visible' }}>
               {(() => {
-                const allWh = queryData?.by_warehouse?.warehouses || [];
-                // Build workspace list with names
-                const wsMap = new Map<string, string>();
-                for (const w of allWh) {
-                  const wsId = (w as any).workspace_id;
-                  const wsName = (w as any).workspace_name;
-                  if (wsId && !wsMap.has(wsId)) {
-                    wsMap.set(wsId, workspaceNameMap?.[wsId] || wsName || `Workspace ${wsId}`);
-                  }
-                }
-                const wsEntries = Array.from(wsMap.entries());
-                const isPartialWs = warehouseSizeWsFilter.length > 0 && warehouseSizeWsFilter.length < wsEntries.length;
-                const selectedWsName = warehouseSizeWsFilter.length === 1 ? (wsMap.get(warehouseSizeWsFilter[0]) || warehouseSizeWsFilter[0]) : null;
-
-                const warehouses = warehouseSizeWsFilter.length === 0
-                  ? allWh
-                  : allWh.filter((w: QueryCostByWarehouse) => !!w.workspace_id && warehouseSizeWsFilter.includes(w.workspace_id));
-
                 const bySize: Record<string, number> = {};
-                for (const w of warehouses) {
+                for (const w of queryData?.by_warehouse?.warehouses || []) {
                   const s = w.warehouse_size || "UNKNOWN";
                   if (s === "UNKNOWN") continue;
                   bySize[s] = (bySize[s] || 0) + 1;
@@ -830,83 +802,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
 
                 return (
                   <>
-                    <div className="mb-4 flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900">Warehouse Count by Size</h3>
-                        {selectedWsName && (
-                          <p className="text-sm text-orange-600 font-medium mt-0.5">Filtered to: {selectedWsName}</p>
-                        )}
-                        {isPartialWs && warehouseSizeWsFilter.length > 1 && (
-                          <p className="text-sm text-orange-600 font-medium mt-0.5">Filtered to {warehouseSizeWsFilter.length} workspaces</p>
-                        )}
-                      </div>
-                      {wsEntries.length > 1 && (
-                        <div className="relative" ref={whSizeDropdownRef}>
-                          <button
-                            onClick={() => setWhSizeDropdownOpen(!whSizeDropdownOpen)}
-                            className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isPartialWs ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
-                          >
-                            {selectedWsName
-                              ? (selectedWsName.length > 20 ? selectedWsName.substring(0, 20) + "…" : selectedWsName)
-                              : isPartialWs
-                              ? `${warehouseSizeWsFilter.length} workspaces`
-                              : "Workspace"}
-                            <svg className={`h-3 w-3 transition-transform ${whSizeDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </button>
-                          {whSizeDropdownOpen && (() => {
-                            const q = whSizeWsSearch.trim().toLowerCase();
-                            const filteredWs = q
-                              ? wsEntries.filter(([wsId, wsName]) => wsName.toLowerCase().includes(q) || wsId.toLowerCase().includes(q))
-                              : wsEntries;
-                            return (
-                            <div className="absolute right-0 top-full z-[9999] mt-1 w-72 rounded-lg border border-gray-200 bg-white shadow-lg">
-                              <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
-                                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Workspace</span>
-                                <div className="flex items-center gap-2 text-xs">
-                                  <button onClick={(e) => { e.stopPropagation(); setWarehouseSizeWsFilter(wsEntries.map(([id]) => id)); }} className="text-gray-500 hover:text-gray-800">All</button>
-                                  <span className="text-gray-300">·</span>
-                                  <button onClick={(e) => { e.stopPropagation(); setWarehouseSizeWsFilter([]); }} className="text-gray-500 hover:text-gray-800">Clear</button>
-                                </div>
-                              </div>
-                              <div className="border-b border-gray-100 p-2">
-                                <input
-                                  type="text"
-                                  value={whSizeWsSearch}
-                                  onChange={(e) => setWhSizeWsSearch(e.target.value)}
-                                  placeholder="Search workspaces..."
-                                  className="w-full rounded border border-gray-200 px-2 py-1 text-xs focus:border-lava focus:outline-none focus:ring-1 focus:ring-lava"
-                                  autoFocus
-                                />
-                              </div>
-                              {filteredWs.length === 0 ? (
-                                <div className="px-3 py-2 text-xs text-gray-500">No matching workspaces</div>
-                              ) : (
-                                <VirtualizedList
-                                  items={filteredWs}
-                                  itemHeight={36}
-                                  maxHeight={256}
-                                  getKey={([wsId]) => wsId}
-                                  renderItem={([wsId, wsName]) => (
-                                    <button
-                                      onClick={() => setWarehouseSizeWsFilter(prev => prev.includes(wsId) ? prev.filter(x => x !== wsId) : [...prev, wsId])}
-                                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs hover:bg-gray-50"
-                                    >
-                                      <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${warehouseSizeWsFilter.includes(wsId) ? "border-orange-500 bg-orange-500" : "border-gray-300"}`}>
-                                        {warehouseSizeWsFilter.includes(wsId) && <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                                      </div>
-                                      <span className="truncate text-gray-700">{wsName}</span>
-                                    </button>
-                                  )}
-                                />
-                              )}
-                            </div>
-                            );
-                          })()}
-                        </div>
-                      )}
-                    </div>
+                    <h3 className="mb-4 text-lg font-semibold text-gray-900">Warehouse Count by Size</h3>
                     <ResponsiveContainer width="100%" height={300}>
                         <BarChart data={chartData} layout="vertical" margin={{ left: 20, right: 40 }}>
                           <XAxis type="number" stroke={C.muted} fontSize={12} tickMargin={8} />
@@ -962,11 +858,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                         >
                           <td className="whitespace-nowrap px-4 py-3">
                             <div className="flex items-center gap-2">
-                              <div
-                                className="h-3 w-3 rounded-full"
-                                style={{ backgroundColor: SOURCE_TYPE_COLORS[source.query_source_type] || C.slate }}
-                              />
-                              <span className="font-medium text-gray-900">{source.query_source_type}</span>
+                              <QuerySourceBadge sourceType={source.query_source_type} />
                               <svg className="h-3 w-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                               </svg>
@@ -1129,15 +1021,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                     {sortedQueries.map((query, idx) => (
                       <tr key={query.statement_id || idx} className="hover:bg-gray-50">
                         <td className="whitespace-nowrap px-4 py-3">
-                          <span
-                            className="inline-flex rounded-full px-2 py-1 text-xs font-medium"
-                            style={{
-                              backgroundColor: `${SOURCE_TYPE_COLORS[query.query_source_type] || C.slate}20`,
-                              color: SOURCE_TYPE_COLORS[query.query_source_type] || C.slate,
-                            }}
-                          >
-                            {query.query_source_type}
-                          </span>
+                          <QuerySourceBadge sourceType={query.query_source_type} />
                         </td>
                         <td className="px-4 py-3">
                           <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 max-w-40 truncate" title={query.executed_by}>
@@ -1195,13 +1079,8 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
           <div className="mx-4 w-full max-w-5xl rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div
-                  className="h-4 w-4 rounded-full"
-                  style={{ backgroundColor: SOURCE_TYPE_COLORS[selectedSource] || C.slate }}
-                />
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Top 5 Queries: {selectedSource}
-                </h3>
+                <h3 className="text-lg font-semibold text-gray-900">Top 5 Queries:</h3>
+                <QuerySourceBadge sourceType={selectedSource} />
               </div>
               <button onClick={() => setSelectedSource(null)} className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-600">
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1321,7 +1200,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                             {q.start_time ? (() => { try { return format(new Date(q.start_time), "MMM d, HH:mm"); } catch { return q.start_time; } })() : "N/A"}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
-                            <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{q.query_source_type}</span>
+                            <QuerySourceBadge sourceType={q.query_source_type} />
                           </td>
                           <td className="max-w-xs px-4 py-3">
                             <div className="truncate font-mono text-xs text-gray-500" title={q.statement_preview}>{q.statement_preview || "N/A"}</div>
@@ -1351,7 +1230,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                                 {q.start_time ? (() => { try { return format(new Date(q.start_time), "MMM d, HH:mm"); } catch { return q.start_time; } })() : "N/A"}
                               </td>
                               <td className="whitespace-nowrap px-4 py-3">
-                                <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{q.query_source_type}</span>
+                                <QuerySourceBadge sourceType={q.query_source_type} />
                               </td>
                               <td className="max-w-xs px-4 py-3">
                                 <div className="truncate font-mono text-xs text-gray-500" title={q.statement_preview}>{q.statement_preview || "N/A"}</div>
@@ -1402,7 +1281,7 @@ export function OptimizeMethodologyPanel() {
     v ? localStorage.setItem(MINIMIZE_KEY, "true") : localStorage.removeItem(MINIMIZE_KEY);
   };
   return (
-    <InfoPanel title="Optimize: Methodology" minimized={minimized} onToggle={toggle}>
+    <InfoPanel title="Optimize tab methodology" minimized={minimized} onToggle={toggle}>
       <p className="mb-2 font-medium">Idle Time</p>
       <ul className="list-inside list-disc space-y-1">
         <li><strong>Uptime</strong>: Derived from <code className="rounded bg-white/60 px-1 text-xs">system.compute.warehouse_events</code> using the time between START and STOP lifecycle events</li>

@@ -1,12 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
-import {
-  loadAppSettings,
-  loadTabVisibility,
-  SettingsDialog,
-} from "../SettingsDialog";
+import { loadAppSettings, loadTabVisibility } from "@/utils/settingsHydration";
+import { SettingsDialog } from "../SettingsDialog";
 
 afterEach(() => {
   localStorage.clear();
@@ -27,7 +24,7 @@ it("discards saved settings for the removed Use Cases feature", () => {
   expect(loadAppSettings()).not.toHaveProperty("enableAccuracyChecks");
 });
 
-it("closes the settings dialog after Save changes is clicked", async () => {
+it("saves successfully and stays on the same open section", async () => {
   const onClose = vi.fn();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -48,10 +45,14 @@ it("closes the settings dialog after Save changes is clicked", async () => {
     </QueryClientProvider>,
   );
 
-  await userEvent.type(screen.getByPlaceholderText("e.g. Acme Corp"), "Acme");
+  await userEvent.click(screen.getByRole("button", { name: "Dashboard tabs" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Cloud Costs" }));
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-  expect(onClose).toHaveBeenCalledOnce();
+  await waitFor(() => expect(screen.getByText("Settings saved")).toBeVisible());
+  expect(onClose).not.toHaveBeenCalled();
+  expect(screen.getByRole("heading", { name: "Dashboard tabs" })).toBeVisible();
+  expect(screen.getByRole("switch", { name: "Cloud Costs" })).toHaveAttribute("aria-checked", "false");
 });
 
 it("renders, toggles, saves, and reloads user anonymization", async () => {
@@ -106,6 +107,63 @@ it("renders, toggles, saves, and reloads user anonymization", async () => {
   await waitFor(() => expect(screen.getByRole("switch", { name: "User anonymization" })).toHaveAttribute("aria-checked", "true"));
 });
 
+it("defaults, saves, reloads, and resets the architecture view setting", async () => {
+  expect(loadAppSettings().enableArchitectureView).toBe(false);
+  let serverValue = false;
+  const putBodies: Array<{ experimental: { enable_architecture_view: boolean } }> = [];
+  vi.stubGlobal("confirm", vi.fn(() => true));
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/api/settings") && init?.method === "PUT") {
+      const body = JSON.parse(String(init.body));
+      putBodies.push(body);
+      serverValue = body.experimental.enable_architecture_view;
+      return { ok: true, status: 200, json: async () => ({ experimental: { enable_architecture_view: serverValue } }) };
+    }
+    if (url.endsWith("/api/settings")) {
+      return { ok: true, status: 200, json: async () => ({ experimental: { enable_architecture_view: serverValue } }) };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  }));
+
+  const renderDialog = () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <SettingsDialog
+          isOpen
+          onClose={vi.fn()}
+          onTabVisibilityChange={vi.fn()}
+          onSettingsChange={vi.fn()}
+          tabVisibility={loadTabVisibility()}
+          appSettings={loadAppSettings()}
+        />
+      </QueryClientProvider>,
+    );
+  };
+
+  const first = renderDialog();
+  await userEvent.click(screen.getByRole("button", { name: "Experimental" }));
+  expect(screen.getByText("Unlock architecture PDF export from the existing Export dialog.")).toBeVisible();
+  const toggle = screen.getByRole("switch", { name: "Architecture view" });
+  expect(toggle).toHaveAttribute("aria-checked", "false");
+  await userEvent.click(toggle);
+  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+  await waitFor(() => expect(putBodies.at(-1)?.experimental.enable_architecture_view).toBe(true));
+  expect(loadAppSettings().enableArchitectureView).toBe(true);
+
+  first.unmount();
+  localStorage.clear();
+  renderDialog();
+  await userEvent.click(screen.getByRole("button", { name: "Experimental" }));
+  await waitFor(() => expect(screen.getByRole("switch", { name: "Architecture view" })).toHaveAttribute("aria-checked", "true"));
+
+  await userEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
+  await waitFor(() => expect(putBodies.at(-1)?.experimental.enable_architecture_view).toBe(false));
+  expect(loadAppSettings().enableArchitectureView).toBe(false);
+});
+
 it("persists the default when user anonymization is reset", async () => {
   const saved = loadAppSettings();
   saved.anonymizeUsers = true;
@@ -135,4 +193,143 @@ it("persists the default when user anonymization is reset", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
   await waitFor(() => expect(putBodies.at(-1)?.general.anonymize_users).toBe(false));
   expect(loadAppSettings().anonymizeUsers).toBe(false);
+});
+
+it("retains the draft and dirty state when Save fails", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/api/settings") && init?.method === "PUT") {
+      return { ok: false, status: 500, json: async () => ({ detail: "storage unavailable" }) };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  render(
+    <QueryClientProvider client={client}>
+      <SettingsDialog
+        isOpen
+        onClose={vi.fn()}
+        onTabVisibilityChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        tabVisibility={loadTabVisibility()}
+        appSettings={loadAppSettings()}
+      />
+    </QueryClientProvider>,
+  );
+
+  const input = screen.getByPlaceholderText("e.g. Acme Corp");
+  await userEvent.type(input, "Acme");
+  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+  await waitFor(() => expect(screen.getByText("Settings were not saved: storage unavailable")).toBeVisible());
+  expect(input).toHaveValue("Acme");
+  expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+  expect(loadAppSettings().companyName).toBe("");
+});
+
+it("does not overwrite an active local draft when server settings refresh", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({}),
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  render(
+    <QueryClientProvider client={client}>
+      <SettingsDialog
+        isOpen
+        onClose={vi.fn()}
+        onTabVisibilityChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        tabVisibility={loadTabVisibility()}
+        appSettings={loadAppSettings()}
+      />
+    </QueryClientProvider>,
+  );
+
+  const input = screen.getByPlaceholderText("e.g. Acme Corp");
+  await userEvent.type(input, "Local draft");
+  client.setQueryData(["unified-settings"], {
+    general: { company_name: "Server value", theme: "dark" },
+    tab_visibility: { infra: false },
+  });
+
+  await waitFor(() => expect(input).toHaveValue("Local draft"));
+  expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+});
+
+it("prevents double submission while a save is in flight", async () => {
+  let resolvePut: ((value: { ok: boolean; status: number; json: () => Promise<object> }) => void) | undefined;
+  let putCount = 0;
+  vi.stubGlobal("fetch", vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/api/settings") && init?.method === "PUT") {
+      putCount += 1;
+      return new Promise((resolve) => { resolvePut = resolve; });
+    }
+    return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  render(
+    <QueryClientProvider client={client}>
+      <SettingsDialog
+        isOpen
+        onClose={vi.fn()}
+        onTabVisibilityChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        tabVisibility={loadTabVisibility()}
+        appSettings={loadAppSettings()}
+      />
+    </QueryClientProvider>,
+  );
+
+  await userEvent.type(screen.getByPlaceholderText("e.g. Acme Corp"), "Acme");
+  const save = screen.getByRole("button", { name: "Save changes" });
+  fireEvent.click(save);
+  fireEvent.click(save);
+
+  expect(putCount).toBe(1);
+  expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  resolvePut?.({ ok: true, status: 200, json: async () => ({}) });
+  await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled());
+});
+
+it("persists all toggles from the first Save click", async () => {
+  const putBodies: Array<{
+    general: { anonymize_users: boolean };
+    tab_visibility: { infra: boolean; optimizer: boolean };
+  }> = [];
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/api/settings") && init?.method === "PUT") {
+      putBodies.push(JSON.parse(String(init.body)));
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  render(
+    <QueryClientProvider client={client}>
+      <SettingsDialog
+        isOpen
+        onClose={vi.fn()}
+        onTabVisibilityChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        tabVisibility={loadTabVisibility()}
+        appSettings={loadAppSettings()}
+      />
+    </QueryClientProvider>,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "Dashboard tabs" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Cloud Costs" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Optimize" }));
+  await userEvent.click(screen.getByRole("button", { name: "Experimental" }));
+  await userEvent.click(screen.getByRole("switch", { name: "User anonymization" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+  await waitFor(() => expect(putBodies).toHaveLength(1));
+  expect(putBodies[0].tab_visibility.infra).toBe(false);
+  expect(putBodies[0].tab_visibility.optimizer).toBe(false);
+  expect(putBodies[0].general.anonymize_users).toBe(true);
 });

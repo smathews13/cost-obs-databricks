@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -36,6 +37,9 @@ def _require_admin(request: Request) -> str:
 _tables_cache: dict | None = None
 _tables_cache_ts: float = 0.0
 _TABLES_CACHE_TTL = 15 * 60  # 15 minutes — prewarm fills this at startup; 5 min expired too fast
+_refresh_log_lock = threading.RLock()
+_refresh_log_persistence_error: str | None = None
+_refresh_log_restore_error: str | None = None
 
 # Separate long-lived cache for table owner lookups (SDK REST call per table).
 # Owners rarely change — 1-hour TTL means re-checks after the tables cache expires
@@ -231,22 +235,101 @@ def _ensure_refresh_log_table() -> None:
 
 
 def save_refresh_log_to_delta(log_data: dict) -> None:
-    """Persist mv_refresh_log.json content to Delta so it survives redeployments."""
+    """Append a refresh-log snapshot to Delta so it survives redeployments.
+
+    The original DELETE+INSERT pair exposed an empty table between statements and
+    let concurrent workers erase one another. Appending snapshots is atomic and
+    backward-compatible with the existing ``(log_json, updated_at)`` table.
+    Readers select the newest snapshot.
+    """
+    global _refresh_log_persistence_error
     import json as _json
     from server.db import execute_write
-    _ensure_refresh_log_table()
-    table = _config_table("app_refresh_log")
-    execute_write(f"DELETE FROM {table}", None)
-    execute_write(
-        f"INSERT INTO {table} (log_json, updated_at) VALUES (:log_json, current_timestamp())",
-        {"log_json": _json.dumps(log_data)},
-    )
-    logger.info("Refresh log saved to Delta (status=%s)", log_data.get("status"))
+    try:
+        _ensure_refresh_log_table()
+        table = _config_table("app_refresh_log")
+        execute_write(
+            f"INSERT INTO {table} (log_json, updated_at) "
+            f"VALUES (:log_json, current_timestamp())",
+            {"log_json": _json.dumps(log_data)},
+        )
+        _refresh_log_persistence_error = None
+        logger.info("Refresh log appended to Delta (status=%s)", log_data.get("status"))
+    except Exception as e:
+        _refresh_log_persistence_error = str(e)[:500]
+        raise
+
+
+def _refresh_log_path() -> str:
+    return os.path.join(SETTINGS_DIR, "mv_refresh_log.json")
+
+
+def _read_refresh_log_file() -> dict | None:
+    try:
+        with open(_refresh_log_path()) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+
+def _write_refresh_log_file(log_data: dict) -> None:
+    """Atomically replace the local refresh-log cache."""
+    path = _refresh_log_path()
+    tmp = path + ".tmp"
+    os.makedirs(SETTINGS_DIR, exist_ok=True)
+    with open(tmp, "w") as f:
+        json.dump(log_data, f)
+    os.replace(tmp, path)
+
+
+def load_refresh_log(*, restore_if_missing: bool = True) -> dict | None:
+    """Read the local log, lazily restoring the newest Delta snapshot if absent."""
+    data = _read_refresh_log_file()
+    if data is not None or not restore_if_missing:
+        return data
+    return restore_refresh_log_from_delta()
+
+
+def persist_refresh_log(log_data: dict, history_entry: dict | None = None) -> dict:
+    """Persist one refresh result and optionally append exactly one history entry."""
+    global _tables_cache, _tables_cache_ts
+    with _refresh_log_lock:
+        import fcntl
+        os.makedirs(SETTINGS_DIR, exist_ok=True)
+        lock_path = os.path.join(SETTINGS_DIR, "mv_refresh_log.lock")
+        with open(lock_path, "w") as lock_file:
+            # Cross-process lock: config events, manual requests, startup, and
+            # scheduler workers cannot read-modify-write the local history at once.
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                current = load_refresh_log() or {}
+                merged = dict(current)
+                merged.update(log_data)
+                if history_entry is not None:
+                    history_entry.setdefault("id", uuid.uuid4().hex)
+                    prior = current.get("refresh_history")
+                    history = list(prior) if isinstance(prior, list) else []
+                    history.append(history_entry)
+                    merged["refresh_history"] = history[-20:]
+                _write_refresh_log_file(merged)
+                try:
+                    save_refresh_log_to_delta(merged)
+                except Exception as e:
+                    # Local history remains useful in this process. The API exposes
+                    # this durability failure rather than implying it was persisted.
+                    logger.warning("Could not persist refresh log to Delta: %s", e)
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+        _tables_cache = None
+        _tables_cache_ts = 0.0
+        return merged
 
 
 def append_refresh_history(status: str, trigger: str, *, lookback_days: int | None = None,
                            duration_seconds: float = 0, note: str | None = None,
-                           error: str | None = None) -> None:
+                           error: str | None = None,
+                           block_reason: str | None = None) -> None:
     """Append one entry to the rebuild-history log (file + Delta), keeping the last 20.
 
     Used for refresh runs that don't go through app._run_mv_refresh (the startup/auto
@@ -254,17 +337,8 @@ def append_refresh_history(status: str, trigger: str, *, lookback_days: int | No
     the Rebuild history reflects everything that changed the managed tables — not only
     manual "Rebuild now" and nightly runs.
     """
-    import json as _json
     from datetime import datetime, timezone
-    log_dir = os.path.join(os.path.dirname(__file__), "..", "..", ".settings")
-    log_path = os.path.join(log_dir, "mv_refresh_log.json")
     try:
-        log_data: dict = {}
-        try:
-            with open(log_path) as f:
-                log_data = _json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            log_data = {}
         entry: dict = {
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "status": status,
@@ -276,37 +350,116 @@ def append_refresh_history(status: str, trigger: str, *, lookback_days: int | No
             entry["note"] = note
         if error:
             entry["error"] = error[:200]
-        history = (log_data.get("refresh_history") or []) + [entry]
-        log_data["refresh_history"] = history[-20:]
-        os.makedirs(log_dir, exist_ok=True)
-        with open(log_path, "w") as f:
-            _json.dump(log_data, f)
-        save_refresh_log_to_delta(log_data)
+        if block_reason:
+            entry["block_reason"] = block_reason[:500]
+        persist_refresh_log({}, entry)
     except Exception as e:
         logger.debug("append_refresh_history (non-fatal): %s", e)
 
 
-def restore_refresh_log_from_delta() -> None:
-    """Read saved refresh log from Delta and write to .settings file. Called at startup."""
+def restore_refresh_log_from_delta() -> dict | None:
+    """Restore the newest saved refresh-log snapshot from Delta.
+
+    Returns the decoded log so callers such as ``/tables`` can use it even if the
+    local cache write fails.
+    """
+    global _refresh_log_restore_error
     import json as _json
     try:
         from server.db import execute_query
         table = _config_table("app_refresh_log")
-        rows = execute_query(f"SELECT log_json FROM {table} LIMIT 1", None, no_cache=True)
+        rows = execute_query(
+            f"SELECT log_json FROM {table} ORDER BY updated_at DESC LIMIT 50",
+            None,
+            no_cache=True,
+        )
         if not rows or not rows[0].get("log_json"):
-            return
-        log_data = _json.loads(rows[0]["log_json"])
-        log_dir = os.path.join(os.path.dirname(__file__), "..", "..", ".settings")
-        log_path = os.path.join(log_dir, "mv_refresh_log.json")
-        os.makedirs(log_dir, exist_ok=True)
-        with open(log_path, "w") as f:
-            _json.dump(log_data, f)
+            _refresh_log_restore_error = None
+            return None
+        # The newest row supplies top-level status. Merge history from recent
+        # snapshots so two processes appending at nearly the same time cannot
+        # hide one another. Legacy single-row snapshots work unchanged.
+        snapshots: list[dict] = []
+        for row in reversed(rows):
+            raw = row.get("log_json")
+            if not raw:
+                continue
+            parsed = _json.loads(raw)
+            if isinstance(parsed, dict):
+                snapshots.append(parsed)
+        if not snapshots:
+            return None
+        log_data = dict(snapshots[-1])
+        merged_history: list[dict] = []
+        seen: set[str] = set()
+        for snapshot in snapshots:
+            entries = snapshot.get("refresh_history")
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                key = str(entry.get("id") or _json.dumps(entry, sort_keys=True, default=str))
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged_history.append(entry)
+        log_data["refresh_history"] = merged_history[-20:]
+        if not isinstance(log_data, dict):
+            raise ValueError("latest app_refresh_log row is not a JSON object")
+        try:
+            _write_refresh_log_file(log_data)
+        except OSError as e:
+            logger.warning("Refresh log read from Delta but local cache write failed: %s", e)
+        _refresh_log_restore_error = None
         logger.info("Restored refresh log from Delta (last_refresh=%s)", log_data.get("last_refresh_utc"))
+        return log_data
     except Exception as e:
+        _refresh_log_restore_error = str(e)[:500]
         if _table_missing(e):
             logger.debug("Could not restore refresh log from Delta (not yet created): %s", e)
         else:
             logger.warning(f"Could not restore refresh log from Delta (non-fatal): {e}")
+        return None
+
+
+def get_refresh_log_status(*, block_reason: str | None = None) -> dict | None:
+    """Return the API refresh status, including durability and restore failures."""
+    log_data = load_refresh_log()
+    if log_data is None and not block_reason and not _refresh_log_persistence_error and not _refresh_log_restore_error:
+        return None
+
+    log_data = log_data or {}
+    last_refresh = log_data.get("last_refresh_utc")
+    hours_since: float | None = None
+    if last_refresh:
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            last = _dt.strptime(last_refresh, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_tz.utc)
+            hours_since = round((_dt.now(_tz.utc) - last).total_seconds() / 3600, 1)
+        except (TypeError, ValueError):
+            hours_since = None
+
+    effective_block = block_reason or log_data.get("block_reason")
+    status = log_data.get("status", "blocked" if effective_block else "unknown")
+    result: dict[str, Any] = {
+        "last_refresh_utc": last_refresh,
+        "last_attempt_utc": log_data.get("last_attempt_utc"),
+        "duration_seconds": log_data.get("duration_seconds"),
+        "hours_since_refresh": hours_since,
+        "stale": hours_since is None or hours_since > 26,
+        "status": status,
+        "lookback_days": log_data.get("lookback_days"),
+        "refresh_history": log_data.get("refresh_history", []),
+    }
+    if log_data.get("error"):
+        result["error"] = log_data["error"]
+    if effective_block:
+        result["block_reason"] = effective_block
+    persistence_error = _refresh_log_persistence_error or _refresh_log_restore_error
+    if persistence_error:
+        result["persistence_error"] = persistence_error
+    return result
 
 
 class CloudConnectionCreate(BaseModel):
@@ -635,7 +788,7 @@ async def get_tables_status(request: Request, no_cache: bool = False):
 
 async def _get_tables_status_inner(request: Request):
     global _tables_cache, _tables_cache_ts
-    from server.db import get_catalog_schema, execute_query, _user_token
+    from server.db import get_catalog_schema_status, execute_query, _user_token
 
     # Read the raw forwarded token directly — _auth_mode may be locked to "sp"
     # (e.g. warehouse was cold on startup and the scope check failed), which forces
@@ -655,6 +808,8 @@ async def _get_tables_status_inner(request: Request):
         "daily_query_stats",
         "dbsql_cost_per_query",
         "app_user_permissions",
+        "app_refresh_log",
+        "app_settings",
     ]
     # Which tables are conceptually "materialized views" (rebuilt on schedule)
     # vs persistent managed tables
@@ -664,9 +819,26 @@ async def _get_tables_status_inner(request: Request):
     }
 
     try:
-        catalog, schema = get_catalog_schema()
+        storage_status = get_catalog_schema_status()
+        catalog = storage_status["catalog"]
+        schema = storage_status["schema"]
     except Exception as e:
         return {"catalog": None, "schema": None, "tables": [], "error": str(e)}
+
+    if not catalog or not schema:
+        block_reason = storage_status.get("block_reason") or "App storage location is not configured."
+        result = {
+            "catalog": None,
+            "schema": None,
+            "tables": [],
+            "error": block_reason,
+            "storage_block_reason": block_reason,
+            "auth_error": None,
+            "refresh_status": get_refresh_log_status(block_reason=block_reason),
+        }
+        _tables_cache = result
+        _tables_cache_ts = time.time()
+        return result
 
     from datetime import date
 
@@ -676,6 +848,8 @@ async def _get_tables_status_inner(request: Request):
     }
     no_date_tables = {
         "app_user_permissions",
+        "app_refresh_log",
+        "app_settings",
     }
 
     min_date_expr_overrides = {
@@ -745,7 +919,7 @@ async def _get_tables_status_inner(request: Request):
             return {"name": table_name, "table_type": table_type, "exists": True, "row_count": None, "min_date": None, "max_date": None, "days_behind": None, "owner": None, "error": err[:200]}
 
     # Config tables are created lazily on first save — not existing yet is expected
-    CONFIG_TABLES: set[str] = set()
+    CONFIG_TABLES: set[str] = {"app_settings"}
 
     # Build task list: (table_name, fqn, table_type)
     tasks = [
@@ -828,28 +1002,9 @@ async def _get_tables_status_inner(request: Request):
             "Open the Setup wizard and run the Permissions step to grant the SP access to the required system tables and app catalog."
         )
 
-    # Read MV refresh log (atomic write guarantees no partial read)
-    refresh_status = None
-    _log_path = os.path.join(os.path.dirname(__file__), "..", "..", ".settings", "mv_refresh_log.json")
-    try:
-        with open(_log_path) as _f:
-            _log = json.load(_f)
-        from datetime import datetime as _dt, timezone as _tz
-        _last = _dt.strptime(_log["last_refresh_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_tz.utc)
-        _hours = (_dt.now(_tz.utc) - _last).total_seconds() / 3600
-        refresh_status = {
-            "last_refresh_utc": _log["last_refresh_utc"],
-            "duration_seconds": _log.get("duration_seconds"),
-            "hours_since_refresh": round(_hours, 1),
-            "stale": _hours > 26,
-            "status": _log.get("status", "unknown"),
-            "lookback_days": _log.get("lookback_days"),
-            "refresh_history": _log.get("refresh_history", []),
-        }
-        if _log.get("error"):
-            refresh_status["error"] = _log["error"]
-    except (FileNotFoundError, KeyError, ValueError, OSError):
-        pass
+    # The local file is only a cache. If it was wiped by a redeploy, this lazily
+    # restores the newest Delta snapshot and exposes any restore/durability error.
+    refresh_status = get_refresh_log_status()
 
     result = {"catalog": catalog, "schema": schema, "tables": results, "auth_error": auth_error, "refresh_status": refresh_status}
     _tables_cache = result
@@ -1181,10 +1336,35 @@ async def trigger_mv_refresh(background_tasks: BackgroundTasks, lookback_days: i
     """
     global _tables_cache, _tables_cache_ts
     from server.app import _run_mv_refresh
+    def _run_manual_locked() -> dict:
+        import fcntl
+        lock_path = "/tmp/cost-obs-mv-refresh.lock"
+        with open(lock_path, "w") as lock_file:
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                reason = "Another rebuild is already running."
+                append_refresh_history(
+                    "skipped",
+                    "manual",
+                    lookback_days=lookback_days,
+                    note=reason,
+                    block_reason=reason,
+                )
+                return {"status": "skipped", "error": reason}
+            try:
+                return _run_mv_refresh(
+                    lookback_days=lookback_days,
+                    force_full=force_full,
+                    trigger="manual",
+                )
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
     # Clear cache immediately so the next Status poll reflects fresh SQL results
     _tables_cache = None
     _tables_cache_ts = 0.0
-    background_tasks.add_task(_run_mv_refresh, lookback_days=lookback_days, force_full=force_full)
+    background_tasks.add_task(_run_manual_locked)
     return {"status": "queued", "lookback_days": lookback_days, "force_full": force_full}
 
 
@@ -1772,16 +1952,16 @@ async def save_user_permissions(request: Request, data: UserPermissionsModel) ->
 
 # ── Refresh Schedule ─────────────────────────────────────────────────────────
 
-_SCHEDULE_DEFAULTS: dict = {"enabled": True, "frequency": "nightly", "hour_utc": 9, "lookback_days": 180}
+_SCHEDULE_DEFAULTS: dict = {"enabled": True, "frequency": "nightly", "hour_utc": 5, "lookback_days": 180}
 
 
 def _save_schedule_to_table(settings: dict) -> None:
     from server.db import execute_write
     _ensure_schedule_table()
     table = _config_table("app_schedule_settings")
-    execute_write(f"DELETE FROM {table}", None)
     execute_write(
-        f"INSERT INTO {table} (settings_json, updated_at) VALUES (:s, current_timestamp())",
+        f"INSERT OVERWRITE {table} "
+        f"SELECT :s AS settings_json, current_timestamp() AS updated_at",
         {"s": json.dumps(settings)},
     )
 
@@ -2188,6 +2368,7 @@ _APP_SETTINGS_DEFAULTS: dict = {
     "anomaly_sensitivity": "medium",
     "exp_setup_wizard_link": False,
     "exp_debugger_link": False,
+    "enable_architecture_view": False,
     "anonymize_users": False,
     "tab_visibility": _DEFAULT_TAB_VISIBILITY,
 }
@@ -2196,6 +2377,10 @@ _APP_SETTINGS_DEFAULTS: dict = {
 _APP_SETTINGS_ALLOWED = set(_APP_SETTINGS_DEFAULTS.keys())
 
 APP_SETTINGS_FILE = os.path.join(SETTINGS_DIR, "app_settings.json")
+
+
+class AppSettingsDurabilityError(RuntimeError):
+    """The local fallback may be updated, but the durable Delta write failed."""
 
 
 def _ensure_app_settings_table() -> None:
@@ -2210,6 +2395,11 @@ def _sanitize_app_settings(data: dict) -> dict:
     clean = dict(data)
     clean.pop("enable_use_case_tracking", None)
     clean.pop("enable_accuracy_checks", None)
+    clean["enable_architecture_view"] = (
+        clean.get("enable_architecture_view")
+        if isinstance(clean.get("enable_architecture_view"), bool)
+        else False
+    )
     if isinstance(clean.get("tab_visibility"), dict):
         clean["tab_visibility"] = dict(clean["tab_visibility"])
         clean["tab_visibility"].pop("use-cases", None)
@@ -2240,27 +2430,36 @@ def get_app_settings() -> dict:
 
 
 def save_app_settings(partial: dict) -> dict:
-    """Merge a partial into app_settings and persist (Delta + file). Returns the merged object."""
+    """Merge and persist app settings, failing if the durable Delta write does not land."""
     current = get_app_settings()
     clean = {k: v for k, v in (partial or {}).items() if k in _APP_SETTINGS_ALLOWED}
     merged = {**current, **clean}
+    delta_error: Exception | None = None
     try:
         from server.db import execute_write
         _ensure_app_settings_table()
         table = _config_table("app_settings")
-        execute_write(f"DELETE FROM {table} WHERE id = 'app'", None)
         execute_write(
-            f"INSERT INTO {table} (id, settings_json, updated_at) VALUES ('app', :s, current_timestamp())",
+            f"INSERT OVERWRITE {table} "
+            f"SELECT 'app' AS id, :s AS settings_json, current_timestamp() AS updated_at",
             {"s": json.dumps(merged)},
         )
     except Exception as e:
+        delta_error = e
         logger.warning("Could not persist app_settings to Delta: %s", e)
+    local_saved = False
     try:
         os.makedirs(SETTINGS_DIR, exist_ok=True)
         with open(APP_SETTINGS_FILE, "w") as f:
             json.dump(merged, f, indent=2)
-    except OSError:
-        pass
+        local_saved = True
+    except OSError as e:
+        logger.warning("Could not persist app_settings local fallback: %s", e)
+    if delta_error is not None:
+        fallback = " A local fallback was written." if local_saved else ""
+        raise AppSettingsDurabilityError(
+            f"Settings were not saved durably because Delta storage is unavailable.{fallback}"
+        ) from delta_error
     return merged
 
 
@@ -2350,6 +2549,7 @@ def _settings_snapshot(request: Request) -> dict:
         "experimental": {
             "exp_setup_wizard_link": bool(app.get("exp_setup_wizard_link", False)),
             "exp_debugger_link": bool(app.get("exp_debugger_link", False)),
+            "enable_architecture_view": bool(app.get("enable_architecture_view", False)),
         },
         "capabilities": _capabilities(request),
     }
@@ -2381,7 +2581,7 @@ async def put_unified_settings(request: Request) -> dict:
                     app_partial[k] = general[k]
         exp = body.get("experimental")
         if isinstance(exp, dict):
-            for k in ("exp_setup_wizard_link", "exp_debugger_link"):
+            for k in ("exp_setup_wizard_link", "exp_debugger_link", "enable_architecture_view"):
                 if k in exp:
                     app_partial[k] = bool(exp[k])
         tv = body.get("tab_visibility")
@@ -2405,7 +2605,10 @@ async def put_unified_settings(request: Request) -> dict:
                 })
 
         if app_partial:
-            save_app_settings(app_partial)
+            try:
+                save_app_settings(app_partial)
+            except AppSettingsDurabilityError as e:
+                raise HTTPException(status_code=503, detail=str(e)) from e
 
         webhook = body.get("webhook")
         if isinstance(webhook, dict) and webhook.get("slack_webhook_url"):

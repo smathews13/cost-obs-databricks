@@ -23,6 +23,18 @@ import type {
 import type { UsersGroupsBundle } from "@/hooks/useBillingData";
 import type { ExportSections } from "@/components/ExportDialog";
 import { formatCurrency, formatNumber } from "./formatters";
+import {
+  addPdfFooters,
+  DB_ALT_ROW,
+  DB_HEADER,
+  DB_ORANGE,
+  drawPdfMasthead,
+  loadPdfBrandAssets,
+  PDF_BODY,
+  PDF_HAIRLINE,
+  PDF_SLATE,
+  PDF_WHITE,
+} from "./pdfBrand";
 
 // Optimize tab exports: pulled from /api/sql/warehouse-health and
 // /api/sql/warehouse-health/idle-time; kept structural so the two views
@@ -57,15 +69,6 @@ export interface OptimizeExport {
   };
 }
 
-// PDF equivalents of the v1.2 CSS tokens. jsPDF requires opaque RGB values.
-const DB_HEADER: [number, number, number] = [27, 49, 57];
-const DB_ORANGE: [number, number, number] = [255, 54, 33];
-const DB_ALT_ROW: [number, number, number] = [249, 247, 244];
-const PDF_HAIRLINE: [number, number, number] = [228, 226, 221];
-const PDF_BODY: [number, number, number] = [58, 56, 56];
-const PDF_SLATE: [number, number, number] = [97, 135, 148];
-const PDF_WHITE: [number, number, number] = [255, 255, 255];
-
 type AutoTableOptions = Parameters<typeof autoTablePlugin>[1];
 
 function autoTable(doc: jsPDF, options: AutoTableOptions): void {
@@ -91,50 +94,6 @@ function autoTable(doc: jsPDF, options: AutoTableOptions): void {
       ...options.alternateRowStyles,
     },
   });
-}
-
-interface PdfBrandAssets {
-  costObsLockup: string;
-  databricksMark: string;
-}
-
-/**
- * Rasterize a checked-in SVG without changing its geometry. jsPDF does not
- * natively embed SVG, so the browser converts the official asset to PNG.
- */
-async function svgAssetToPng(path: string, width: number, height: number): Promise<string> {
-  const response = await fetch(path);
-  if (!response.ok) throw new Error(`Unable to load PDF brand asset: ${path}`);
-  const svg = await response.text();
-  const blobUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-
-  try {
-    const image = new Image();
-    image.decoding = "async";
-    await new Promise<void>((resolve, reject) => {
-      image.onload = () => resolve();
-      image.onerror = () => reject(new Error(`Unable to render PDF brand asset: ${path}`));
-      image.src = blobUrl;
-    });
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Unable to initialize PDF brand rendering");
-    context.drawImage(image, 0, 0, width, height);
-    return canvas.toDataURL("image/png");
-  } finally {
-    URL.revokeObjectURL(blobUrl);
-  }
-}
-
-async function loadPdfBrandAssets(): Promise<PdfBrandAssets> {
-  const [costObsLockup, databricksMark] = await Promise.all([
-    svgAssetToPng("/brand/costobs-lockup-white.svg", 880, 192),
-    svgAssetToPng("/databricks.svg", 192, 192),
-  ]);
-  return { costObsLockup, databricksMark };
 }
 
 // jspdf-autotable extends jsPDF with lastAutoTable. This helper avoids
@@ -365,12 +324,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
 
   // Branded masthead uses the checked-in cost-obs lockup and official
   // Databricks logomark geometry.
-  doc.setFillColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
-  doc.rect(0, 0, pageWidth, 22, "F");
-  doc.addImage(brandAssets.costObsLockup, "PNG", 14, 5.7, 43, 9.4);
-  doc.addImage(brandAssets.databricksMark, "PNG", pageWidth - 22, 6, 10, 10);
-  doc.setFillColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
-  doc.rect(0, 22, pageWidth, 1.2, "F");
+  drawPdfMasthead(doc, brandAssets);
 
   yPos = 32;
 
@@ -1719,35 +1673,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
     }
   }
 
-  // Footer on every page
-  const pageCount = doc.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    // Hairline footer with a compact lava accent.
-    doc.setDrawColor(PDF_HAIRLINE[0], PDF_HAIRLINE[1], PDF_HAIRLINE[2]);
-    doc.setLineWidth(0.3);
-    doc.line(14, doc.internal.pageSize.height - 14, pageWidth - 14, doc.internal.pageSize.height - 14);
-    doc.setFillColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
-    doc.rect(14, doc.internal.pageSize.height - 14.4, 12, 0.8, "F");
-    doc.setDrawColor(PDF_HAIRLINE[0], PDF_HAIRLINE[1], PDF_HAIRLINE[2]);
-    doc.setLineWidth(0.2);
-    doc.setFontSize(8);
-    doc.setTextColor(PDF_SLATE[0], PDF_SLATE[1], PDF_SLATE[2]);
-    doc.text(
-      `Page ${i} of ${pageCount}`,
-      pageWidth / 2,
-      doc.internal.pageSize.height - 10,
-      { align: "center" }
-    );
-    doc.addImage(
-      brandAssets.costObsLockup,
-      "PNG",
-      pageWidth - 36,
-      doc.internal.pageSize.height - 13,
-      22,
-      4.8,
-    );
-  }
+  addPdfFooters(doc, brandAssets);
 
   // Save the PDF
   const filename = `cost-report-${format(new Date(), "yyyy-MM-dd")}.pdf`;

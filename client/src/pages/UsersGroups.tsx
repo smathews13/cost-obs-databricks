@@ -318,7 +318,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
   return (
     <div className="space-y-6">
       <InfoPanel
-        title="User Spend: Best Practices and Methodology"
+        title="Users tab methodology"
         minimized={infoMinimized}
         onToggle={handleMinimizeToggle}
         minimizeLabel="Don't show again"

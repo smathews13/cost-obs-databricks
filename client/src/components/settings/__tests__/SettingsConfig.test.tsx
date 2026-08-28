@@ -10,7 +10,6 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SettingsConfig } from "../SettingsConfig";
-import type { AppSettings } from "../../SettingsDialog";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,13 +40,6 @@ const DEGRADED_TABLES = {
   auth_error: null,
 };
 
-const defaultLocalSettings: AppSettings = {
-  warehouseId: "",
-  warehouseSource: "auto",
-  catalog: "main",
-  schema: "coc",
-};
-
 function renderSettingsConfig(tablesPayload: object) {
   fetchMock.mockImplementation((input: RequestInfo | URL) => {
     const url = String(input);
@@ -66,17 +58,7 @@ function renderSettingsConfig(tablesPayload: object) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <SettingsConfig
-        configLoading={false}
-        appConfig={{
-          warehouse: { id: "wh-1", name: "Main WH", size: "Small", state: "RUNNING" },
-          identity: { display_name: "Cost Observer App", user_name: "coc-sp@apps.databricks.com" },
-          storage_location: { catalog: "main", schema: "coc" },
-        }}
-        saveStatus={null}
-        localSettings={defaultLocalSettings}
-        updateSetting={() => undefined}
-      />
+      <SettingsConfig />
     </QueryClientProvider>
   );
 }
@@ -164,5 +146,78 @@ describe("SettingsConfig: CONFIRM gate before irreversible drop", () => {
     const input = screen.getByPlaceholderText(/type confirm/i);
     await userEvent.type(input, "CON");
     expect(confirmBtn).toBeDisabled();
+  });
+});
+
+describe("SettingsConfig: rebuild history recovery state", () => {
+  it("shows the storage block reason and disables rebuild", async () => {
+    renderSettingsConfig({
+      tables: [],
+      storage_block_reason: "Multiple app-owned schemas were found.",
+      refresh_status: {
+        status: "blocked",
+        stale: true,
+        hours_since_refresh: null,
+        last_refresh_utc: null,
+        block_reason: "Multiple app-owned schemas were found.",
+        refresh_history: [],
+      },
+    });
+
+    expect(await screen.findByText(/multiple app-owned schemas were found/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /rebuild now/i })).toBeDisabled();
+    expect(screen.getAllByText(/rebuild blocked/i)).toHaveLength(2);
+  });
+
+  it("renders restored blocked and successful history entries", async () => {
+    renderSettingsConfig({
+      tables: [{ name: "daily_usage_summary", exists: true, optional: false, row_count: 1 }],
+      refresh_status: {
+        status: "success",
+        stale: false,
+        hours_since_refresh: 1,
+        last_refresh_utc: "2026-08-28T05:00:00Z",
+        refresh_history: [
+          {
+            id: "blocked-run",
+            timestamp: "2026-08-27T05:00:00Z",
+            status: "blocked",
+            duration_seconds: 0,
+            lookback_days: 180,
+            trigger: "scheduled",
+            block_reason: "Storage was not configured.",
+          },
+          {
+            id: "successful-run",
+            timestamp: "2026-08-28T05:00:00Z",
+            status: "success",
+            duration_seconds: 42,
+            lookback_days: 180,
+            trigger: "scheduled",
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByText(/^blocked$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^success$/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/^scheduled$/i)).toHaveLength(2);
+  });
+
+  it("surfaces Delta persistence failures", async () => {
+    renderSettingsConfig({
+      tables: [{ name: "daily_usage_summary", exists: true, optional: false, row_count: 1 }],
+      refresh_status: {
+        status: "success",
+        stale: false,
+        hours_since_refresh: 1,
+        last_refresh_utc: "2026-08-28T05:00:00Z",
+        persistence_error: "warehouse returned 503",
+        refresh_history: [],
+      },
+    });
+
+    expect(await screen.findByText(/history is not durable/i)).toBeInTheDocument();
+    expect(screen.getByText(/warehouse returned 503/i)).toBeInTheDocument();
   });
 });

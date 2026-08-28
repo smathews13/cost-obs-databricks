@@ -3,33 +3,27 @@ import { Spinner } from "./Spinner";
 
 interface TabRefreshButtonProps {
   onRefresh: () => Promise<void>;
+  isRefreshing: boolean;
 }
 
-export function TabRefreshButton({ onRefresh }: TabRefreshButtonProps) {
-  const [spinning, setSpinning] = useState(false);
+export function TabRefreshButton({ onRefresh, isRefreshing }: TabRefreshButtonProps) {
   const [showTooltip, setShowTooltip] = useState(false);
 
   const handleClick = async () => {
-    if (spinning) return;
-    setSpinning(true);
-    try {
-      await onRefresh();
-    } finally {
-      // Keep spinner for at least 600ms so it's visible
-      setTimeout(() => setSpinning(false), 600);
-    }
+    if (isRefreshing) return;
+    await onRefresh();
   };
 
   return (
     <div className="relative inline-flex" onMouseEnter={() => setShowTooltip(true)} onMouseLeave={() => setShowTooltip(false)}>
       <button
         onClick={handleClick}
-        disabled={spinning}
-        aria-label="Refresh tab data"
+        disabled={isRefreshing}
+        aria-label="Refresh this tab"
         className="inline-flex h-[38px] w-[38px] items-center justify-center rounded-[var(--r-ctl)] border bg-white text-slate transition-colors hover:bg-oat-page disabled:cursor-not-allowed"
         style={{ borderColor: "var(--hairline)" }}
       >
-        {spinning ? (
+        {isRefreshing ? (
           <Spinner size="sm" />
         ) : (
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -38,11 +32,11 @@ export function TabRefreshButton({ onRefresh }: TabRefreshButtonProps) {
         )}
       </button>
 
-      {showTooltip && !spinning && (
+      {showTooltip && !isRefreshing && (
         <div className="pointer-events-none absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-lg">
-          <p className="text-xs font-medium text-gray-700">Refresh all tabs</p>
+          <p className="text-xs font-medium text-gray-700">Refresh this tab</p>
           <p className="mt-0.5 text-xs text-gray-500">
-            Cancels pending queries, clears all caches, and reloads every tab with the latest data from Databricks.
+            Cancels pending queries, clears this tab&apos;s caches, and reloads this tab with the latest data from Databricks.
           </p>
           {/* Tooltip arrow */}
           <div className="absolute -top-1.5 right-3 h-3 w-3 rotate-45 border-l border-t border-gray-200 bg-white" />

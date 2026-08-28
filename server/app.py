@@ -59,9 +59,46 @@ class UserAuthMiddleware:
     def __init__(self, app):
         self.app = app
 
+    @staticmethod
+    def _dashboard_cache_tag(path: str, query: dict[str, list[str]]) -> str | None:
+        requested_tab = (query.get("tab") or [None])[0]
+        if requested_tab in {"dbu", "sql", "infra", "optimizer", "kpis", "aiml", "apps", "tagging", "users-groups"}:
+            return f"tab:{requested_tab}"
+        if path.startswith("/api/aws-actual") or path.startswith("/api/azure-actual") or path.startswith("/api/gcp-actual"):
+            return "tab:infra"
+        if path.startswith("/api/sql/warehouse-health"):
+            return "tab:optimizer"
+        for prefix, tab in (
+            ("/api/aiml", "aiml"),
+            ("/api/apps", "apps"),
+            ("/api/tagging", "tagging"),
+            ("/api/dbsql", "sql"),
+            ("/api/users-groups", "users-groups"),
+            ("/api/billing/dashboard-bundle-fast", "dbu"),
+            ("/api/billing/sku-breakdown", "dbu"),
+            ("/api/billing/pipeline-objects", "dbu"),
+            ("/api/billing/interactive-breakdown", "dbu"),
+            ("/api/billing/etl-breakdown", "dbu"),
+            ("/api/billing/infra-", "infra"),
+            ("/api/billing/aws-costs", "infra"),
+            ("/api/billing/kpis-bundle", "kpis"),
+            ("/api/billing/spend-anomalies", "kpis"),
+            ("/api/billing/platform-kpis", "kpis"),
+            ("/api/billing/sql-breakdown", "sql"),
+        ):
+            if path.startswith(prefix):
+                return f"tab:{tab}"
+        return None
+
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
-            from server.db import _user_token, _auth_mode, set_source_labels, reset_source_labels
+            from server.db import (
+                _auth_mode,
+                _request_cache_tag,
+                _user_token,
+                reset_source_labels,
+                set_source_labels,
+            )
             headers = {k.lower(): v for k, v in scope.get("headers", [])}
             raw_token = headers.get(b"x-forwarded-access-token", b"").decode()
             # If auth mode is locked to SP, never use the user token — every query
@@ -71,6 +108,7 @@ class UserAuthMiddleware:
             # Propagate the MV source-label selection (?source_labels=a,b) so MV
             # reads can be narrowed to the chosen sources. Absent/blank = all.
             sl_token = None
+            cache_tag_token = None
             try:
                 from urllib.parse import parse_qs
                 qs = parse_qs(scope.get("query_string", b"").decode())
@@ -78,14 +116,20 @@ class UserAuthMiddleware:
                 # list, so labels may safely contain commas.
                 labels = [x for x in qs.get("source_labels", []) if x and x.strip()]
                 sl_token = set_source_labels(labels)
+                cache_tag_token = _request_cache_tag.set(
+                    self._dashboard_cache_tag(scope.get("path", ""), qs)
+                )
             except Exception:
                 sl_token = set_source_labels([])
+                cache_tag_token = _request_cache_tag.set(None)
             try:
                 await self.app(scope, receive, send)
             finally:
                 _user_token.reset(ctx_token)
                 if sl_token is not None:
                     reset_source_labels(sl_token)
+                if cache_tag_token is not None:
+                    _request_cache_tag.reset(cache_tag_token)
         else:
             await self.app(scope, receive, send)
 
@@ -360,6 +404,30 @@ def setup_system_access_schema():
             )
 
 
+def _record_startup_skip_once(reason: str, *, blocked: bool = False) -> None:
+    """Record one startup skip per pod, even when every uvicorn worker starts."""
+    marker = "/tmp/cost-obs-startup-history-recorded"
+    try:
+        fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(fd)
+    except FileExistsError:
+        return
+    except OSError as e:
+        logger.debug("Could not claim startup-history marker: %s", e)
+        return
+    try:
+        from server.routers.settings import append_refresh_history, load_schedule_settings
+        append_refresh_history(
+            "blocked" if blocked else "skipped",
+            "startup",
+            lookback_days=load_schedule_settings().get("lookback_days", 180),
+            note=reason,
+            block_reason=reason if blocked else None,
+        )
+    except Exception as e:
+        logger.debug("Could not record startup skip history: %s", e)
+
+
 def setup_materialized_views():
     """Refresh materialized views post-deploy — only if setup is durably complete.
 
@@ -373,7 +441,7 @@ def setup_materialized_views():
     """
     try:
         from server.db import get_catalog_schema, validate_app_storage_target, StorageConfigurationError, execute_query
-        from server.materialized_views import check_materialized_views_exist, create_materialized_views
+        from server.materialized_views import check_materialized_views_exist
 
         catalog, schema = get_catalog_schema()
 
@@ -399,6 +467,7 @@ def setup_materialized_views():
                 "Fix COST_OBS_CATALOG / COST_OBS_SCHEMA in the app environment and redeploy.",
                 cfg_err,
             )
+            _record_startup_skip_once(str(cfg_err), blocked=True)
             return
 
         logger.info(f"Checking durable setup state in {catalog}.{schema}...")
@@ -418,6 +487,10 @@ def setup_materialized_views():
                 "Startup MV setup SKIPPED — core tables absent in %s.%s. "
                 "Complete the setup wizard to create them.",
                 catalog, schema,
+            )
+            _record_startup_skip_once(
+                f"Core managed tables are absent in {catalog}.{schema}.",
+                blocked=True,
             )
             return
 
@@ -459,6 +532,9 @@ def setup_materialized_views():
 
         if _hours_since < 26:
             logger.info(f"Startup MV refresh SKIPPED — data is {_hours_since:.1f}h old (< 26h, fresh enough)")
+            _record_startup_skip_once(
+                f"Managed data is {_hours_since:.1f}h old and does not need a startup rebuild."
+            )
             return
 
         # Guard: only one process (worker or scheduler) may run a full MV rebuild
@@ -480,28 +556,17 @@ def setup_materialized_views():
                         return
                     try:
                         logger.info("Refreshing materialized views in background (post-deploy, data is stale)...")
-                        r = create_materialized_views(catalog, schema)
-                        ok = sum(1 for v in r.values() if v == "created")
-                        logger.info(f"Background MV refresh complete: {ok}/{len(r)} tables rebuilt")
-                        # Record the startup/auto refresh in rebuild history — otherwise only
-                        # manual "Rebuild now" and nightly runs (which go through _run_mv_refresh)
-                        # ever appear, and the app's own refreshes look untracked.
-                        try:
-                            from server.routers.settings import append_refresh_history
-                            failed = [k for k, v in r.items() if isinstance(v, str) and v.startswith("error")]
-                            append_refresh_history(
-                                "partial_error" if failed else "success", "startup",
-                                duration_seconds=time.monotonic() - _bg_start,
-                                error="; ".join(failed) if failed else None,
-                            )
-                        except Exception as _hist_exc:
-                            logger.debug("Could not record startup refresh history: %s", _hist_exc)
-                        try:
-                            from server.db import clear_query_cache, delta_cache_invalidate
-                            clear_query_cache()
-                            delta_cache_invalidate()
-                        except Exception as inv_exc:
-                            logger.warning(f"Cache invalidation after startup refresh failed: {inv_exc}")
+                        from server.routers.settings import load_schedule_settings
+                        lookback_days = load_schedule_settings().get("lookback_days", 180)
+                        r = _run_mv_refresh(
+                            lookback_days=lookback_days,
+                            trigger="startup",
+                        )
+                        logger.info(
+                            "Background MV refresh complete in %.1fs (%d result entries)",
+                            time.monotonic() - _bg_start,
+                            len(r),
+                        )
                     finally:
                         fcntl.flock(lf, fcntl.LOCK_UN)
             except Exception as ex:
@@ -513,14 +578,18 @@ def setup_materialized_views():
         logger.warning(f"Materialized views startup check failed (non-fatal): {e}")
 
 
-def _run_mv_refresh(user_token: str | None = None, lookback_days: int = 180, force_full: bool = False) -> dict:
+def _run_mv_refresh(
+    user_token: str | None = None,
+    lookback_days: int = 180,
+    force_full: bool = False,
+    trigger: str | None = None,
+) -> dict:
     """Run CREATE OR REPLACE TABLE for all MV tables. Returns results dict."""
-    import json
-    import os
     import time
     from datetime import datetime, timezone
     from server.materialized_views import refresh_materialized_views
-    from server.db import get_catalog_schema, _user_token as _db_user_token
+    from server.db import get_catalog_schema_status, _user_token as _db_user_token
+    from server.routers.settings import load_refresh_log, persist_refresh_log
 
     # Always run DDL as the service principal regardless of whether a user token
     # is present.  The forwarded OAuth token (sql scope) grants SELECT access but
@@ -529,30 +598,55 @@ def _run_mv_refresh(user_token: str | None = None, lookback_days: int = 180, for
     ctx_tok = _db_user_token.set("")
     logger.info("MV refresh running as service principal (forced for DDL)")
 
-    log_dir = os.path.join(os.path.dirname(__file__), "..", ".settings")
-    log_path = os.path.join(log_dir, "mv_refresh_log.json")
-    log_tmp = log_path + ".tmp"
-
     refresh_start = time.monotonic()
     start_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     # Capture trigger BEFORE force_full may be promoted by window-change detection.
     # A scheduled run that promotes to full due to a window change is still "scheduled".
-    trigger = "manual" if force_full else "scheduled"
-    # Guard: if catalog/schema not configured, skip entirely — don't write a log
-    # entry that the UI would surface as "Last rebuild failed". The previous
-    # successful log is preserved so the UI doesn't show a spurious error on a
-    # fresh deploy before the wizard has been run.
-    catalog, schema = get_catalog_schema()
+    trigger = trigger or ("manual" if force_full else "scheduled")
+    storage = get_catalog_schema_status()
+    catalog, schema = storage["catalog"], storage["schema"]
     if not catalog or not schema:
-        logger.info(
-            "MV refresh SKIPPED — catalog/schema not configured yet. "
-            "Complete the setup wizard to enable scheduled rebuilds."
+        reason = storage.get("block_reason") or (
+            "App storage location is not configured. Complete the setup wizard "
+            "to enable rebuilds."
         )
-        _db_user_token.reset(ctx_tok)
-        return {}
+        logger.info(
+            "MV refresh BLOCKED — %s",
+            reason,
+        )
+        blocked_log = {
+            "last_attempt_utc": start_utc,
+            "duration_seconds": 0,
+            "status": "blocked",
+            "block_reason": reason,
+            "lookback_days": lookback_days,
+        }
+        try:
+            persist_refresh_log(
+                blocked_log,
+                {
+                    "timestamp": start_utc,
+                    "status": "blocked",
+                    "duration_seconds": 0,
+                    "lookback_days": lookback_days,
+                    "trigger": trigger,
+                    "block_reason": reason[:500],
+                },
+            )
+        finally:
+            _db_user_token.reset(ctx_tok)
+        return {"status": "blocked", "error": reason}
 
     results: dict = {}
-    log_data: dict = {"last_refresh_utc": start_utc, "duration_seconds": 0, "mv_timings": {}, "status": "error", "error": "unknown"}
+    log_data: dict = {
+        "last_refresh_utc": start_utc,
+        "last_attempt_utc": start_utc,
+        "duration_seconds": 0,
+        "mv_timings": {},
+        "status": "error",
+        "error": "unknown",
+        "block_reason": None,
+    }
     try:
         # If lookback_days differs from the last run, force a full rebuild so the
         # incremental MERGE path doesn't silently ignore the extended window.
@@ -562,8 +656,9 @@ def _run_mv_refresh(user_token: str | None = None, lookback_days: int = 180, for
         if not force_full:
             prev_lookback = None
             try:
-                with open(log_path) as _lf:
-                    prev_lookback = json.load(_lf).get("lookback_days")
+                prev_log = load_refresh_log()
+                if prev_log:
+                    prev_lookback = prev_log.get("lookback_days")
             except Exception:
                 pass
             # If prev_lookback is unknown (no log) or differs, force full so the
@@ -582,10 +677,13 @@ def _run_mv_refresh(user_token: str | None = None, lookback_days: int = 180, for
         total_failure = "schema" in failed or "error" in failed or (failed and len(failed) == len(results))
         log_data = {
             "last_refresh_utc": start_utc,
+            "last_attempt_utc": start_utc,
             "duration_seconds": duration,
             "mv_timings": mv_timings,
             "status": "error" if total_failure else ("partial_error" if failed else "success"),
             "lookback_days": lookback_days,
+            "block_reason": None,
+            "error": None,
         }
         if failed:
             log_data["error"] = "; ".join(f"{k}: {v}" for k, v in failed.items())
@@ -605,18 +703,18 @@ def _run_mv_refresh(user_token: str | None = None, lookback_days: int = 180, for
         duration = round(time.monotonic() - refresh_start, 1)
         log_data = {
             "last_refresh_utc": start_utc,
+            "last_attempt_utc": start_utc,
             "duration_seconds": duration,
             "mv_timings": {},
             "status": "error",
             "error": str(exc)[:500],
             "lookback_days": lookback_days,
+            "block_reason": None,
         }
         raise
     finally:
         _db_user_token.reset(ctx_tok)
         try:
-            os.makedirs(log_dir, exist_ok=True)
-            # Append this run to refresh_history (keep last 20)
             history_entry = {
                 "timestamp": start_utc,
                 "status": log_data.get("status", "error"),
@@ -626,22 +724,7 @@ def _run_mv_refresh(user_token: str | None = None, lookback_days: int = 180, for
             }
             if log_data.get("error"):
                 history_entry["error"] = log_data["error"][:200]
-            prev_history: list = []
-            try:
-                with open(log_path) as _lf:
-                    prev_history = json.load(_lf).get("refresh_history", [])
-            except Exception:
-                pass
-            log_data["refresh_history"] = (prev_history + [history_entry])[-20:]
-            with open(log_tmp, "w") as f:
-                json.dump(log_data, f)
-            os.replace(log_tmp, log_path)
-            # Persist to Delta so the log survives redeployments
-            try:
-                from server.routers.settings import save_refresh_log_to_delta
-                save_refresh_log_to_delta(log_data)
-            except Exception as delta_exc:
-                logger.warning(f"Could not save refresh log to Delta: {delta_exc}")
+            persist_refresh_log(log_data, history_entry)
         except Exception as log_exc:
             logger.warning(f"Failed to write MV refresh log: {log_exc}")
 
@@ -887,7 +970,12 @@ async def lifespan(app: FastAPI):
                                     with open(lock_path, "w") as lf:
                                         fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
                                         lookback_days = sched.get("lookback_days", 180)
-                                        await _run_in_daemon_thread(lambda: _run_mv_refresh(lookback_days=lookback_days))
+                                        await _run_in_daemon_thread(
+                                            lambda: _run_mv_refresh(
+                                                lookback_days=lookback_days,
+                                                trigger="scheduled",
+                                            )
+                                        )
                                         logger.info("Catch-up rebuild complete")
                                         fcntl.flock(lf, fcntl.LOCK_UN)
                                 except BlockingIOError:
@@ -927,7 +1015,12 @@ async def lifespan(app: FastAPI):
                         fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
                         lookback_days = sched.get("lookback_days", 180)
                         logger.info(f"Running scheduled rebuild ({frequency}, lookback={lookback_days}d)...")
-                        await _run_in_daemon_thread(lambda: _run_mv_refresh(lookback_days=lookback_days))
+                        await _run_in_daemon_thread(
+                            lambda: _run_mv_refresh(
+                                lookback_days=lookback_days,
+                                trigger="scheduled",
+                            )
+                        )
                         logger.info("Scheduled rebuild complete")
                         fcntl.flock(lf, fcntl.LOCK_UN)
                         # Evaluate cost-alert thresholds against the freshly-refreshed data

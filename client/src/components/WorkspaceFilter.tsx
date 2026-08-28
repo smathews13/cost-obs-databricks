@@ -22,9 +22,10 @@ interface WorkspaceFilterProps {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   isLoading?: boolean;
+  variant?: "header" | "rail";
 }
 
-export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading }: WorkspaceFilterProps) {
+export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, variant = "header" }: WorkspaceFilterProps) {
   const { updating, arm } = useUpdatingIndicator();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -49,9 +50,15 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading }
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 whitespace-nowrap rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-500">
+      <div className={variant === "rail"
+        ? "rail-workspace-filter flex h-[32px] max-w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border border-white/[.16] bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] min-[1280px]:max-w-none min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
+        : "flex items-center gap-2 whitespace-nowrap rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-500"
+      }>
         <Spinner size="sm" />
-        <span>Loading workspaces…</span>
+        <span className="truncate">
+          <span className="min-[1180px]:hidden">Workspaces…</span>
+          <span className="hidden min-[1180px]:inline">Loading workspaces…</span>
+        </span>
       </div>
     );
   }
@@ -102,27 +109,43 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading }
   }
 
   return (
-    <div className="relative">
+    <div className={variant === "rail" ? "relative min-w-0 shrink" : "relative"}>
       {isOpen && (
         <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
       )}
 
       <button
         onClick={() => setIsOpen((o) => !o)}
-        className="co-filter flex items-center gap-2 whitespace-nowrap px-3"
+        aria-label={updating ? "Updating workspaces" : label()}
+        className={variant === "rail"
+          ? "rail-workspace-filter flex h-[32px] max-w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border border-white/[.16] bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
+          : "co-filter flex items-center gap-2 whitespace-nowrap px-3"
+        }
       >
         {updating ? (
           <Spinner size="sm" />
         ) : (
-          <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className={variant === "rail" ? "h-[14px] w-[14px] shrink-0 opacity-70" : "h-4 w-4 shrink-0 text-gray-500"} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
           </svg>
         )}
-        <span className="max-w-[140px] truncate">{updating ? "Updating…" : label()}</span>
+        <span className="max-w-[68px] truncate min-[1280px]:max-w-[140px]">
+          {updating ? "Updating…" : (
+            <>
+              <span className="min-[1180px]:hidden">
+                {allSelected ? "Workspaces" : selectedIds.length === 1 ? "1 workspace" : `${selectedIds.length} workspaces`}
+              </span>
+              <span className="hidden min-[1180px]:inline">{label()}</span>
+            </>
+          )}
+        </span>
         {!allSelected && (
           <button
             onClick={(e) => { e.stopPropagation(); onChange([]); }}
-            className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-500 hover:bg-gray-300"
+            className={variant === "rail"
+              ? "ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white/[.14] text-current opacity-70 hover:bg-white/[.22]"
+              : "ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-500 hover:bg-gray-300"
+            }
             title="Clear filter"
           >
             <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -131,7 +154,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading }
           </button>
         )}
         <svg
-          className={`ml-0.5 h-4 w-4 shrink-0 text-gray-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
+          className={`${variant === "rail" ? "h-[12px] w-[12px] opacity-70" : "ml-0.5 h-4 w-4 text-gray-500"} shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />

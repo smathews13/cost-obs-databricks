@@ -126,7 +126,7 @@ export function DashboardTabsSection({ localVisibility, toggleTab }: {
       <Group>
         {keys.map((k, i) => (
           <Row key={k} first={i === 0} label={TAB_LABELS[k]}
-            control={<Toggle checked={localVisibility[k]} onChange={() => {
+            control={<Toggle label={TAB_LABELS[k]} checked={localVisibility[k]} onChange={() => {
               if (localVisibility[k] && visibleCount <= 1) { toast("At least one tab must stay visible"); return; }
               toggleTab(k);
             }} />} />
@@ -237,6 +237,9 @@ export function ExperimentalSection({ localSettings, updateSetting }: CommonProp
         <Row label={<span className="inline-flex items-center gap-2">User anonymization <Badge>Preview</Badge></span>}
           helper="Replace human email addresses with User 1, User 2, and so on. Service principals remain unchanged."
           control={<Toggle label="User anonymization" checked={localSettings.anonymizeUsers} onChange={(v) => updateSetting("anonymizeUsers", v)} />} />
+        <Row label={<span className="inline-flex items-center gap-2">Architecture view <Badge>Preview</Badge></span>}
+          helper="Unlock architecture PDF export from the existing Export dialog."
+          control={<Toggle label="Architecture view" checked={localSettings.enableArchitectureView} onChange={(v) => updateSetting("enableArchitectureView", v)} />} />
         <Row label="Clear query cache" helper="Next loads re-query the warehouse."
           control={<SecondaryButton disabled={clearing} onClick={async () => {
             setClearing(true);

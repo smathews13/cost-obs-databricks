@@ -14,6 +14,9 @@ from typing import Any, Callable, Generator
 # Per-request user token set by UserAuthMiddleware when x-forwarded-access-token
 # is present (Databricks Apps user authorization preview). Empty string = use SP.
 _user_token: ContextVar[str] = ContextVar("_user_token", default="")
+# Dashboard tab that owns SQL issued during the current HTTP request. The ASGI
+# middleware sets this so selective cache clears can evict unhashed query results.
+_request_cache_tag: ContextVar[str | None] = ContextVar("_request_cache_tag", default=None)
 
 # Persisted auth-mode override file (written by POST /api/settings/auth-mode)
 _AUTH_MODE_OVERRIDE_FILE = os.path.join(
@@ -118,6 +121,43 @@ _FORBIDDEN_STORAGE_LOCATIONS: frozenset[tuple[str, str]] = frozenset({
     ("main", "cost_obs"),
 })
 
+# Catalogs that are platform-owned or too broadly shared to be selected
+# automatically. An administrator can still explicitly configure a dedicated
+# schema in a non-system catalog; discovery is intentionally more conservative.
+_RESERVED_DISCOVERY_CATALOGS: frozenset[str] = frozenset({
+    "__databricks_internal",
+    "hive_metastore",
+    "main",
+    "samples",
+    "system",
+})
+
+# A schema is a cost-observability candidate only when it contains the core MV
+# plus at least one app-owned configuration marker. Requiring both classes keeps
+# an unrelated table with a common name from becoming a write target.
+_DISCOVERY_CORE_MARKERS: frozenset[str] = frozenset({"daily_usage_summary"})
+_DISCOVERY_APP_MARKERS: frozenset[str] = frozenset({
+    "app_cloud_connections",
+    "app_mv_refresh_state",
+    "app_refresh_log",
+    "app_schedule_settings",
+    "app_settings",
+    "app_user_permissions",
+    "app_workspace_filter",
+})
+
+_catalog_discovery_lock = threading.Lock()
+_catalog_discovery_cache: dict[str, Any] = {
+    "catalog": "",
+    "schema": "",
+    "reason": None,
+    "checked_at": 0.0,
+}
+_CATALOG_DISCOVERY_SUCCESS_TTL = 60 * 60
+_CATALOG_DISCOVERY_FAILURE_TTL = 60
+_catalog_write_safety_cache: dict[str, tuple[bool, str | None, float]] = {}
+_CATALOG_WRITE_SAFETY_TTL = 5 * 60
+
 
 class StorageConfigurationError(ValueError):
     """Catalog/schema config is invalid or resolves to a forbidden location."""
@@ -141,6 +181,45 @@ def validate_app_storage_target(catalog: str, schema: str) -> None:
         raise StorageConfigurationError(
             f"'{catalog}.{schema}' is a reserved default location and cannot be used as app storage. "
             "Set COST_OBS_CATALOG and COST_OBS_SCHEMA to a dedicated catalog and schema."
+        )
+    # Explicit/local/DBFS overrides predate safe auto-discovery and may point at
+    # a Delta Sharing or foreign catalog. Verify the catalog type at write-path
+    # boundaries so such stale configuration can never become a write target.
+    cache_key = catalog.lower()
+    cached = _catalog_write_safety_cache.get(cache_key)
+    if cached and (time.monotonic() - cached[2]) < _CATALOG_WRITE_SAFETY_TTL:
+        writable, reason, _ = cached
+    else:
+        writable, reason = True, None
+        try:
+            catalog_info = get_workspace_client().catalogs.get(catalog)
+            catalog_type = _enum_value(getattr(catalog_info, "catalog_type", None))
+            if (
+                catalog_type in {
+                    "DELTASHARING_CATALOG",
+                    "FOREIGN_CATALOG",
+                    "SYSTEM_CATALOG",
+                }
+                or getattr(catalog_info, "share_name", None)
+                or getattr(catalog_info, "provider_name", None)
+            ):
+                writable = False
+                reason = f"catalog type {catalog_type or 'shared/foreign'} is read-only"
+            _catalog_write_safety_cache[cache_key] = (
+                writable,
+                reason,
+                time.monotonic(),
+            )
+        except Exception as e:
+            # Explicitly configured managed catalogs may not grant the Apps
+            # identity catalog-metadata GET even though SQL writes are permitted.
+            # Let the actual write enforce permissions, but never cache this
+            # inconclusive lookup as safe.
+            logger.debug("Could not verify catalog type for %s: %s", catalog, e)
+    if not writable:
+        raise StorageConfigurationError(
+            f"'{catalog}.{schema}' cannot be used as app storage because {reason}. "
+            "Choose an app-owned schema in a managed Unity Catalog catalog."
         )
 
 
@@ -177,6 +256,168 @@ def _read_dbfs_catalog_override() -> tuple[str, str]:
     except Exception:
         pass
     return "", ""
+
+
+def _enum_value(value: Any) -> str:
+    """Return a stable upper-case value for SDK enum or string fields."""
+    raw = getattr(value, "value", value)
+    return str(raw or "").split(".")[-1].upper()
+
+
+def _discover_app_storage_target() -> tuple[str, str, str | None]:
+    """Discover one existing app-owned managed schema via Unity Catalog.
+
+    Discovery is deliberately read-only and conservative:
+    - only managed catalogs are considered;
+    - platform/reserved/shared/foreign catalogs are rejected;
+    - the schema owner must match the running app service principal;
+    - the core cost MV and at least one app config marker must both exist; and
+    - the core marker must itself be a managed table.
+
+    Returns ``(catalog, schema, None)`` only for one unambiguous candidate.
+    Otherwise the empty pair and a user-facing blocked reason are returned.
+    """
+    try:
+        w = get_workspace_client()
+        me = w.current_user.me()
+    except Exception as e:
+        return "", "", f"Could not inspect Unity Catalog as the app identity: {e}"
+
+    identity_values = {
+        str(value).strip().lower()
+        for value in (
+            os.getenv("DATABRICKS_CLIENT_ID", ""),
+            getattr(me, "id", None),
+            getattr(me, "user_name", None),
+        )
+        if value and str(value).strip()
+    }
+    if not identity_values:
+        return "", "", "Could not determine the app service-principal identity."
+
+    candidates: list[tuple[str, str]] = []
+    try:
+        catalogs = list(w.catalogs.list())
+    except Exception as e:
+        return "", "", f"Could not list Unity Catalog catalogs: {e}"
+
+    for catalog_info in catalogs:
+        catalog = str(getattr(catalog_info, "name", "") or "").strip()
+        if not catalog or catalog.lower() in _RESERVED_DISCOVERY_CATALOGS:
+            continue
+        catalog_type = _enum_value(getattr(catalog_info, "catalog_type", None))
+        # No type is treated as unknown and therefore unsafe. In particular,
+        # DELTASHARING_CATALOG and FOREIGN_CATALOG must never become write targets.
+        if catalog_type not in {"MANAGED_CATALOG"}:
+            continue
+        if getattr(catalog_info, "share_name", None) or getattr(catalog_info, "provider_name", None):
+            continue
+
+        try:
+            schemas = list(w.schemas.list(catalog_name=catalog))
+        except Exception as e:
+            logger.debug("Storage discovery could not list schemas in %s: %s", catalog, e)
+            continue
+
+        for schema_info in schemas:
+            schema = str(getattr(schema_info, "name", "") or "").strip()
+            owner = str(getattr(schema_info, "owner", "") or "").strip().lower()
+            if not schema or schema.lower() in {"default", "information_schema"}:
+                continue
+            if owner not in identity_values:
+                continue
+            schema_catalog_type = _enum_value(getattr(schema_info, "catalog_type", None))
+            if schema_catalog_type and schema_catalog_type != "MANAGED_CATALOG":
+                continue
+            try:
+                tables = list(w.tables.list(catalog_name=catalog, schema_name=schema))
+            except Exception as e:
+                logger.debug("Storage discovery could not list tables in %s.%s: %s", catalog, schema, e)
+                continue
+
+            by_name = {
+                str(getattr(table, "name", "") or "").strip().lower(): table
+                for table in tables
+                if getattr(table, "name", None)
+            }
+            if not _DISCOVERY_CORE_MARKERS.issubset(by_name):
+                continue
+            if not (_DISCOVERY_APP_MARKERS & set(by_name)):
+                continue
+            core_type = _enum_value(getattr(by_name["daily_usage_summary"], "table_type", None))
+            if core_type != "MANAGED":
+                continue
+            candidates.append((catalog, schema))
+
+    if len(candidates) == 1:
+        catalog, schema = candidates[0]
+        return catalog, schema, None
+    if not candidates:
+        return (
+            "",
+            "",
+            "No unambiguous app-owned managed schema with cost-observability marker tables was found.",
+        )
+    locations = ", ".join(f"{catalog}.{schema}" for catalog, schema in candidates)
+    return (
+        "",
+        "",
+        "Multiple app-owned managed schemas contain cost-observability marker tables; "
+        f"configure the intended location explicitly. Candidates: {locations}",
+    )
+
+
+def _discover_app_storage_target_cached() -> tuple[str, str]:
+    """Return a cached safe discovery result, persisting a unique match."""
+    now = time.monotonic()
+    cached_at = float(_catalog_discovery_cache.get("checked_at") or 0)
+    has_result = bool(_catalog_discovery_cache.get("catalog"))
+    ttl = _CATALOG_DISCOVERY_SUCCESS_TTL if has_result else _CATALOG_DISCOVERY_FAILURE_TTL
+    if cached_at and (now - cached_at) < ttl:
+        return (
+            str(_catalog_discovery_cache.get("catalog") or ""),
+            str(_catalog_discovery_cache.get("schema") or ""),
+        )
+
+    with _catalog_discovery_lock:
+        now = time.monotonic()
+        cached_at = float(_catalog_discovery_cache.get("checked_at") or 0)
+        has_result = bool(_catalog_discovery_cache.get("catalog"))
+        ttl = _CATALOG_DISCOVERY_SUCCESS_TTL if has_result else _CATALOG_DISCOVERY_FAILURE_TTL
+        if cached_at and (now - cached_at) < ttl:
+            return (
+                str(_catalog_discovery_cache.get("catalog") or ""),
+                str(_catalog_discovery_cache.get("schema") or ""),
+            )
+
+        catalog, schema, reason = _discover_app_storage_target()
+        _catalog_discovery_cache.update(
+            {"catalog": catalog, "schema": schema, "reason": reason, "checked_at": now}
+        )
+        if not catalog or not schema:
+            logger.warning("App storage auto-discovery blocked: %s", reason)
+            return "", ""
+
+        logger.info("Discovered existing app-owned storage schema: %s.%s", catalog, schema)
+        # The local file accelerates this process; DBFS is attempted for runtimes
+        # where it is available. Both are best-effort because the discovered UC
+        # schema remains the durable source from which a future deploy can recover.
+        try:
+            save_catalog_schema(catalog, schema)
+        except Exception as e:
+            logger.warning("Discovered storage target but could not persist override: %s", e)
+        return catalog, schema
+
+
+def get_catalog_schema_status() -> dict[str, Any]:
+    """Expose the current storage resolution and any auto-discovery block reason."""
+    catalog, schema = get_catalog_schema()
+    return {
+        "catalog": catalog,
+        "schema": schema,
+        "configured": bool(catalog and schema),
+        "block_reason": None if catalog and schema else _catalog_discovery_cache.get("reason"),
+    }
 
 
 def _write_dbfs_catalog_override(catalog: str, schema: str) -> None:
@@ -272,6 +513,7 @@ def get_catalog_schema() -> tuple[str, str]:
       1. COST_OBS_CATALOG/COST_OBS_SCHEMA env vars (set in Databricks Apps UI — always win)
       2. .settings/catalog_override.json (local file written by wizard, wiped on git redeploy)
       3. DBFS /databricks/cost-obs-app/catalog_override.json (survives git redeploys)
+      4. One unambiguous app-owned managed UC schema containing cost-obs markers
 
     Returns ("", "") when no location is configured (setup wizard not yet run).
     Never returns a forbidden location — logs CRITICAL and returns ("", "") instead.
@@ -310,7 +552,13 @@ def get_catalog_schema() -> tuple[str, str]:
         pass
 
     # 3. DBFS fallback — survives git redeploys that wipe .settings/
-    return _read_dbfs_catalog_override()
+    catalog, schema = _read_dbfs_catalog_override()
+    if catalog and schema:
+        return catalog, schema
+
+    # 4. Last-resort safe discovery. This is intentionally conservative and
+    # remains blocked when no candidate or more than one candidate is found.
+    return _discover_app_storage_target_cached()
 
 
 def save_catalog_schema(catalog: str, schema: str) -> None:
@@ -326,6 +574,14 @@ def save_catalog_schema(catalog: str, schema: str) -> None:
         json.dump({"catalog": catalog, "schema": schema}, f)
     logger.info("Catalog override saved locally: %s.%s", catalog, schema)
     _write_dbfs_catalog_override(catalog, schema)
+    _catalog_discovery_cache.update(
+        {
+            "catalog": catalog,
+            "schema": schema,
+            "reason": None,
+            "checked_at": time.monotonic(),
+        }
+    )
 
 
 # ── MV table name overrides ─────────────────────────────────────────────────
@@ -904,6 +1160,7 @@ def bundle_cache_key(endpoint: str, start_date: str, end_date: str, workspace_id
 # L1 in-process cache in front of the Delta SQL cache — avoids a warehouse
 # round-trip on every bundle request when the payload is already warm.
 _delta_l1: TTLCache = TTLCache(maxsize=50, ttl=300)
+_delta_l1_endpoints: dict[str, str] = {}
 
 
 def delta_cache_get(key: str) -> dict | None:
@@ -936,7 +1193,7 @@ def delta_cache_get(key: str) -> dict | None:
             tok = _user_token.set("")
             try:
                 return execute_query(
-                    f"SELECT payload_json FROM `{cat}`.`{sch}`.`app_response_cache` "
+                    f"SELECT payload_json, endpoint FROM `{cat}`.`{sch}`.`app_response_cache` "
                     f"WHERE cache_key = :key AND expires_at > CURRENT_TIMESTAMP() LIMIT 1",
                     {"key": key},
                     no_cache=True,
@@ -962,6 +1219,8 @@ def delta_cache_get(key: str) -> dict | None:
             import gzip, base64 as _b64
             result = json.loads(gzip.decompress(_b64.b64decode(rows[0]["payload_json"])).decode())
             _delta_l1[key] = result
+            if rows[0].get("endpoint"):
+                _delta_l1_endpoints[key] = str(rows[0]["endpoint"])
             return result
     except Exception as e:
         logger.debug("Delta cache read failed (non-fatal): %s", e)
@@ -975,6 +1234,9 @@ def delta_cache_put(key: str, endpoint: str, payload: dict, ttl_seconds: int = 6
     daemon thread so the caller (async handler or daemon thread) is never blocked.
     """
     _delta_l1[key] = payload  # L1 update is always immediate
+    _delta_l1_endpoints[key] = endpoint
+    for stale_key in set(_delta_l1_endpoints) - set(_delta_l1):
+        _delta_l1_endpoints.pop(stale_key, None)
 
     def _write(_key=key, _endpoint=endpoint, _payload=payload, _ttl=ttl_seconds):
         if not _ensure_response_cache_table():
@@ -1019,11 +1281,19 @@ def delta_cache_put(key: str, endpoint: str, payload: dict, ttl_seconds: int = 6
 
 def delta_cache_invalidate(pattern: str | None = None) -> None:
     """Delete Delta cache entries, optionally filtered by endpoint prefix."""
-    # Clear L1 in-process cache first (fast, always succeeds).
-    # L1 keys are MD5 hashes with no endpoint info, so pattern-based selective
-    # clearing is impossible — always clear the full L1 cache. It holds at most
-    # 50 entries with a 5-min TTL so a full clear has negligible cost.
-    _delta_l1.clear()
+    # Keep endpoint metadata beside the hashed L1 keys so a per-tab refresh does
+    # not evict unrelated tabs from the in-process response cache.
+    if pattern:
+        matching_keys = [
+            key for key, endpoint in _delta_l1_endpoints.items()
+            if endpoint.startswith(pattern)
+        ]
+        for key in matching_keys:
+            _delta_l1.pop(key, None)
+            _delta_l1_endpoints.pop(key, None)
+    else:
+        _delta_l1.clear()
+        _delta_l1_endpoints.clear()
     # Clear Delta (remote)
     try:
         cat, sch = get_catalog_schema()
@@ -1497,7 +1767,8 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
 
     # Check cache first (TTLCache handles expiration automatically)
     if not no_cache:
-        cache_key = _get_cache_key(query, params, tag=cache_tag)
+        effective_cache_tag = cache_tag or _request_cache_tag.get()
+        cache_key = _get_cache_key(query, params, tag=effective_cache_tag)
         if cache_key in _query_cache:
             logger.info(f"Cache hit - returned in {(time.time() - start_time)*1000:.0f}ms")
             return _query_cache[cache_key]
@@ -1543,7 +1814,8 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
 
     # Cache the result (TTLCache handles expiration automatically)
     if not no_cache:
-        cache_key = _get_cache_key(query, params, tag=cache_tag)
+        effective_cache_tag = cache_tag or _request_cache_tag.get()
+        cache_key = _get_cache_key(query, params, tag=effective_cache_tag)
         _query_cache[cache_key] = result
     elapsed = time.time() - start_time
     _sql_tag = " ".join(query.split())[:60]

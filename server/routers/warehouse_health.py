@@ -206,9 +206,9 @@ def _build_recommendation(
 def _run_health_queries() -> dict[str, Any]:
     """Execute the three health queries synchronously (called via asyncio.to_thread)."""
     results = execute_queries_parallel([
-        ("idle", lambda: execute_query(_SQL_IDLE)),
-        ("over_scaled", lambda: execute_query(_SQL_OVER_SCALED)),
-        ("oversized", lambda: execute_query(_SQL_OVERSIZED)),
+        ("idle", lambda: execute_query(_SQL_IDLE, cache_tag="optimizer")),
+        ("over_scaled", lambda: execute_query(_SQL_OVER_SCALED, cache_tag="optimizer")),
+        ("oversized", lambda: execute_query(_SQL_OVERSIZED, cache_tag="optimizer")),
     ], timeout=90.0)
 
     recommendations: list[dict] = []
@@ -532,7 +532,7 @@ async def get_warehouse_idle_time(
 
     sql = _build_idle_time_sql(ws_clause, ws_clause_wh)
     try:
-        rows = await asyncio.to_thread(execute_query, sql, params)
+        rows = await asyncio.to_thread(execute_query, sql, params, cache_tag="optimizer")
     except Exception as e:
         logger.warning("warehouse idle-time query failed: %s", e)
         return {"available": False, "error": str(e), "warehouses": [], "serverless_detected": False,
@@ -570,7 +570,7 @@ async def get_warehouse_idle_time(
     if not warehouses:
         try:
             check_sql = _build_serverless_check_sql(ws_clause_wh)
-            check_rows = await asyncio.to_thread(execute_query, check_sql)
+            check_rows = await asyncio.to_thread(execute_query, check_sql, cache_tag="optimizer")
             serverless_detected = bool(check_rows and int(check_rows[0].get("serverless_count") or 0) > 0)
         except Exception:
             pass

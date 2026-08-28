@@ -1760,7 +1760,9 @@ def refresh_materialized_views(catalog: str | None = None, schema: str | None = 
 
 _APP_CONFIG_TABLES = [
     "app_mv_refresh_state",
+    "app_refresh_log",
     "app_schedule_settings",
+    "app_settings",
     "app_user_permissions",
     "app_workspace_filter",
     "app_response_cache",

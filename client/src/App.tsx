@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
-import { TabRefreshButton } from "@/components/TabRefreshButton";
+import { TabRefreshRegion } from "@/components/TabRefreshRegion";
 import { SetupWizard } from "@/components/SetupWizard";
 import { SummaryCards } from "@/components/SummaryCards";
 import { SpendChart } from "@/components/SpendChart";
@@ -12,14 +12,12 @@ import { WorkspaceFilter } from "@/components/WorkspaceFilter";
 import { SourceLabelFilter } from "@/components/SourceLabelFilter";
 import { SKUBreakdown } from "@/components/SKUBreakdown";
 import { ExportDialog, type ExportSections, type ExportFormat } from "@/components/ExportDialog";
-import { SettingsDialog, loadTabVisibility, loadAppSettings, type TabVisibility, type AppSettings } from "@/components/SettingsDialog";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { PricingProvider, usePricing } from "@/context/PricingContext";
 import { SpNameMapContext } from "@/utils/identity";
 import { Footer } from "@/components/Footer";
-import awsLogo from "@/assets/aws.png";
-import azureLogo from "@/assets/azure.png";
-import gcpLogo from "@/assets/gcp.svg";
-import { Bot } from "lucide-react";
+import { UserMenu } from "@/components/UserMenu";
+import { Bot, Settings } from "lucide-react";
 
 // Retry a dynamic import on failure. First retry handles transient network blips.
 // If the second attempt also fails (stale deployment: browser has old index.html with
@@ -60,7 +58,7 @@ import {
   usePipelineObjects,
   useInteractiveBreakdown,
   useSKUBreakdown,
-  useDefaultDateRange,
+  getDefaultDateRange,
   useAIMLDashboardBundle,
   useAppsDashboardBundle,
   useTaggingDashboardBundle,
@@ -71,12 +69,26 @@ import {
   useUsersGroupsBundle,
 } from "@/hooks/useBillingData";
 import type { DateRange, WorkspaceBreakdown } from "@/types/billing";
+import { generateArchitectureReport } from "@/utils/architectureReport";
 import { generateCostReport } from "@/utils/pdfExport";
 import { generateCostCSV } from "@/utils/csvExport";
 import { C } from "@/theme";
-import { CostObsLockup, VersionPill, PageHero, Chip } from "@/components/brand";
+import { CostObsLockup, VersionPill, PageHero, Chip, InfoPanel } from "@/components/brand";
 import { LoadingPanels, Spinner } from "@/components/Spinner";
 import { isTabDataRequested } from "@/utils/tabDemand";
+import { refreshTabData, TAB_LOADING_SECTIONS } from "@/utils/tabRefresh";
+import {
+  hydrateSettingsFromServer,
+  loadAppSettings,
+  loadTabVisibility,
+  persistAppSettings,
+  persistTabVisibility,
+  settingsAreEqual,
+  tabVisibilityIsEqual,
+  type AppSettings,
+  type TabVisibility,
+  type UnifiedSettings,
+} from "@/utils/settingsHydration";
 
 // Keep the Databricks Apps pod warm while the tab is open.
 // Cold starts take 30s to 1min; a lightweight ping every 4 min prevents idle suspension.
@@ -111,6 +123,28 @@ interface User {
   email: string;
   name: string;
   role?: "admin" | "consumer";
+}
+
+function DBUMethodologyPanel() {
+  const minimizeKey = "cost-obs-minimize-dbu-info";
+  const [minimized, setMinimized] = useState(() =>
+    typeof window !== "undefined" ? localStorage.getItem(minimizeKey) === "true" : false
+  );
+  const handleToggle = (value: boolean) => {
+    setMinimized(value);
+    if (value) localStorage.setItem(minimizeKey, "true");
+    else localStorage.removeItem(minimizeKey);
+  };
+
+  return (
+    <InfoPanel title="DBU Overview tab methodology" minimized={minimized} onToggle={handleToggle}>
+      <ul className="list-inside list-disc space-y-1">
+        <li><strong>DBUs</strong> are Databricks Units reported as usage quantity in <code className="rounded bg-white/60 px-1">system.billing.usage</code>.</li>
+        <li><strong>Spend</strong> multiplies DBUs by the effective SKU price: account pricing when enabled and available, otherwise current list pricing.</li>
+        <li>Date and workspace filters apply throughout this tab; cloud infrastructure charges are reported separately under Cloud Costs.</li>
+      </ul>
+    </InfoPanel>
+  );
 }
 
 function AccountPricingBanner() {
@@ -195,7 +229,12 @@ function SpGrantsBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
 function Dashboard() {
   useKeepAlive();
   const [appSettings, setAppSettings] = useState<AppSettings>(loadAppSettings);
-  const defaultRange = useDefaultDateRange(appSettings.defaultDateRangeDays);
+  const { data: runtimeSettings } = useQuery<UnifiedSettings | null>({
+    queryKey: ["unified-settings"],
+    queryFn: () => fetch("/api/settings").then((response) => response.ok ? response.json() : null).catch(() => null),
+    staleTime: 60 * 1000,
+  });
+  const defaultRange = getDefaultDateRange(appSettings.defaultDateRangeDays);
   const [dateRange, setDateRange] = useState<DateRange>(defaultRange);
   const [activeTab, setActiveTab] = useState<ViewTab>(() => {
     // Start on the configured default landing tab, falling back to the first visible
@@ -210,6 +249,46 @@ function Dashboard() {
   const [showSettings, setShowSettings] = useState(false);
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
   const [tabVisibility, setTabVisibility] = useState<TabVisibility>(loadTabVisibility);
+  const appSettingsRef = useRef(appSettings);
+  const tabVisibilityRef = useRef(tabVisibility);
+  const settingsHydratedRef = useRef(false);
+  appSettingsRef.current = appSettings;
+  tabVisibilityRef.current = tabVisibility;
+
+  useEffect(() => {
+    if (!runtimeSettings) return;
+    const previousSettings = appSettingsRef.current;
+    const previousVisibility = tabVisibilityRef.current;
+    const hydrated = hydrateSettingsFromServer(
+      runtimeSettings,
+      previousSettings,
+      previousVisibility,
+    );
+    const initialHydration = !settingsHydratedRef.current;
+    settingsHydratedRef.current = true;
+
+    persistAppSettings(hydrated.appSettings);
+    persistTabVisibility(hydrated.tabVisibility);
+    appSettingsRef.current = hydrated.appSettings;
+    tabVisibilityRef.current = hydrated.tabVisibility;
+    if (!settingsAreEqual(previousSettings, hydrated.appSettings)) {
+      setAppSettings(hydrated.appSettings);
+    }
+    if (!tabVisibilityIsEqual(previousVisibility, hydrated.tabVisibility)) {
+      setTabVisibility(hydrated.tabVisibility);
+    }
+    if (initialHydration) {
+      setDateRange(getDefaultDateRange(hydrated.appSettings.defaultDateRangeDays));
+    }
+    setActiveTab((current) => {
+      const preferred = hydrated.appSettings.defaultLandingTab as ViewTab;
+      if (initialHydration && hydrated.tabVisibility[preferred]) return preferred;
+      if (hydrated.tabVisibility[current]) return current;
+      return (Object.keys(hydrated.tabVisibility) as ViewTab[])
+        .find((tab) => hydrated.tabVisibility[tab]) ?? "dbu";
+    });
+  }, [runtimeSettings]);
+
   // true = show wizard, false = show dashboard.
   // True until /api/setup/status resolves: blocks the dashboard from rendering.
   // Skip for returning users (local cache says done) so they never see a loading gate.
@@ -224,13 +303,19 @@ function Dashboard() {
   // overriding the manually-triggered wizard with a stale "ready" response.
   const setupStatusAbortRef = useRef<AbortController | null>(null);
   const rqClient = useQueryClient();
+  const [explicitRefreshingTab, setExplicitRefreshingTab] = useState<ViewTab | null>(null);
 
   const handleTabRefresh = async () => {
-    await rqClient.cancelQueries({ type: "active" });
-    // Clear server caches so the active tab receives fresh data, but refetch only
-    // enabled observers. Disabled, unopened tabs remain dormant.
-    await fetch("/api/cache/clear", { method: "POST" }).catch(() => {});
-    await rqClient.refetchQueries({ type: "active" });
+    if (explicitRefreshingTab !== null) return;
+    const tab = activeTab;
+    setExplicitRefreshingTab(tab);
+    try {
+      await refreshTabData(rqClient, tab);
+    } catch (error) {
+      console.error(`Failed to refresh ${tab} tab`, error);
+    } finally {
+      setExplicitRefreshingTab(null);
+    }
   };
 
   // On every load, verify setup status with the server.
@@ -363,14 +448,6 @@ function Dashboard() {
     queryFn: () => fetch("/api/settings/auth-status").then(r => r.json()).catch(() => null),
     staleTime: 60 * 1000,
   });
-
-  // Detect cloud from browser URL instantly (no API call needed)
-  const detectedCloudFromUrl = useMemo(() => {
-    const host = window.location.hostname.toLowerCase();
-    if (host.includes("azure") || host.includes(".azure.")) return "AZURE";
-    if (host.includes(".gcp.") || host.includes("gcp.databricks")) return "GCP";
-    return "AWS";
-  }, []);
 
   const { applyPricing, multiplier: pricingMultiplier } = usePricing();
 
@@ -572,6 +649,7 @@ function Dashboard() {
     "users-groups": usersGroupsLoading,
   };
   const activeTabInitialLoading = !warehouseReady || tabLoading[activeTab];
+  const showActiveTabLoading = activeTabInitialLoading || explicitRefreshingTab === activeTab;
   const exportDataLoading = showExportDialog &&
     (Object.keys(tabVisibility) as ViewTab[]).some((tab) => tabVisibility[tab] && tabLoading[tab]);
 
@@ -666,9 +744,9 @@ function Dashboard() {
   const infraViewTimeseries = useMemo(() => infraCostsTimeseries ? {
     timeseries: (infraCostsTimeseries.timeseries || []).map(t => ({
       date: t.date,
-      "AWS Cost": t["Infrastructure Cost"],
+      "Cloud Cost": t["Infrastructure Cost"],
     })),
-    categories: ["AWS Cost"],
+    categories: ["Cloud Cost"],
     start_date: infraCostsTimeseries.start_date,
     end_date: infraCostsTimeseries.end_date,
   } : undefined, [infraCostsTimeseries]);
@@ -756,6 +834,10 @@ function Dashboard() {
       console.error("PDF export failed", error);
       window.alert("The PDF could not be generated. Please try again.");
     }
+  };
+
+  const handleArchitectureExport = async () => {
+    await generateArchitectureReport();
   };
 
   if (showSetupWizard) {
@@ -850,172 +932,116 @@ function Dashboard() {
 
       {/* Sticky top chrome: navy account bar + white title/tabs */}
       <div className="sticky top-0 z-30 shadow">
-      {/* Account Info Banner */}
-      <div className="text-white" style={{ backgroundColor: C.navy, height: 46 }}>
-        <div className="mx-auto flex h-full max-w-7xl items-center px-4 sm:px-6 lg:px-8">
-          <div className="flex w-full items-center justify-between gap-8">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center">
-                  <img src="/databricks.svg" alt="" className="h-4.5 w-4.5" />
-                </span>
-                <span className="text-sm opacity-75">Databricks Account</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <img
-                  src={detectedCloudFromUrl === "AZURE" ? azureLogo : detectedCloudFromUrl === "GCP" ? gcpLogo : awsLogo}
-                  alt={detectedCloudFromUrl}
-                  className="h-5 w-5 object-contain"
-                />
-                {accountInfo ? (
-                  <>
-                    {accountInfo.account_name && (
-                      <div className="flex flex-col leading-none">
-                        <span className="text-[9px] font-medium uppercase tracking-wide opacity-50">Account</span>
-                        <span className="mt-0.5 max-w-[120px] truncate rounded px-2 py-0.5 text-[10px] font-medium text-white/90" style={{ backgroundColor: "rgba(255,255,255,0.09)", fontFamily: "var(--mono)" }}>
-                          {accountInfo.account_name}
-                        </span>
-                      </div>
-                    )}
-                    {wsListLoading ? (
-                      <div className="flex flex-col leading-none">
-                        <span className="text-[9px] font-medium uppercase tracking-wide opacity-50">Workspace</span>
-                        <div className="mt-0.5 flex h-5 items-center gap-1.5 rounded px-2 text-[10px] font-medium text-white/75" style={{ backgroundColor: "rgba(255,255,255,0.09)" }}>
-                          <Spinner size="xs" />
-                          <span>Loading</span>
-                        </div>
-                      </div>
-                    ) : wsFilterList.length > 0 ? (
-                      <div className="flex flex-col leading-none">
-                        <span className="text-[9px] font-medium uppercase tracking-wide opacity-50">
-                          {(selectedWorkspaceIds.length === 0 ? wsFilterList.length : selectedWorkspaceIds.length) > 1 ? "Workspaces" : "Workspace"}
-                        </span>
-                        <div className="flex items-center gap-1 mt-0.5">
-                          {selectedWorkspaceIds.length === 0 ? (
-                            // All workspaces selected: show names if pool ≤ 2, else "All"
-                            wsFilterList.length <= 2
-                              ? wsFilterList.map((w) => {
-                                  const lbl = w.workspace_name || w.workspace_id;
-                                  return (
-                                    <span
-                                      key={w.workspace_id}
-                                      title={lbl}
-                                      className="max-w-[150px] truncate rounded px-2 py-0.5 text-[10px] font-medium text-white/90"
-                                      style={{ backgroundColor: "rgba(255,255,255,0.15)" }}
-                                    >
-                                      {lbl}
-                                    </span>
-                                  );
-                                })
-                              : (
-                                <span
-                                  className="rounded px-2 py-0.5 text-[10px] font-medium text-white/90"
-                                  style={{ backgroundColor: "rgba(255,255,255,0.15)" }}
-                                >
-                                  All
-                                </span>
-                              )
-                          ) : selectedWorkspaceIds.length <= 2
-                            ? selectedWorkspaceIds.map((id) => {
-                                const ws = wsFilterList.find((w) => w.workspace_id === id);
-                                const lbl = ws?.workspace_name || id;
-                                return (
-                                  <span
-                                    key={id}
-                                    title={lbl}
-                                    className="max-w-[150px] truncate rounded px-2 py-0.5 text-[10px] font-medium text-white/90"
-                                    style={{ backgroundColor: "rgba(255,255,255,0.15)" }}
-                                  >
-                                    {lbl}
-                                  </span>
-                                );
-                              })
-                            : (
-                              <span
-                                className="rounded px-2 py-0.5 text-[10px] font-medium text-white/90"
-                                style={{ backgroundColor: "rgba(255,255,255,0.15)" }}
-                              >
-                                {selectedWorkspaceIds.length} workspaces
-                              </span>
-                            )
-                          }
-                        </div>
-                      </div>
-                    ) : null}
-                  </>
-                ) : (
-                  <span className="flex items-center gap-2 text-sm opacity-75">
-                    <Spinner size="xs" />
-                    Loading account info…
-                  </span>
-                )}
-              </div>
-            </div>
-            {user && (
-              <div className="flex items-center gap-3">
-                {authStatus && authStatus.identity !== "user_oauth" && (
-                  <>
-                    {authStatus.sp_display_name && (
-                      <span className="inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] font-semibold text-green-200" style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }} title={authStatus.sp_display_name}>
-                        <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-                        <span className="font-mono">{authStatus.sp_display_name.slice(0, 8)}</span>
-                        <span className="opacity-60">ID</span>
-                      </span>
-                    )}
-                    {(authStatus.sp_user_name || authStatus.sp_client_id) && (
-                      <span className="inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] font-semibold text-green-200" style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }} title={authStatus.sp_user_name || authStatus.sp_client_id}>
-                        <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-                        <span className="font-mono">{(authStatus.sp_user_name || authStatus.sp_client_id || "").slice(0, 8)}</span>
-                        <Bot className="h-3.5 w-3.5 opacity-70" aria-label="Service principal" />
-                      </span>
-                    )}
-                  </>
-                )}
-                {warehouseStatus && (
-                  <span
-                    className="inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] font-semibold text-green-200"
-                    style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }}
-                    title={`SQL Warehouse: ${warehouseStatus.state ?? warehouseStatus.status}`}
-                  >
-                    <span
-                      className="h-1.5 w-1.5 rounded-full"
-                      style={{ background: warehouseStatus.status === "warm" ? "var(--status-dot)" : warehouseStatus.status === "warming_up" ? "var(--amber)" : "var(--maroon)" }}
-                    />
-                    {warehouseStatus.status === "warm" ? "Active" : warehouseStatus.status === "warming_up" ? "Starting" : "Offline"}
-                    <span className="opacity-60">SQL</span>
-                  </span>
-                )}
-                <span className="text-sm opacity-90">
-                  {user.email}
-                </span>
-                {user.role && (
-                  <span className={`rounded px-2 py-0.5 text-xs font-medium ${user.role === "admin" ? "bg-white/20 text-white" : "bg-white/10 text-white/70"}`}>
-                    {user.role === "admin" ? "Admin" : "Consumer"}
-                  </span>
-                )}
-                <button
-                  onClick={() => setShowExportDialog(true)}
-                  className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-100 border border-white/40"
-                  title="Export"
-                >
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Export
-                </button>
-                <button
-                  onClick={() => setShowSettings(true)}
-                  className="-ml-2 rounded-md p-2 text-white opacity-75 transition-opacity hover:opacity-100 hover:bg-white/10"
-                  title="App Settings"
-                >
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                </button>
-              </div>
-            )}
+      {/* Account rail */}
+      <div data-testid="account-rail" className="h-[52px] overflow-visible bg-[#1B3139] text-white">
+        <div className="flex h-full w-full min-w-0 flex-nowrap items-center gap-[8px] px-[12px] min-[1280px]:gap-[14px] min-[1280px]:px-[20px]">
+          <a
+            href="https://www.databricks.com"
+            target="_blank"
+            rel="noreferrer"
+            className="flex shrink-0 items-center gap-[10px] rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
+          >
+            <img src="/brand/databricks-symbol-white.svg" alt="" className="h-[19px] w-[17px]" />
+            <span className="hidden flex-col gap-[1px] min-[1180px]:flex">
+              <span className="text-[8.5px] font-semibold tracking-[.14em] text-[#E9EFED]/60">BUILT ON</span>
+              <span className="text-[14px] font-semibold leading-none text-white">Databricks</span>
+            </span>
+          </a>
+
+          <span className="hidden h-[22px] w-px shrink-0 bg-white/[.16] min-[1180px]:block" aria-hidden="true" />
+
+          <div className="hidden shrink-0 flex-col leading-none min-[1100px]:flex">
+            <span className="text-[9px] font-semibold tracking-[.1em] text-[#E9EFED]/55">ACCOUNT</span>
+            <span
+              className="mt-[3px] max-w-[150px] truncate rounded-[4px] bg-white/[.09] px-[7px] py-[3px] text-[11px] text-[#E9EFED]"
+              style={{ fontFamily: "var(--mono)" }}
+              title={accountInfo?.account_id || accountInfo?.account_name || "Loading account"}
+            >
+              {accountInfo?.account_id || accountInfo?.account_name || "Loading…"}
+            </span>
           </div>
+
+          <WorkspaceFilter
+            workspaces={wsFilterList}
+            selectedIds={selectedWorkspaceIds}
+            onChange={setSelectedWorkspaceIds}
+            isLoading={wsListLoading}
+            variant="rail"
+          />
+          <SourceLabelFilter variant="rail" />
+
+          <div className="min-w-[2px] flex-1" />
+
+          {user && (
+            <>
+              {authStatus && authStatus.identity !== "user_oauth" && (
+                <>
+                  {authStatus.sp_display_name && (
+                    <span className="hidden h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold text-green-200 min-[1440px]:inline-flex" style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }} title={authStatus.sp_display_name}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                      <span className="font-mono">{authStatus.sp_display_name.slice(0, 8)}</span>
+                      <span className="opacity-60">ID</span>
+                    </span>
+                  )}
+                  {(authStatus.sp_user_name || authStatus.sp_client_id) && (
+                    <span className="hidden h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold text-green-200 min-[1440px]:inline-flex" style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }} title={authStatus.sp_user_name || authStatus.sp_client_id}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                      <span className="font-mono">{(authStatus.sp_user_name || authStatus.sp_client_id || "").slice(0, 8)}</span>
+                      <Bot className="h-3.5 w-3.5 opacity-70" aria-label="Service principal" />
+                    </span>
+                  )}
+                </>
+              )}
+              {warehouseStatus && (
+                <span
+                  className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px] font-semibold text-green-200 min-[1280px]:px-2"
+                  style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }}
+                  title={`SQL Warehouse: ${warehouseStatus.state ?? warehouseStatus.status}`}
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ background: warehouseStatus.status === "warm" ? "var(--status-dot)" : warehouseStatus.status === "warming_up" ? "var(--amber)" : "var(--maroon)" }}
+                  />
+                  <span className="hidden min-[1280px]:inline">
+                    {warehouseStatus.status === "warm" ? "Active" : warehouseStatus.status === "warming_up" ? "Starting" : "Offline"}
+                  </span>
+                  <span className="hidden opacity-60 min-[1536px]:inline">SQL</span>
+                </span>
+              )}
+              <UserMenu
+                name={user.name}
+                email={user.email}
+                isAdmin={user.role === "admin"}
+                workspaceHost={accountInfo?.host}
+              />
+              {user.role === "admin" && (
+                <span className="hidden h-[28px] shrink-0 items-center rounded-[6px] bg-white/[.14] px-[9px] text-[12px] font-semibold text-white min-[1280px]:inline-flex">
+                  Admin
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowExportDialog(true)}
+                aria-label="Export"
+                className="inline-flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[8px] border border-white/40 px-0 text-[12.5px] font-medium text-white transition-colors hover:bg-white/[.10] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1100px]:w-auto min-[1100px]:gap-1.5 min-[1100px]:px-[11px]"
+                title="Export"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span className="hidden min-[1100px]:inline">Export</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSettings(true)}
+                className="flex h-[32px] w-[28px] shrink-0 items-center justify-center rounded-[6px] text-white opacity-80 transition-colors hover:bg-white/[.10] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139]"
+                title="App Settings"
+                aria-label="App Settings"
+              >
+                <Settings size={17} strokeWidth={1.8} aria-hidden="true" />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1024,26 +1050,16 @@ function Dashboard() {
 
       <header className="bg-white">
         <div className="mx-auto max-w-7xl px-4 pt-8 pb-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-3 items-center gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setActiveTab("dbu")} title="Back to DBU Overview" className="cursor-pointer hover:opacity-80 transition-opacity">
-                  <CostObsLockup />
-                </button>
-                <VersionPill />
-              </div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setActiveTab("dbu")} title="Back to DBU Overview" className="cursor-pointer transition-opacity hover:opacity-80">
+                <CostObsLockup />
+              </button>
+              <VersionPill />
             </div>
-            <div className="flex justify-center items-center gap-3">
+            <div className="ml-auto">
               <DateRangePicker value={dateRange} onChange={setDateRange} />
-              <WorkspaceFilter
-                workspaces={wsFilterList}
-                selectedIds={selectedWorkspaceIds}
-                onChange={setSelectedWorkspaceIds}
-                isLoading={wsListLoading}
-              />
-              <SourceLabelFilter />
             </div>
-            <div />
           </div>
           {/* Tab Navigation */}
           <div className="mt-4 overflow-x-auto overflow-y-hidden" style={{ borderBottom: "1px solid var(--hairline)" }}>
@@ -1057,7 +1073,7 @@ function Dashboard() {
                     : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
                 }`}
               >
-                <span className="mr-2 -mt-0.5 inline-flex h-4 w-4 items-center justify-center font-mono text-base font-bold">$</span>
+                <span className="mr-1.5 -mt-0.5 inline-flex h-4 items-center justify-center font-mono text-base font-bold">$</span>
                 DBU Overview
               </button>
               )}
@@ -1189,18 +1205,14 @@ function Dashboard() {
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <div key={activeTab} className="animate-fade-in relative">
-          {/* Per-tab refresh button: top-right corner, across from each tab's title.
-              Hidden on infra (cloud costs) tab. */}
-          {activeTab !== "infra" && activeTab !== "optimizer" && !activeTabInitialLoading && (
-            <div className="absolute right-0 top-1 z-20">
-              <TabRefreshButton onRefresh={handleTabRefresh} />
-            </div>
-          )}
+        <TabRefreshRegion
+          isLoading={showActiveTabLoading}
+          isRefreshing={explicitRefreshingTab !== null}
+          loadingSections={TAB_LOADING_SECTIONS[activeTab]}
+          onRefresh={handleTabRefresh}
+        >
         <Suspense fallback={
-          <div className="flex h-64 flex-col items-center justify-center gap-3">
-            <Spinner size="md" />
-            <p className="text-sm text-gray-500">Loading...</p>
-          </div>
+          <LoadingPanels sections={TAB_LOADING_SECTIONS[activeTab]} />
         }>
         {activeTab === "dbu" ? (
           (!warehouseStatus || bundleLoading) ? (
@@ -1215,6 +1227,7 @@ function Dashboard() {
           ) : (
           <TabErrorBoundary tabName="DBU Overview">
           <div className="space-y-6">
+            <DBUMethodologyPanel />
             {/* Header */}
             <PageHero
               icon={<span className="font-mono text-xl font-bold">$</span>}
@@ -1377,6 +1390,7 @@ function Dashboard() {
           </TabErrorBoundary>
         ) : null}
         </Suspense>
+        </TabRefreshRegion>
         </div>
       </main>
 
@@ -1386,6 +1400,8 @@ function Dashboard() {
         isOpen={showExportDialog}
         onClose={() => setShowExportDialog(false)}
         onExport={handleExport}
+        enableArchitectureView={appSettings.enableArchitectureView}
+        onExportArchitecture={handleArchitectureExport}
         tabVisibility={tabVisibility}
         dataLoading={exportDataLoading}
       />

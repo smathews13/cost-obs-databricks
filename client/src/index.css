@@ -329,6 +329,30 @@ body {
   box-shadow: var(--sh-menu);
 }
 
+.cloud-integration-wizard a {
+  color: var(--lava);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cloud-integration-wizard a:hover {
+  color: var(--lava-hover);
+}
+.cloud-integration-wizard code {
+  border-radius: var(--r-chip);
+  background: var(--oat-med) !important;
+  color: var(--ink);
+}
+.cloud-integration-wizard .guide-reference {
+  border: 1px solid var(--hairline);
+  background: var(--oat-med);
+  color: var(--body);
+}
+.cloud-integration-wizard .guide-note {
+  border: 1px solid var(--hairline);
+  background: var(--amber-tint);
+  color: var(--amber-ink);
+}
+
 span.rounded-full[class*="px-"] {
   border-radius: var(--r-chip) !important;
 }

@@ -31,6 +31,47 @@ _mv_status_cache: dict[str, tuple[float, dict]] = {}
 _MV_STATUS_CACHE_TTL = 300.0  # 5 minutes
 
 
+def _classify_warehouse_type(
+    *,
+    compute_type: Any = None,
+    is_serverless: Any = None,
+    sql_tier: Any = None,
+    sku_name: Any = None,
+    warehouse_id: Any = None,
+) -> str:
+    """Classify SQL spend without presenting missing metadata as a known type."""
+    compute = str(compute_type or "").strip().upper().replace("-", "_").replace(" ", "_")
+    if "SERVERLESS" in compute:
+        return "SERVERLESS"
+    if compute in {"PRO", "CLASSIC"}:
+        return compute
+
+    serverless = is_serverless is True or str(is_serverless or "").strip().lower() in {"1", "true", "yes"}
+    if serverless:
+        return "SERVERLESS"
+
+    tier = str(sql_tier or "").strip().upper().replace("-", "_").replace(" ", "_")
+    if "SERVERLESS" in tier:
+        return "SERVERLESS"
+    if tier in {"PRO", "PREMIUM", "ENTERPRISE"}:
+        return "PRO"
+    if tier in {"CLASSIC", "STANDARD"}:
+        return "CLASSIC"
+
+    sku = str(sku_name or "").strip().upper().replace("-", "_").replace(" ", "_")
+    if "SERVERLESS" in sku:
+        return "SERVERLESS"
+    if "PREMIUM" in sku or "ENTERPRISE" in sku or sku.startswith("PRO_"):
+        return "PRO"
+    if "STANDARD" in sku or "CLASSIC" in sku:
+        return "CLASSIC"
+
+    # A warehouse id proves only that billing associated the row with a
+    # warehouse. It says nothing about geography or why compute metadata is
+    # absent, so unresolved rows must remain explicitly unclassified.
+    return "UNCLASSIFIED"
+
+
 def _resolve_url(url: str | None, host: str) -> str | None:
     """Resolve MV URLs by replacing placeholders and prepending host to relative paths.
 
@@ -250,6 +291,9 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                     SELECT
                       u.usage_date as date,
                       u.usage_metadata.warehouse_id as warehouse_id,
+                      u.product_features.is_serverless as is_serverless,
+                      u.product_features.sql_tier as sql_tier,
+                      u.sku_name as sku_name,
                       SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as daily_spend
                     FROM system.billing.usage u
                     LEFT JOIN system.billing.list_prices p
@@ -257,7 +301,12 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                     WHERE u.billing_origin_product = 'SQL'
                       AND u.usage_date BETWEEN :start_date AND :end_date
                       AND u.usage_quantity > 0
-                    GROUP BY u.usage_date, u.usage_metadata.warehouse_id
+                    GROUP BY
+                      u.usage_date,
+                      u.usage_metadata.warehouse_id,
+                      u.product_features.is_serverless,
+                      u.product_features.sql_tier,
+                      u.sku_name
                 """, params)),
                 # Region-scope detection: system.billing.usage is account-wide (all
                 # regions), but system.compute.warehouses is scoped to the metastore's
@@ -330,7 +379,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 wid = r.get("warehouse_id")
                 if wid:
                     wh_meta[wid] = {"warehouse_name": r.get("warehouse_name"),
-                                    "warehouse_type": r.get("warehouse_type") or "CLASSIC",
+                                    "warehouse_type": r.get("warehouse_type"),
                                     "warehouse_size": r.get("warehouse_size") or "UNKNOWN",
                                     "workspace_id": str(r.get("workspace_id")) if r.get("workspace_id") else None,
                                     "workspace_name": r.get("workspace_name")}
@@ -368,19 +417,21 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 ts_list.append(row_d)
             timeseries = {**_empty, "timeseries": ts_list, "source_types": src_types}
 
-            # warehouse_type_timeseries — derive type lookup from wh_meta (already fetched above)
-            wh_type_lookup = {wid: info.get("warehouse_type") or "CLASSIC" for wid, info in wh_meta.items()}
+            # Prefer region-local compute metadata, then classify account-wide
+            # billing rows. Missing metadata is never silently labeled Classic.
+            wh_type_lookup = {wid: info.get("warehouse_type") for wid, info in wh_meta.items()}
             wh_ts_by_date: dict[str, dict] = {}
             wh_type_set: set[str] = set()
             for r in (results.get("wh_type_billing") or []):
                 d = str(r.get("date"))
                 wid = r.get("warehouse_id") or ""
-                # A warehouse_id present in billing but absent from wh_meta is
-                # out-of-region: system.compute.warehouses is region-scoped while
-                # system.billing.usage is account-wide. Do NOT default these to
-                # CLASSIC — that mislabels out-of-region serverless spend. Mark
-                # them "Unknown" so the chart is honest about what it can't classify.
-                wt = wh_type_lookup.get(wid, "Unknown")
+                wt = _classify_warehouse_type(
+                    compute_type=wh_type_lookup.get(wid),
+                    is_serverless=r.get("is_serverless"),
+                    sql_tier=r.get("sql_tier"),
+                    sku_name=r.get("sku_name"),
+                    warehouse_id=wid,
+                )
                 spend = float(r.get("daily_spend") or 0)
                 wh_type_set.add(wt)
                 if d not in wh_ts_by_date:
@@ -658,7 +709,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 if wid:
                     warehouse_meta[wid] = {
                         "warehouse_name": r.get("warehouse_name"),
-                        "warehouse_type": r.get("warehouse_type") or "CLASSIC",
+                        "warehouse_type": r.get("warehouse_type"),
                         "warehouse_size": r.get("warehouse_size") or "UNKNOWN",
                         "workspace_id": str(r.get("workspace_id")) if r.get("workspace_id") else None,
                         "workspace_name": r.get("workspace_name"),
@@ -892,7 +943,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 FROM system.compute.warehouses
                 GROUP BY warehouse_id
             """)
-            wh_types = {r["warehouse_id"]: r.get("warehouse_type") or "CLASSIC" for r in (meta_results or [])}
+            wh_types = {r["warehouse_id"]: r.get("warehouse_type") for r in (meta_results or [])}
         except Exception:
             wh_types = {}
 
@@ -901,6 +952,9 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 SELECT
                   u.usage_date as date,
                   u.usage_metadata.warehouse_id as warehouse_id,
+                  u.product_features.is_serverless as is_serverless,
+                  u.product_features.sql_tier as sql_tier,
+                  u.sku_name as sku_name,
                   SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as daily_spend
                 FROM system.billing.usage u
                 LEFT JOIN system.billing.list_prices p
@@ -908,7 +962,12 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 WHERE u.billing_origin_product = 'SQL'
                   AND u.usage_date BETWEEN :start_date AND :end_date
                   AND u.usage_quantity > 0
-                GROUP BY u.usage_date, u.usage_metadata.warehouse_id
+                GROUP BY
+                  u.usage_date,
+                  u.usage_metadata.warehouse_id,
+                  u.product_features.is_serverless,
+                  u.product_features.sql_tier,
+                  u.sku_name
             """, {"start_date": start_date, "end_date": end_date})
         except Exception:
             return {"available": False, "timeseries": [], "warehouse_types": []}
@@ -919,7 +978,13 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         for row in (results or []):
             date_str = str(row.get("date"))
             wid = row.get("warehouse_id") or ""
-            wh_type = wh_types.get(wid, "CLASSIC")
+            wh_type = _classify_warehouse_type(
+                compute_type=wh_types.get(wid),
+                is_serverless=row.get("is_serverless"),
+                sql_tier=row.get("sql_tier"),
+                sku_name=row.get("sku_name"),
+                warehouse_id=wid,
+            )
             spend = float(row.get("daily_spend") or 0)
             wh_type_set.add(wh_type)
             if date_str not in data_by_date:

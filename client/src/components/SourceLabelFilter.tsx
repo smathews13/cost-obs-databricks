@@ -10,11 +10,15 @@ interface MvSource {
   schema: string;
 }
 
+interface SourceLabelFilterProps {
+  variant?: "header" | "rail";
+}
+
 // Top-nav multi-select for filtering dashboard data by MV source label. Only
 // rendered when additional MV sources are configured (otherwise there's a single
 // local label and nothing to filter). Default is all sources (combined); the
 // selection is pushed to the data layer and queries are invalidated to refetch.
-export function SourceLabelFilter() {
+export function SourceLabelFilter({ variant = "header" }: SourceLabelFilterProps) {
   const queryClient = useQueryClient();
   const { data } = useQuery<{ sources: MvSource[]; local_label: string }>({
     queryKey: ["mv-sources"],
@@ -90,22 +94,35 @@ export function SourceLabelFilter() {
   };
 
   return (
-    <div className="relative">
+    <div className={variant === "rail" ? "relative min-w-0 shrink" : "relative"}>
       {open && <div className="fixed inset-0 z-10" onClick={() => { setOpen(false); apply(selected); }} />}
       <button
         onClick={() => setOpen((o) => !o)}
-        className="co-filter flex items-center gap-2 whitespace-nowrap px-3"
+        aria-label={applying ? "Updating sources" : label()}
+        className={variant === "rail"
+          ? "rail-source-filter flex h-[32px] max-w-[104px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border border-white/[.16] bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
+          : "co-filter flex items-center gap-2 whitespace-nowrap px-3"
+        }
         title="Filter by data source"
       >
         {applying ? (
           <Spinner size="sm" />
         ) : (
-          <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className={variant === "rail" ? "h-[14px] w-[14px] shrink-0 opacity-70" : "h-4 w-4 shrink-0 text-gray-500"} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M6 12h12M9 17h6" />
           </svg>
         )}
-        <span className="max-w-[140px] truncate">{applying ? "Updating…" : label()}</span>
-        <svg className={`ml-0.5 h-4 w-4 shrink-0 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <span className="max-w-[58px] truncate min-[1280px]:max-w-[140px]">
+          {applying ? "Updating…" : (
+            <>
+              <span className="min-[1180px]:hidden">
+                {allSelected ? "Sources" : selected.size === 1 ? "1 source" : `${selected.size} sources`}
+              </span>
+              <span className="hidden min-[1180px]:inline">{label()}</span>
+            </>
+          )}
+        </span>
+        <svg className={`${variant === "rail" ? "h-[12px] w-[12px] opacity-70" : "ml-0.5 h-4 w-4 text-gray-500"} shrink-0 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>

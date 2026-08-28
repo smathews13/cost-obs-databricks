@@ -27,6 +27,7 @@ function ColWarn({ error }: { error: string }) {
 // Module-level: survives tab switches (component unmount/remount)
 let _mvRefreshing = false;
 let _mvPrevRefreshTime: string | null = null;
+let _mvPrevAttemptKey: string | null = null;
 let _mvDeadline = 0;
 let _mvPollInterval: ReturnType<typeof setInterval> | null = null;
 let _mvPollCallback: (() => Promise<void>) | null = null;
@@ -56,15 +57,20 @@ export function SettingsConfig() {
     schema: string | null;
     error?: string | null;
     auth_error?: string | null;
+    storage_block_reason?: string | null;
     refresh_status?: {
-      last_refresh_utc: string;
+      last_refresh_utc: string | null;
+      last_attempt_utc?: string | null;
       duration_seconds: number | null;
-      hours_since_refresh: number;
+      hours_since_refresh: number | null;
       stale: boolean;
       status: string;
       lookback_days?: number | null;
       error?: string;
+      block_reason?: string;
+      persistence_error?: string;
       refresh_history?: Array<{
+        id?: string;
         timestamp: string;
         status: string;
         duration_seconds: number;
@@ -72,6 +78,7 @@ export function SettingsConfig() {
         trigger: "manual" | "scheduled" | "startup" | "config";
         note?: string;
         error?: string;
+        block_reason?: string;
       }>;
     } | null;
     tables: Array<{
@@ -101,7 +108,9 @@ export function SettingsConfig() {
     noCacheRef.current = true;
     const result = await refetchTables();
     const newTime = result.data?.refresh_status?.last_refresh_utc;
-    if ((newTime && newTime !== _mvPrevRefreshTime) || Date.now() > _mvDeadline) {
+    const latestEntry = result.data?.refresh_status?.refresh_history?.at(-1);
+    const latestAttemptKey = latestEntry ? (latestEntry.id || latestEntry.timestamp) : null;
+    if ((newTime && newTime !== _mvPrevRefreshTime) || (latestAttemptKey && latestAttemptKey !== _mvPrevAttemptKey) || Date.now() > _mvDeadline) {
       if (_mvPollInterval) { clearInterval(_mvPollInterval); _mvPollInterval = null; }
       _mvRefreshing = false;
       setMvRefreshing(false);
@@ -125,6 +134,8 @@ export function SettingsConfig() {
   async function handleMvRefresh() {
     if (_mvRefreshing) return;
     _mvPrevRefreshTime = tablesStatus?.refresh_status?.last_refresh_utc ?? null;
+    const previousEntry = tablesStatus?.refresh_status?.refresh_history?.at(-1);
+    _mvPrevAttemptKey = previousEntry ? (previousEntry.id || previousEntry.timestamp) : null;
     _mvRefreshing = true;
     _mvLastResult = null;
     _mvDeadline = Date.now() + 15 * 60 * 1000;
@@ -165,6 +176,7 @@ export function SettingsConfig() {
   };
 
   const rs = tablesStatus?.refresh_status;
+  const rebuildBlocked = tablesStatus?.storage_block_reason || rs?.block_reason;
   // Safety invariant: when a required (non-optional) managed table is already missing,
   // the system is degraded: the drop action is hard-blocked (no break-glass path) so a
   // broken deploy can't be dropped into a worse state. The CONFIRM gate is the second layer.
@@ -182,14 +194,20 @@ export function SettingsConfig() {
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           Managed tables
           <span style={{ fontSize: 12, fontWeight: 400, color: T.textSecondary }}>
-            {rs == null ? "Never rebuilt" : rs.status === "error" ? "Last rebuild failed" : rs.stale ? "Stale (>26h)" : rs.hours_since_refresh < 1 ? "Rebuilt <1h ago" : `Rebuilt ${rs.hours_since_refresh}h ago`}
+            {rs == null ? "Never rebuilt"
+              : rs.status === "blocked" ? "Rebuild blocked"
+              : rs.status === "skipped" ? "Last rebuild skipped"
+              : rs.status === "error" ? "Last rebuild failed"
+              : rs.stale ? "Stale (>26h)"
+              : rs.hours_since_refresh != null && rs.hours_since_refresh < 1 ? "Rebuilt <1h ago"
+              : `Rebuilt ${rs.hours_since_refresh ?? "unknown"}h ago`}
           </span>
         </span>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           <Select value={lookbackDays} onChange={(v) => setLookbackDays(Number(v))} disabled={mvRefreshing}
             options={[{ value: 180, label: "6 months" }, { value: 365, label: "1 year" }, { value: 730, label: "2 years" }, { value: 1095, label: "3 years" }]} />
           <SecondaryButton onClick={() => { noCacheRef.current = true; refetchTables(); }} disabled={mvRefreshing || tablesFetching}>Check status</SecondaryButton>
-          <SecondaryButton onClick={handleMvRefresh} disabled={mvRefreshing}>{mvRefreshing ? "Rebuilding…" : "Rebuild now"}</SecondaryButton>
+          <SecondaryButton onClick={handleMvRefresh} disabled={mvRefreshing || Boolean(rebuildBlocked)}>{mvRefreshing ? "Rebuilding…" : "Rebuild now"}</SecondaryButton>
         </span>
       </div>
 
@@ -202,6 +220,12 @@ export function SettingsConfig() {
       )}
       {!mvRefreshing && rs?.status && ["error", "partial_error"].includes(rs.status) && rs.error && (
         <div style={{ marginBottom: 12 }}><Callout tone="danger"><strong>Last rebuild failed.</strong> {rs.error}</Callout></div>
+      )}
+      {rebuildBlocked && (
+        <div style={{ marginBottom: 12 }}><Callout tone="warning"><strong>Rebuild blocked.</strong> {rebuildBlocked}</Callout></div>
+      )}
+      {rs?.persistence_error && (
+        <div style={{ marginBottom: 12 }}><Callout tone="warning"><strong>History is not durable.</strong> The latest rebuild history could not be restored from or saved to the managed table. {rs.persistence_error}</Callout></div>
       )}
       {tablesStatus?.auth_error && (
         <div style={{ marginBottom: 12 }}><Callout tone="warning">{tablesStatus.auth_error}</Callout></div>
@@ -277,7 +301,7 @@ export function SettingsConfig() {
         const fmtWindow = (d: number) => (!d ? "N/A" : d === 180 ? "6 months" : d === 365 ? "1 year" : d === 730 ? "2 years" : d === 1095 ? "3 years" : `${d} days`);
         const fmtDuration = (s: number) => (s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`);
         const fmtTs = (ts: string) => { try { return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }); } catch { return ts; } };
-        const toneFor = (s: string) => s === "success" ? T.successFg : s === "partial_error" ? T.warningFg : s === "config" ? T.primary : s === "dropped" ? T.textFaint : T.dangerFg;
+        const toneFor = (s: string) => s === "success" ? T.successFg : ["partial_error", "skipped", "blocked"].includes(s) ? T.warningFg : s === "config" ? T.primary : s === "dropped" ? T.textFaint : T.dangerFg;
         const resultLabel = (s: string) => s === "partial_error" ? "Partial" : s === "config" ? "Config" : s;
         return (
           <div style={{ marginTop: 16 }}>
@@ -309,7 +333,7 @@ export function SettingsConfig() {
                         </td>
                         <td style={{ ...td, textAlign: "right", color: T.textSecondary }}>{e.status === "config" ? "N/A" : fmtWindow(e.lookback_days ?? 0)}</td>
                         <td style={{ ...td, textAlign: "right", color: T.textSecondary, fontVariantNumeric: "tabular-nums" }}>{e.status === "dropped" || e.status === "config" ? "N/A" : fmtDuration(e.duration_seconds)}</td>
-                        <td style={{ ...td, textAlign: "right", color: toneFor(e.status), fontWeight: 600, textTransform: "capitalize" }} title={e.error}>{resultLabel(e.status)}</td>
+                        <td style={{ ...td, textAlign: "right", color: toneFor(e.status), fontWeight: 600, textTransform: "capitalize" }} title={e.error || e.block_reason}>{resultLabel(e.status)}</td>
                       </tr>
                     ))}
                   </tbody>

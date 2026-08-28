@@ -831,6 +831,109 @@ async def get_infra_costs_timeseries(
         }
 
 
+def _classify_infra_query_error(error: Exception | str) -> str:
+    """Classify an infra query failure without exposing it as a valid zero."""
+    message = str(error).upper()
+    if any(
+        token in message
+        for token in (
+            "INSUFFICIENT_PERMISSIONS",
+            "PERMISSION_DENIED",
+            "NOT AUTHORIZED",
+            "ACCESS_DENIED",
+        )
+    ):
+        return "permission"
+    if any(
+        token in message
+        for token in (
+            "TABLE_OR_VIEW_NOT_FOUND",
+            "SCHEMA_NOT_FOUND",
+            "UNRESOLVED_COLUMN",
+            "SYSTEM.COMPUTE.CLUSTERS",
+            "SYSTEM.ACCESS.WORKSPACES_LATEST",
+        )
+    ):
+        return "metadata"
+    return "query_failure"
+
+
+def _run_infra_query(query: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Keep query errors structured because the parallel runner otherwise returns None."""
+    try:
+        return {"rows": execute_query(query, params), "error": None, "error_kind": None}
+    except Exception as exc:
+        return {
+            "rows": None,
+            "error": str(exc),
+            "error_kind": _classify_infra_query_error(exc),
+        }
+
+
+def _infra_query_outcome(
+    query_results: dict[str, Any], name: str
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Normalize wrapped results, legacy list mocks, and silent None failures."""
+    result = query_results.get(name)
+    if result is None:
+        return [], {
+            "available": False,
+            "error": f"{name.replace('_', ' ').title()} query did not complete.",
+            "error_kind": "query_failure",
+            "reason": "timeout_or_worker_failure",
+        }
+    if isinstance(result, dict) and "rows" in result:
+        if result.get("error"):
+            return [], {
+                "available": False,
+                "error": result["error"],
+                "error_kind": result.get("error_kind") or "query_failure",
+                "reason": "query_failed",
+            }
+        rows = result.get("rows")
+    else:
+        rows = result
+    return list(rows or []), {
+        "available": True,
+        "error": None,
+        "error_kind": None,
+        "reason": None,
+    }
+
+
+def _infra_empty_reason(
+    scope_rows: list[dict[str, Any]],
+    scope_status: dict[str, Any],
+    workspace_filtered: bool,
+) -> tuple[str, str]:
+    """Explain a successful empty cluster query using billing-only scope data."""
+    if not scope_status["available"] or not scope_rows:
+        return (
+            "no_classic_cluster_id_usage",
+            "No matching classic cluster_id usage was returned for this selection.",
+        )
+
+    scope = scope_rows[0]
+    usage_rows = int(scope.get("usage_rows") or 0)
+    cluster_rows = int(scope.get("cluster_usage_rows") or 0)
+    serverless_rows = int(scope.get("serverless_usage_rows") or 0)
+    if usage_rows == 0:
+        selection = "workspace filter and date range" if workspace_filtered else "date range"
+        return (
+            "no_usage_for_filter_or_date",
+            f"No billable usage matched the selected {selection}.",
+        )
+    if cluster_rows == 0 and serverless_rows > 0:
+        return (
+            "serverless_only",
+            "Usage exists, but it is serverless and has no classic cluster_id or VM metadata.",
+        )
+    return (
+        "no_classic_cluster_id_usage",
+        "Usage exists, but no matching classic cluster_id usage was found.",
+    )
+
+
 @router.get("/infra-bundle")
 async def get_infra_bundle(
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
@@ -866,7 +969,13 @@ async def get_infra_bundle(
       WHERE u.usage_date BETWEEN :start_date AND :end_date
         AND u.usage_quantity > 0
         AND u.usage_metadata.cluster_id IS NOT NULL
-        AND (u.sku_name LIKE '%ALL_PURPOSE%' OR u.sku_name LIKE '%JOBS%' OR u.sku_name LIKE '%DLT%')
+        AND (
+          u.billing_origin_product = 'DLT'
+          OR u.sku_name LIKE '%ALL_PURPOSE%'
+          OR u.sku_name LIKE '%JOBS%'
+          OR u.sku_name LIKE '%DLT%'
+        )
+        AND u.sku_name NOT LIKE '%SERVERLESS%'
     ),
     daily_stats AS (
       SELECT
@@ -883,20 +992,43 @@ async def get_infra_bundle(
       COUNT(*) as days_in_range
     FROM daily_stats
     """
+    BILLING_INFRA_SCOPE = """
+    SELECT
+      COUNT(*) AS usage_rows,
+      COUNT_IF(u.usage_metadata.cluster_id IS NOT NULL) AS cluster_usage_rows,
+      COUNT_IF(
+        u.sku_name LIKE '%SERVERLESS%'
+        OR (
+          u.usage_metadata.cluster_id IS NULL
+          AND (
+            u.usage_metadata.warehouse_id IS NOT NULL
+            OR u.usage_metadata.endpoint_name IS NOT NULL
+          )
+        )
+      ) AS serverless_usage_rows
+    FROM system.billing.usage u
+    WHERE u.usage_date BETWEEN :start_date AND :end_date
+      AND u.usage_quantity > 0
+    """
 
     _infra_sql = _inject_ws_filter(BILLING_INFRA_SUMMARY, _ws_clause)
     _clusters_sql = _inject_ws_filter(INFRA_COST_ESTIMATE, _ws_clause)
     _ts_sql = _inject_ws_filter(INFRA_COST_TIMESERIES, _ws_clause)
+    _scope_sql = _inject_ws_filter(BILLING_INFRA_SCOPE, _ws_clause)
     try:
         query_results = await asyncio.to_thread(execute_queries_parallel, [
-            ("clusters", lambda: execute_query(_clusters_sql, params)),
-            ("timeseries", lambda: execute_query(_ts_sql, params)),
-            ("billing_summary", lambda: execute_query(_infra_sql, params)),
+            ("clusters", lambda: _run_infra_query(_clusters_sql, params)),
+            ("timeseries", lambda: _run_infra_query(_ts_sql, params)),
+            ("billing_summary", lambda: _run_infra_query(_infra_sql, params)),
+            ("usage_scope", lambda: _run_infra_query(_scope_sql, params)),
         ], timeout=90.0)
 
-        cluster_results = query_results.get("clusters") or []
-        ts_results = query_results.get("timeseries") or []
-        billing_summary_results = query_results.get("billing_summary") or []
+        cluster_results, cluster_status = _infra_query_outcome(query_results, "clusters")
+        ts_results, timeseries_status = _infra_query_outcome(query_results, "timeseries")
+        billing_summary_results, billing_summary_status = _infra_query_outcome(
+            query_results, "billing_summary"
+        )
+        scope_results, scope_status = _infra_query_outcome(query_results, "usage_scope")
 
         # Detect cloud from host URL, override with billing data if available
         host = get_host_url()
@@ -914,8 +1046,28 @@ async def get_infra_bundle(
                     break
 
         # --- Build clusters and instance families in one pass ---
+        # Both node types are required for the estimate formula. Rows without
+        # that metadata are omitted and reported as partial/unavailable rather
+        # than surfaced as apparently valid $0 estimates.
+        priced_cluster_results = [
+            row
+            for row in cluster_results
+            if str(row.get("driver_instance_type") or "").strip()
+            and str(row.get("worker_instance_type") or "").strip()
+        ]
+        missing_cluster_results = [
+            row for row in cluster_results if row not in priced_cluster_results
+        ]
+        missing_cluster_dbu_hours = sum(
+            float(row.get("total_dbu_hours") or 0) for row in missing_cluster_results
+        )
+
         # Pre-build a pricing map for all unique instance types to avoid repeated lookups
-        all_types = {row.get("driver_instance_type") for row in cluster_results} | {row.get("worker_instance_type") for row in cluster_results}
+        all_types = {
+            row.get("driver_instance_type") for row in priced_cluster_results
+        } | {
+            row.get("worker_instance_type") for row in priced_cluster_results
+        }
         pricing_map = {t: get_instance_pricing(t, cloud) for t in all_types if t}
         family_map = {t: get_instance_family(t, cloud) for t in all_types if t}
 
@@ -924,7 +1076,7 @@ async def get_infra_bundle(
         total_dbu_hours = 0
         family_agg: dict[str, dict] = {}
 
-        for row in cluster_results:
+        for row in priced_cluster_results:
             dbu_hours = float(row.get("total_dbu_hours") or 0)
             driver_type = row.get("driver_instance_type")
             worker_type = row.get("worker_instance_type")
@@ -962,18 +1114,115 @@ async def get_infra_bundle(
                 if total_estimated_cost > 0 else 0
             )
         instance_families = sorted(family_agg.values(), key=lambda f: f["total_dbu_hours"], reverse=True)
+        metadata_quality = {
+            "total_rows": len(cluster_results),
+            "priced_rows": len(priced_cluster_results),
+            "omitted_rows": len(missing_cluster_results),
+            "omitted_dbu_hours": missing_cluster_dbu_hours,
+        }
+        if cluster_status["available"] and clusters and missing_cluster_results:
+            availability = "partial"
+            reason = "metadata_partial"
+            reason_detail = (
+                f"{len(missing_cluster_results)} of {len(cluster_results)} classic cluster rows "
+                "were omitted because driver or worker instance metadata was unavailable."
+            )
+        elif cluster_status["available"] and clusters:
+            availability = "available"
+            reason = None
+            reason_detail = None
+        elif cluster_status["available"] and missing_cluster_results:
+            availability = "unavailable"
+            reason = "metadata_unavailable"
+            reason_detail = (
+                "Classic cluster billing usage exists, but no rows had both driver and worker "
+                "instance metadata required for infrastructure pricing."
+            )
+        elif cluster_status["available"]:
+            availability = "empty"
+            reason, reason_detail = _infra_empty_reason(
+                scope_results, scope_status, bool(id_list)
+            )
+        else:
+            availability = "unavailable"
+            reason = (
+                "permission_denied"
+                if cluster_status["error_kind"] == "permission"
+                else "metadata_unavailable"
+                if cluster_status["error_kind"] == "metadata"
+                else "query_failed"
+            )
+            reason_detail = (
+                "Classic cluster metadata could not be queried, so zero usage cannot be confirmed."
+            )
 
         # --- Build timeseries ---
-        timeseries = []
+        # The timeseries query carries the same node metadata as the detail
+        # query so both views omit exactly the rows that cannot be priced.
+        timeseries_by_date: dict[str, dict[str, Any]] = {}
+        timeseries_missing_rows = 0
+        timeseries_missing_dbu_hours = 0.0
+        timeseries_priced_rows = 0
         for row in ts_results:
             dbu_hours = float(row.get("total_dbu_hours") or 0)
-            avg_cost_per_hour = 0.50
-            estimated_cost = dbu_hours * avg_cost_per_hour
-            timeseries.append({
-                "date": str(row.get("usage_date")),
-                "Infrastructure Cost": estimated_cost,
-                "total_dbu_hours": dbu_hours,
-            })
+            driver_type = row.get("driver_instance_type")
+            worker_type = row.get("worker_instance_type")
+            if not (
+                str(driver_type or "").strip()
+                and str(worker_type or "").strip()
+            ):
+                timeseries_missing_rows += 1
+                timeseries_missing_dbu_hours += dbu_hours
+                continue
+
+            timeseries_priced_rows += 1
+            driver_cost = get_instance_pricing(driver_type, cloud)
+            worker_cost = get_instance_pricing(worker_type, cloud)
+            estimated_cost = dbu_hours * (driver_cost + worker_cost * 2) / 2
+            date_key = str(row.get("usage_date"))
+            daily = timeseries_by_date.setdefault(
+                date_key,
+                {"date": date_key, "Infrastructure Cost": 0.0, "total_dbu_hours": 0.0},
+            )
+            daily["Infrastructure Cost"] += estimated_cost
+            daily["total_dbu_hours"] += dbu_hours
+        timeseries = [
+            timeseries_by_date[date_key] for date_key in sorted(timeseries_by_date)
+        ]
+        timeseries_metadata_quality = {
+            "total_rows": len(ts_results),
+            "priced_rows": timeseries_priced_rows,
+            "omitted_rows": timeseries_missing_rows,
+            "omitted_dbu_hours": timeseries_missing_dbu_hours,
+        }
+        if not timeseries_status["available"]:
+            timeseries_availability = "unavailable"
+            timeseries_reason = "query_failed"
+            timeseries_reason_detail = (
+                "Infrastructure cost history could not be queried."
+            )
+        elif timeseries and timeseries_missing_rows:
+            timeseries_availability = "partial"
+            timeseries_reason = "metadata_partial"
+            timeseries_reason_detail = (
+                f"{timeseries_missing_rows} infrastructure timeseries rows were omitted because "
+                "driver or worker instance metadata was unavailable."
+            )
+        elif timeseries:
+            timeseries_availability = "available"
+            timeseries_reason = None
+            timeseries_reason_detail = None
+        elif timeseries_missing_rows:
+            timeseries_availability = "unavailable"
+            timeseries_reason = "metadata_unavailable"
+            timeseries_reason_detail = (
+                "Infrastructure billing history exists, but no rows had both driver and worker "
+                "instance metadata required for pricing."
+            )
+        else:
+            timeseries_availability = "empty"
+            timeseries_reason = reason
+            timeseries_reason_detail = reason_detail
 
         # Extract billing-based summary (matches KPI drill-downs)
         billing_summary = {}
@@ -995,6 +1244,23 @@ async def get_infra_bundle(
                 "total_estimated_cost": total_estimated_cost,
                 "total_dbu_hours": total_dbu_hours,
                 "billing_summary": billing_summary,
+                "available": cluster_status["available"] and availability != "unavailable",
+                "availability": availability,
+                "error": cluster_status["error"],
+                "error_kind": (
+                    "metadata"
+                    if availability in {"partial", "unavailable"}
+                    and reason in {"metadata_partial", "metadata_unavailable"}
+                    else cluster_status["error_kind"]
+                ),
+                "reason": reason,
+                "reason_detail": reason_detail,
+                "metadata_quality": metadata_quality,
+                "query_status": {
+                    "clusters": cluster_status,
+                    "billing_summary": billing_summary_status,
+                    "usage_scope": scope_status,
+                },
                 "start_date": params["start_date"],
                 "end_date": params["end_date"],
                 "disclaimer": get_pricing_disclaimer(cloud),
@@ -1003,11 +1269,27 @@ async def get_infra_bundle(
                 "cloud": cloud,
                 "cloud_display_name": get_cloud_display_name(cloud),
                 "timeseries": timeseries,
+                "available": (
+                    timeseries_status["available"]
+                    and timeseries_availability != "unavailable"
+                ),
+                "availability": timeseries_availability,
+                "error": timeseries_status["error"],
+                "error_kind": (
+                    "metadata"
+                    if timeseries_availability in {"partial", "unavailable"}
+                    and timeseries_reason in {"metadata_partial", "metadata_unavailable"}
+                    else timeseries_status["error_kind"]
+                ),
+                "reason": timeseries_reason,
+                "reason_detail": timeseries_reason_detail,
+                "metadata_quality": timeseries_metadata_quality,
                 "start_date": params["start_date"],
                 "end_date": params["end_date"],
             },
         }
-        delta_cache_put(_dkey, "billing:infra-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE)
+        if cluster_status["available"] and timeseries_status["available"]:
+            delta_cache_put(_dkey, "billing:infra-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE)
         return _resp
     except Exception as e:
         logger.error(f"Infra bundle error: {e}")
@@ -1015,15 +1297,37 @@ async def get_infra_bundle(
         err_cloud = "AWS"
         if host:
             h = host.lower()
-            if "azuredatabricks.net" in h: err_cloud = "AZURE"
-            elif "gcp.databricks.com" in h: err_cloud = "GCP"
+            if "azuredatabricks.net" in h:
+                err_cloud = "AZURE"
+            elif "gcp.databricks.com" in h:
+                err_cloud = "GCP"
         empty = {
             "cloud": err_cloud, "cloud_display_name": get_cloud_display_name(err_cloud),
             "start_date": params["start_date"], "end_date": params["end_date"],
         }
         return {
-            "infra_costs": {**empty, "clusters": [], "instance_families": [], "total_estimated_cost": 0, "total_dbu_hours": 0, "error": str(e)},
-            "infra_timeseries": {**empty, "timeseries": [], "error": str(e)},
+            "infra_costs": {
+                **empty,
+                "clusters": [],
+                "instance_families": [],
+                "total_estimated_cost": 0,
+                "total_dbu_hours": 0,
+                "available": False,
+                "availability": "unavailable",
+                "error": str(e),
+                "error_kind": _classify_infra_query_error(e),
+                "reason": "query_failed",
+                "reason_detail": "Infrastructure costs could not be queried, so zero usage cannot be confirmed.",
+            },
+            "infra_timeseries": {
+                **empty,
+                "timeseries": [],
+                "available": False,
+                "availability": "unavailable",
+                "error": str(e),
+                "error_kind": _classify_infra_query_error(e),
+                "reason": "query_failed",
+            },
         }
 
 
@@ -2234,6 +2538,7 @@ async def get_platform_kpis(
         "total_jobs": 0,
         "total_job_runs": 0,
         "successful_runs": 0,
+        "successful_runs_available": False,
         "total_job_run_hours": 0,
         "unique_job_owners": 0,
         "active_workspaces": 0,
@@ -2370,7 +2675,7 @@ async def get_kpis_bundle(
         return {"kpis": {
             "total_queries": 0, "unique_query_users": 0,
             "total_rows_read": 0, "total_bytes_read": 0, "total_compute_seconds": 0,
-            "total_jobs": 0, "total_job_runs": 0, "successful_runs": 0, "total_job_run_hours": 0,
+            "total_jobs": 0, "total_job_runs": 0, "successful_runs": 0, "successful_runs_available": False, "total_job_run_hours": 0,
             "unique_job_owners": 0, "active_workspaces": 0, "avg_daily_workspaces": 0,
             "active_notebooks": 0, "total_clusters": 0, "sql_warehouses": 0,
             "models_served": 0, "total_serving_dbus": 0, "avg_daily_models": 0,
@@ -2383,7 +2688,7 @@ async def get_kpis_bundle(
     kpis_response = {
         "total_queries": 0, "unique_query_users": 0,
         "total_rows_read": 0, "total_bytes_read": 0, "total_compute_seconds": 0,
-        "total_jobs": 0, "total_job_runs": 0, "successful_runs": 0, "total_job_run_hours": 0,
+        "total_jobs": 0, "total_job_runs": 0, "successful_runs": 0, "successful_runs_available": False, "total_job_run_hours": 0,
         "unique_job_owners": 0, "active_workspaces": 0, "avg_daily_workspaces": 0,
         "active_notebooks": 0, "total_clusters": 0, "sql_warehouses": 0,
         "models_served": 0, "total_serving_dbus": 0, "avg_daily_models": 0,
@@ -2437,6 +2742,7 @@ async def get_kpis_bundle(
     lakeflow_results = query_results.get("lakeflow_kpis")
     if lakeflow_results and len(lakeflow_results) > 0:
         kpis_response["successful_runs"] = int(lakeflow_results[0].get("successful_runs") or 0)
+        kpis_response["successful_runs_available"] = bool(lakeflow_results[0].get("result_state_available"))
         kpis_response["total_job_run_hours"] = int(lakeflow_results[0].get("total_run_hours") or 0)
 
     avg_daily_users_results = query_results.get("avg_daily_query_users")

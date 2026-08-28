@@ -265,9 +265,10 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
     if (!startDate || !endDate) return;
     for (const kpi of ["aiml_spend", "aiml_dbus", "aiml_endpoints", "aiml_avg_endpoint_cost"]) {
       queryClient.prefetchQuery({
-        queryKey: ["kpi-trend", kpi, startDate, endDate, "daily"],
+        queryKey: ["aiml-kpi-trend", kpi, startDate, endDate, "daily"],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
+          params.set("tab", "aiml");
           const res = await fetch(`/api/billing/kpi-trend?${params}`);
           if (!res.ok) throw new Error("prefetch failed");
           return res.json();
@@ -433,7 +434,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
   return (
     <div className="animate-fade-in space-y-6">
       <InfoPanel
-        title="AI/ML Cost Categories"
+        title="AI/ML tab methodology"
         minimized={infoMinimized}
         onToggle={handleMinimizeToggle}
       >
@@ -558,6 +559,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
           startDate={startDate}
           endDate={endDate}
           workspaceIds={workspaceIds}
+          queryKeyPrefix="aiml-kpi-trend"
         />
       )}
 

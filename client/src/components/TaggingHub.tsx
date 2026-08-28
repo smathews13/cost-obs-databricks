@@ -166,9 +166,10 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
     if (!startDate || !endDate) return;
     for (const kpi of ["tagged_spend", "untagged_spend", "total_spend"]) {
       queryClient.prefetchQuery({
-        queryKey: ["kpi-trend", kpi, startDate, endDate, "daily"],
+        queryKey: ["tagging-kpi-trend", kpi, startDate, endDate, "daily"],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
+          params.set("tab", "tagging");
           const res = await fetch(`/api/billing/kpi-trend?${params}`);
           if (!res.ok) throw new Error("prefetch failed");
           return res.json();
@@ -392,7 +393,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
   return (
     <div className="space-y-6">
       <InfoPanel
-        title="Tagging Best Practices"
+        title="Tagging tab methodology"
         minimized={infoMinimized}
         onToggle={handleMinimizeToggle}
       >
@@ -521,6 +522,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           startDate={startDate}
           endDate={endDate}
           workspaceIds={workspaceIds}
+          queryKeyPrefix="tagging-kpi-trend"
         />
       )}
 
@@ -865,7 +867,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                 <table className="w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Key</th>
+                      <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500" style={{ width: '100px' }}>Key</th>
                       <th className="px-2 py-2 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Spend</th>
                       <th className="px-2 py-2 text-right text-xs font-medium uppercase tracking-wider text-gray-500">%</th>
                     </tr>
@@ -875,8 +877,8 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                       const pct = totalKeySpend > 0 ? (entry.total_spend / totalKeySpend) * 100 : 0;
                       return (
                         <tr key={idx} className="cursor-pointer hover:bg-gray-50" onClick={() => handleTagClick(entry.tag_key)}>
-                          <td className="whitespace-nowrap px-2 py-2 text-xs font-medium text-gray-900">
-                            <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-gray-700" title={entry.tag_key}>{entry.tag_key}</span>
+                          <td className="whitespace-nowrap px-2 py-2 text-xs font-medium text-gray-900" style={{ width: '100px', maxWidth: '100px' }}>
+                            <span className="inline-block max-w-full truncate rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-gray-700" title={entry.tag_key}>{entry.tag_key}</span>
                           </td>
                           <td className="whitespace-nowrap px-2 py-2 text-right text-xs font-medium text-gray-900">{formatCurrency(entry.total_spend)}</td>
                           <td className="whitespace-nowrap px-2 py-2 text-right">

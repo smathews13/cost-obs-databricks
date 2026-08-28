@@ -204,8 +204,9 @@ async def clear_cache(tab: str | None = None) -> dict[str, Any]:
     """Clear server-side query cache for a specific tab or all tabs.
 
     Tab patterns:
-      dbu          → clears billing/dashboard-bundle queries
-      infra        → clears infra-bundle and aws-actual queries
+      dbu          → clears bundle, SKU, pipeline, interactive, and trend queries
+      infra        → clears estimated and AWS/Azure/GCP actual-cost queries
+      optimizer    → clears warehouse rightsizing and idle-time queries
       kpis         → clears kpis-bundle queries
       aiml         → clears aiml queries
       apps         → clears apps queries
@@ -218,34 +219,58 @@ async def clear_cache(tab: str | None = None) -> dict[str, Any]:
     from server.db import clear_query_cache, delta_cache_invalidate
 
     TAB_PATTERNS: dict[str, list[str]] = {
-        "dbu":          ["dashboard-bundle-fast"],
-        "infra":        ["infra-bundle", "infra-costs", "aws-actual", "aws-costs"],
-        "kpis":         ["kpis-bundle", "spend-anomalies", "platform-kpis"],
-        "aiml":         ["aiml"],
-        "apps":         ["apps"],
-        "tagging":      ["tagging"],
-        "sql":          ["dbsql", "sql-breakdown"],
-        "users-groups": ["users-groups"],
+        "dbu":          [
+            "tab:dbu", "dashboard-bundle-fast", "sku-breakdown", "pipeline-objects",
+            "interactive-breakdown", "etl-breakdown", "kpi-trend",
+        ],
+        "infra":        [
+            "tab:infra", "infra-bundle", "infra-costs", "infra-timeseries",
+            "aws-actual", "aws_actual", "aws-costs",
+            "azure-actual", "azure_actual", "azure-costs",
+            "gcp-actual", "gcp_actual", "gcp-costs",
+        ],
+        "optimizer":    ["tab:optimizer", "warehouse-health", "warehouse-idle-time", "optimizer"],
+        "kpis":         ["tab:kpis", "kpis-bundle", "spend-anomalies", "platform-kpis", "platform-kpi-trend"],
+        "aiml":         ["tab:aiml", "aiml"],
+        "apps":         ["tab:apps", "apps", "apps-kpi-trend"],
+        "tagging":      ["tab:tagging", "tagging"],
+        "sql":          ["tab:sql", "dbsql", "sql-breakdown", "top-queries", "queries-by-user"],
+        "users-groups": ["tab:users-groups", "users-groups"],
         "alerts":       ["alerts"],
     }
 
-    DELTA_TAB_PATTERNS: dict[str, str] = {
-        "dbu":          "billing:",
-        "kpis":         "billing:",
-        "infra":        "billing:",
-        "aiml":         "aiml:",
-        "apps":         "apps:",
-        "tagging":      "tagging:",
-        "sql":          "dbsql:",
-        "users-groups": "users:",
+    DELTA_TAB_PATTERNS: dict[str, list[str]] = {
+        "dbu":          [
+            "billing:dashboard-bundle-fast", "billing:sku-breakdown",
+            "billing:pipeline-objects", "billing:interactive-breakdown",
+            "billing:kpi-trend",
+        ],
+        "kpis":         ["billing:kpis-bundle", "billing:platform-kpi-trend"],
+        "infra":        ["billing:infra-bundle", "aws_actual/"],
+        "aiml":         ["aiml:"],
+        "apps":         ["apps:"],
+        "tagging":      ["tagging:"],
+        "sql":          ["dbsql:", "billing:sql-breakdown"],
+        "users-groups": ["users:"],
     }
 
     if tab and tab in TAB_PATTERNS:
         cleared = 0
         for pattern in TAB_PATTERNS[tab]:
             cleared += clear_query_cache(pattern)
-        if tab in DELTA_TAB_PATTERNS:
-            delta_cache_invalidate(DELTA_TAB_PATTERNS[tab])
+        for pattern in DELTA_TAB_PATTERNS.get(tab, []):
+            delta_cache_invalidate(pattern)
+        if tab == "infra":
+            from server.routers import aws_actual, azure_actual, gcp_actual
+            aws_actual._cur_status_cache.update({"available": None, "checked_at": 0})
+            azure_actual._azure_status_cache.update({"available": None, "checked_at": 0})
+            gcp_actual._gcp_status_cache.update({"available": None, "checked_at": 0})
+        elif tab == "optimizer":
+            from server.routers import warehouse_health
+            warehouse_health._health_cache = None
+            warehouse_health._health_cache_ts = 0.0
+            warehouse_health._idle_time_cache = None
+            warehouse_health._idle_time_cache_ts = 0.0
         return {"status": "ok", "tab": tab, "cleared": cleared}
     else:
         cleared = clear_query_cache()

@@ -12,132 +12,26 @@ import {
   AccessSection, ResourcesSection, ExperimentalSection,
 } from "./settings/sections";
 import { APP_VERSION } from "@/theme";
+import {
+  DEFAULT_APP_SETTINGS,
+  DEFAULT_VISIBILITY,
+  hydrateSettingsFromServer,
+  persistAppSettings,
+  persistTabVisibility,
+  type AppSettings,
+  type TabVisibility,
+  type UnifiedSettings,
+} from "@/utils/settingsHydration";
 
-export interface TabVisibility {
-  dbu: boolean;
-  infra: boolean;
-  optimizer: boolean;
-  kpis: boolean;
-  aiml: boolean;
-  sql: boolean;
-  apps: boolean;
-  tagging: boolean;
-  "users-groups": boolean;
-}
-
-const DEFAULT_VISIBILITY: TabVisibility = {
-  dbu: true, infra: true, optimizer: true, kpis: true, aiml: true,
-  sql: true, apps: true, tagging: true, "users-groups": true,
+export {
+  type AppSettings,
+  type TabVisibility,
 };
-
-const STORAGE_KEY = "coc-tab-visibility";
-
-export function loadTabVisibility(): TabVisibility {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      delete parsed["use-cases"];
-      return { ...DEFAULT_VISIBILITY, ...parsed };
-    }
-  } catch { /* ignore */ }
-  return DEFAULT_VISIBILITY;
-}
-
-function saveTabVisibility(visibility: TabVisibility) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(visibility));
-}
-
-// ── App Settings ────────────────────────────────────────────────────────────
-export interface AppSettings {
-  defaultDateRangeDays: 7 | 14 | 30 | 60 | 90;
-  refreshIntervalMinutes: 0 | 5 | 15 | 30;
-  compactMode: boolean;              // deprecated: migrated to `density`
-  darkMode: boolean;                 // deprecated: migrated to `theme`
-  density: "comfortable" | "compact";
-  theme: "light" | "dark" | "system";
-  defaultLandingTab: string;
-  showWorkspaceNames: boolean;
-  anomalySensitivity: "low" | "medium" | "high";
-  expSetupWizardLink: boolean;
-  expDebuggerLink: boolean;
-  companyName: string;
-  appDisplayName: string;
-  monthlyBudget: number;
-  costAllocationTags: string;
-  alertSpikePercent: number;
-  alertDailyBudget: number;
-  alertWorkspaceBudget: number;
-  slackWebhookUrl: string;
-  anonymizeUsers: boolean;
-}
-
-const DEFAULT_APP_SETTINGS: AppSettings = {
-  defaultDateRangeDays: 30,
-  refreshIntervalMinutes: 0,
-  compactMode: false,
-  darkMode: false,
-  density: "comfortable",
-  theme: "light",
-  defaultLandingTab: "dbu",
-  showWorkspaceNames: true,
-  anomalySensitivity: "medium",
-  expSetupWizardLink: false,
-  expDebuggerLink: false,
-  companyName: "",
-  appDisplayName: "",
-  monthlyBudget: 0,
-  costAllocationTags: "",
-  alertSpikePercent: 20,
-  alertDailyBudget: 50000,
-  alertWorkspaceBudget: 10000,
-  slackWebhookUrl: "",
-  anonymizeUsers: false,
-};
-
-const APP_SETTINGS_KEY = "coc-app-settings";
-
-export function loadAppSettings(): AppSettings {
-  try {
-    const stored = localStorage.getItem(APP_SETTINGS_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      const merged = Object.fromEntries(
-        (Object.keys(DEFAULT_APP_SETTINGS) as (keyof AppSettings)[])
-          .map((key) => [key, parsed[key] ?? DEFAULT_APP_SETTINGS[key]]),
-      ) as AppSettings;
-      // Migrate deprecated boolean toggles into the new selects (only when the new
-      // keys are absent, so an explicit new choice always wins).
-      if (parsed.theme === undefined) merged.theme = parsed.darkMode ? "dark" : "light";
-      if (parsed.density === undefined) merged.density = parsed.compactMode ? "compact" : "comfortable";
-      return merged;
-    }
-  } catch { /* ignore */ }
-  return { ...DEFAULT_APP_SETTINGS };
-}
-
-function saveAppSettings(settings: AppSettings) {
-  // Keep the deprecated booleans in sync so any un-migrated reader still works.
-  const out = { ...settings, darkMode: settings.theme === "dark", compactMode: settings.density === "compact" };
-  localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(out));
-}
 
 type NavKey = "general" | "tabs" | "alerts" | "data" | "access" | "resources" | "experimental";
 type Overlay = "setup" | "debugger" | null;
 
-export interface SettingsCapabilities {
-  smtp_configured: boolean;
-  workspace_names_available: boolean;
-  account_prices_available: boolean;
-  is_admin: boolean;
-}
-interface UnifiedSettings {
-  general?: Record<string, unknown>;
-  tab_visibility?: Partial<TabVisibility>;
-  thresholds?: { spike_threshold_percent?: number; daily_budget?: number; workspace_budget?: number; anomaly_sensitivity?: "low" | "medium" | "high" };
-  experimental?: { exp_setup_wizard_link?: boolean; exp_debugger_link?: boolean };
-  capabilities?: SettingsCapabilities;
-}
+export type SettingsCapabilities = NonNullable<UnifiedSettings["capabilities"]>;
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -166,6 +60,9 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
   const [localVisibility, setLocalVisibility] = useState<TabVisibility>(tabVisibility);
   const [localSettings, setLocalSettings] = useState<AppSettings>(appSettings);
   const [dirty, setDirty] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const editingRef = useRef(false);
+  const saveInFlightRef = useRef(false);
 
   const { data: permissions } = useQuery<{ admins: string[]; current_user?: string | null }>({
     queryKey: ["user-permissions"],
@@ -197,30 +94,12 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
   const caps = unified?.capabilities;
   const seededRef = useRef(false);
   useEffect(() => {
-    if (!unified || dirty || seededRef.current) return;
+    if (!unified || dirty || editingRef.current || saveInFlightRef.current || seededRef.current) return;
     seededRef.current = true;
-    const g = (unified.general || {}) as Record<string, unknown>;
-    const num = (v: unknown, d: number) => (typeof v === "number" ? v : d);
-    setLocalSettings((prev) => ({
-      ...prev,
-      companyName: (g.company_name as string) ?? prev.companyName,
-      appDisplayName: (g.app_display_name as string) ?? prev.appDisplayName,
-      defaultDateRangeDays: (num(g.default_date_range_days, prev.defaultDateRangeDays) as AppSettings["defaultDateRangeDays"]),
-      defaultLandingTab: (g.default_landing_tab as string) ?? prev.defaultLandingTab,
-      refreshIntervalMinutes: (num(g.auto_refresh_minutes, prev.refreshIntervalMinutes) as AppSettings["refreshIntervalMinutes"]),
-      density: (g.density as AppSettings["density"]) ?? prev.density,
-      theme: (g.theme as AppSettings["theme"]) ?? prev.theme,
-      showWorkspaceNames: typeof g.show_workspace_names === "boolean" ? g.show_workspace_names : prev.showWorkspaceNames,
-      anonymizeUsers: typeof g.anonymize_users === "boolean" ? g.anonymize_users : prev.anonymizeUsers,
-      alertSpikePercent: num(unified.thresholds?.spike_threshold_percent, prev.alertSpikePercent),
-      alertDailyBudget: num(unified.thresholds?.daily_budget, prev.alertDailyBudget),
-      alertWorkspaceBudget: num(unified.thresholds?.workspace_budget, prev.alertWorkspaceBudget),
-      anomalySensitivity: unified.thresholds?.anomaly_sensitivity ?? prev.anomalySensitivity,
-      expSetupWizardLink: unified.experimental?.exp_setup_wizard_link ?? prev.expSetupWizardLink,
-      expDebuggerLink: unified.experimental?.exp_debugger_link ?? prev.expDebuggerLink,
-    }));
-    if (unified.tab_visibility) setLocalVisibility((prev) => ({ ...prev, ...unified.tab_visibility }));
-  }, [unified, dirty]);
+    const hydrated = hydrateSettingsFromServer(unified, localSettings, localVisibility);
+    setLocalSettings(hydrated.appSettings);
+    setLocalVisibility(hydrated.tabVisibility);
+  }, [unified, dirty, localSettings, localVisibility]);
 
   // Prefer a real display name; never show the raw SP client-id UUID. Falls back to
   // the app's product name.
@@ -235,6 +114,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
   const version = appConfig?.version?.commit_sha;
 
   useEffect(() => {
+    if (editingRef.current || saveInFlightRef.current) return;
     setLocalVisibility(tabVisibility);
     setLocalSettings(appSettings);
     setDirty(false);
@@ -248,6 +128,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
   }, [permissions, isAdmin, nav, overlay]);
 
   const requestClose = useCallback(() => {
+    if (saveInFlightRef.current) return;
     if (dirty && !window.confirm("You have unsaved changes. Discard them?")) return;
     onClose();
   }, [dirty, onClose]);
@@ -260,10 +141,12 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
   }, [requestClose]);
 
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
+    editingRef.current = true;
     setLocalSettings((prev) => ({ ...prev, [key]: value }));
     setDirty(true);
   };
   const toggleTab = (key: keyof TabVisibility) => {
+    editingRef.current = true;
     setLocalVisibility((prev) => {
       const updated = { ...prev, [key]: !prev[key] };
       if (!Object.values(updated).some(Boolean)) return prev;
@@ -272,7 +155,10 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
     setDirty(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (saveInFlightRef.current || !dirty) return;
+    saveInFlightRef.current = true;
+    setIsSaving(true);
     // Landing-tab fallback: if the chosen tab is now hidden, use the first visible.
     let settings = localSettings;
     const landingHidden = !localVisibility[localSettings.defaultLandingTab as keyof TabVisibility];
@@ -280,11 +166,6 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
       const firstVisible = (Object.keys(localVisibility) as (keyof TabVisibility)[]).find((k) => localVisibility[k]);
       if (firstVisible) settings = { ...localSettings, defaultLandingTab: firstVisible };
     }
-    saveAppSettings(settings);
-    saveTabVisibility(localVisibility);
-    onSettingsChange(settings);
-    onTabVisibilityChange(localVisibility);
-    setLocalSettings(settings);
     // One Save = one PUT to the unified aggregator, which dispatches each sub-object
     // to its domain store (app_settings / alert-thresholds / webhook). Price basis and
     // refresh schedule save immediately via their own controls, so they're omitted here.
@@ -301,35 +182,57 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
         spike_threshold_percent: settings.alertSpikePercent, daily_budget: settings.alertDailyBudget,
         workspace_budget: settings.alertWorkspaceBudget, anomaly_sensitivity: settings.anomalySensitivity,
       },
-      experimental: { exp_setup_wizard_link: settings.expSetupWizardLink, exp_debugger_link: settings.expDebuggerLink },
+      experimental: {
+        exp_setup_wizard_link: settings.expSetupWizardLink,
+        exp_debugger_link: settings.expDebuggerLink,
+        enable_architecture_view: settings.enableArchitectureView,
+      },
     };
     if (settings.slackWebhookUrl && settings.slackWebhookUrl !== appSettings.slackWebhookUrl) {
       body.webhook = { slack_webhook_url: settings.slackWebhookUrl };
     }
-    fetch("/api/settings", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
-    }).then(() => rqClient.invalidateQueries({ queryKey: ["unified-settings"] })).catch(() => {});
-    setDirty(false);
-    toast(landingHidden ? "Settings saved: landing tab reset to first visible" : "Settings saved");
-    onClose();
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
+      });
+      const savedSnapshot = await response.json().catch(() => null) as UnifiedSettings | { detail?: string } | null;
+      if (!response.ok) {
+        const detail = savedSnapshot && "detail" in savedSnapshot ? savedSnapshot.detail : null;
+        throw new Error(detail || `Server returned ${response.status}`);
+      }
+
+      seededRef.current = true;
+      rqClient.setQueryData(["unified-settings"], savedSnapshot);
+      persistAppSettings(settings);
+      persistTabVisibility(localVisibility);
+      setLocalSettings(settings);
+      editingRef.current = false;
+      setDirty(false);
+      onSettingsChange(settings);
+      onTabVisibilityChange(localVisibility);
+      toast(landingHidden ? "Settings saved: landing tab reset to first visible" : "Settings saved");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast(`Settings were not saved: ${message}`);
+    } finally {
+      saveInFlightRef.current = false;
+      setIsSaving(false);
+    }
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
+    if (saveInFlightRef.current) return;
     if (!window.confirm("Reset all settings to defaults?")) return;
-    const d = DEFAULT_APP_SETTINGS;
-    setLocalSettings({ ...d });
-    setLocalVisibility({ ...DEFAULT_VISIBILITY });
-    saveAppSettings({ ...d });
-    saveTabVisibility({ ...DEFAULT_VISIBILITY });
-    onSettingsChange({ ...d });
-    onTabVisibilityChange({ ...DEFAULT_VISIBILITY });
+    saveInFlightRef.current = true;
+    setIsSaving(true);
+    const d = { ...DEFAULT_APP_SETTINGS };
     // Persist the reset to the server too, so it survives reopen (the modal re-seeds
     // from GET /api/settings). Admin-only on the server; no-op for consumers.
-    seededRef.current = true; // don't let the in-flight GET re-seed over the reset
-    fetch("/api/settings", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
         general: {
           company_name: d.companyName, app_display_name: d.appDisplayName,
           default_date_range_days: d.defaultDateRangeDays, default_landing_tab: d.defaultLandingTab,
@@ -342,12 +245,38 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
           spike_threshold_percent: d.alertSpikePercent, daily_budget: d.alertDailyBudget,
           workspace_budget: d.alertWorkspaceBudget, anomaly_sensitivity: d.anomalySensitivity,
         },
-        experimental: { exp_setup_wizard_link: d.expSetupWizardLink, exp_debugger_link: d.expDebuggerLink },
-      }),
-      signal: AbortSignal.timeout(10000),
-    }).then(() => rqClient.invalidateQueries({ queryKey: ["unified-settings"] })).catch(() => {});
-    setDirty(false);
-    toast("Settings reset to defaults");
+        experimental: {
+          exp_setup_wizard_link: d.expSetupWizardLink,
+          exp_debugger_link: d.expDebuggerLink,
+          enable_architecture_view: d.enableArchitectureView,
+        },
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const savedSnapshot = await response.json().catch(() => null) as UnifiedSettings | { detail?: string } | null;
+      if (!response.ok) {
+        const detail = savedSnapshot && "detail" in savedSnapshot ? savedSnapshot.detail : null;
+        throw new Error(detail || `Server returned ${response.status}`);
+      }
+
+      seededRef.current = true;
+      rqClient.setQueryData(["unified-settings"], savedSnapshot);
+      persistAppSettings(d);
+      persistTabVisibility(DEFAULT_VISIBILITY);
+      setLocalSettings(d);
+      setLocalVisibility({ ...DEFAULT_VISIBILITY });
+      editingRef.current = false;
+      setDirty(false);
+      onSettingsChange(d);
+      onTabVisibilityChange({ ...DEFAULT_VISIBILITY });
+      toast("Settings reset to defaults");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast(`Settings were not reset: ${message}`);
+    } finally {
+      saveInFlightRef.current = false;
+      setIsSaving(false);
+    }
   };
 
   const navItems: { key: NavKey; label: string; admin?: boolean }[] = [
@@ -435,14 +364,14 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
         {/* Footer */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderTop: `1px solid ${T.borderGroup}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={handleReset} style={{ fontSize: 13, color: T.textSecondary, background: "none", border: "none", cursor: "pointer" }}>Reset to defaults</button>
+            <button onClick={handleReset} disabled={isSaving} style={{ fontSize: 13, color: T.textSecondary, background: "none", border: "none", cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.5 : 1 }}>Reset to defaults</button>
             {dirty && <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: T.warningFg }}><span style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: "#E0A82E" }} />Unsaved changes</span>}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={requestClose} style={{ height: 32, borderRadius: 4, padding: "0 14px", fontSize: 13, fontWeight: 500, color: T.text, backgroundColor: T.surface, border: `1px solid ${T.borderControl}`, cursor: "pointer" }}>Cancel</button>
-            <button onClick={handleSave} disabled={!dirty}
-              style={{ height: 32, borderRadius: 4, padding: "0 14px", fontSize: 13, fontWeight: 500, color: "#FFFFFF", backgroundColor: dirty ? T.primaryFill : "#A9C6DC", cursor: dirty ? "pointer" : "not-allowed", border: "none" }}>
-              Save changes
+            <button onClick={handleSave} disabled={!dirty || isSaving}
+              style={{ height: 32, borderRadius: 4, padding: "0 14px", fontSize: 13, fontWeight: 500, color: "#FFFFFF", backgroundColor: dirty && !isSaving ? T.primaryFill : "#A9C6DC", cursor: dirty && !isSaving ? "pointer" : "not-allowed", border: "none" }}>
+              {isSaving ? "Saving…" : "Save changes"}
             </button>
           </div>
         </div>

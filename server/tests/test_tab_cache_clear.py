@@ -1,0 +1,83 @@
+from unittest.mock import patch
+
+import pytest
+
+from server import db
+from server.routers import health
+
+
+@pytest.mark.asyncio
+async def test_dbu_cache_clear_is_scoped_to_dbu_patterns():
+    with (
+        patch("server.db.clear_query_cache", return_value=1) as clear_query_cache,
+        patch("server.db.delta_cache_invalidate") as delta_cache_invalidate,
+    ):
+        result = await health.clear_cache("dbu")
+
+    assert result["tab"] == "dbu"
+    cleared_patterns = [call.args[0] for call in clear_query_cache.call_args_list]
+    assert "tab:dbu" in cleared_patterns
+    assert "dashboard-bundle-fast" in cleared_patterns
+    assert "sku-breakdown" in cleared_patterns
+    assert "pipeline-objects" in cleared_patterns
+    assert "interactive-breakdown" in cleared_patterns
+    assert "tab:infra" not in cleared_patterns
+    delta_patterns = [call.args[0] for call in delta_cache_invalidate.call_args_list]
+    assert "billing:dashboard-bundle-fast" in delta_patterns
+    assert "billing:sku-breakdown" in delta_patterns
+
+
+@pytest.mark.asyncio
+async def test_infra_cache_clear_covers_all_actual_cost_providers():
+    with (
+        patch("server.db.clear_query_cache", return_value=0) as clear_query_cache,
+        patch("server.db.delta_cache_invalidate"),
+    ):
+        result = await health.clear_cache("infra")
+
+    assert result["tab"] == "infra"
+    patterns = [call.args[0] for call in clear_query_cache.call_args_list]
+    for pattern in ("tab:infra", "aws-actual", "azure-actual", "gcp-actual"):
+        assert pattern in patterns
+
+
+@pytest.mark.asyncio
+async def test_optimizer_cache_clear_resets_router_caches():
+    from server.routers import warehouse_health
+
+    warehouse_health._health_cache = {"available": True}
+    warehouse_health._health_cache_ts = 123
+    warehouse_health._idle_time_cache = {"available": True}
+    warehouse_health._idle_time_cache_ts = 456
+
+    with (
+        patch("server.db.clear_query_cache", return_value=0) as clear_query_cache,
+        patch("server.db.delta_cache_invalidate"),
+    ):
+        result = await health.clear_cache("optimizer")
+
+    assert result["tab"] == "optimizer"
+    assert "tab:optimizer" in [call.args[0] for call in clear_query_cache.call_args_list]
+    assert warehouse_health._health_cache is None
+    assert warehouse_health._health_cache_ts == 0.0
+    assert warehouse_health._idle_time_cache is None
+    assert warehouse_health._idle_time_cache_ts == 0.0
+
+
+def test_delta_l1_invalidation_keeps_unrelated_tabs():
+    db._delta_l1.clear()
+    db._delta_l1_endpoints.clear()
+    db._delta_l1["dbu-key"] = {"tab": "dbu"}
+    db._delta_l1["infra-key"] = {"tab": "infra"}
+    db._delta_l1_endpoints.update({
+        "dbu-key": "billing:dashboard-bundle-fast",
+        "infra-key": "billing:infra-bundle",
+    })
+
+    with (
+        patch.object(db, "get_catalog_schema", return_value=(None, None)),
+    ):
+        db.delta_cache_invalidate("billing:infra-bundle")
+
+    assert "dbu-key" in db._delta_l1
+    assert "infra-key" not in db._delta_l1

@@ -42,6 +42,7 @@ const SAMPLE_DATA = {
   total_jobs: 20,
   total_job_runs: 40,
   successful_runs: 38,
+  successful_runs_available: true,
   total_job_run_hours: 12,
   unique_job_owners: 5,
   active_workspaces: 3,
@@ -59,7 +60,10 @@ const SAMPLE_DATA = {
   end_date: "2026-01-31",
 };
 
-function renderView(tableOverrides: Record<string, boolean | undefined> = {}) {
+function renderView(
+  tableOverrides: Record<string, boolean | undefined> = {},
+  data = SAMPLE_DATA,
+) {
   vi.mocked(useFeatureAvailability).mockReturnValue({
     warehouseGranted: true,
     tableGranted: makeTableGranted(tableOverrides),
@@ -70,7 +74,7 @@ function renderView(tableOverrides: Record<string, boolean | undefined> = {}) {
   return render(
     <QueryClientProvider client={client}>
       <PlatformKPIsView
-        data={SAMPLE_DATA}
+        data={data}
         isLoading={false}
         spendAnomalies={undefined}
         anomaliesLoading={false}
@@ -148,5 +152,29 @@ describe("PlatformKPIsView: denied dependency renders unavailable, not 0", () =>
 
     expect(screen.queryAllByText(/grant required/i)).toHaveLength(0);
     expect(screen.queryAllByText(/Unavailable/i)).toHaveLength(0);
+  });
+});
+
+describe("PlatformKPIsView: successful run result-state availability", () => {
+  beforeEach(() => {
+    vi.mocked(useFeatureAvailability).mockReset();
+  });
+
+  it("shows a true zero with the normal tile when result states are available", () => {
+    renderView({}, { ...SAMPLE_DATA, successful_runs: 0, successful_runs_available: true });
+
+    const title = screen.getByText("Successful Runs");
+    const card = title.closest(".co-kpi-card");
+    expect(card).toHaveTextContent("0");
+    expect(card).toHaveTextContent("0.0% success rate");
+    expect(card?.querySelector(".bg-orange-100")).not.toBeNull();
+    expect(card?.querySelector(".text-lava")).not.toBeNull();
+  });
+
+  it("omits the card when result-state data is unavailable", () => {
+    renderView({}, { ...SAMPLE_DATA, successful_runs: 0, successful_runs_available: false });
+
+    expect(screen.queryByText("Successful Runs")).not.toBeInTheDocument();
+    expect(screen.queryByText("Result states unavailable")).not.toBeInTheDocument();
   });
 });

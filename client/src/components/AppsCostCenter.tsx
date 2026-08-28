@@ -392,7 +392,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
   return (
     <div className="animate-fade-in space-y-6">
       <InfoPanel
-        title="About Databricks Apps Costs"
+        title="Apps tab methodology"
         minimized={infoMinimized}
         onToggle={handleMinimizeToggle}
       >

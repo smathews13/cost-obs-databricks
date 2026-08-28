@@ -43,6 +43,10 @@ function useTrendQuery(
         granularity,
       });
       if (workspaceIds?.length) params.set("workspace_ids", workspaceIds.join(","));
+      const ownerTab = queryKeyPrefix === "kpi-trend"
+        ? "dbu"
+        : queryKeyPrefix.split("-")[0];
+      params.set("tab", ownerTab);
 
       const response = await fetch(`/api/billing/${endpoint}?${params}`);
 
@@ -62,9 +66,10 @@ export function useKPITrend(
   startDate: string,
   endDate: string,
   granularity: string = "daily",
-  workspaceIds?: string[]
+  workspaceIds?: string[],
+  queryKeyPrefix: string = "kpi-trend",
 ) {
-  return useTrendQuery("kpi-trend", "kpi-trend", kpi, startDate, endDate, granularity, workspaceIds);
+  return useTrendQuery(queryKeyPrefix, "kpi-trend", kpi, startDate, endDate, granularity, workspaceIds);
 }
 
 export function usePlatformKPITrend(
@@ -72,9 +77,10 @@ export function usePlatformKPITrend(
   startDate: string,
   endDate: string,
   granularity: string = "daily",
-  workspaceIds?: string[]
+  workspaceIds?: string[],
+  queryKeyPrefix: string = "platform-kpi-trend",
 ) {
-  return useTrendQuery("platform-kpi-trend", "platform-kpi-trend", kpi, startDate, endDate, granularity, workspaceIds);
+  return useTrendQuery(queryKeyPrefix, "platform-kpi-trend", kpi, startDate, endDate, granularity, workspaceIds);
 }
 
 function useAppsTrendQuery(

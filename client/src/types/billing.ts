@@ -185,6 +185,23 @@ export interface InfraBillingSummary {
   days_in_range?: number;
 }
 
+export type InfraAvailability = "available" | "partial" | "empty" | "unavailable";
+export type InfraErrorKind = "permission" | "metadata" | "query_failure" | null;
+
+export interface InfraMetadataQuality {
+  total_rows: number;
+  priced_rows: number;
+  omitted_rows: number;
+  omitted_dbu_hours: number;
+}
+
+export interface InfraQueryStatus {
+  available: boolean;
+  error: string | null;
+  error_kind: InfraErrorKind;
+  reason: string | null;
+}
+
 export interface InfraCostsResponse {
   cloud: string;
   cloud_display_name: string;
@@ -193,6 +210,13 @@ export interface InfraCostsResponse {
   total_estimated_cost: number;
   total_dbu_hours: number;
   billing_summary?: InfraBillingSummary;
+  available?: boolean;
+  availability?: InfraAvailability;
+  error_kind?: InfraErrorKind;
+  reason?: string | null;
+  reason_detail?: string | null;
+  metadata_quality?: InfraMetadataQuality;
+  query_status?: Record<string, InfraQueryStatus>;
   start_date: string;
   end_date: string;
   disclaimer?: string;
@@ -209,6 +233,12 @@ export interface InfraCostsTimeseriesResponse {
   cloud: string;
   cloud_display_name: string;
   timeseries: InfraCostsTimeseriesPoint[];
+  available?: boolean;
+  availability?: InfraAvailability;
+  error_kind?: InfraErrorKind;
+  reason?: string | null;
+  reason_detail?: string | null;
+  metadata_quality?: InfraMetadataQuality;
   start_date: string;
   end_date: string;
   error?: string;
@@ -254,6 +284,7 @@ export interface PlatformKPIsResponse {
   total_jobs: number;
   total_job_runs: number;
   successful_runs: number;
+  successful_runs_available: boolean;
   total_job_run_hours?: number;
   unique_job_owners: number;
   active_workspaces: number;

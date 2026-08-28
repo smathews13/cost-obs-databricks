@@ -174,8 +174,10 @@ async def get_gcp_status() -> dict[str, Any]:
         available = _gcp_status_cache["available"]
     else:
         try:
-            results = await asyncio.to_thread(execute_query, 
-                CHECK_GCP_TABLE.format(catalog=catalog, schema=schema, table=table)
+            results = await asyncio.to_thread(
+                execute_query,
+                CHECK_GCP_TABLE.format(catalog=catalog, schema=schema, table=table),
+                cache_tag="gcp-actual",
             )
             available = len(results) > 0
         except Exception as e:
@@ -210,9 +212,10 @@ async def get_gcp_actual_summary(
             "end_date": end_date,
         }
 
-    results = await asyncio.to_thread(execute_query, 
+    results = await asyncio.to_thread(execute_query,
         GCP_ACTUAL_SUMMARY.format(catalog=catalog, schema=schema, table=table),
         {"start_date": start_date, "end_date": end_date},
+        cache_tag="gcp-actual",
     )
 
     if not results:
@@ -253,9 +256,10 @@ async def get_gcp_costs_by_service(
     if not status["gcp_available"]:
         return {"available": False, "services": [], "start_date": start_date, "end_date": end_date}
 
-    results = await asyncio.to_thread(execute_query, 
+    results = await asyncio.to_thread(execute_query,
         GCP_COSTS_BY_SERVICE.format(catalog=catalog, schema=schema, table=table),
         {"start_date": start_date, "end_date": end_date},
+        cache_tag="gcp-actual",
     )
 
     total_cost = sum(float(r.get("total_cost") or 0) for r in results)
@@ -291,9 +295,10 @@ async def get_gcp_costs_by_project(
     if not status["gcp_available"]:
         return {"available": False, "projects": [], "start_date": start_date, "end_date": end_date}
 
-    results = await asyncio.to_thread(execute_query, 
+    results = await asyncio.to_thread(execute_query,
         GCP_COSTS_BY_PROJECT.format(catalog=catalog, schema=schema, table=table),
         {"start_date": start_date, "end_date": end_date},
+        cache_tag="gcp-actual",
     )
 
     total_cost = sum(float(r.get("total_cost") or 0) for r in results)
@@ -330,9 +335,10 @@ async def get_gcp_costs_by_sku(
     if not status["gcp_available"]:
         return {"available": False, "skus": [], "start_date": start_date, "end_date": end_date}
 
-    results = await asyncio.to_thread(execute_query, 
+    results = await asyncio.to_thread(execute_query,
         GCP_COSTS_BY_SKU.format(catalog=catalog, schema=schema, table=table),
         {"start_date": start_date, "end_date": end_date},
+        cache_tag="gcp-actual",
     )
 
     total_cost = sum(float(r.get("total_cost") or 0) for r in results)
@@ -368,9 +374,10 @@ async def get_gcp_costs_timeseries(
     if not status["gcp_available"]:
         return {"available": False, "timeseries": [], "services": [], "start_date": start_date, "end_date": end_date}
 
-    results = await asyncio.to_thread(execute_query, 
+    results = await asyncio.to_thread(execute_query,
         GCP_COSTS_TIMESERIES.format(catalog=catalog, schema=schema, table=table),
         {"start_date": start_date, "end_date": end_date},
+        cache_tag="gcp-actual",
     )
 
     data_by_date: dict[str, dict] = {}

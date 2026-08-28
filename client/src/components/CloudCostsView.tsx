@@ -29,6 +29,7 @@ import type {
   InfraBillingSummary,
 } from "@/types/billing";
 import { formatCurrency, workspaceUrl } from "@/utils/formatters";
+import { getCloudInstanceFamily } from "@/utils/cloudCosts";
 import { StatusIndicator } from "./StatusIndicator";
 import { AzureActualView } from "./AzureActualView";
 import { GCPActualView } from "./GCPActualView";
@@ -144,8 +145,10 @@ function getClusterUrl(host: string | null | undefined, clusterId: string | null
   return workspaceUrl(host, `/compute/interactive${workspaceParam}`);
 }
 
-function getInstancePricingUrl(instanceType: string | null, isAzure: boolean = false): string {
-  if (isAzure) {
+type CloudProvider = "AWS" | "AZURE" | "GCP";
+
+function getInstancePricingUrl(instanceType: string | null, cloud: CloudProvider): string {
+  if (cloud === "AZURE") {
     if (!instanceType) return "https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/";
     const seriesMatch = instanceType.match(/^Standard_([A-Z]+)/i);
     const series = seriesMatch ? seriesMatch[1].toUpperCase() : null;
@@ -161,6 +164,9 @@ function getInstancePricingUrl(instanceType: string | null, isAzure: boolean = f
     return series && azureFamilyUrls[series]
       ? azureFamilyUrls[series]
       : "https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/";
+  }
+  if (cloud === "GCP") {
+    return "https://cloud.google.com/compute/vm-instance-pricing";
   }
   if (!instanceType) return "https://aws.amazon.com/ec2/pricing/on-demand/";
   const family = instanceType.split('.')[0];
@@ -270,8 +276,18 @@ export function CloudCostsView({
         setWorkspaceFilterOpen(false);
       }
     };
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setFamilyFilterOpen(false);
+        setWorkspaceFilterOpen(false);
+      }
+    };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("keydown", keyHandler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("keydown", keyHandler);
+    };
   }, [familyFilterOpen, workspaceFilterOpen]);
 
   const queryClient = useQueryClient();
@@ -280,9 +296,10 @@ export function CloudCostsView({
     if (!startDate || !endDate) return;
     for (const kpi of ["infra_cost", "infra_clusters", "infra_dbu_hours", "avg_cost_per_cluster"]) {
       queryClient.prefetchQuery({
-        queryKey: ["kpi-trend", kpi, startDate, endDate, "daily", wsKey],
+        queryKey: ["infra-kpi-trend", kpi, startDate, endDate, "daily", wsKey],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
+          params.set("tab", "infra");
           if (workspaceIds?.length) params.set("workspace_ids", workspaceIds.join(","));
           const res = await fetch(`/api/billing/kpi-trend?${params}`);
           if (!res.ok) throw new Error("prefetch failed");
@@ -314,6 +331,7 @@ export function CloudCostsView({
   const cloudDisplayName = cloud.toUpperCase() === "AZURE" ? "Azure" : cloud.toUpperCase() === "GCP" ? "GCP" : "AWS";
   const isAzure = cloud.toUpperCase() === "AZURE";
   const isGCP = cloud.toUpperCase() === "GCP";
+  const cloudProvider: CloudProvider = isAzure ? "AZURE" : isGCP ? "GCP" : "AWS";
   const daysCount = startDate && endDate
     ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1
     : null;
@@ -416,7 +434,7 @@ export function CloudCostsView({
         {cloudIntegrations.length < 3 && (
           <button
             onClick={() => { setWizardCloud(null); setWizardExpandedStep(null); setViewingIntegration(null); setShowIntegrationWizard(true); }}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+            className="btn-brand inline-flex items-center gap-1.5 px-4 py-1.5 text-sm"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -430,7 +448,7 @@ export function CloudCostsView({
 
   const EstimationInfoBox = data && (
     <InfoPanel
-      title={`Estimated ${cloudDisplayName} Infrastructure Cost: Methodology`}
+      title="Cloud Costs tab methodology"
       minimized={infoMinimized}
       onToggle={handleMinimizeToggle}
     >
@@ -475,7 +493,7 @@ export function CloudCostsView({
               className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
                 costMode === "actual" ? "bg-white text-orange-600 shadow" : "text-gray-500 hover:text-gray-900"
               }`}
-              title={`Configure ${isAzure ? "Azure Cost Management Export" : "AWS CUR"} to enable actual costs`}
+              title={`Configure ${isAzure ? "Azure Cost Management Export" : isGCP ? "GCP Billing Export" : "AWS CUR"} to enable actual costs`}
             >
               Actual Costs
             </button>
@@ -492,13 +510,13 @@ export function CloudCostsView({
             <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            Add cloud billing integrations to see actual costs from {isAzure ? "Azure Cost Management" : "AWS CUR"} alongside your estimates.
+            Add cloud billing integrations to see actual costs from {isAzure ? "Azure Cost Management" : isGCP ? "GCP Billing Export" : "AWS CUR"} alongside your estimates.
           </span>
         </div>
         {cloudIntegrations.length < 3 && (
           <button
             onClick={() => { setWizardCloud(null); setWizardExpandedStep(null); setViewingIntegration(null); setShowIntegrationWizard(true); }}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+            className="btn-brand inline-flex items-center gap-1.5 px-4 py-1.5 text-sm"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -512,22 +530,18 @@ export function CloudCostsView({
         <div className="mt-3 space-y-2">
           <div className="text-xs font-medium uppercase tracking-wider text-gray-500">Additional Cloud Integrations</div>
           {cloudIntegrations.map((integration) => (
-            <div key={integration.id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2.5">
+            <div key={integration.id} className="flex items-center justify-between bg-white px-3 py-2.5" style={{ border: `1px solid ${C.hairline}`, borderRadius: 12 }}>
               <div className="flex items-center gap-2">
-                <span
-                  className="rounded px-1.5 py-0.5 text-xs font-medium"
-                  style={integration.cloud === "azure"
-                    ? { backgroundColor: '#0078D420', color: '#0078D4' }
-                    : { backgroundColor: '#FF990020', color: '#CC7700' }
-                  }
-                >
-                  {integration.label}
-                </span>
+                <img
+                  src={integration.cloud === "azure" ? azureLogo : integration.cloud === "gcp" ? gcpLogo : awsLogo}
+                  alt=""
+                  className="h-5 w-5 object-contain"
+                />
                 <span className="text-sm text-gray-700">{integration.cloud === "azure" ? "Azure Cost Management Export" : integration.cloud === "gcp" ? "GCP Billing Export (BigQuery)" : "AWS CUR 2.0"}</span>
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">Setup in progress</span>
+                <span className="rounded px-2 py-0.5 text-xs font-medium" style={{ background: C.amberTint, color: C.amberInk }}>Setup in progress</span>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => openWizardForExisting(integration)} className="text-xs text-blue-600 hover:text-blue-800">
+                <button onClick={() => openWizardForExisting(integration)} className="rounded px-2 py-1 text-xs font-medium focus-visible:outline-none focus-visible:shadow-(--focus)" style={{ color: C.lava }}>
                   View setup guide
                 </button>
                 <button
@@ -563,15 +577,6 @@ export function CloudCostsView({
       isGCP={isGCP}
     />
   );
-  function getInstanceFamily(instanceType: string | null | undefined): string {
-    if (!instanceType) return 'unknown';
-    if (instanceType.startsWith('Standard_')) {
-      const m = instanceType.match(/^(Standard_[A-Z]+)/);
-      return m ? m[1] : 'unknown';
-    }
-    const dotIdx = instanceType.indexOf('.');
-    return dotIdx > 0 ? instanceType.slice(0, dotIdx) : instanceType;
-  }
   const clusters = data?.clusters ?? EMPTY_CLUSTERS;
   const instanceFamilies = data?.instance_families ?? EMPTY_INSTANCE_FAMILIES;
 
@@ -615,11 +620,11 @@ export function CloudCostsView({
     () => selectedFamilies.size === 0
       ? filteredClusters
       : filteredClusters.filter(c => {
-          const df = getInstanceFamily(c.driver_instance_type);
-          const wf = getInstanceFamily(c.worker_instance_type);
+          const df = getCloudInstanceFamily(c.driver_instance_type, cloud);
+          const wf = getCloudInstanceFamily(c.worker_instance_type, cloud);
           return selectedFamilies.has(df) || selectedFamilies.has(wf);
         }),
-    [filteredClusters, selectedFamilies],
+    [filteredClusters, selectedFamilies, cloud],
   );
 
   const availableTableFamilies = useMemo(() => {
@@ -671,8 +676,8 @@ export function CloudCostsView({
 
   const tableFilteredClusters = familyFilteredClusters.filter(c => {
     if (isTableFamilyFilterActive) {
-      const df = getInstanceFamily(c.driver_instance_type);
-      const wf = getInstanceFamily(c.worker_instance_type);
+      const df = getCloudInstanceFamily(c.driver_instance_type, cloud);
+      const wf = getCloudInstanceFamily(c.worker_instance_type, cloud);
       if (!tableFamily.includes(df) && !tableFamily.includes(wf)) return false;
     }
     if (isTableWorkspaceFilterActive && !tableWorkspace.includes(c.workspace_id || "")) return false;
@@ -719,7 +724,7 @@ export function CloudCostsView({
       for (const family of selectedFamilies) {
         filteredCost += (point[family] as number) || 0;
       }
-      return { ...point, "AWS Cost": filteredCost };
+      return { ...point, "Cloud Cost": filteredCost };
     });
   }, [timeseriesData, selectedFamilies]);
 
@@ -755,14 +760,28 @@ export function CloudCostsView({
       </div>
     );
   }
-  if (data?.error) {
+  if (infraData?.availability === "unavailable" || data?.error) {
+    const errorKind = infraData?.error_kind;
+    const errorTitle =
+      errorKind === "permission"
+        ? "Cloud cost permissions are missing"
+        : errorKind === "metadata"
+          ? "Classic cluster metadata is unavailable"
+          : "Cloud cost data could not be loaded";
     return (
       <div className="space-y-6">
         {ModeToggle}
         {CurSetupBanner}
         <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-          <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Infrastructure Costs</h3>
-          <p className="text-sm text-amber-600">{data.error}</p>
+          <h3 className="text-lg font-semibold" style={{ color: C.ink }}>{errorTitle}</h3>
+          <p className="mt-2 text-sm" style={{ color: C.body }}>
+            {infraData?.reason_detail || "The cluster query failed, so the app cannot confirm zero classic infrastructure usage."}
+          </p>
+          {(infraData?.error || data?.error) && (
+            <p className="mt-3 rounded-lg px-3 py-2 text-xs" style={{ background: C.maroonTint, color: C.maroon }}>
+              {infraData?.error || data?.error}
+            </p>
+          )}
         </div>
         {IntegrationWizard}
       </div>
@@ -794,9 +813,16 @@ export function CloudCostsView({
           </div>
         ) : (
           <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-            <h3 className="text-lg font-semibold text-gray-900">No classic cluster infrastructure to estimate</h3>
+            <h3 className="text-lg font-semibold text-gray-900">
+              {infraData?.reason === "no_usage_for_filter_or_date"
+                ? "No cloud usage matches this selection"
+                : infraData?.reason === "serverless_only"
+                  ? "Only serverless usage was found"
+                  : "No classic cluster infrastructure to estimate"}
+            </h3>
             <p className="mt-2 text-sm text-gray-500">
-              Serverless SQL infrastructure is managed by Databricks and does not expose VM instance types, so this tab cannot estimate its underlying cloud-provider cost.
+              {infraData?.reason_detail ||
+                "No matching classic cluster_id usage was found for the selected workspaces and date range."}
             </p>
           </div>
         )}
@@ -831,6 +857,21 @@ export function CloudCostsView({
       />
       {ModeToggle}
       {CurSetupBanner}
+      {infraData?.availability === "partial" && (
+        <div
+          className="rounded-lg border px-4 py-3"
+          style={{ borderColor: C.amber, backgroundColor: C.amberTint }}
+          role="status"
+        >
+          <p className="text-sm font-semibold" style={{ color: C.amberInk }}>
+            Infrastructure estimate is partial
+          </p>
+          <p className="mt-1 text-sm" style={{ color: C.body }}>
+            {infraData.reason_detail ||
+              "Some classic cluster rows were omitted because instance metadata was unavailable."}
+          </p>
+        </div>
+      )}
 
       <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div
@@ -928,6 +969,7 @@ export function CloudCostsView({
           startDate={startDate}
           endDate={endDate}
           workspaceIds={workspaceIds}
+          queryKeyPrefix="infra-kpi-trend"
         />
       )}
 
@@ -998,7 +1040,7 @@ export function CloudCostsView({
             <ResponsiveContainer width="100%" height={320}>
               <AreaChart data={filteredTimeseriesData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="awsCostGradient" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="cloudCostGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={C.s1} stopOpacity={0.3} />
                     <stop offset="95%" stopColor={C.s1} stopOpacity={0.05} />
                   </linearGradient>
@@ -1010,7 +1052,7 @@ export function CloudCostsView({
                   labelFormatter={(label) => format(parseISO(label as string), "MMM d, yyyy")}
                   contentStyle={{ backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
                 />
-                <Area isAnimationActive={false} type="monotone" dataKey="AWS Cost" stroke={C.s1} strokeWidth={2} fill="url(#awsCostGradient)" />
+                <Area isAnimationActive={false} type="monotone" dataKey="Cloud Cost" stroke={C.s1} strokeWidth={2} fill="url(#cloudCostGradient)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -1077,21 +1119,20 @@ export function CloudCostsView({
             {availableTableWorkspaces.length > 1 && (
               <div className="relative" ref={workspaceFilterRef}>
                 <button
+                  type="button"
                   onClick={() => { setWorkspaceFilterOpen(o => !o); setFamilyFilterOpen(false); setTableWorkspaceSearch(""); }}
-                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isTableWorkspaceFilterActive ? "border-lava text-lava" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}
+                  aria-haspopup="menu"
+                  aria-expanded={workspaceFilterOpen}
+                  className="co-filter flex h-auto items-center gap-1.5 px-3 py-1 text-xs"
+                  style={isTableWorkspaceFilterActive ? { borderColor: C.lava, color: C.lava } : undefined}
                 >
                   {!isTableWorkspaceFilterActive ? "Workspaces" : tableWorkspace.length === 1 ? resolveWsName(tableWorkspace[0]) : `${tableWorkspace.length} Workspaces`}
-                  {isTableWorkspaceFilterActive && (
-                    <button onClick={(e) => { e.stopPropagation(); setTableWorkspace([...availableTableWorkspaces]); setCurrentPage(1); }} className="ml-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200">
-                      <svg className="h-2 w-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                  )}
                   <svg className={`h-3 w-3 transition-transform ${workspaceFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
                 {workspaceFilterOpen && (
-                  <div className="absolute right-0 top-full z-[9999] mt-1 w-72 rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <div role="menu" aria-label="Filter by workspace" className="co-filter-menu absolute right-0 top-full z-[9999] mt-1 w-72">
                     <div className="p-2">
                       <input
                         type="text"
@@ -1103,7 +1144,7 @@ export function CloudCostsView({
                       />
                     </div>
                     <div>
-                      <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
+                      <div className="sticky top-0 flex items-center justify-between bg-white px-3 py-2" style={{ borderBottom: `1px solid ${C.hairline}` }}>
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Workspaces</span>
                         <div className="flex items-center gap-2 text-xs">
                           <button onClick={(e) => { e.stopPropagation(); setTableWorkspace([...availableTableWorkspaces]); setCurrentPage(1); }} className="text-gray-500 hover:text-gray-800">All</button>
@@ -1130,10 +1171,13 @@ export function CloudCostsView({
                               const label = resolveWsName(w);
                               return (
                                 <button
+                                  type="button"
+                                  role="menuitemcheckbox"
+                                  aria-checked={tableWorkspace.includes(w)}
                                   onClick={() => { setTableWorkspace((prev) => prev.includes(w) ? prev.filter(x => x !== w) : [...prev, w]); setCurrentPage(1); }}
-                                  className="flex w-full items-center gap-2 px-3 py-2.5 text-xs hover:bg-gray-50"
+                                  className="flex w-full items-center gap-2 px-3 py-2.5 text-xs hover:bg-(--row-hover) focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_rgba(255,54,33,.35)]"
                                 >
-                                  <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${tableWorkspace.includes(w) ? "border-orange-500 bg-orange-500" : "border-gray-300"}`}>
+                                  <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded border" style={{ borderColor: tableWorkspace.includes(w) ? C.lava : C.hairline, background: tableWorkspace.includes(w) ? C.lava : C.card }}>
                                     {tableWorkspace.includes(w) && <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                                   </div>
                                   <span className="truncate text-gray-700">{label}</span>
@@ -1151,22 +1195,21 @@ export function CloudCostsView({
             {availableTableFamilies.length > 0 && (
               <div className="relative" ref={familyFilterRef}>
                 <button
+                  type="button"
                   onClick={() => { setFamilyFilterOpen(o => !o); setWorkspaceFilterOpen(false); }}
-                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isTableFamilyFilterActive ? "border-lava text-lava" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}
+                  aria-haspopup="menu"
+                  aria-expanded={familyFilterOpen}
+                  className="co-filter flex h-auto items-center gap-1.5 px-3 py-1 text-xs"
+                  style={isTableFamilyFilterActive ? { borderColor: C.lava, color: C.lava } : undefined}
                 >
                   {!isTableFamilyFilterActive ? "Families" : tableFamily.length === 1 ? tableFamily[0] : `${tableFamily.length} Families`}
-                  {isTableFamilyFilterActive && (
-                    <button onClick={(e) => { e.stopPropagation(); setTableFamily([...availableTableFamilies]); setCurrentPage(1); }} className="ml-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200">
-                      <svg className="h-2 w-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                  )}
                   <svg className={`h-3 w-3 transition-transform ${familyFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
                 {familyFilterOpen && (
-                  <div className="absolute right-0 top-full z-[9999] mt-1 min-w-[180px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                    <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
+                  <div role="menu" aria-label="Filter by instance family" className="co-filter-menu absolute right-0 top-full z-[9999] mt-1 max-h-64 min-w-[180px] overflow-y-auto">
+                    <div className="sticky top-0 flex items-center justify-between bg-white px-3 py-2" style={{ borderBottom: `1px solid ${C.hairline}` }}>
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Families</span>
                       <div className="flex items-center gap-2 text-xs">
                         <button onClick={(e) => { e.stopPropagation(); setTableFamily([...availableTableFamilies]); setCurrentPage(1); }} className="text-gray-500 hover:text-gray-800">All</button>
@@ -1176,11 +1219,14 @@ export function CloudCostsView({
                     </div>
                     {availableTableFamilies.map(f => (
                       <button
+                        type="button"
+                        role="menuitemcheckbox"
+                        aria-checked={tableFamily.includes(f)}
                         key={f}
                         onClick={() => { setTableFamily((prev) => prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]); setCurrentPage(1); }}
-                        className="flex w-full items-center gap-2 px-3 py-2.5 text-xs hover:bg-gray-50"
+                        className="flex w-full items-center gap-2 px-3 py-2.5 text-xs hover:bg-(--row-hover) focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_rgba(255,54,33,.35)]"
                       >
-                        <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${tableFamily.includes(f) ? "border-orange-500 bg-orange-500" : "border-gray-300"}`}>
+                        <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded border" style={{ borderColor: tableFamily.includes(f) ? C.lava : C.hairline, background: tableFamily.includes(f) ? C.lava : C.card }}>
                           {tableFamily.includes(f) && <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                         </div>
                         <span className="truncate text-gray-700">{f}</span>
@@ -1225,7 +1271,7 @@ export function CloudCostsView({
                       <div className="invisible absolute right-0 top-6 z-10 w-72 rounded-lg bg-gray-900 p-3 text-xs text-white opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
                         <p className="font-semibold mb-1.5">Cost Estimate Details</p>
                         <ul className="space-y-1 text-gray-200">
-                          <li>• {isAzure ? "Azure VM" : "EC2 instance"} costs only</li>
+                          <li>• {isAzure ? "Azure VM" : isGCP ? "Compute Engine VM" : "EC2 instance"} costs only</li>
                           <li>• Based on on-demand pricing</li>
                           <li>• Assumes avg 2-4 workers per cluster</li>
                           <li>• Excludes storage, network, and platform fees</li>
@@ -1294,7 +1340,7 @@ export function CloudCostsView({
                         {cluster.driver_instance_type && (
                           <div className="group relative inline-flex items-center gap-1">
                             <span className="inline-flex max-w-full truncate rounded bg-blue-50 px-2 py-0.5 text-xs font-mono text-blue-700" title={`D: ${cluster.driver_instance_type}`}>D: {cluster.driver_instance_type}</span>
-                            <a href={getInstancePricingUrl(cluster.driver_instance_type, isAzure)} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-700" title={`View ${isAzure ? "Azure" : "AWS"} pricing for this instance type`}>
+                            <a href={getInstancePricingUrl(cluster.driver_instance_type, cloudProvider)} target="_blank" rel="noopener noreferrer" className="transition-colors" style={{ color: C.lava }} title={`View ${isAzure ? "Azure" : isGCP ? "GCP" : "AWS"} pricing for this instance type`}>
                               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
@@ -1304,7 +1350,7 @@ export function CloudCostsView({
                         {cluster.worker_instance_type && (
                           <div className="group relative inline-flex items-center gap-1">
                             <span className="inline-flex max-w-full truncate rounded bg-green-50 px-2 py-0.5 text-xs font-mono text-green-700" title={`W: ${cluster.worker_instance_type}`}>W: {cluster.worker_instance_type}</span>
-                            <a href={getInstancePricingUrl(cluster.worker_instance_type, isAzure)} target="_blank" rel="noopener noreferrer" className="text-green-500 hover:text-green-700" title={`View ${isAzure ? "Azure" : "AWS"} pricing for this instance type`}>
+                            <a href={getInstancePricingUrl(cluster.worker_instance_type, cloudProvider)} target="_blank" rel="noopener noreferrer" className="transition-colors" style={{ color: C.lava }} title={`View ${isAzure ? "Azure" : isGCP ? "GCP" : "AWS"} pricing for this instance type`}>
                               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>

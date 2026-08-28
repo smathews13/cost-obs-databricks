@@ -29,6 +29,8 @@ interface ExportDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onExport: (sections: ExportSections, format: ExportFormat) => void;
+  enableArchitectureView?: boolean;
+  onExportArchitecture?: () => Promise<void>;
   tabVisibility: TabVisibility;
   dataLoading?: boolean;
 }
@@ -71,7 +73,15 @@ const sectionLabels: Record<keyof ExportSections, { label: string; description: 
   optimize: { label: "Optimize", description: "Warehouse rightsizing and idle-time opportunities" },
 };
 
-export function ExportDialog({ isOpen, onClose, onExport, tabVisibility, dataLoading = false }: ExportDialogProps) {
+export function ExportDialog({
+  isOpen,
+  onClose,
+  onExport,
+  enableArchitectureView = false,
+  onExportArchitecture,
+  tabVisibility,
+  dataLoading = false,
+}: ExportDialogProps) {
   const visibleSections = useMemo(() => {
     const result: ExportSections = {} as ExportSections;
     for (const key of Object.keys(sectionToTab) as Array<keyof ExportSections>) {
@@ -83,16 +93,19 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility, dataLoa
 
   const [sections, setSections] = useState<ExportSections>(visibleSections);
   const [format, setFormat] = useState<ExportFormat>("pdf");
+  const [architectureBusy, setArchitectureBusy] = useState(false);
+  const [architectureError, setArchitectureError] = useState<string | null>(null);
 
   // Escape key handler
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") onClose();
-  }, [onClose]);
+    if (e.key === "Escape" && !architectureBusy) onClose();
+  }, [architectureBusy, onClose]);
 
   // Reset sections when dialog opens to reflect current tab visibility
   useEffect(() => {
     if (isOpen) {
       setSections(visibleSections);
+      setArchitectureError(null);
     }
   }, [isOpen, visibleSections]);
 
@@ -127,17 +140,32 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility, dataLoa
   const selectedCount = visibleKeys.filter((k) => sections[k]).length;
 
   const handleExport = () => {
-    if (dataLoading) return;
+    if (dataLoading || architectureBusy) return;
     onExport(sections, format);
     onClose();
+  };
+
+  const handleArchitectureExport = async () => {
+    if (!onExportArchitecture || architectureBusy) return;
+    setArchitectureBusy(true);
+    setArchitectureError(null);
+    try {
+      await onExportArchitecture();
+      onClose();
+    } catch (error) {
+      console.error("Architecture PDF export failed", error);
+      setArchitectureError("The architecture PDF could not be generated. Please try again.");
+    } finally {
+      setArchitectureBusy(false);
+    }
   };
 
   return createPortal(
     <div
       className="animate-backdrop fixed inset-0 z-50 overflow-y-auto bg-black/40"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => e.target === e.currentTarget && !architectureBusy && onClose()}
     >
-      <div className="flex min-h-full items-center justify-center p-4 sm:p-6" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="flex min-h-full items-center justify-center p-4 sm:p-6" onClick={(e) => e.target === e.currentTarget && !architectureBusy && onClose()}>
         <div
           role="dialog"
           aria-modal="true"
@@ -171,6 +199,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility, dataLoa
               <button
                 type="button"
                 onClick={onClose}
+                disabled={architectureBusy}
                 aria-label="Close export dialog"
                 className="flex h-9 w-9 items-center justify-center transition-colors focus-visible:outline-none focus-visible:shadow-(--focus)"
                 style={{ color: C.white, borderRadius: 8 }}
@@ -183,6 +212,51 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility, dataLoa
               </button>
             </div>
           </div>
+
+          {enableArchitectureView && (
+            <div className="px-6 pt-5" style={{ background: C.oatPage }}>
+              <div
+                className="flex flex-wrap items-center justify-between gap-4 px-4 py-3.5"
+                style={{
+                  background: C.card,
+                  border: `1px solid ${C.navy}`,
+                  borderLeft: `4px solid ${C.lava}`,
+                  borderRadius: 8,
+                }}
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold" style={{ color: C.navy }}>Architecture PDF</span>
+                    <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ color: C.lava, background: C.coralTint }}>
+                      Preview
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs leading-5" style={{ color: C.slate }}>
+                    Download a customer-facing overview of components, data flow, governance, refresh behavior, and source tables.
+                  </p>
+                  {architectureError && (
+                    <p role="alert" className="mt-1 text-xs font-semibold" style={{ color: "#B91C1C" }}>
+                      {architectureError}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleArchitectureExport}
+                  disabled={architectureBusy || !onExportArchitecture}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:shadow-(--focus)"
+                  style={{ background: architectureBusy ? C.slate : C.navy, borderRadius: 8 }}
+                >
+                  {architectureBusy ? <Spinner size="xs" /> : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.293.707l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  )}
+                  {architectureBusy ? "Generating architecture PDF…" : "Download Architecture PDF"}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Format picker */}
           <div className="px-6 pb-4 pt-5" style={{ background: C.oatPage, borderBottom: `1px solid ${C.hairline}` }}>
@@ -296,6 +370,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility, dataLoa
             <button
               type="button"
               onClick={onClose}
+              disabled={architectureBusy}
               className="px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:shadow-(--focus)"
               style={{ color: C.ink, background: C.card, border: `1px solid ${C.hairline}`, borderRadius: 8 }}
             >
@@ -304,7 +379,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility, dataLoa
             <button
               type="button"
               onClick={handleExport}
-              disabled={selectedCount === 0 || dataLoading}
+              disabled={selectedCount === 0 || dataLoading || architectureBusy}
               aria-label={dataLoading ? "Preparing report data" : undefined}
               className="btn-brand inline-flex items-center gap-2 px-4 py-2 text-sm focus-visible:outline-none"
             >

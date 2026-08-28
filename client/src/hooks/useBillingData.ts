@@ -232,7 +232,7 @@ export function useAccountInfo() {
   return { ...fast, data: merged as AccountInfo | undefined };
 }
 
-export function useDefaultDateRange(days: number = 30): DateRange {
+export function getDefaultDateRange(days: number = 30): DateRange {
   return {
     startDate: getDefaultStartDate(days),
     endDate: getDefaultEndDate(),

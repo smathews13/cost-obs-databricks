@@ -65,3 +65,18 @@ it("opens a key-wide drilldown when a Spend by Key row is clicked", async () => 
   expect(fetchMock.mock.calls[0][0]).not.toContain("tag_value=");
   vi.unstubAllGlobals();
 });
+
+it("matches Spend by Tag cell sizing and truncation in Spend by Key", () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <TaggingHub data={DATA} isLoading={false} />
+    </QueryClientProvider>,
+  );
+
+  const card = screen.getByRole("heading", { name: "Spend by Key" }).parentElement?.parentElement;
+  const keyBadge = within(card as HTMLElement).getByText("DataClassification");
+  expect(keyBadge).toHaveClass("inline-block", "max-w-full", "truncate", "px-1.5", "py-0.5");
+  expect(keyBadge.closest("td")).toHaveStyle({ width: "100px", maxWidth: "100px" });
+  expect(keyBadge.closest("tr")?.querySelector(".h-1\\.5.w-10")).not.toBeNull();
+});

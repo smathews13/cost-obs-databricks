@@ -150,9 +150,10 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
     if (!startDate || !endDate) return;
     for (const kpi of PLATFORM_KPI_KEYS.slice(0, 3)) {
       queryClient.prefetchQuery({
-        queryKey: ["platform-kpi-trend", kpi, startDate, endDate, "daily", wsKey],
+        queryKey: ["kpis-platform-kpi-trend", kpi, startDate, endDate, "daily", wsKey],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
+          params.set("tab", "kpis");
           if (workspaceIds?.length) params.set("workspace_ids", workspaceIds.join(","));
           const res = await fetch(`/api/billing/platform-kpi-trend?${params}`);
           if (!res.ok) throw new Error("prefetch failed");
@@ -201,11 +202,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
     );
   }
 
-  // Success rate requires job result state data from system.lakeflow tables
-  // If successful_runs is 0 but we have job runs, it means we don't have the result state data
-  const hasSuccessRateData = data.successful_runs > 0;
-
-  const successRatePct = hasSuccessRateData && data.total_job_runs > 0
+  const successRatePct = data.successful_runs_available && data.total_job_runs > 0
     ? ((data.successful_runs / data.total_job_runs) * 100).toFixed(1)
     : null;
 
@@ -226,7 +223,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
   return (
     <div className="animate-fade-in space-y-6">
       <InfoPanel
-        title="Platform Health and Usage Metrics"
+        title="KPIs & Trends tab methodology"
         minimized={infoMinimized}
         onToggle={handleMinimizeToggle}
       >
@@ -364,19 +361,19 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
             }
           />
 
-          <KPICard
+          {data.successful_runs_available && <KPICard
             title="Successful Runs"
-            value={hasSuccessRateData ? formatNumber(data.successful_runs) : "N/A"}
-            subtitle={successRatePct !== null ? `${successRatePct}% success rate` : "Result states unavailable"}
-            color={hasSuccessRateData ? "bg-orange-100" : "bg-gray-100"}
+            value={formatNumber(data.successful_runs)}
+            subtitle={successRatePct !== null ? `${successRatePct}% success rate` : "No completed job runs"}
+            color="bg-orange-100"
             isLoading={isLoading || isFetching}
-            onClick={startDate && endDate && hasSuccessRateData ? () => handleKPIClick("successful_runs", "Successful Runs") : undefined}
+            onClick={startDate && endDate ? () => handleKPIClick("successful_runs", "Successful Runs") : undefined}
             icon={
-              <svg className={`h-6 w-6 ${hasSuccessRateData ? "text-lava" : "text-gray-500"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             }
-          />
+          />}
 
           <KPICard
             title="Total Compute Resources"
@@ -478,6 +475,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
           startDate={startDate}
           endDate={endDate}
           workspaceIds={workspaceIds}
+          queryKeyPrefix="kpis-platform-kpi-trend"
         />
       )}
     </div>
