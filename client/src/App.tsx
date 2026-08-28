@@ -1058,11 +1058,7 @@ function Dashboard() {
                     : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
                 }`}
               >
-                <svg className="mr-2 -mt-0.5 inline h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M20 4H4L7 8L4 12H20L17 8L20 4Z" opacity="0.9"/>
-                  <path d="M20 8H4L7 12L4 16H20L17 12L20 8Z" opacity="0.7"/>
-                  <path d="M20 12H4L7 16L4 20H20L17 16L20 12Z" opacity="0.5"/>
-                </svg>
+                <span className="mr-2 -mt-0.5 inline-flex h-4 w-4 items-center justify-center font-mono text-base font-bold">$</span>
                 $DBU Spend
               </button>
               )}
