@@ -10,7 +10,6 @@ import { PipelineObjectsTable } from "@/components/PipelineObjectsTable";
 import { DateRangePicker } from "@/components/DateRangePicker";
 import { WorkspaceFilter } from "@/components/WorkspaceFilter";
 import { SourceLabelFilter } from "@/components/SourceLabelFilter";
-import { TopProgressBar } from "@/components/TopProgressBar";
 import { SKUBreakdown } from "@/components/SKUBreakdown";
 import { ExportDialog, type ExportSections, type ExportFormat } from "@/components/ExportDialog";
 import { SettingsDialog, loadTabVisibility, loadAppSettings, type TabVisibility, type AppSettings } from "@/components/SettingsDialog";
@@ -811,7 +810,6 @@ function Dashboard() {
   return (
     <SpNameMapContext.Provider value={spNameMap}>
     <div className="min-h-screen" style={{ backgroundColor: (appSettings.theme === "dark" || (appSettings.theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches)) ? '#1B1F23' : C.oatPage }}>
-      <TopProgressBar />
       {/* Setup incomplete banner: non-dismissable, shown when wizard was closed without finishing */}
       {setupIncomplete && (
         <div className="flex items-center justify-between gap-4 px-4 py-2.5 border-b" style={{ backgroundColor: C.coralTint, borderColor: C.coralBrd }}>
@@ -881,8 +879,9 @@ function Dashboard() {
                     {wsListLoading ? (
                       <div className="flex flex-col leading-none">
                         <span className="text-[9px] font-medium uppercase tracking-wide opacity-50">Workspace</span>
-                        <div className="mt-0.5 flex h-5 w-24 items-center justify-center">
+                        <div className="mt-0.5 flex h-5 items-center gap-1.5 rounded px-2 text-[10px] font-medium text-white/75" style={{ backgroundColor: "rgba(255,255,255,0.09)" }}>
                           <Spinner size="xs" />
+                          <span>Loading</span>
                         </div>
                       </div>
                     ) : wsFilterList.length > 0 ? (

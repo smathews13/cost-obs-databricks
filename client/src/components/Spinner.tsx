@@ -7,7 +7,7 @@ const SIZE_CLASS = {
   xs:  "h-3 w-3 border-[1.5px]",
   sm:  "h-4 w-4 border-2",
   md:  "h-8 w-8 border-[3px]",
-  lg:  "h-12 w-12 border-4",
+  lg:  "h-14 w-14 border-4",
 } as const;
 
 export function Spinner({ size = "md", className = "" }: SpinnerProps) {
@@ -15,7 +15,7 @@ export function Spinner({ size = "md", className = "" }: SpinnerProps) {
     <div
       role="status"
       aria-label="Loading"
-      style={{ borderStyle: "solid", borderColor: "var(--hairline)", borderTopColor: "var(--lava)", animationDuration: "900ms" }}
+      style={{ borderStyle: "solid", borderColor: "var(--coral-brd)", borderTopColor: "var(--lava)", animationDuration: "900ms" }}
       className={`co-arc-spin rounded-full shrink-0 ${SIZE_CLASS[size]}${className ? ` ${className}` : ""}`}
     />
   );
