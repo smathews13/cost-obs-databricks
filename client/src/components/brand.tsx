@@ -149,7 +149,7 @@ export function Chip({ kind = "neutral", children, className }: { kind?: ChipKin
   const t = CHIP[kind];
   return (
     <span
-      className={cn("inline-flex h-6 items-center rounded-[var(--r-chip)] px-2 text-xs font-medium", className)}
+      className={cn("inline-flex h-6 items-center rounded-(--r-chip) px-2 text-xs font-medium", className)}
       style={{ background: t.bg, color: t.fg, border: t.border ? `1px solid ${t.border}` : undefined }}
     >
       {children}

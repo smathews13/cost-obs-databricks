@@ -1039,7 +1039,7 @@ function Dashboard() {
           </div>
           {/* Tab Navigation */}
           <div className="mt-4 overflow-x-auto overflow-y-hidden" style={{ borderBottom: "1px solid var(--hairline)" }}>
-            <nav className="-mb-px flex min-w-max justify-center space-x-7 [&_svg]:h-[15px] [&_svg]:w-[15px]">
+            <nav className="-mb-px flex min-w-max justify-center space-x-7 [&_svg]:h-3.75 [&_svg]:w-3.75">
               {tabVisibility.dbu && (
               <button
                 onClick={() => setActiveTab("dbu")}
