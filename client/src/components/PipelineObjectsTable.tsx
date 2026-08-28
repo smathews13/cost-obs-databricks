@@ -92,10 +92,15 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
     );
   }
 
-  // Nothing to show: hide the table entirely (dynamically) rather than render an
-  // empty "No pipeline objects" card that just takes up space.
   if (!data || data.objects.length === 0) {
-    return null;
+    return (
+      <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+        <h3 className="mb-4 text-lg font-semibold text-gray-900">Jobs and Pipelines</h3>
+        <div className="flex h-32 items-center justify-center text-sm text-gray-500">
+          No jobs or pipelines found for the current filters.
+        </div>
+      </div>
+    );
   }
 
   const searchLower = search.toLowerCase();
@@ -253,6 +258,13 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 bg-white">
+            {paginatedData.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-500">
+                  No jobs or pipelines match the current filters.
+                </td>
+              </tr>
+            )}
             {paginatedData.map((obj, idx) => {
               const url = getObjectUrl(host, obj.object_type, obj.object_id, obj.workspace_id);
 

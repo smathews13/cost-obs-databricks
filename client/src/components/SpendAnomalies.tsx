@@ -280,6 +280,13 @@ export function SpendAnomalies({ data, isLoading }: SpendAnomaliesProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
+              {filteredAnomalies.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-10 text-center text-sm text-gray-500">
+                    No spend anomalies match the current date filter.
+                  </td>
+                </tr>
+              )}
               {filteredAnomalies.map((anomaly, idx) => {
                 const isCostIncrease = anomaly.change_amount > 0;
                 return (

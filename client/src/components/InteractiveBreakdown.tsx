@@ -330,6 +330,13 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200 bg-white">
+            {paginatedData.length === 0 && (
+              <tr>
+                <td colSpan={viewMode === "by-notebook" ? 6 : 5} className="px-4 py-10 text-center text-sm text-gray-500">
+                  No interactive compute rows match the current filters.
+                </td>
+              </tr>
+            )}
             {paginatedData.map((item, idx) => {
               // Get the appropriate URL based on view mode
               const url = viewMode === "by-cluster"

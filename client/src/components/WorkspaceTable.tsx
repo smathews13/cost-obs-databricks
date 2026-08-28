@@ -348,6 +348,13 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
+            {paginatedData.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-10 text-center text-sm text-gray-500">
+                  No workspaces match the current filters.
+                </td>
+              </tr>
+            )}
             {paginatedData.map((ws) => {
               const url = getWorkspaceUrl(host, ws.workspace_id);
 

@@ -1400,7 +1400,7 @@ export function OptimizeMethodologyPanel() {
 }
 
 export function WarehouseRightsizingView({ host }: { host?: string | null }) {
-  const { data: warehouseHealth, isLoading: healthLoading } = useQuery<{
+  const { data: warehouseHealth, isLoading: healthLoading, isError: healthError } = useQuery<{
     available: boolean;
     recommendations: Array<{
       warehouse_id: string;
@@ -1413,7 +1413,11 @@ export function WarehouseRightsizingView({ host }: { host?: string | null }) {
     warehouses_analyzed: number;
   }>({
     queryKey: ["warehouse-health"],
-    queryFn: () => fetch("/api/sql/warehouse-health").then(r => r.json()),
+    queryFn: async () => {
+      const response = await fetch("/api/sql/warehouse-health");
+      if (!response.ok) throw new Error(`Warehouse health request failed with ${response.status}`);
+      return response.json();
+    },
     staleTime: 30 * 60 * 1000,
     retry: false,
   });
@@ -1505,6 +1509,10 @@ export function WarehouseRightsizingView({ host }: { host?: string | null }) {
           <Spinner size="md" />
           <span className="text-sm text-gray-500">Loading rightsizing recommendations…</span>
         </div>
+      ) : healthError ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+          Rightsizing recommendations could not be loaded.
+        </div>
       ) : !warehouseHealth?.available || !warehouseHealth.recommendations.length ? (
         <div className="rounded-lg p-4 text-sm" style={{ background: C.oatPage, color: warehouseHealth?.available === false ? C.slate : C.greenInk }}>
           {warehouseHealth?.available === false
@@ -1547,10 +1555,10 @@ export function WarehouseRightsizingView({ host }: { host?: string | null }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {pageRecs.length === 0 && healthSearch && (
+                  {pageRecs.length === 0 && (
                     <tr>
                       <td colSpan={4} className="px-4 py-8 text-center text-sm text-gray-500">
-                        No warehouses match your search.
+                        No warehouses match the current filters.
                       </td>
                     </tr>
                   )}
@@ -1638,7 +1646,7 @@ export function WarehouseIdleTimeView({
   if (endDate) params.set("end_date", endDate);
   if (workspaceIds && workspaceIds.length > 0) params.set("workspace_ids", workspaceIds.join(","));
 
-  const { data, isLoading } = useQuery<{
+  const { data, isLoading, isError } = useQuery<{
     available: boolean;
     serverless_detected: boolean;
     error?: string;
@@ -1665,8 +1673,11 @@ export function WarehouseIdleTimeView({
     }>;
   }>({
     queryKey: ["warehouse-idle-time", startDate, endDate, workspaceIds?.join(",")],
-    queryFn: () =>
-      fetch(`/api/sql/warehouse-health/idle-time?${params}`).then(r => r.json()),
+    queryFn: async () => {
+      const response = await fetch(`/api/sql/warehouse-health/idle-time?${params}`);
+      if (!response.ok) throw new Error(`Warehouse idle time request failed with ${response.status}`);
+      return response.json();
+    },
     staleTime: 30 * 60 * 1000,
     retry: false,
   });
@@ -1832,6 +1843,10 @@ export function WarehouseIdleTimeView({
           <Spinner size="md" />
           <span className="text-sm text-gray-500">Loading idle-time analysis…</span>
         </div>
+      ) : isError ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+          Idle time analysis could not be loaded.
+        </div>
       ) : !data?.available || !data.warehouses.length ? (
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500">
           {data?.available === false
@@ -1867,10 +1882,10 @@ export function WarehouseIdleTimeView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {pageWarehouses.length === 0 && idleSearch && (
+                  {pageWarehouses.length === 0 && (
                     <tr>
                       <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
-                        No warehouses match your search.
+                        No warehouses match the current filters.
                       </td>
                     </tr>
                   )}

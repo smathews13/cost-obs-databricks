@@ -62,6 +62,7 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
   const workspaceFiltersSeen = useRef<Set<string>>(new Set());
   const [filteredData, setFilteredData] = useState<SKUBreakdownResponse | undefined>(undefined);
   const [filterLoading, setFilterLoading] = useState(false);
+  const [filterError, setFilterError] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [wsSearch, setWsSearch] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -96,22 +97,28 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
   useEffect(() => {
     if (selectedWorkspace === "all") {
       setFilteredData(undefined);
+      setFilterError(false);
       return;
     }
 
     setFilterLoading(true);
+    setFilterError(false);
     const params = new URLSearchParams();
     if (dateRange?.startDate) params.set("start_date", dateRange.startDate);
     if (dateRange?.endDate) params.set("end_date", dateRange.endDate);
     params.set("workspace_id", selectedWorkspace);
 
     fetch(`/api/billing/sku-breakdown?${params}`)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`SKU spend request failed with ${res.status}`);
+        return res.json();
+      })
       .then((json) => {
         setFilteredData(json);
         setFilterLoading(false);
       })
       .catch(() => {
+        setFilterError(true);
         setFilterLoading(false);
       });
   }, [selectedWorkspace, dateRange?.startDate, dateRange?.endDate]);
@@ -236,6 +243,20 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
         <div className="flex h-48 flex-col items-center justify-center gap-3">
           <Spinner size="lg" />
           <p className="text-sm text-gray-500">Loading SKU breakdown...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (filterError) {
+    return (
+      <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900">Spend by SKU</h3>
+          {workspaceSelector}
+        </div>
+        <div className="flex h-48 items-center justify-center text-sm text-amber-700">
+          SKU spend could not be loaded for the selected workspace.
         </div>
       </div>
     );

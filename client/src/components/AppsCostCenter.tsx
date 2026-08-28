@@ -1407,6 +1407,13 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
+                  {paginatedArtifacts.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-10 text-center text-sm text-gray-500">
+                        No connected resources match the current filters.
+                      </td>
+                    </tr>
+                  )}
                   {paginatedArtifacts.map((artifact: AppsConnectedArtifact, idx: number) => {
                     const artifactUrl = hostBase ? (
                       artifact.artifact_type === 'SERVING_ENDPOINT' ? `${hostBase}/ml/endpoints/${artifact.artifact_name}` :

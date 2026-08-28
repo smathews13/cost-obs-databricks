@@ -486,7 +486,7 @@ export function useGCPActualCosts(dateRange?: DateRange, enabled: boolean = true
  * isLoading is true while data is null (pending or first fetch).
  */
 export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
-  return useQuery<DBSQLDashboardBundle | null>({
+  const result = useQuery<DBSQLDashboardBundle | null>({
     queryKey: ["dbsql", "dashboard-bundle", dateRange, workspaceIds?.join(",") ?? null],
     queryFn: () =>
       fetchWithPoll<DBSQLDashboardBundle>(buildUrlWithWs("/api/dbsql/dashboard-bundle", dateRange, workspaceIds)),
@@ -495,6 +495,11 @@ export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[
     refetchInterval: (q) =>
       q.state.data === null || q.state.data?.available === false ? POLL_INTERVAL_MS : false,
   });
+  return {
+    ...result,
+    data: (result.data ?? undefined) as DBSQLDashboardBundle | undefined,
+    isLoading: result.isLoading || result.data === null,
+  };
 }
 
 export function useDBSQLTopQueries(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {

@@ -25,6 +25,9 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
     queryFn: () => fetch("/api/settings/account-prices").then(r => r.json()).catch(() => ({ available: false, prices: [], source: null, count: 0 })),
     staleTime: 5 * 60 * 1000,
   });
+  const filteredPrices = accountPrices?.prices.filter(
+    (price) => !priceSearch || price.sku_name.toLowerCase().includes(priceSearch.toLowerCase()),
+  ) ?? [];
 
   return (
     <div className="space-y-5">
@@ -151,9 +154,14 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 bg-white">
-                      {accountPrices.prices
-                        .filter(p => !priceSearch || p.sku_name.toLowerCase().includes(priceSearch.toLowerCase()))
-                        .map((p, i) => (
+                      {filteredPrices.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-8 text-center text-xs text-gray-500">
+                            No SKU prices match the current filter.
+                          </td>
+                        </tr>
+                      )}
+                      {filteredPrices.map((p, i) => (
                           <tr key={`${p.sku_name}-${p.cloud}-${i}`} className="hover:bg-gray-50">
                             <td className="px-3 py-2 font-mono text-gray-700">{p.sku_name}</td>
                             <td className="px-3 py-2 text-gray-500">{p.cloud}</td>

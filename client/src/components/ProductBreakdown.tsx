@@ -81,6 +81,7 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
   const wsFilterInitialized = useRef(false);
   const [filteredData, setFilteredData] = useState<ProductBreakdownResponse | undefined>(undefined);
   const [filterLoading, setFilterLoading] = useState(false);
+  const [filterError, setFilterError] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [wsSearch, setWsSearch] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -103,24 +104,28 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
   useEffect(() => {
     if (isAll || isEmpty) {
       setFilteredData(undefined);
+      setFilterError(false);
       return;
     }
 
     let cancelled = false;
     setFilterLoading(true);
+    setFilterError(false);
 
-    const fetchOne = (wsId: string) => {
+    const fetchOne = async (wsId: string) => {
       const params = new URLSearchParams();
       if (dateRange?.startDate) params.set("start_date", dateRange.startDate);
       if (dateRange?.endDate) params.set("end_date", dateRange.endDate);
       params.set("workspace_id", wsId);
-      return fetch(`/api/billing/by-product?${params}`).then((r) => r.json());
+      const response = await fetch(`/api/billing/by-product?${params}`);
+      if (!response.ok) throw new Error(`Product spend request failed with ${response.status}`);
+      return response.json();
     };
 
     if (selectedWorkspaces.length === 1) {
       fetchOne(selectedWorkspaces[0])
         .then((json) => { if (!cancelled) { setFilteredData(json); setFilterLoading(false); } })
-        .catch(() => { if (!cancelled) setFilterLoading(false); });
+        .catch(() => { if (!cancelled) { setFilterError(true); setFilterLoading(false); } });
     } else {
       // Merge per-workspace results by product category
       Promise.all(selectedWorkspaces.map(fetchOne))
@@ -151,7 +156,7 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
           } as ProductBreakdownResponse);
           setFilterLoading(false);
         })
-        .catch(() => { if (!cancelled) setFilterLoading(false); });
+        .catch(() => { if (!cancelled) { setFilterError(true); setFilterLoading(false); } });
     }
 
     return () => { cancelled = true; };
@@ -284,6 +289,20 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
         <div className="flex h-48 flex-col items-center justify-center gap-3">
           <Spinner size="lg" />
           <p className="text-sm text-gray-500">Loading product breakdown...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (filterError) {
+    return (
+      <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900">Spend by Product</h3>
+          {workspaceSelector}
+        </div>
+        <div className="flex h-48 items-center justify-center text-sm text-amber-700">
+          Product spend could not be loaded for the selected workspaces.
         </div>
       </div>
     );
