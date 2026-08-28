@@ -8,6 +8,16 @@ import {
   SettingsDialog,
 } from "../SettingsDialog";
 
+it("discards saved settings for the removed Use Cases feature", () => {
+  localStorage.setItem("coc-tab-visibility", JSON.stringify({ "use-cases": true }));
+  localStorage.setItem("coc-app-settings", JSON.stringify({ enableUseCaseTracking: true }));
+
+  expect(loadTabVisibility()).not.toHaveProperty("use-cases");
+  expect(loadAppSettings()).not.toHaveProperty("enableUseCaseTracking");
+
+  localStorage.clear();
+});
+
 it("closes the settings dialog after Save changes is clicked", async () => {
   const onClose = vi.fn();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

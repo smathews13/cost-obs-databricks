@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from server.routers import aiml, apps, aws_actual, azure_actual, gcp_actual, billing, dbsql, debug, health, permissions, settings, setup, tagging, use_cases, user, users_groups, warehouse_health
+from server.routers import aiml, apps, aws_actual, azure_actual, gcp_actual, billing, dbsql, debug, health, permissions, settings, setup, tagging, user, users_groups, warehouse_health
 
 # Configure structured logging
 logging.basicConfig(
@@ -1003,7 +1003,6 @@ app.include_router(aws_actual.router, prefix="/api/aws-actual", tags=["aws-actua
 app.include_router(azure_actual.router, prefix="/api/azure-actual", tags=["azure-actual"])
 app.include_router(gcp_actual.router, prefix="/api/gcp-actual", tags=["gcp-actual"])
 app.include_router(dbsql.router, prefix="/api/dbsql", tags=["dbsql"])
-app.include_router(use_cases.router, prefix="/api/use-cases", tags=["use-cases"])
 app.include_router(permissions.router, prefix="/api/permissions", tags=["permissions"])
 app.include_router(settings.router, prefix="/api/settings", tags=["settings"])
 app.include_router(users_groups.router, prefix="/api/users-groups", tags=["users-groups"])

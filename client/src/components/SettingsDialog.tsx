@@ -22,13 +22,12 @@ export interface TabVisibility {
   sql: boolean;
   apps: boolean;
   tagging: boolean;
-  "use-cases": boolean;
   "users-groups": boolean;
 }
 
 const DEFAULT_VISIBILITY: TabVisibility = {
   dbu: true, infra: true, optimizer: true, kpis: true, aiml: true,
-  sql: true, apps: true, tagging: true, "use-cases": false, "users-groups": true,
+  sql: true, apps: true, tagging: true, "users-groups": true,
 };
 
 const STORAGE_KEY = "coc-tab-visibility";
@@ -36,7 +35,11 @@ const STORAGE_KEY = "coc-tab-visibility";
 export function loadTabVisibility(): TabVisibility {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return { ...DEFAULT_VISIBILITY, ...JSON.parse(stored) };
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      delete parsed["use-cases"];
+      return { ...DEFAULT_VISIBILITY, ...parsed };
+    }
   } catch { /* ignore */ }
   return DEFAULT_VISIBILITY;
 }
@@ -67,7 +70,6 @@ export interface AppSettings {
   alertWorkspaceBudget: number;
   slackWebhookUrl: string;
   enableAppHostingComparison: boolean;
-  enableUseCaseTracking: boolean;
   enableAccuracyChecks: boolean;
   anonymizeUsers: boolean;
 }
@@ -93,7 +95,6 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   alertWorkspaceBudget: 10000,
   slackWebhookUrl: "",
   enableAppHostingComparison: false,
-  enableUseCaseTracking: false,
   enableAccuracyChecks: false,
   anonymizeUsers: false,
 };
@@ -105,6 +106,7 @@ export function loadAppSettings(): AppSettings {
     const stored = localStorage.getItem(APP_SETTINGS_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
+      delete parsed.enableUseCaseTracking;
       const merged = { ...DEFAULT_APP_SETTINGS, ...parsed } as AppSettings;
       // Migrate deprecated boolean toggles into the new selects (only when the new
       // keys are absent, so an explicit new choice always wins).
@@ -211,7 +213,6 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
       density: (g.density as AppSettings["density"]) ?? prev.density,
       theme: (g.theme as AppSettings["theme"]) ?? prev.theme,
       showWorkspaceNames: typeof g.show_workspace_names === "boolean" ? g.show_workspace_names : prev.showWorkspaceNames,
-      enableUseCaseTracking: typeof g.enable_use_case_tracking === "boolean" ? g.enable_use_case_tracking : prev.enableUseCaseTracking,
       enableAccuracyChecks: typeof g.enable_accuracy_checks === "boolean" ? g.enable_accuracy_checks : prev.enableAccuracyChecks,
       alertSpikePercent: num(unified.thresholds?.spike_threshold_percent, prev.alertSpikePercent),
       alertDailyBudget: num(unified.thresholds?.daily_budget, prev.alertDailyBudget),
@@ -295,7 +296,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
         default_date_range_days: settings.defaultDateRangeDays, default_landing_tab: settings.defaultLandingTab,
         auto_refresh_minutes: settings.refreshIntervalMinutes, density: settings.density, theme: settings.theme,
         show_workspace_names: settings.showWorkspaceNames,
-        enable_use_case_tracking: settings.enableUseCaseTracking, enable_accuracy_checks: settings.enableAccuracyChecks,
+        enable_accuracy_checks: settings.enableAccuracyChecks,
       },
       tab_visibility: localVisibility,
       thresholds: {
@@ -336,7 +337,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
           default_date_range_days: d.defaultDateRangeDays, default_landing_tab: d.defaultLandingTab,
           auto_refresh_minutes: d.refreshIntervalMinutes, density: d.density, theme: d.theme,
           show_workspace_names: d.showWorkspaceNames,
-          enable_use_case_tracking: d.enableUseCaseTracking, enable_accuracy_checks: d.enableAccuracyChecks,
+          enable_accuracy_checks: d.enableAccuracyChecks,
         },
         tab_visibility: DEFAULT_VISIBILITY,
         thresholds: {
@@ -428,7 +429,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
               {overlay === "accuracy" && <SettingsAccuracyChecks />}
 
               {!overlay && nav === "general" && <GeneralSection localSettings={localSettings} updateSetting={updateSetting} tabVisibility={localVisibility} caps={caps} />}
-              {!overlay && nav === "tabs" && <DashboardTabsSection localVisibility={localVisibility} toggleTab={toggleTab} enableUseCaseTracking={localSettings.enableUseCaseTracking} />}
+              {!overlay && nav === "tabs" && <DashboardTabsSection localVisibility={localVisibility} toggleTab={toggleTab} />}
               {!overlay && nav === "alerts" && <AlertsSection localSettings={localSettings} updateSetting={updateSetting} caps={caps} />}
               {!overlay && nav === "data" && <DataTablesSection localSettings={localSettings} updateSetting={updateSetting} caps={caps} />}
               {!overlay && nav === "access" && <AccessSection />}

@@ -13,7 +13,7 @@ import {
 export const TAB_LABELS: Record<keyof TabVisibility, string> = {
   dbu: "DBU Overview", sql: "SQL", aiml: "AI/ML", apps: "Apps", tagging: "Tagging",
   "users-groups": "Users", kpis: "Platform KPIs & Trends", infra: "Cloud Costs",
-  optimizer: "Optimize", "use-cases": "Use Cases",
+  optimizer: "Optimize",
 };
 const TAB_ORDER: (keyof TabVisibility)[] = ["dbu", "sql", "aiml", "apps", "tagging", "users-groups", "kpis", "infra", "optimizer"];
 
@@ -114,11 +114,11 @@ export function GeneralSection({ localSettings, updateSetting, tabVisibility, ca
 }
 
 // ── Dashboard tabs ────────────────────────────────────────────────────────────
-export function DashboardTabsSection({ localVisibility, toggleTab, enableUseCaseTracking }: {
-  localVisibility: TabVisibility; toggleTab: (k: keyof TabVisibility) => void; enableUseCaseTracking?: boolean;
+export function DashboardTabsSection({ localVisibility, toggleTab }: {
+  localVisibility: TabVisibility; toggleTab: (k: keyof TabVisibility) => void;
 }) {
   const toast = useToast();
-  const keys = [...TAB_ORDER, ...(enableUseCaseTracking ? (["use-cases"] as (keyof TabVisibility)[]) : [])];
+  const keys = TAB_ORDER;
   const visibleCount = keys.filter((k) => localVisibility[k]).length;
   return (
     <div>

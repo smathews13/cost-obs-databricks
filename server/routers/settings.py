@@ -2173,7 +2173,7 @@ async def get_account_price_multiplier() -> dict[str, Any]:
 
 _DEFAULT_TAB_VISIBILITY: dict = {
     "dbu": True, "infra": True, "optimizer": True, "kpis": True, "aiml": True,
-    "sql": True, "apps": True, "tagging": True, "use-cases": False, "users-groups": True,
+    "sql": True, "apps": True, "tagging": True, "users-groups": True,
 }
 
 _APP_SETTINGS_DEFAULTS: dict = {
@@ -2188,7 +2188,6 @@ _APP_SETTINGS_DEFAULTS: dict = {
     "anomaly_sensitivity": "medium",
     "exp_setup_wizard_link": False,
     "exp_debugger_link": False,
-    "enable_use_case_tracking": False,
     "enable_accuracy_checks": False,
     "tab_visibility": _DEFAULT_TAB_VISIBILITY,
 }
@@ -2206,6 +2205,16 @@ def _ensure_app_settings_table() -> None:
     )
 
 
+def _sanitize_app_settings(data: dict) -> dict:
+    """Remove settings for features that are no longer part of the app."""
+    clean = dict(data)
+    clean.pop("enable_use_case_tracking", None)
+    if isinstance(clean.get("tab_visibility"), dict):
+        clean["tab_visibility"] = dict(clean["tab_visibility"])
+        clean["tab_visibility"].pop("use-cases", None)
+    return clean
+
+
 def get_app_settings() -> dict:
     """App-wide prefs — Delta first (survives redeploys), file fallback, then defaults."""
     try:
@@ -2213,7 +2222,7 @@ def get_app_settings() -> dict:
         table = _config_table("app_settings")
         rows = execute_query(f"SELECT settings_json FROM {table} WHERE id = 'app' LIMIT 1", None, no_cache=True)
         if rows and rows[0].get("settings_json"):
-            return {**_APP_SETTINGS_DEFAULTS, **json.loads(rows[0]["settings_json"])}
+            return _sanitize_app_settings({**_APP_SETTINGS_DEFAULTS, **json.loads(rows[0]["settings_json"])})
     except Exception as e:
         if _table_missing(e):
             logger.debug("app_settings table not yet created: %s", e)
@@ -2223,10 +2232,10 @@ def get_app_settings() -> dict:
         if os.path.exists(APP_SETTINGS_FILE):
             with open(APP_SETTINGS_FILE) as f:
                 data = json.load(f)
-            return {**_APP_SETTINGS_DEFAULTS, **data}
+            return _sanitize_app_settings({**_APP_SETTINGS_DEFAULTS, **data})
     except (json.JSONDecodeError, IOError):
         pass
-    return dict(_APP_SETTINGS_DEFAULTS)
+    return _sanitize_app_settings(_APP_SETTINGS_DEFAULTS)
 
 
 def save_app_settings(partial: dict) -> dict:
@@ -2323,7 +2332,7 @@ def _settings_snapshot(request: Request) -> dict:
     general_keys = (
         "company_name", "app_display_name", "default_date_range_days", "default_landing_tab",
         "auto_refresh_minutes", "density", "theme", "show_workspace_names",
-        "enable_use_case_tracking", "enable_accuracy_checks",
+        "enable_accuracy_checks",
     )
     return {
         "general": {k: app.get(k) for k in general_keys},
@@ -2365,7 +2374,7 @@ async def put_unified_settings(request: Request) -> dict:
             for k in (
                 "company_name", "app_display_name", "default_date_range_days", "default_landing_tab",
                 "auto_refresh_minutes", "density", "theme", "show_workspace_names",
-                "enable_use_case_tracking", "enable_accuracy_checks",
+                "enable_accuracy_checks",
             ):
                 if k in general:
                     app_partial[k] = general[k]
