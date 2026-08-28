@@ -93,14 +93,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
   }
 
   if (!data || data.objects.length === 0) {
-    return (
-      <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-        <h3 className="mb-4 text-lg font-semibold text-gray-900">Jobs and Pipelines</h3>
-        <div className="flex h-32 items-center justify-center text-sm text-gray-500">
-          No jobs or pipelines found for the current filters.
-        </div>
-      </div>
-    );
+    return null;
   }
 
   const searchLower = search.toLowerCase();

@@ -606,17 +606,17 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               <div className="relative" data-tag-value-filter-dropdown>
                 <button
                   onClick={() => { setTagValueFilterDropdownOpen(!tagValueFilterDropdownOpen); setTagValueFilterSearch(""); }}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isTagValueFilterActive ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                  className="co-filter inline-flex items-center gap-1.5 px-3"
                 >
                   Value
                   {isTagValueFilterActive && (
-                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: C.lava }}>
+                    <span className="inline-flex items-center justify-center rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-gray-600">
                       {selectedTagValueFilters.length}
                     </span>
                   )}
                 </button>
                 {tagValueFilterDropdownOpen && (
-                  <div className="absolute right-0 top-full z-50 mt-1 w-72 rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <div className="co-filter-menu absolute right-0 top-full z-50 mt-2 w-72">
                     <div className="p-2">
                       <input
                         type="text"
@@ -662,7 +662,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                                       </svg>
                                     )}
                                   </div>
-                                  <span className="rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-medium text-orange-800">{key}</span>
+                                  <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-700">{key}</span>
                                   <span className="truncate text-xs text-gray-600">{value}</span>
                                 </button>
                               );
@@ -683,9 +683,9 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                 const [key, ...rest] = kv.split(":");
                 const value = rest.join(":");
                 return (
-                  <span key={kv} className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium text-white" style={{ backgroundColor: C.lava }}>
+                  <span key={kv} className="inline-flex items-center gap-1 rounded border border-gray-200 bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
                     {key}: {value}
-                    <button onClick={() => handleToggleTagValueFilter(kv)} className="ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full hover:bg-white/20">
+                    <button onClick={() => handleToggleTagValueFilter(kv)} className="ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded hover:bg-gray-200">
                       <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
@@ -719,7 +719,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                     {pagedTags.map((tag, idx) => (
                       <tr key={idx} className="cursor-pointer hover:bg-gray-50" onClick={() => handleTagClick(tag.tag_key, tag.tag_value)}>
                         <td className="whitespace-nowrap px-2 py-2 text-xs font-medium text-gray-900" style={{ width: '100px', maxWidth: '100px' }}>
-                          <span className="rounded bg-orange-100 px-1.5 py-0.5 text-orange-800 truncate inline-block max-w-full" title={tag.tag_key}>{tag.tag_key}</span>
+                          <span className="inline-block max-w-full truncate rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-gray-700" title={tag.tag_key}>{tag.tag_key}</span>
                         </td>
                         <td className="px-2 py-2 text-xs text-gray-500 max-w-28 truncate" title={tag.tag_value}>{tag.tag_value}</td>
                         <td className="whitespace-nowrap px-2 py-2 text-right text-xs font-medium text-gray-900">{formatCurrency(tag.total_spend)}</td>
@@ -763,17 +763,17 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               <div className="relative" data-tag-filter-dropdown>
                 <button
                   onClick={() => { setTagFilterDropdownOpen(!tagFilterDropdownOpen); setTagFilterSearch(""); }}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isTagFilterActive ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                  className="co-filter inline-flex items-center gap-1.5 px-3"
                 >
                   Tag
                   {isTagFilterActive && (
-                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: C.lava }}>
+                    <span className="inline-flex items-center justify-center rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-gray-600">
                       {selectedTagFilters.length}
                     </span>
                   )}
                 </button>
                 {tagFilterDropdownOpen && (
-                  <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <div className="co-filter-menu absolute right-0 top-full z-50 mt-2 w-64">
                     <div className="p-2">
                       <input
                         type="text"
@@ -816,7 +816,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                                     </svg>
                                   )}
                                 </div>
-                                <span className="rounded bg-orange-100 px-1.5 py-0.5 text-xs font-medium text-orange-800">{key}</span>
+                                <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-700">{key}</span>
                               </button>
                             )}
                           />
@@ -832,9 +832,9 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           {isTagFilterActive && (
             <div className="mb-3 flex max-h-24 flex-wrap items-center gap-1.5 overflow-y-auto pr-1">
               {selectedTagFilters.map(key => (
-                <span key={key} className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium text-white" style={{ backgroundColor: C.lava }}>
+                <span key={key} className="inline-flex items-center gap-1 rounded border border-gray-200 bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
                   {key}
-                  <button onClick={() => handleToggleTagFilter(key)} className="ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full hover:bg-white/20">
+                  <button onClick={() => handleToggleTagFilter(key)} className="ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded hover:bg-gray-200">
                     <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
@@ -869,7 +869,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                       return (
                         <tr key={idx} className="hover:bg-gray-50">
                           <td className="whitespace-nowrap px-2 py-2 text-xs font-medium text-gray-900">
-                            <span className="rounded bg-orange-100 px-1.5 py-0.5 text-orange-800" title={entry.tag_key}>{entry.tag_key}</span>
+                            <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-gray-700" title={entry.tag_key}>{entry.tag_key}</span>
                           </td>
                           <td className="whitespace-nowrap px-2 py-2 text-right text-xs font-medium text-gray-900">{formatCurrency(entry.total_spend)}</td>
                           <td className="whitespace-nowrap px-2 py-2 text-right">
@@ -932,7 +932,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           <div className="mx-4 w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className="rounded bg-orange-100 px-2 py-1 text-sm font-medium text-orange-800">{selectedTag.tag_key}</span>
+                <span className="rounded border border-gray-200 bg-gray-100 px-2 py-1 text-sm font-medium text-gray-700">{selectedTag.tag_key}</span>
                 <h3 className="text-lg font-semibold text-gray-900">
                   Top 5 Objects: {selectedTag.tag_value}
                 </h3>

@@ -143,7 +143,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
           className="animate-dialog relative w-full max-w-4xl overflow-hidden"
           style={{
             background: C.card,
-            border: "1px solid var(--dob-border-group, #E0E5EA)",
+            border: "none",
             borderRadius: 8,
             boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
           }}

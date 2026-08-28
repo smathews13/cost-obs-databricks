@@ -1006,7 +1006,7 @@ function Dashboard() {
                 </button>
                 <button
                   onClick={() => setShowSettings(true)}
-                  className="rounded-md p-2 text-white opacity-75 transition-opacity hover:opacity-100 hover:bg-white/10"
+                  className="-ml-1 rounded-md p-2 text-white opacity-75 transition-opacity hover:opacity-100 hover:bg-white/10"
                   title="App Settings"
                 >
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

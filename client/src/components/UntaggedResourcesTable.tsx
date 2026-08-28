@@ -220,25 +220,25 @@ export function UntaggedResourcesTable({
       </div>
 
       {suggestedTags.length > 0 && allItems.length > 0 && (
-        <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2">
+        <div className="mb-3 rounded-lg border px-3 py-2" style={{ background: C.oatMed, borderColor: C.hairline }}>
           <div className="flex items-start gap-2">
-            <svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-orange-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
             </svg>
             <div className="flex-1">
               <button className="flex w-full items-center justify-between" onClick={() => handleSuggestedTagsMinimize(!suggestedTagsMinimized)}>
-                <p className="text-xs font-medium text-orange-800">Suggested Tags for Your Environment</p>
-                <svg className={`h-3.5 w-3.5 text-orange-500 transition-transform ${suggestedTagsMinimized ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <p className="text-xs font-medium text-gray-700">Suggested Tags for Your Environment</p>
+                <svg className={`h-3.5 w-3.5 text-gray-500 transition-transform ${suggestedTagsMinimized ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
               {!suggestedTagsMinimized && (
                 <>
-                  <p className="mt-0.5 text-[11px] text-orange-700">Based on tags already in use across your resources:</p>
+                  <p className="mt-0.5 text-[11px] text-gray-500">Based on tags already in use across your resources:</p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {suggestedTags.map((tag) => (
                       <div key={tag.key} className="group relative">
-                        <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800 cursor-help">
+                        <span className="inline-flex cursor-help items-center rounded border border-gray-200 bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
                           {tag.key}
                         </span>
                         <div className="invisible absolute bottom-full left-0 z-10 mb-2 w-64 rounded-lg bg-gray-900 p-3 text-xs text-white opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
@@ -280,7 +280,7 @@ export function UntaggedResourcesTable({
           <button
             type="button"
             onClick={() => setTabDropdownOpen((o) => !o)}
-            className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${!isAllTypesSelected ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+            className="co-filter flex items-center gap-1.5 px-3"
           >
             {singleTypeSelected
               ? (resourceTabs.find((t) => t.key === singleTypeSelected)?.label ?? "Resources")
@@ -292,7 +292,7 @@ export function UntaggedResourcesTable({
             </svg>
           </button>
           {tabDropdownOpen && (
-            <div className="absolute left-0 top-full z-[9999] mt-1 min-w-[210px] rounded-lg border border-gray-200 bg-white shadow-lg">
+            <div className="co-filter-menu absolute left-0 top-full z-9999 mt-2 min-w-[210px]">
               <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Resource Type</span>
                 <div className="flex items-center gap-2 text-xs">
@@ -315,7 +315,7 @@ export function UntaggedResourcesTable({
                     <span className={selectedResourceTypes.includes(tab.key) ? "font-medium text-gray-900" : "text-gray-700"}>{tab.label}</span>
                   </div>
                   {tab.count > 0 && (
-                    <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                    <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
                       {tab.count >= 1000 ? "1000+" : tab.count}
                     </span>
                   )}
@@ -333,7 +333,7 @@ export function UntaggedResourcesTable({
             placeholder="Search resources..."
             value={searchQuery}
             onChange={(e) => { onSearchChange(e.target.value); onPageChange(1); }}
-            className="w-44 rounded-full border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400 focus:border-lava focus:outline-none focus:ring-1 focus:ring-lava"
+            className="co-filter w-44 py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400"
           />
           {searchQuery && (
             <button onClick={() => { onSearchChange(""); onPageChange(1); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-600">
@@ -419,11 +419,11 @@ export function UntaggedResourcesTable({
                       <td key={col.key} className="px-6 py-4 text-sm text-gray-600">
                         {colVal ? (
                           col.key === "_type" ? (
-                            <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                            <span className="inline-flex rounded border border-gray-200 bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
                               {TYPE_LABELS[colVal] || colVal}
                             </span>
                           ) : col.key === "owner" ? (
-                            <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 max-w-40 truncate" title={colVal}>
+                            <span className="inline-flex max-w-40 truncate rounded border border-gray-200 bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700" title={colVal}>
                               {formatIdentity(colVal, spNameMap)}
                             </span>
                           ) : (

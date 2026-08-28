@@ -409,6 +409,14 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
   }
 
   const summary = data.summary;
+  const hasTimeseriesData = (data.timeseries?.timeseries?.length ?? 0) > 0;
+  const hasCategoryData = pieData.length > 0;
+  const hasEndpointData = (data.endpoints?.endpoints ?? []).some(
+    (endpoint) => endpoint.endpoint_name && endpoint.endpoint_name !== "UNKNOWN",
+  );
+  const hasModelData = (data.models?.models?.length ?? 0) > 0;
+  const hasMlClusterData = (data.ml_clusters?.clusters?.length ?? 0) > 0;
+  const hasAgentData = (data.agent_bricks?.agents?.length ?? 0) > 0;
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -542,8 +550,10 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
       )}
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {(hasTimeseriesData || hasCategoryData) && (
+      <div className={`grid grid-cols-1 gap-6 ${hasTimeseriesData && hasCategoryData ? "lg:grid-cols-2" : ""}`}>
         {/* Spend Over Time */}
+        {hasTimeseriesData && (
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">AI/ML Spend Over Time</h3>
           {data.timeseries?.timeseries?.length > 0 ? (
@@ -576,8 +586,10 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
             <div className="flex h-64 items-center justify-center text-gray-500">No timeseries data</div>
           )}
         </div>
+        )}
 
         {/* Category Breakdown Pie Chart */}
+        {hasCategoryData && (
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by AI Spend Category</h3>
           {pieData.length > 0 ? (
@@ -609,11 +621,15 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
             <div className="flex h-64 items-center justify-center text-gray-500">No category data</div>
           )}
         </div>
+        )}
       </div>
+      )}
 
       {/* Top Endpoints & Top Models Side-by-Side */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {(hasEndpointData || hasModelData) && (
+      <div className={`grid grid-cols-1 gap-6 ${hasEndpointData && hasModelData ? "lg:grid-cols-2" : ""}`}>
         {/* Top Endpoints Table */}
+        {hasEndpointData && (
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <div className="mb-4 flex items-center gap-2">
             <h3 className="text-lg font-semibold text-gray-900">Top Model Serving Endpoints</h3>
@@ -793,8 +809,10 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
             <div className="flex h-32 items-center justify-center text-gray-500">No endpoint data available</div>
           )}
         </div>
+        )}
 
         {/* Top Models Table */}
+        {hasModelData && (
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           {(() => {
             const TYPE_LABELS: Record<string, string> = { "Foundation Model API": "FMAPI Call" };
@@ -924,9 +942,12 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
       );
     })()}
         </div>
+        )}
       </div>
+      )}
 
       {/* ML Runtime Clusters Table */}
+      {hasMlClusterData && (
       <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         {(() => {
           const allMlClusters = data.ml_clusters?.clusters || [];
@@ -1095,8 +1116,10 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
           );
         })()}
       </div>
+      )}
 
       {/* Agent Bricks Table */}
+      {hasAgentData && (
       <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         {(() => {
           const allAgents = data.agent_bricks?.agents || [];
@@ -1342,6 +1365,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
           );
         })()}
       </div>
+      )}
     </div>
   );
 }
