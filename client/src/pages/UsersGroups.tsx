@@ -53,16 +53,14 @@ function formatNumber(n: number) {
 
 // ── User Detail Modal ─────────────────────────────────────────────────────────
 
-function UserDetailModal({ user, onClose }: { user: UserSpend; onClose: () => void }) {
-  const spNameMap = useSpNameMap();
-
+function UserDetailModal({ user, displayName, onClose }: { user: UserSpend; displayName: string; onClose: () => void }) {
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-gray-900 text-sm truncate max-w-75">{formatIdentity(user.user_email, spNameMap)}</h3>
+              <h3 className="font-semibold text-gray-900 text-sm truncate max-w-75">{displayName}</h3>
             </div>
             <p className="text-xs text-gray-500 mt-0.5">{user.active_days} active days · {user.workspace_count} workspace{user.workspace_count !== 1 ? "s" : ""}</p>
           </div>
@@ -123,8 +121,7 @@ function UserDetailModal({ user, onClose }: { user: UserSpend; onClose: () => vo
 
 // ── Product Drill-down ────────────────────────────────────────────────────────
 
-function ProductDrilldown({ topUsers }: { topUsers: UserSpend[] }) {
-  const spNameMap = useSpNameMap();
+function ProductDrilldown({ topUsers, displayIdentity }: { topUsers: UserSpend[]; displayIdentity: (email: string) => string }) {
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
 
   const productTotals: Record<string, number> = {};
@@ -178,7 +175,7 @@ function ProductDrilldown({ topUsers }: { topUsers: UserSpend[] }) {
                       <div key={u.email} className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-gray-500 w-3 shrink-0">{i + 1}.</span>
-                          <span className="text-gray-700 truncate">{formatIdentity(u.email, spNameMap)}</span>
+                          <span className="text-gray-700 truncate">{displayIdentity(u.email)}</span>
                         </div>
                         <span className="ml-3 font-medium text-gray-800 shrink-0">{fmt(u.spend)}</span>
                       </div>
@@ -282,7 +279,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
 
   const filtered = topUsers
     .filter(u => {
-      if (searchQuery && !u.user_email.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+      if (searchQuery && !displayUser(u.user_email).toLowerCase().includes(searchQuery.toLowerCase())) return false;
       const isSP = isServicePrincipal(u.user_email);
       const typeKey: "users" | "sps" = isSP ? "sps" : "users";
       if (!typeFilter.includes(typeKey)) return false;
@@ -474,7 +471,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
         </div>
 
         {/* Spend by product */}
-        <ProductDrilldown topUsers={topUsers} />
+        <ProductDrilldown topUsers={topUsers} displayIdentity={displayUser} />
       </div>
       )}
 
@@ -640,7 +637,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2.5">
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white text-xs font-semibold" style={{ backgroundColor: seriesColor(globalIdx) }}>
-                          {sp ? <Bot className="h-4 w-4" aria-label="Service principal" /> : (anonymizeUsers ? (globalIdx + 1).toString() : u.user_email.charAt(0).toUpperCase())}
+                          {sp ? <Bot className="h-4 w-4" aria-label="Service principal" /> : (anonMap.get(u.user_email)?.replace("User ", "") ?? u.user_email.charAt(0).toUpperCase())}
                         </div>
                         <div className="min-w-0">
                           <span className="text-gray-800 font-medium truncate max-w-55 block">{displayUser(u.user_email)}</span>
@@ -709,7 +706,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
       )}
 
       {selectedUser && (
-        <UserDetailModal user={selectedUser} onClose={() => setSelectedUser(null)} />
+        <UserDetailModal user={selectedUser} displayName={displayUser(selectedUser.user_email)} onClose={() => setSelectedUser(null)} />
       )}
       </>}
     </div>
