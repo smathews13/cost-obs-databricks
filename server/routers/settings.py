@@ -2188,7 +2188,7 @@ _APP_SETTINGS_DEFAULTS: dict = {
     "anomaly_sensitivity": "medium",
     "exp_setup_wizard_link": False,
     "exp_debugger_link": False,
-    "enable_accuracy_checks": False,
+    "anonymize_users": False,
     "tab_visibility": _DEFAULT_TAB_VISIBILITY,
 }
 
@@ -2209,6 +2209,7 @@ def _sanitize_app_settings(data: dict) -> dict:
     """Remove settings for features that are no longer part of the app."""
     clean = dict(data)
     clean.pop("enable_use_case_tracking", None)
+    clean.pop("enable_accuracy_checks", None)
     if isinstance(clean.get("tab_visibility"), dict):
         clean["tab_visibility"] = dict(clean["tab_visibility"])
         clean["tab_visibility"].pop("use-cases", None)
@@ -2332,7 +2333,7 @@ def _settings_snapshot(request: Request) -> dict:
     general_keys = (
         "company_name", "app_display_name", "default_date_range_days", "default_landing_tab",
         "auto_refresh_minutes", "density", "theme", "show_workspace_names",
-        "enable_accuracy_checks",
+        "anonymize_users",
     )
     return {
         "general": {k: app.get(k) for k in general_keys},
@@ -2374,7 +2375,7 @@ async def put_unified_settings(request: Request) -> dict:
             for k in (
                 "company_name", "app_display_name", "default_date_range_days", "default_landing_tab",
                 "auto_refresh_minutes", "density", "theme", "show_workspace_names",
-                "enable_accuracy_checks",
+                "anonymize_users",
             ):
                 if k in general:
                     app_partial[k] = general[k]

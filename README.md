@@ -52,9 +52,6 @@ Built on FastAPI + React, deployed as a [Databricks App](https://docs.databricks
 - **WCAG AA contrast.** All non-placeholder `text-gray-400` usages promoted to `text-gray-500`.
 - **Palette drift cleanup.** `sky-*`, `teal-*`, and `emerald-*` classes replaced with `blue-*` / `cyan-*` / `green-*` to align with the Databricks brand palette.
 
-**Removed**
-- **Forecasting view** — internal-only scaffolding, was never customer-facing. `ForecastingView.tsx` is excluded from the public mirror.
-
 ### Upgrading from 1.0
 
 Nothing to do. Redeploy the app from the `v1.0` mirror on Databricks Apps → **Deploy**. The two new materialized views (`daily_apps_summary`, `daily_tag_summary`) auto-build on first startup when the app detects data older than 26 hours; the raw-scan fallbacks keep the Apps and Tagging tabs working the whole time. No back-fill, no manual SQL, no config change.

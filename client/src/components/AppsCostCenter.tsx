@@ -28,7 +28,6 @@ interface AppsCostCenterProps {
   startDate?: string;
   endDate?: string;
   dateRange?: DateRange;
-  enableHostingComparison?: boolean;
   workspaceIds?: string[];
   workspaceNameMap?: Record<string, string>;
 }
@@ -53,246 +52,6 @@ const formatNumber = (value: number) =>
     maximumFractionDigits: 0,
   }).format(value);
 
-// ── App Hosting Cost Comparison (Experimental) ────────────────────────────
-// TCO data from Databricks Apps vs DIY Infrastructure battlecard.
-// Hidden costs that DIY cloud deployments incur per-app, annualized.
-
-interface InfraCostLine {
-  label: string;
-  lowPerApp: number;   // low estimate per app per year
-  highPerApp: number;  // high estimate per app per year
-  description: string;
-  oneTime?: boolean;   // true = amortised over Year 1 only
-}
-
-const DIY_INFRA_COSTS: InfraCostLine[] = [
-  { label: "Compute (EC2 m5.large equivalent)", lowPerApp: 840, highPerApp: 840, description: "On-demand EC2 m5.large, 24×7 ($0.096/hr)" },
-  { label: "Load Balancer (ALB)", lowPerApp: 200, highPerApp: 400, description: "Application Load Balancer + data processing fees" },
-  { label: "NAT Gateway", lowPerApp: 200, highPerApp: 400, description: "NAT gateway for outbound traffic in private subnets" },
-  { label: "DevOps & CI/CD Setup", lowPerApp: 8000, highPerApp: 15000, description: "Container orchestration, pipelines, IaC (Year 1)", oneTime: true },
-  { label: "Ongoing Maintenance", lowPerApp: 12000, highPerApp: 25000, description: "Patching, upgrades, on-call, incident response" },
-  { label: "Security & Compliance", lowPerApp: 5000, highPerApp: 10000, description: "WAF, secrets management, vulnerability scanning (Year 1)", oneTime: true },
-  { label: "Observability Stack", lowPerApp: 2500, highPerApp: 5000, description: "APM, logging, dashboards, alerting" },
-  { label: "Databricks Data Access Layer", lowPerApp: 7000, highPerApp: 15000, description: "VPN/peering, auth integration for data access (Year 1)", oneTime: true },
-];
-
-function AppHostingComparison({
-  appSpend,
-  daysInRange,
-  appName,
-}: {
-  appSpend: number;
-  daysInRange: number;
-  appName: string;
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  // Annualize this single app's spend from the selected range
-  const annualDatabricksSpend = daysInRange > 0 ? (appSpend / daysInRange) * 365 : appSpend * 12;
-
-  // DIY cost estimates for 1 app (Year 1: includes one-time costs)
-  const diyLow = DIY_INFRA_COSTS.reduce((sum, c) => sum + c.lowPerApp, 0);
-  const diyHigh = DIY_INFRA_COSTS.reduce((sum, c) => sum + c.highPerApp, 0);
-  const diyMid = (diyLow + diyHigh) / 2;
-
-  // Savings
-  const savingsLow = diyLow - annualDatabricksSpend;
-  const savingsHigh = diyHigh - annualDatabricksSpend;
-  const savingsPercent = diyMid > 0 ? ((diyMid - annualDatabricksSpend) / diyMid) * 100 : 0;
-
-  // Bar widths relative to diyHigh
-  const maxVal = Math.max(diyHigh, annualDatabricksSpend);
-  const databricksBarPct = maxVal > 0 ? (annualDatabricksSpend / maxVal) * 100 : 0;
-  const diyLowBarPct = maxVal > 0 ? (diyLow / maxVal) * 100 : 0;
-  const diyHighBarPct = maxVal > 0 ? (diyHigh / maxVal) * 100 : 0;
-
-  return (
-    <div className="rounded-lg border-2 border-dashed border-amber-300 bg-amber-50/50 p-6">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100">
-            <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
-            </svg>
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold text-gray-900">App Hosting Cost Comparison</h3>
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                </svg>
-                Experimental
-              </span>
-            </div>
-            <p className="text-sm text-gray-500">
-              What would it cost to self-host <strong>{appName}</strong>?
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Visual comparison bars */}
-      <div className="mt-5 space-y-3">
-        {/* Databricks Apps bar */}
-        <div>
-          <div className="mb-1 flex items-center justify-between text-sm">
-            <span className="font-medium text-gray-700">Databricks Apps (Actual)</span>
-            <span className="font-semibold text-gray-900">{formatCurrency(annualDatabricksSpend)}<span className="text-xs font-normal text-gray-500">/yr</span></span>
-          </div>
-          <div className="h-8 w-full rounded-md bg-gray-100 overflow-hidden">
-            <div
-              className="flex h-full items-center rounded-md px-3 transition-all duration-500"
-              style={{ width: `${Math.max(databricksBarPct, 5)}%`, backgroundColor: C.lava }}
-            >
-              <span className="text-xs font-medium text-white whitespace-nowrap">
-                All-inclusive
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* DIY bar (range) */}
-        <div>
-          <div className="mb-1 flex items-center justify-between text-sm">
-            <span className="font-medium text-gray-700">Self-Hosted DIY (Estimated)</span>
-            <span className="font-semibold text-gray-900">{formatCurrency(diyLow)} to {formatCurrency(diyHigh)}<span className="text-xs font-normal text-gray-500">/yr</span></span>
-          </div>
-          <div className="relative h-8 w-full rounded-md bg-gray-100 overflow-hidden">
-            {/* Low end */}
-            <div
-              className="absolute inset-y-0 left-0 rounded-md bg-gray-400 opacity-50"
-              style={{ width: `${Math.max(diyHighBarPct, 5)}%` }}
-            />
-            <div
-              className="absolute inset-y-0 left-0 flex items-center rounded-md bg-gray-500 px-3"
-              style={{ width: `${Math.max(diyLowBarPct, 5)}%` }}
-            >
-              <span className="text-xs font-medium text-white whitespace-nowrap">
-                Compute + infra + people
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Savings callout */}
-      {savingsLow > 0 && (
-        <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <svg className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p className="text-sm font-medium text-green-800">
-              Estimated savings: {formatCurrency(savingsLow)} to {formatCurrency(savingsHigh)}/yr ({savingsPercent.toFixed(0)}% lower TCO with Databricks Apps)
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Expand / collapse detail */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="mt-4 flex items-center gap-1 text-sm font-medium text-amber-700 hover:text-amber-900"
-      >
-        {expanded ? "Hide" : "Show"} cost breakdown
-        <svg className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {expanded && (
-        <div className="mt-3 animate-fade-in">
-          {/* Infrastructure cost breakdown table */}
-          <div className="overflow-hidden rounded-lg border border-gray-200">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">Infrastructure Component</th>
-                  <th className="px-4 py-2 text-right font-medium text-gray-600">Est. Cost/yr</th>
-                  <th className="px-4 py-2 text-left font-medium text-gray-600">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 bg-white">
-                {DIY_INFRA_COSTS.map((cost) => (
-                  <tr key={cost.label} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 text-gray-800">
-                      {cost.label}
-                      {cost.oneTime && (
-                        <span className="ml-1.5 inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 border border-blue-200">
-                          Year 1
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-right font-medium text-gray-900">
-                      {formatCurrency(cost.lowPerApp)}{cost.lowPerApp !== cost.highPerApp ? ` to ${formatCurrency(cost.highPerApp)}` : ""}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-gray-500">{cost.description}</td>
-                  </tr>
-                ))}
-                {/* Totals row */}
-                <tr className="bg-gray-50 font-semibold">
-                  <td className="px-4 py-2 text-gray-900">DIY Total (Year 1)</td>
-                  <td className="px-4 py-2 text-right text-gray-900">
-                    {formatCurrency(diyLow)} to {formatCurrency(diyHigh)}
-                  </td>
-                  <td className="px-4 py-2 text-xs text-gray-500">Includes one-time + recurring</td>
-                </tr>
-                {/* Databricks Apps row */}
-                <tr style={{ backgroundColor: C.coralTint }}>
-                  <td className="px-4 py-2 font-semibold" style={{ color: C.lava }}>Databricks Apps (Actual)</td>
-                  <td className="px-4 py-2 text-right font-semibold" style={{ color: C.lava }}>
-                    {formatCurrency(annualDatabricksSpend)}
-                  </td>
-                  <td className="px-4 py-2 text-xs text-gray-500">Compute, infra, security, data access: all included</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* Explanatory note */}
-          <div className="mt-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">What's included in Databricks Apps</h4>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-gray-600">
-              <div className="flex items-center gap-1.5">
-                <svg className="h-3.5 w-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                Managed compute & auto-scaling
-              </div>
-              <div className="flex items-center gap-1.5">
-                <svg className="h-3.5 w-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                Built-in load balancing
-              </div>
-              <div className="flex items-center gap-1.5">
-                <svg className="h-3.5 w-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                Zero DevOps overhead
-              </div>
-              <div className="flex items-center gap-1.5">
-                <svg className="h-3.5 w-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                Native data access (Unity Catalog)
-              </div>
-              <div className="flex items-center gap-1.5">
-                <svg className="h-3.5 w-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                Enterprise security & SSO
-              </div>
-              <div className="flex items-center gap-1.5">
-                <svg className="h-3.5 w-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                Observability & audit logging
-              </div>
-            </div>
-          </div>
-
-          <p className="mt-3 text-[11px] text-gray-500 italic">
-            Estimates based on AWS EC2 (m5.large) on-demand pricing and typical enterprise infrastructure costs.
-            Year 1 includes one-time setup costs for DevOps, security, and data access layers.
-            Actual costs vary by organization size, compliance requirements, and engineering team rates.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function InfoTooltip({ text }: { text: string }) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   return (
@@ -316,7 +75,7 @@ function InfoTooltip({ text }: { text: string }) {
   );
 }
 
-export function AppsCostCenter({ data: initialData, isLoading: initialLoading, host, startDate, endDate, dateRange, enableHostingComparison, workspaceIds, workspaceNameMap }: AppsCostCenterProps) {
+export function AppsCostCenter({ data: initialData, isLoading: initialLoading, host, startDate, endDate, dateRange, workspaceIds, workspaceNameMap }: AppsCostCenterProps) {
   const MINIMIZE_KEY = "cost-obs-minimize-apps-info";
 
   const [infoMinimized, setInfoMinimized] = useState(() => {
@@ -581,7 +340,6 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
       "Apps Spend Over Time",
       "Apps by Spend",
       "Connected Resources",
-      "App Hosting Cost Comparison",
     ]} />;
   }
 
@@ -1116,28 +874,6 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
-
-            {/* Per-app hosting cost comparison: experimental */}
-            {enableHostingComparison && (
-              <div className="mt-4 space-y-3">
-                <div className="flex items-start gap-3 rounded-lg border border-orange-300 bg-orange-50 px-4 py-3">
-                  <svg className="mt-0.5 h-4 w-4 shrink-0 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                  </svg>
-                  <div>
-                    <p className="text-sm font-semibold text-orange-800">Experimental Feature</p>
-                    <p className="mt-0.5 text-xs text-orange-700">
-                      Hosting cost comparisons are estimates based on industry benchmarks and may not reflect actual infrastructure costs.
-                    </p>
-                  </div>
-                </div>
-                <AppHostingComparison
-                  appSpend={selectedApp.total_spend}
-                  daysInRange={summary.days_in_range}
-                  appName={selectedApp.app_name}
-                />
               </div>
             )}
 

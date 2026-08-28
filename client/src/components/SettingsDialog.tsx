@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { SettingsAccuracyChecks, SettingsDebugger } from "./settings";
+import { SettingsDebugger } from "./settings";
 import { READINESS_QUERY_KEY } from "@/hooks/useFeatureAvailability";
 import { SetupWizard } from "./SetupWizard";
 import {
@@ -69,8 +69,6 @@ export interface AppSettings {
   alertDailyBudget: number;
   alertWorkspaceBudget: number;
   slackWebhookUrl: string;
-  enableAppHostingComparison: boolean;
-  enableAccuracyChecks: boolean;
   anonymizeUsers: boolean;
 }
 
@@ -94,8 +92,6 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   alertDailyBudget: 50000,
   alertWorkspaceBudget: 10000,
   slackWebhookUrl: "",
-  enableAppHostingComparison: false,
-  enableAccuracyChecks: false,
   anonymizeUsers: false,
 };
 
@@ -106,8 +102,10 @@ export function loadAppSettings(): AppSettings {
     const stored = localStorage.getItem(APP_SETTINGS_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      delete parsed.enableUseCaseTracking;
-      const merged = { ...DEFAULT_APP_SETTINGS, ...parsed } as AppSettings;
+      const merged = Object.fromEntries(
+        (Object.keys(DEFAULT_APP_SETTINGS) as (keyof AppSettings)[])
+          .map((key) => [key, parsed[key] ?? DEFAULT_APP_SETTINGS[key]]),
+      ) as AppSettings;
       // Migrate deprecated boolean toggles into the new selects (only when the new
       // keys are absent, so an explicit new choice always wins).
       if (parsed.theme === undefined) merged.theme = parsed.darkMode ? "dark" : "light";
@@ -125,7 +123,7 @@ function saveAppSettings(settings: AppSettings) {
 }
 
 type NavKey = "general" | "tabs" | "alerts" | "data" | "access" | "resources" | "experimental";
-type Overlay = "setup" | "debugger" | "accuracy" | null;
+type Overlay = "setup" | "debugger" | null;
 
 export interface SettingsCapabilities {
   smtp_configured: boolean;
@@ -213,7 +211,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
       density: (g.density as AppSettings["density"]) ?? prev.density,
       theme: (g.theme as AppSettings["theme"]) ?? prev.theme,
       showWorkspaceNames: typeof g.show_workspace_names === "boolean" ? g.show_workspace_names : prev.showWorkspaceNames,
-      enableAccuracyChecks: typeof g.enable_accuracy_checks === "boolean" ? g.enable_accuracy_checks : prev.enableAccuracyChecks,
+      anonymizeUsers: typeof g.anonymize_users === "boolean" ? g.anonymize_users : prev.anonymizeUsers,
       alertSpikePercent: num(unified.thresholds?.spike_threshold_percent, prev.alertSpikePercent),
       alertDailyBudget: num(unified.thresholds?.daily_budget, prev.alertDailyBudget),
       alertWorkspaceBudget: num(unified.thresholds?.workspace_budget, prev.alertWorkspaceBudget),
@@ -296,7 +294,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
         default_date_range_days: settings.defaultDateRangeDays, default_landing_tab: settings.defaultLandingTab,
         auto_refresh_minutes: settings.refreshIntervalMinutes, density: settings.density, theme: settings.theme,
         show_workspace_names: settings.showWorkspaceNames,
-        enable_accuracy_checks: settings.enableAccuracyChecks,
+        anonymize_users: settings.anonymizeUsers,
       },
       tab_visibility: localVisibility,
       thresholds: {
@@ -337,7 +335,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
           default_date_range_days: d.defaultDateRangeDays, default_landing_tab: d.defaultLandingTab,
           auto_refresh_minutes: d.refreshIntervalMinutes, density: d.density, theme: d.theme,
           show_workspace_names: d.showWorkspaceNames,
-          enable_accuracy_checks: d.enableAccuracyChecks,
+          anonymize_users: d.anonymizeUsers,
         },
         tab_visibility: DEFAULT_VISIBILITY,
         thresholds: {
@@ -405,9 +403,6 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
               {isAdmin && localSettings.expDebuggerLink && (
                 <button onClick={() => setOverlay("debugger")} style={footerLink(overlay === "debugger")}>Debugger <Badge>Experimental</Badge></button>
               )}
-              {localSettings.enableAccuracyChecks && (
-                <button onClick={() => setOverlay("accuracy")} style={footerLink(overlay === "accuracy")}>Accuracy checks</button>
-              )}
               <div style={{ fontSize: 11, color: T.textFaint, padding: "4px 10px", fontFamily: "DM Mono, ui-monospace, monospace" }}>cost-obs {APP_VERSION}{version ? ` · ${version.slice(0, 7)}` : ""}</div>
             </div>
           </div>
@@ -426,8 +421,6 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
               {overlay === "debugger" && isAdmin && (
                 <SettingsDebugger onGoToConfig={() => { setOverlay(null); setNav("data"); }} />
               )}
-              {overlay === "accuracy" && <SettingsAccuracyChecks />}
-
               {!overlay && nav === "general" && <GeneralSection localSettings={localSettings} updateSetting={updateSetting} tabVisibility={localVisibility} caps={caps} />}
               {!overlay && nav === "tabs" && <DashboardTabsSection localVisibility={localVisibility} toggleTab={toggleTab} />}
               {!overlay && nav === "alerts" && <AlertsSection localSettings={localSettings} updateSetting={updateSetting} caps={caps} />}

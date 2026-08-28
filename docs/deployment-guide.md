@@ -29,7 +29,6 @@ A Pro or Classic warehouse also works, but cold-start times will be longer durin
 |---|---|
 | `system.query.history` access | SQL Warehousing tab — per-query cost attribution |
 | `system.compute.clusters` access | Job & cluster cost breakdown |
-| AI/BI Genie Space | Natural language cost queries in the app |
 | AWS Cost and Usage Reports (CUR 2.0) | Actual AWS infrastructure costs alongside DBU spend |
 
 ---

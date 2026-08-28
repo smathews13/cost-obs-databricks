@@ -42,7 +42,6 @@ const DEGRADED_TABLES = {
 };
 
 const defaultLocalSettings: AppSettings = {
-  genieSpaceId: "",
   warehouseId: "",
   warehouseSource: "auto",
   catalog: "main",

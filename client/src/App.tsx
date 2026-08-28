@@ -48,7 +48,6 @@ const SQLWarehousing360 = lazy(() => lazyWithRetry(() => import("@/components/SQ
 const WarehouseRightsizingView = lazy(() => lazyWithRetry(() => import("@/components/SQLWarehousing360").then(m => ({ default: m.WarehouseRightsizingView }))));
 const WarehouseIdleTimeView = lazy(() => lazyWithRetry(() => import("@/components/SQLWarehousing360").then(m => ({ default: m.WarehouseIdleTimeView }))));
 const OptimizeMethodologyPanel = lazy(() => lazyWithRetry(() => import("@/components/SQLWarehousing360").then(m => ({ default: m.OptimizeMethodologyPanel }))));
-// ForecastingView removed from active app (internal-only; excluded from external mirror)
 const UsersGroups = lazy(() => lazyWithRetry(() => import("@/pages/UsersGroups")));
 
 // Preload all lazy chunks during browser idle time so tab switches are instant.
@@ -1335,7 +1334,6 @@ function Dashboard() {
             startDate={dateRange.startDate}
             endDate={dateRange.endDate}
             dateRange={dateRange}
-            enableHostingComparison={appSettings.enableAppHostingComparison}
             workspaceIds={_wsIds}
             workspaceNameMap={workspaceNameMap}
           />

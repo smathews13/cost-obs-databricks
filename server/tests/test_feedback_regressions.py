@@ -48,9 +48,13 @@ def test_compute_kpi_query_counts_sql_warehouses():
 def test_removed_use_case_settings_are_discarded():
     cleaned = settings._sanitize_app_settings({
         "enable_use_case_tracking": True,
+        "enable_accuracy_checks": True,
+        "anonymize_users": True,
         "tab_visibility": {"dbu": True, "use-cases": True},
     })
 
     assert "enable_use_case_tracking" not in cleaned
+    assert "enable_accuracy_checks" not in cleaned
     assert "use-cases" not in cleaned["tab_visibility"]
     assert cleaned["tab_visibility"]["dbu"] is True
+    assert cleaned["anonymize_users"] is True

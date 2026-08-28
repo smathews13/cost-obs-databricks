@@ -208,6 +208,18 @@ interface Props {
 
 const PAGE_SIZE = 10;
 
+export function buildAnonymizedIdentityMap(users: UserSpend[]): Map<string, string> {
+  const map = new Map<string, string>();
+  let index = 0;
+  [...users].sort((a, b) => b.total_spend - a.total_spend).forEach((user) => {
+    if (!isServicePrincipal(user.user_email)) {
+      map.set(user.user_email, `User ${index + 1}`);
+      index++;
+    }
+  });
+  return map;
+}
+
 export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUsers = false, workspaceIds, workspaceNameMap }: Props) {
   const spNameMap = useSpNameMap();
   const [selectedUser, setSelectedUser] = useState<UserSpend | null>(null);
@@ -264,16 +276,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
   const powerUsersSpend = powerUsers.reduce((acc, u) => acc + (u.total_spend ?? 0), 0);
 
   // Stable anon index map: human users sorted by spend get User 1, User 2, …
-  const anonMap = new Map<string, string>();
-  if (anonymizeUsers) {
-    let idx = 0;
-    [...topUsers].sort((a, b) => b.total_spend - a.total_spend).forEach(u => {
-      if (!isServicePrincipal(u.user_email)) {
-        anonMap.set(u.user_email, `User ${idx + 1}`);
-        idx++;
-      }
-    });
-  }
+  const anonMap = anonymizeUsers ? buildAnonymizedIdentityMap(topUsers) : new Map<string, string>();
   const displayUser = (email: string) =>
     anonymizeUsers && anonMap.has(email) ? anonMap.get(email)! : formatIdentity(email, spNameMap);
 

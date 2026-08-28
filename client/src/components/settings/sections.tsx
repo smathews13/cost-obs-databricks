@@ -234,6 +234,9 @@ export function ExperimentalSection({ localSettings, updateSetting }: CommonProp
         <Row label={<span className="inline-flex items-center gap-2">Debugger link <Badge>Experimental</Badge></span>}
           helper="Show the query debugger (SQL + timing per tile) as a nav-footer link."
           control={<Toggle checked={localSettings.expDebuggerLink} onChange={(v) => updateSetting("expDebuggerLink", v)} />} />
+        <Row label={<span className="inline-flex items-center gap-2">User anonymization <Badge>Preview</Badge></span>}
+          helper="Replace human email addresses with User 1, User 2, and so on. Service principals remain unchanged."
+          control={<Toggle label="User anonymization" checked={localSettings.anonymizeUsers} onChange={(v) => updateSetting("anonymizeUsers", v)} />} />
         <Row label="Clear query cache" helper="Next loads re-query the warehouse."
           control={<SecondaryButton disabled={clearing} onClick={async () => {
             setClearing(true);

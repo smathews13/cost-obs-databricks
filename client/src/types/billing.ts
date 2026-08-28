@@ -294,34 +294,6 @@ export interface DashboardBundleFast {
   is_fast_mode: boolean;
 }
 
-// Genie Chat Types
-export interface GenieConfig {
-  configured: boolean;
-  space_id: string | null;
-  host: string | null;
-}
-
-export interface GenieMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  sql?: string;
-  data?: Record<string, unknown>[];
-  timestamp: Date;
-  status?: "pending" | "completed" | "error";
-  error?: string;
-}
-
-export interface GenieResponse {
-  conversation_id: string;
-  message_id: string;
-  status: string;
-  response: string | null;
-  sql: string | null;
-  data: Record<string, unknown>[] | null;
-  error: string | null;
-}
-
 // AI/ML 360 Types
 export interface AIMLSummary {
   total_dbus: number;
