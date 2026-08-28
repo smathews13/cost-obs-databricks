@@ -1202,13 +1202,8 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
             No apps matching "{searchQuery}"
           </div>
         ) : (
-          // Not user-filter driven: likely still-warming warehouse or a
-          // response we short-cached at 60s. Show the spinner instead of a
-          // definitive "No apps found" so the UI doesn't imply confirmed
-          // empty when we haven't finished loading.
-          <div className="flex h-32 flex-col items-center justify-center gap-3">
-            <Spinner size="lg" className="h-10! w-10!" />
-            <p className="text-sm text-gray-500">Loading apps…</p>
+          <div className="flex h-32 items-center justify-center text-gray-500">
+            No app spend found for the current filters
           </div>
         )}
 

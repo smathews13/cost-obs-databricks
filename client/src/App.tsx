@@ -513,7 +513,7 @@ function Dashboard() {
   const { data: azureActualData, isLoading: azureActualLoading } = useAzureActualCosts(dateRange, warehouseReady);
   const { data: gcpActualData, isLoading: gcpActualLoading } = useGCPActualCosts(dateRange, warehouseReady);
 
-  const { data: dbsqlData, isLoading: dbsqlLoading, isFetching: dbsqlFetching } = useDBSQLQueryCosts(dateRange, _wsIds, warehouseReady);
+  const { data: dbsqlData, isLoading: dbsqlLoading } = useDBSQLQueryCosts(dateRange, _wsIds, warehouseReady);
   const { data: dbsqlTopQueriesData, isLoading: dbsqlTopQueriesLoading } = useDBSQLTopQueries(dateRange, _wsIds, warehouseReady);
   const { data: usersGroupsData } = useUsersGroupsBundle(dateRange, _wsIds, warehouseReady);
 
@@ -701,12 +701,13 @@ function Dashboard() {
       );
       return;
     }
-    handleExportPDF(sections, workspaceFilter);
+    void handleExportPDF(sections, workspaceFilter);
   };
 
-  const handleExportPDF = (sections: ExportSections, workspaceFilter?: { ids: string[]; names?: string[] }) => {
-    generateCostReport(
-      {
+  const handleExportPDF = async (sections: ExportSections, workspaceFilter?: { ids: string[]; names?: string[] }) => {
+    try {
+      await generateCostReport(
+        {
         summary,
         products,
         workspaces,
@@ -750,9 +751,13 @@ function Dashboard() {
           end: dateRange.endDate,
         },
         workspaceFilter,
-      },
-      sections
-    );
+        },
+        sections
+      );
+    } catch (error) {
+      console.error("PDF export failed", error);
+      window.alert("The PDF could not be generated. Please try again.");
+    }
   };
 
   if (showSetupWizard) {
@@ -1352,7 +1357,7 @@ function Dashboard() {
           <SQLWarehousing360
             sqlBreakdownData={sqlBreakdown}
             queryData={dbsqlData ?? undefined}
-            isLoading={sqlLoading || dbsqlLoading || dbsqlFetching || dbsqlData === null}
+            isLoading={sqlLoading || dbsqlLoading || dbsqlData === null}
             topQueriesData={dbsqlTopQueriesData}
             topQueriesLoading={dbsqlTopQueriesLoading}
             host={accountInfo?.host}
