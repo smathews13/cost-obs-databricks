@@ -414,9 +414,21 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
   const hasEndpointData = (data.endpoints?.endpoints ?? []).some(
     (endpoint) => endpoint.endpoint_name && endpoint.endpoint_name !== "UNKNOWN",
   );
-  const hasModelData = (data.models?.models?.length ?? 0) > 0;
-  const hasMlClusterData = (data.ml_clusters?.clusters?.length ?? 0) > 0;
-  const hasAgentData = (data.agent_bricks?.agents?.length ?? 0) > 0;
+  const hasModelData = (data.models?.models ?? []).some(
+    (model) => model.model_name && model.model_name !== "Unknown",
+  );
+  const hasMlClusterData = (data.ml_clusters?.clusters ?? []).some(
+    (cluster) =>
+      cluster.cluster_name &&
+      cluster.cluster_name !== cluster.cluster_id &&
+      cluster.cluster_name !== "Unknown",
+  );
+  const hasAgentData = (data.agent_bricks?.agents ?? []).some(
+    (agent) =>
+      agent.agent_name &&
+      agent.agent_name !== "Unknown" &&
+      agent.agent_name !== agent.endpoint_id,
+  );
 
   return (
     <div className="animate-fade-in space-y-6">

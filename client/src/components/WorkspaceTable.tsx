@@ -117,18 +117,11 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
     );
   }
 
-  if (!data || !data.workspaces?.length) {
-    return (
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
-        <h3 className="mb-4 text-lg font-semibold text-gray-900">
-          Spend by Workspace
-        </h3>
-        <div className="flex h-40 flex-col items-center justify-center gap-2 text-gray-500">
-          <p className="text-base font-medium">No workspace data available</p>
-          <p className="text-sm">Try adjusting the date range or verify workspace billing is enabled</p>
-        </div>
-      </div>
-    );
+  if (!data || !data.workspaces?.some((ws) => {
+    const id = ws.workspace_id;
+    return id != null && !["", "none", "null"].includes(String(id).trim().toLowerCase());
+  })) {
+    return null;
   }
 
   // Drop rows with no real workspace id: a null id stringified upstream renders

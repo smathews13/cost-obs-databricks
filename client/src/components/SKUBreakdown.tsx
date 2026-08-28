@@ -263,18 +263,7 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
   }
 
   if (!displayData || !displayData.skus?.length) {
-    return (
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Spend by SKU</h3>
-          {workspaceSelector}
-        </div>
-        <div className="flex h-80 flex-col items-center justify-center gap-2 text-gray-500">
-          <p className="text-base font-medium">No SKU data available</p>
-          <p className="text-sm">Try expanding the date range</p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (

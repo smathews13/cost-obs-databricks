@@ -101,6 +101,10 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
     if (obj.object_type === "SDP Pipeline") return false;
     return !obj.object_name || obj.object_name === obj.object_id;
   };
+  const currentObjects = data.objects.filter((obj) => !isHistorical(obj));
+  if (currentObjects.length === 0) {
+    return null;
+  }
   const filteredObjects = data.objects.filter(
     (obj) => (filter.length === 0 || filter.includes(obj.object_type as "Job" | "SDP Pipeline")) &&
       (showHistorical || !isHistorical(obj)) &&
@@ -124,7 +128,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
   const endIndex = startIndex + itemsPerPage;
   const paginatedData = sortedObjects.slice(startIndex, endIndex);
 
-  const activeObjects = showHistorical ? data.objects : data.objects.filter((o) => !isHistorical(o));
+  const activeObjects = showHistorical ? data.objects : currentObjects;
   const jobCount = activeObjects.filter((o) => o.object_type === "Job").length;
   const pipelineCount = activeObjects.filter((o) => o.object_type === "SDP Pipeline").length;
   const historicalCount = data.objects.filter((o) => isHistorical(o)).length;

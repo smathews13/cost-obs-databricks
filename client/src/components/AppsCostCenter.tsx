@@ -762,6 +762,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
       )}
 
       {/* App Status Breakdown + Spend Over Time: side by side */}
+      {(pieData.length > 0 || dailyTimeseries.length > 0) && (
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* App Status Breakdown: Pie Chart */}
         {pieData.length > 0 && (
@@ -820,10 +821,10 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
         )}
 
         {/* Spend Over Time: daily */}
+        {dailyTimeseries.length > 0 && (
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Apps Spend Over Time</h3>
-          {dailyTimeseries.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
+          <ResponsiveContainer width="100%" height={250}>
               <AreaChart data={dailyTimeseries} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                 <XAxis
                   dataKey="date"
@@ -857,14 +858,14 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                   strokeWidth={2}
                 />
               </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex h-64 items-center justify-center text-gray-500">No timeseries data</div>
-          )}
+          </ResponsiveContainer>
         </div>
+        )}
       </div>
+      )}
 
       {/* App Grid: each app is a clickable tile */}
+      {appsData.apps.length > 0 && (
       <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="shrink-0 text-lg font-semibold text-gray-900">
@@ -1236,6 +1237,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
           </div>
         )}
       </div>
+      )}
 
       {/* Connected Resources & Artifacts */}
       {data?.connected_artifacts && data.connected_artifacts.length > 0 && (() => {

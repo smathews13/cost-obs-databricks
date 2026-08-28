@@ -475,6 +475,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
       )}
 
       {/* Charts row */}
+      {topUsers.length > 0 && (
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Top users bar chart */}
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
@@ -503,6 +504,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
         {/* Spend by product */}
         <ProductDrilldown topUsers={topUsers} />
       </div>
+      )}
 
       {/* User growth charts: always last 6 months */}
       {data?.user_growth && data.user_growth.length > 1 && (
@@ -545,6 +547,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
       )}
 
       {/* User table */}
+      {topUsers.length > 0 && (
       <div className="rounded-xl border border-gray-200 bg-white ">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-900">User Leaderboard</h2>
@@ -731,6 +734,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
           </div>
         )}
       </div>
+      )}
 
       {selectedUser && (
         <UserDetailModal user={selectedUser} onClose={() => setSelectedUser(null)} />

@@ -343,6 +343,12 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
         fill: seriesColor(idx),
       }));
   }, [filteredTags, selectedTagFilters, tagBreakdownData, isTagFilterActive, isTagValueFilterActive]);
+  const hasCoverageData = coveragePieData.some((entry) => entry.value > 0);
+  const hasTimeseriesData = (data?.timeseries?.timeseries ?? []).some((row) =>
+    Object.entries(row).some(([key, value]) => key !== "date" && typeof value === "number" && value > 0),
+  );
+  const hasTagData = (data?.cost_by_tag?.tags?.length ?? 0) > 0;
+  const hasUntaggedData = Object.values(untaggedCounts).some((count) => count > 0);
 
   const handleToggleTagFilter = useCallback((key: string) => {
     setSelectedTagFilters(prev =>
@@ -517,12 +523,13 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
       )}
 
       {/* Tag Coverage + Tag Coverage Over Time: side by side */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {(hasCoverageData || hasTimeseriesData) && (
+      <div className={`grid grid-cols-1 gap-6 ${hasCoverageData && hasTimeseriesData ? "lg:grid-cols-2" : ""}`}>
         {/* Tag Coverage Pie Chart */}
+        {hasCoverageData && (
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Total Tag Coverage</h3>
-          {coveragePieData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie isAnimationActive={false}
                   data={coveragePieData}
@@ -542,17 +549,15 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                 <Tooltip formatter={(value) => formatCurrency(value as number)} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
               </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex h-64 items-center justify-center text-gray-500">No coverage data</div>
-          )}
+          </ResponsiveContainer>
         </div>
+        )}
 
         {/* Tag Coverage Over Time */}
+        {hasTimeseriesData && (
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Tag Coverage Over Time</h3>
-          {data.timeseries?.timeseries?.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={300}>
               <AreaChart data={data.timeseries.timeseries} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                 <XAxis
                   dataKey="date"
@@ -584,14 +589,14 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                   fillOpacity={0.6}
                 />
               </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex h-64 items-center justify-center text-gray-500">No timeseries data</div>
-          )}
+          </ResponsiveContainer>
         </div>
+        )}
       </div>
+      )}
 
       {/* Spend by Tag + Spend by Key: side by side */}
+      {hasTagData && (
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Spend by Tag Table (left) */}
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
@@ -905,8 +910,10 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           )}
         </div>
       </div>
+      )}
 
       {/* Untagged Resources Table */}
+      {hasUntaggedData && (
       <UntaggedResourcesTable
         data={data}
         host={host}
@@ -925,6 +932,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
         onHistoricalToggle={setShowHistoricalUntagged}
         itemsPerPage={itemsPerPage}
       />
+      )}
 
       {/* Tag Drilldown Modal */}
       {selectedTag && createPortal(

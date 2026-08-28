@@ -608,13 +608,6 @@ export function CloudCostsView({
             </div>
           </div>
         )}
-        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-          <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Infrastructure Costs</h3>
-          <div className="flex h-32 flex-col items-center justify-center gap-2 text-gray-500">
-            <p className="text-base font-medium">No cluster instance data available</p>
-            <p className="text-sm text-center max-w-md">Cluster-level VM cost estimates require classic (non-serverless) compute. This workspace may be using serverless jobs, SQL warehouses, or serverless DLT: which don't expose instance types.</p>
-          </div>
-        </div>
       </div>
     );
   }

@@ -96,15 +96,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
   }
 
   if (!data || data.items.length === 0) {
-    return (
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
-        <h3 className="mb-4 text-lg font-semibold text-gray-900">Interactive Compute Leaderboard</h3>
-        <div className="flex h-32 flex-col items-center justify-center gap-2 text-gray-500">
-          <p className="text-base font-medium">No interactive compute usage found</p>
-          <p className="text-sm">All-purpose cluster activity will appear here when detected</p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   // Aggregate data based on view mode

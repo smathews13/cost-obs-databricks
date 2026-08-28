@@ -57,14 +57,7 @@ export const SpendChart = memo(function SpendChart({ data, isLoading }: SpendCha
   }
 
   if (!data || data.timeseries.length === 0) {
-    return (
-      <CardShell title="Spend Over Time">
-        <div className="flex h-80 flex-col items-center justify-center gap-2" style={{ color: C.slate }}>
-          <p className="text-base font-medium">No spend data available</p>
-          <p className="text-sm">Try adjusting the date range or check that billing data is being collected</p>
-        </div>
-      </CardShell>
-    );
+    return null;
   }
 
   return (

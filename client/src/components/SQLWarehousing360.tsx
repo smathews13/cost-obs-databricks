@@ -455,6 +455,13 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
 
   const summary = queryData.summary;
   const sourceTypes = queryData.timeseries?.source_types || [];
+  const warehouseTypeTimeseries = (queryData as typeof queryData & {
+    warehouse_type_timeseries?: { timeseries?: unknown[]; warehouse_types?: string[] };
+  }).warehouse_type_timeseries;
+  const warehouseRows = queryData.by_warehouse?.warehouses ?? [];
+  const hasWarehouseSizeData = warehouseRows.some(
+    (warehouse) => warehouse.warehouse_size && warehouse.warehouse_size !== "UNKNOWN",
+  );
 
   // Detection logic (queryData.region_scope) is retained server-side and above; the
   // banner itself is suppressed for now. Flip to true to re-enable the UI callout.
@@ -663,12 +670,13 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
           )}
 
           {/* Daily Query Costs + Top Users: side by side */}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {(timeseriesData.length > 0 || userBarData.length > 0) && (
+          <div className={`grid grid-cols-1 gap-6 ${timeseriesData.length > 0 && userBarData.length > 0 ? "lg:grid-cols-2" : ""}`}>
             {/* Timeseries Chart */}
+            {timeseriesData.length > 0 && (
             <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
               <h3 className="mb-4 text-lg font-semibold text-gray-900">Query Spend by Source</h3>
-              {timeseriesData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={300}>
                   <AreaChart data={timeseriesData}>
                     <XAxis dataKey="date" stroke={C.muted} fontSize={12} tickMargin={8} />
                     <YAxis tickFormatter={(v) => formatCurrency(v)} stroke={C.muted} fontSize={12} tickMargin={8} />
@@ -689,22 +697,18 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                       />
                     ))}
                   </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-[300px] items-center justify-center text-gray-500">
-                  No timeseries data available
-                </div>
-              )}
+              </ResponsiveContainer>
             </div>
+            )}
 
             {/* Top Users Bar Chart */}
+            {userBarData.length > 0 && (
             <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-gray-900">Top Users by Query Spend</h3>
                 <span className="text-xs font-medium" style={{ color: C.lava }}>Click a bar to drill down ↓</span>
               </div>
-              {userBarData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={300}>
                   <BarChart
                     data={userBarData}
                     layout="vertical"
@@ -738,30 +742,22 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                       <LabelList dataKey="total_spend" position="right" formatter={USER_BAR_LABEL_FMT} style={USER_BAR_LABEL_STYLE} />
                     </Bar>
                   </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-[300px] items-center justify-center text-gray-500">
-                  No user data available
-                </div>
-              )}
+              </ResponsiveContainer>
             </div>
+            )}
           </div>
+          )}
 
           {/* Warehouse Spend by Type + Warehouse Count by Size: side by side */}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {((warehouseTypeTimeseries?.timeseries?.length ?? 0) > 0 || hasWarehouseSizeData) && (
+          <div className={`grid grid-cols-1 gap-6 ${(warehouseTypeTimeseries?.timeseries?.length ?? 0) > 0 && hasWarehouseSizeData ? "lg:grid-cols-2" : ""}`}>
+          {(warehouseTypeTimeseries?.timeseries?.length ?? 0) > 0 && (
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
               <h3 className="mb-4 text-lg font-semibold text-gray-900">Warehouse Spend by Type</h3>
               {(() => {
-                const whTypeTs = (queryData as any)?.warehouse_type_timeseries;
+                const whTypeTs = warehouseTypeTimeseries;
                 const tsData = whTypeTs?.timeseries || [];
                 const whTypes: string[] = whTypeTs?.warehouse_types || [];
-                if (tsData.length === 0) {
-                  return (
-                    <div className="flex h-[300px] items-center justify-center text-gray-500">
-                      No warehouse type timeseries data available
-                    </div>
-                  );
-                }
                 const typeColors: Record<string, string> = { SERVERLESS: C.s3, PRO: C.s5, CLASSIC: C.s4, Unknown: C.muted };
                 return (
                   <ResponsiveContainer width="100%" height={300}>
@@ -798,8 +794,10 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 );
               })()}
           </div>
+          )}
 
           {/* Warehouse Count by Size */}
+          {hasWarehouseSizeData && (
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline, overflow: 'visible' }}>
               {(() => {
                 const allWh = queryData?.by_warehouse?.warehouses || [];
@@ -909,8 +907,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                         </div>
                       )}
                     </div>
-                    {chartData.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={300}>
+                    <ResponsiveContainer width="100%" height={300}>
                         <BarChart data={chartData} layout="vertical" margin={{ left: 20, right: 40 }}>
                           <XAxis type="number" stroke={C.muted} fontSize={12} tickMargin={8} />
                           <YAxis type="category" dataKey="name" width={80} stroke={C.muted} fontSize={12} tickMargin={8} />
@@ -922,21 +919,20 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                             <LabelList dataKey="count" position="right" style={{ fontSize: 11, fill: C.slate }} />
                           </Bar>
                         </BarChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <div className="flex h-[300px] items-center justify-center text-gray-500">No warehouse data available</div>
-                    )}
+                    </ResponsiveContainer>
                   </>
                 );
               })()}
           </div>
+          )}
           </div>
+          )}
 
           {/* Query Source Breakdown: full width */}
+          {(queryData.by_source?.sources?.length ?? 0) > 0 && (
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
               <h3 className="mb-4 text-lg font-semibold text-gray-900">Query Source Breakdown</h3>
-              {queryData?.by_source?.sources && queryData.by_source.sources.length > 0 ? (
-                <div className="overflow-x-auto">
+              <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
@@ -958,7 +954,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
-                      {queryData.by_source.sources.map((source) => (
+                      {(queryData.by_source?.sources ?? []).map((source) => (
                         <tr
                           key={source.query_source_type}
                           className="cursor-pointer hover:bg-gray-50"
@@ -1003,15 +999,12 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                       ))}
                     </tbody>
                   </table>
-                </div>
-              ) : (
-                <div className="flex h-40 items-center justify-center text-gray-500">
-                  No source breakdown available
-                </div>
-              )}
+              </div>
           </div>
+          )}
 
           {/* Top Expensive Queries Table */}
+          {(topQueriesLoading || allQueries.length > 0) && (
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
             {/* Single toolbar row: title · show historical · source pills · search */}
             <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -1194,6 +1187,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
               </div>
             )}
           </div>
+          )}
 
       {/* Source Drilldown Modal: rendered via portal to avoid stacking context issues */}
       {selectedSource && createPortal(
@@ -1469,6 +1463,10 @@ export function WarehouseRightsizingView({ host }: { host?: string | null }) {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [healthIssueDropdownOpen]);
+
+  if (!healthLoading && !healthError && warehouseHealth?.available && warehouseHealth.recommendations.length === 0) {
+    return null;
+  }
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-6">
@@ -1770,6 +1768,10 @@ export function WarehouseIdleTimeView({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [idleTypeDropdownOpen]);
+
+  if (!isLoading && !isError && data?.available && data.warehouses.length === 0) {
+    return null;
+  }
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-6">
