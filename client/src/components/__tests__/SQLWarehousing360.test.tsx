@@ -2,7 +2,9 @@
  * Regression tests for SQLWarehousing360 summary display states.
  *
  * Key invariants:
- * 1. available=false → loading state while first-deploy query data is prepared.
+ * 1. isLoading → shared loading panels (first deploy / still computing).
+ * 2. available=false after load → guidance that query-cost data is not configured.
+ * 3. isError → error, not a spinner.
  * 2. available=true + summary=null → "No summary data returned" gray panel.
  * 3. available=true + all-zero summary → $0 rendered (valid zero activity), not "N/A".
  */
@@ -47,14 +49,18 @@ beforeEach(() => {
   );
 });
 
-function renderSQLView(queryData: DBSQLDashboardBundle | undefined) {
+function renderSQLView(
+  queryData: DBSQLDashboardBundle | undefined,
+  opts: { isLoading?: boolean; isError?: boolean } = {},
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <SQLWarehousing360
         sqlBreakdownData={undefined}
         queryData={queryData}
-        isLoading={false}
+        isLoading={opts.isLoading ?? false}
+        isError={opts.isError}
       />
     </QueryClientProvider>
   );
@@ -66,28 +72,42 @@ const BASE_BUNDLE_AVAILABLE: DBSQLDashboardBundle = {
   end_date: "2026-01-31",
 };
 
-// ---------------------------------------------------------------------------
-// available=false: first-deploy loading state
-// ---------------------------------------------------------------------------
-
-describe("SQLWarehousing360: available=false renders loading state", () => {
+describe("SQLWarehousing360: first load shows loading panels", () => {
   it("shows a shared loading indicator for every SQL panel", () => {
-    renderSQLView({ available: false, start_date: "2026-01-01", end_date: "2026-01-31" });
+    renderSQLView(undefined, { isLoading: true });
 
     expect(screen.getAllByRole("status", { name: /loading/i })).toHaveLength(6);
     expect(screen.getByText("Top Queries")).toBeInTheDocument();
+  });
+
+  it("does not flash the missing-grant guidance on first load", () => {
+    renderSQLView(undefined, { isLoading: true });
+
+    expect(screen.queryByText(/query-level cost attribution.*not available/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("SQLWarehousing360: fetch failure shows an error", () => {
+  it("does not keep the loading panels after a failed fetch", () => {
+    renderSQLView(undefined, { isError: true });
+
+    expect(screen.getByText(/query cost data could not be loaded/i)).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /loading/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("SQLWarehousing360: available=false after load shows setup guidance", () => {
+  it("explains that query-level cost attribution is not available", () => {
+    renderSQLView({ available: false, start_date: "2026-01-01", end_date: "2026-01-31" });
+
+    expect(screen.getByText(/query-level cost attribution is not available/i)).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /loading/i })).not.toBeInTheDocument();
   });
 
   it("does NOT show the KPI summary cards", () => {
     renderSQLView({ available: false, start_date: "2026-01-01", end_date: "2026-01-31" });
 
     expect(screen.queryByText(/total query spend/i)).not.toBeInTheDocument();
-  });
-
-  it("does not flash the missing-grant guidance on first load", () => {
-    renderSQLView({ available: false, start_date: "2026-01-01", end_date: "2026-01-31" });
-
-    expect(screen.queryByText(/query-level cost attribution.*not available/i)).not.toBeInTheDocument();
   });
 });
 

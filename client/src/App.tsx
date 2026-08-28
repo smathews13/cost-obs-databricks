@@ -512,7 +512,7 @@ function Dashboard() {
   const { data: azureActualData, isLoading: azureActualLoading } = useAzureActualCosts(dateRange, warehouseReady);
   const { data: gcpActualData, isLoading: gcpActualLoading } = useGCPActualCosts(dateRange, warehouseReady);
 
-  const { data: dbsqlData, isLoading: dbsqlLoading } = useDBSQLQueryCosts(dateRange, _wsIds, warehouseReady);
+  const { data: dbsqlData, isLoading: dbsqlLoading, isError: dbsqlError } = useDBSQLQueryCosts(dateRange, _wsIds, warehouseReady);
   const { data: dbsqlTopQueriesData, isLoading: dbsqlTopQueriesLoading } = useDBSQLTopQueries(dateRange, _wsIds, warehouseReady);
   const { data: usersGroupsData } = useUsersGroupsBundle(dateRange, _wsIds, warehouseReady);
 
@@ -1359,7 +1359,8 @@ function Dashboard() {
           <SQLWarehousing360
             sqlBreakdownData={sqlBreakdown}
             queryData={dbsqlData ?? undefined}
-            isLoading={sqlLoading || dbsqlLoading || dbsqlData === null}
+            isLoading={sqlLoading || dbsqlLoading}
+            isError={dbsqlError}
             topQueriesData={dbsqlTopQueriesData}
             topQueriesLoading={dbsqlTopQueriesLoading}
             host={accountInfo?.host}

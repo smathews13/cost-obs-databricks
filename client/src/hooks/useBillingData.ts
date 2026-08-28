@@ -477,14 +477,13 @@ export function useGCPActualCosts(dateRange?: DateRange, enabled: boolean = true
 }
 
 /**
- * DBSQL Query Cost Attribution - from cost per query MV
- * @param dateRange - Date range for the query
- * @param enabled - Whether to enable the query (set false when tab not active)
+ * DBSQL 360 dashboard bundle: submit-and-poll. Returns null while HTTP 202 is pending.
+ * After a deploy the cost-per-query table can take a couple of minutes to appear, so
+ * available=false is polled briefly, then treated as a settled "not configured" result.
  */
-/**
- * DBSQL 360 dashboard bundle: submit-and-poll: returns null while computing, data when ready.
- * isLoading is true while data is null (pending or first fetch).
- */
+const UNAVAILABLE_POLL_MS = 3 * 60 * 1000;
+const dbsqlUnavailableSince = new Map<string, number>();
+
 export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   const result = useQuery<DBSQLDashboardBundle | null>({
     queryKey: ["dbsql", "dashboard-bundle", dateRange, workspaceIds?.join(",") ?? null],
@@ -492,13 +491,34 @@ export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[
       fetchWithPoll<DBSQLDashboardBundle>(buildUrlWithWs("/api/dbsql/dashboard-bundle", dateRange, workspaceIds)),
     staleTime: 5 * 60 * 1000,
     enabled,
-    refetchInterval: (q) =>
-      q.state.data === null || q.state.data?.available === false ? POLL_INTERVAL_MS : false,
+    refetchInterval: (q) => {
+      const key = JSON.stringify(q.queryKey);
+      if (q.state.error) {
+        dbsqlUnavailableSince.delete(key);
+        return false;
+      }
+      if (q.state.data === null) return POLL_INTERVAL_MS;
+      if (q.state.data?.available === false) {
+        const started = dbsqlUnavailableSince.get(key) ?? Date.now();
+        dbsqlUnavailableSince.set(key, started);
+        return Date.now() - started < UNAVAILABLE_POLL_MS ? POLL_INTERVAL_MS : false;
+      }
+      dbsqlUnavailableSince.delete(key);
+      return false;
+    },
   });
+  const waitKey = JSON.stringify(["dbsql", "dashboard-bundle", dateRange, workspaceIds?.join(",") ?? null]);
+  if (!result.isError && result.data?.available === false && !dbsqlUnavailableSince.has(waitKey)) {
+    dbsqlUnavailableSince.set(waitKey, Date.now());
+  }
+  const waitingForTable =
+    !!result.data &&
+    result.data.available === false &&
+    Date.now() - (dbsqlUnavailableSince.get(waitKey) ?? 0) < UNAVAILABLE_POLL_MS;
   return {
     ...result,
     data: (result.data ?? undefined) as DBSQLDashboardBundle | undefined,
-    isLoading: result.isLoading || result.data === null,
+    isLoading: !result.isError && (result.isLoading || result.data === null || waitingForTable),
   };
 }
 

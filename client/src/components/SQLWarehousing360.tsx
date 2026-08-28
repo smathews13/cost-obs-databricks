@@ -28,6 +28,7 @@ interface SQLWarehousing360Props {
   sqlBreakdownData: GranularBreakdownResponse | undefined;
   queryData: DBSQLDashboardBundle | undefined;
   isLoading: boolean;
+  isError?: boolean;
   topQueriesData?: import("@/types/billing").TopQueriesResponse;
   topQueriesLoading?: boolean;
   host?: string | null;
@@ -133,7 +134,7 @@ interface SourceQuery {
   source_url: string | null;
 }
 
-export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryData, isLoading, topQueriesData, topQueriesLoading, host, startDate, endDate, workspaceIds, workspaceNameMap }: SQLWarehousing360Props) {
+export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryData, isLoading, isError, topQueriesData, topQueriesLoading, host, startDate, endDate, workspaceIds, workspaceNameMap }: SQLWarehousing360Props) {
   const spNameMap = useSpNameMap();
   const [sortField, setSortField] = useState<SortField>("cost");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -414,7 +415,15 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
     setQueriesPage(1);
   };
 
-  if (isLoading || queryData == null || queryData.available === false) {
+  if (isError) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+        Query cost data could not be loaded. Try refreshing the SQL tab.
+      </div>
+    );
+  }
+
+  if (isLoading || queryData == null) {
     return <LoadingPanels sections={[
       "Query Spend Summary",
       "Spend by Source",
@@ -423,6 +432,25 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
       "Top Users by Query Spend",
       "Top Queries",
     ]} />;
+  }
+
+  if (queryData.available === false) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-6">
+        <div className="flex items-start gap-3">
+          <svg className="mt-0.5 h-5 w-5 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-gray-700">Query-level cost attribution is not available</p>
+            <p className="mt-1 text-sm text-gray-500">
+              This tab needs <code className="rounded bg-gray-200 px-1 text-xs">system.query.history</code> access for the app service principal,
+              and the query-cost table from setup. Copy the GRANT SQL from Settings, Permissions, run it as a metastore admin, then rebuild tables from Settings, Config.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const summary = queryData.summary;
