@@ -44,6 +44,11 @@ import { KPITrendModal } from "./KPITrendModal";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import {
+  buildFilteredUrl,
+  getActiveSourceScopeKey,
+  getWorkspaceScopeKey,
+} from "@/hooks/useBillingData";
 
 interface AIMLCostCenterProps {
   data: AIMLDashboardBundle | undefined;
@@ -264,22 +269,24 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
 
   // Pre-warm trend queries so modals open instantly
   const queryClient = useQueryClient();
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
+  const sourceKey = getActiveSourceScopeKey();
   useEffect(() => {
     if (!startDate || !endDate) return;
     for (const kpi of ["aiml_spend", "aiml_dbus", "aiml_endpoints", "aiml_avg_endpoint_cost"]) {
       queryClient.prefetchQuery({
-        queryKey: ["aiml-kpi-trend", kpi, startDate, endDate, "daily"],
+        queryKey: ["aiml-kpi-trend", kpi, startDate, endDate, "daily", wsKey, sourceKey],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
           params.set("tab", "aiml");
-          const res = await fetch(`/api/billing/kpi-trend?${params}`);
+          const res = await fetch(buildFilteredUrl("/api/billing/kpi-trend", params, workspaceIds));
           if (!res.ok) throw new Error("prefetch failed");
           return res.json();
         },
         staleTime: 5 * 60 * 1000,
       });
     }
-  }, [startDate, endDate, queryClient]);
+  }, [startDate, endDate, wsKey, sourceKey, workspaceIds, queryClient]);
 
   const handleMinimizeToggle = (checked: boolean) => {
     setInfoMinimized(checked);

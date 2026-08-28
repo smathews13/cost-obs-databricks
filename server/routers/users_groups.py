@@ -12,7 +12,7 @@ import httpx
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
-from server.db import execute_query, execute_queries_parallel, get_workspace_client, bundle_cache_key, delta_cache_get, delta_cache_put
+from server.db import execute_query, execute_queries_parallel, get_workspace_client, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation
 from server import workspace_filter as wf
 from server import cache_ttls
 from server.email_service import send_alert_email
@@ -452,6 +452,7 @@ async def get_users_groups_bundle(
     _dkey = bundle_cache_key("users:dashboard-bundle", start_date, end_date, id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation("users:dashboard-bundle")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     def _ws(sql: str) -> str:
@@ -596,7 +597,7 @@ async def get_users_groups_bundle(
         "start_date": start_date,
         "end_date": end_date,
     }
-    delta_cache_put(_dkey, "users:dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE)
+    delta_cache_put(_dkey, "users:dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=_cache_generation)
     return _resp
 
 

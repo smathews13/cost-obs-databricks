@@ -243,14 +243,14 @@ async def clear_cache(tab: str | None = None) -> dict[str, Any]:
         "dbu":          [
             "billing:dashboard-bundle-fast", "billing:sku-breakdown",
             "billing:pipeline-objects", "billing:interactive-breakdown",
-            "billing:kpi-trend",
+            "trend:dbu:",
         ],
-        "kpis":         ["billing:kpis-bundle", "billing:platform-kpi-trend"],
-        "infra":        ["billing:infra-bundle", "aws_actual/"],
-        "aiml":         ["aiml:"],
-        "apps":         ["apps:"],
-        "tagging":      ["tagging:"],
-        "sql":          ["dbsql:", "billing:sql-breakdown"],
+        "kpis":         ["billing:kpis-bundle", "trend:kpis:"],
+        "infra":        ["billing:infra-bundle", "aws_actual/", "trend:infra:"],
+        "aiml":         ["aiml:", "trend:aiml:"],
+        "apps":         ["apps:", "trend:apps:"],
+        "tagging":      ["tagging:", "trend:tagging:"],
+        "sql":          ["dbsql:", "billing:sql-breakdown", "trend:sql:"],
         "users-groups": ["users:"],
     }
 

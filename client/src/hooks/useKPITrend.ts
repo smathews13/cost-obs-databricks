@@ -1,4 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import {
+  buildFilteredUrl,
+  getActiveSourceScopeKey,
+  getWorkspaceScopeKey,
+} from "./useBillingData";
 
 export interface KPITrendDataPoint {
   date: string;
@@ -32,9 +37,10 @@ function useTrendQuery(
   granularity: string = "daily",
   workspaceIds?: string[]
 ) {
-  const wsKey = workspaceIds?.join(",") ?? "";
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
+  const sourceKey = getActiveSourceScopeKey();
   return useQuery<KPITrendResponse>({
-    queryKey: [queryKeyPrefix, kpi, startDate, endDate, granularity, wsKey],
+    queryKey: [queryKeyPrefix, kpi, startDate, endDate, granularity, wsKey, sourceKey],
     queryFn: async () => {
       const params = new URLSearchParams({
         kpi,
@@ -42,13 +48,12 @@ function useTrendQuery(
         end_date: endDate,
         granularity,
       });
-      if (workspaceIds?.length) params.set("workspace_ids", workspaceIds.join(","));
       const ownerTab = queryKeyPrefix === "kpi-trend"
         ? "dbu"
         : queryKeyPrefix.split("-")[0];
       params.set("tab", ownerTab);
 
-      const response = await fetch(`/api/billing/${endpoint}?${params}`);
+      const response = await fetch(buildFilteredUrl(`/api/billing/${endpoint}`, params, workspaceIds));
 
       if (!response.ok) {
         throw new Error(`Failed to fetch KPI trend: ${response.statusText}`);
@@ -87,13 +92,16 @@ function useAppsTrendQuery(
   kpi: string,
   startDate: string,
   endDate: string,
-  granularity: string = "daily"
+  granularity: string = "daily",
+  workspaceIds?: string[],
 ) {
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
+  const sourceKey = getActiveSourceScopeKey();
   return useQuery<KPITrendResponse>({
-    queryKey: ["apps-kpi-trend", kpi, startDate, endDate, granularity],
+    queryKey: ["apps-kpi-trend", kpi, startDate, endDate, granularity, wsKey, sourceKey],
     queryFn: async () => {
       const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity });
-      const response = await fetch(`/api/apps/kpi-trend?${params}`);
+      const response = await fetch(buildFilteredUrl("/api/apps/kpi-trend", params, workspaceIds));
       if (!response.ok) throw new Error(`Failed to fetch apps KPI trend: ${response.statusText}`);
       return response.json();
     },
@@ -106,7 +114,8 @@ export function useAppsKPITrend(
   kpi: string,
   startDate: string,
   endDate: string,
-  granularity: string = "daily"
+  granularity: string = "daily",
+  workspaceIds?: string[],
 ) {
-  return useAppsTrendQuery(kpi, startDate, endDate, granularity);
+  return useAppsTrendQuery(kpi, startDate, endDate, granularity, workspaceIds);
 }

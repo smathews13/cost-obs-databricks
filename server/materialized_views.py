@@ -1505,6 +1505,18 @@ def _update_refresh_state(catalog: str, schema: str, table_name: str, refresh_co
 
 
 def create_materialized_views(catalog: str | None = None, schema: str | None = None, lookback_days: int = 180, on_table_event: "Callable[[str, str], None] | None" = None, force_full_rebuild: bool = False) -> dict:
+    """Refresh base tables and dependent unified views as one ordered operation."""
+    with unified_views_rebuild_lock():
+        return _create_materialized_views_locked(
+            catalog,
+            schema,
+            lookback_days=lookback_days,
+            on_table_event=on_table_event,
+            force_full_rebuild=force_full_rebuild,
+        )
+
+
+def _create_materialized_views_locked(catalog: str | None = None, schema: str | None = None, lookback_days: int = 180, on_table_event: "Callable[[str, str], None] | None" = None, force_full_rebuild: bool = False) -> dict:
     """Create all materialized view tables.
 
     Args:
@@ -1764,7 +1776,7 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
         from server.db import get_mv_sources
 
         if get_mv_sources():
-            rebuild_unified_views(catalog, schema)
+            _rebuild_unified_views_locked(catalog, schema)
     except Exception as e:
         # Base tables are still usable when shared-source view maintenance fails.
         logger.warning("Post-refresh unified-view rebuild failed (non-fatal): %s", e)

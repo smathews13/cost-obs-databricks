@@ -39,6 +39,11 @@ import { CloudIntegrationWizard } from "./CloudIntegrationWizard";
 import type { CloudIntegration } from "./CloudIntegrationWizard";
 import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import {
+  buildFilteredUrl,
+  getActiveSourceScopeKey,
+  getWorkspaceScopeKey,
+} from "@/hooks/useBillingData";
 
 type CostMode = "estimated" | "actual";
 const EMPTY_CLUSTERS: AWSCostsResponse["clusters"] = [];
@@ -291,24 +296,24 @@ export function CloudCostsView({
   }, [familyFilterOpen, workspaceFilterOpen]);
 
   const queryClient = useQueryClient();
-  const wsKey = workspaceIds?.join(",") ?? "";
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
+  const sourceKey = getActiveSourceScopeKey();
   useEffect(() => {
     if (!startDate || !endDate) return;
     for (const kpi of ["infra_cost", "infra_clusters", "infra_dbu_hours", "avg_cost_per_cluster"]) {
       queryClient.prefetchQuery({
-        queryKey: ["infra-kpi-trend", kpi, startDate, endDate, "daily", wsKey],
+        queryKey: ["infra-kpi-trend", kpi, startDate, endDate, "daily", wsKey, sourceKey],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
           params.set("tab", "infra");
-          if (workspaceIds?.length) params.set("workspace_ids", workspaceIds.join(","));
-          const res = await fetch(`/api/billing/kpi-trend?${params}`);
+          const res = await fetch(buildFilteredUrl("/api/billing/kpi-trend", params, workspaceIds));
           if (!res.ok) throw new Error("prefetch failed");
           return res.json();
         },
         staleTime: 5 * 60 * 1000,
       });
     }
-  }, [startDate, endDate, wsKey, queryClient]);
+  }, [startDate, endDate, wsKey, sourceKey, workspaceIds, queryClient]);
 
   const MINIMIZE_KEY = "cost-obs-minimize-infra-info";
   const [infoMinimized, setInfoMinimized] = useState(() => {

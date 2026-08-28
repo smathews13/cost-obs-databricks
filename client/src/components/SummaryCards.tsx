@@ -6,6 +6,11 @@ import { formatCurrency, formatNumber } from "@/utils/formatters";
 import { KPITrendModal } from "./KPITrendModal";
 import { C, FONT_MONO } from "@/theme";
 import { Spinner } from "./Spinner";
+import {
+  buildFilteredUrl,
+  getActiveSourceScopeKey,
+  getWorkspaceScopeKey,
+} from "@/hooks/useBillingData";
 
 function InfoTooltip({ text }: { text: string }) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -102,26 +107,26 @@ export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds
     label: string;
   } | null>(null);
 
-  const wsKey = workspaceIds?.join(",") ?? "";
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
+  const sourceKey = getActiveSourceScopeKey();
 
   // Pre-warm trend data in the background once dates are available
   useEffect(() => {
     if (!startDate || !endDate) return;
     for (const kpi of KPI_TREND_KEYS) {
       queryClient.prefetchQuery({
-        queryKey: ["kpi-trend", kpi, startDate, endDate, "daily", wsKey],
+        queryKey: ["kpi-trend", kpi, startDate, endDate, "daily", wsKey, sourceKey],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
           params.set("tab", "dbu");
-          if (workspaceIds?.length) params.set("workspace_ids", workspaceIds.join(","));
-          const res = await fetch(`/api/billing/kpi-trend?${params}`);
+          const res = await fetch(buildFilteredUrl("/api/billing/kpi-trend", params, workspaceIds));
           if (!res.ok) throw new Error("prefetch failed");
           return res.json();
         },
         staleTime: 5 * 60 * 1000,
       });
     }
-  }, [startDate, endDate, wsKey, queryClient]);
+  }, [startDate, endDate, wsKey, sourceKey, workspaceIds, queryClient]);
 
   const handleCardClick = (kpi: KPIType, label: string) => {
     if (startDate && endDate) {

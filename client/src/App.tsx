@@ -75,7 +75,11 @@ import { generateCostCSV } from "@/utils/csvExport";
 import { C } from "@/theme";
 import { CostObsLockup, VersionPill, PageHero, Chip, InfoPanel } from "@/components/brand";
 import { LoadingPanels, Spinner } from "@/components/Spinner";
-import { buildExportScopeKey, isTabDataRequested } from "@/utils/tabDemand";
+import {
+  buildExportScopeKey,
+  cancelRunningSubmitAndPollForTab,
+  isTabDataRequested,
+} from "@/utils/tabDemand";
 import { refreshTabData, TAB_LOADING_SECTIONS } from "@/utils/tabRefresh";
 import {
   hydrateSettingsFromServer,
@@ -308,6 +312,15 @@ function Dashboard() {
   const setupStatusAbortRef = useRef<AbortController | null>(null);
   const rqClient = useQueryClient();
   const [explicitRefreshingTab, setExplicitRefreshingTab] = useState<ViewTab | null>(null);
+  const previousActiveTabRef = useRef(activeTab);
+
+  useEffect(() => {
+    const previousTab = previousActiveTabRef.current;
+    previousActiveTabRef.current = activeTab;
+    if (previousTab !== activeTab) {
+      void cancelRunningSubmitAndPollForTab(rqClient, previousTab);
+    }
+  }, [activeTab, rqClient]);
 
   const handleTabRefresh = async () => {
     if (explicitRefreshingTab !== null) return;
@@ -491,6 +504,7 @@ function Dashboard() {
     dateRange.endDate,
     selectedWorkspaceIds,
     sourceScopeVersion,
+    (Object.keys(tabVisibility) as ViewTab[]).filter((tab) => tabVisibility[tab]),
   );
   const exportPreparationRequested = showExportDialog && exportPreparingScope === exportScopeKey;
   const requested = (tab: ViewTab) =>

@@ -111,7 +111,7 @@ def test_base_refresh_finishes_before_unified_rebuild():
         patch.object(materialized_views, "_ensure_refresh_state_table"),
         patch.object(materialized_views, "_get_refresh_state", return_value=None),
         patch.object(materialized_views, "_update_refresh_state"),
-        patch.object(materialized_views, "rebuild_unified_views", side_effect=rebuild),
+        patch.object(materialized_views, "_rebuild_unified_views_locked", side_effect=rebuild),
     ):
         materialized_views.create_materialized_views("main", "cost_obs")
 

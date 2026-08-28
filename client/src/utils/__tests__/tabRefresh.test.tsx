@@ -29,6 +29,23 @@ describe("per-tab manual refresh", () => {
     expect(isQueryOwnedByTab("dbu", ["billing", "account"])).toBe(false);
     expect(isQueryOwnedByTab("dbu", ["dbsql", "dashboard-bundle"])).toBe(false);
     expect(isQueryOwnedByTab("infra", ["billing", "dashboard-bundle-fast"])).toBe(false);
+    expect(isQueryOwnedByTab("sql", ["aiml-kpi-trend", "aiml_spend"])).toBe(false);
+    expect(isQueryOwnedByTab("dbu", ["tagging-kpi-trend", "tagged_spend"])).toBe(false);
+  });
+
+  it.each([
+    ["dbu", ["kpi-trend", "total_spend"]],
+    ["sql", ["sql-platform-kpi-trend", "total_queries"]],
+    ["infra", ["infra-kpi-trend", "infra_cost"]],
+    ["kpis", ["kpis-platform-kpi-trend", "total_queries"]],
+    ["aiml", ["aiml-kpi-trend", "aiml_spend"]],
+    ["apps", ["apps-kpi-trend", "apps_spend"]],
+    ["tagging", ["tagging-kpi-trend", "tagged_spend"]],
+  ] as const)("assigns %s trend queries to one tab", (tab, queryKey) => {
+    expect(isQueryOwnedByTab(tab, queryKey)).toBe(true);
+    for (const other of ["dbu", "sql", "infra", "kpis", "aiml", "apps", "tagging"] as const) {
+      if (other !== tab) expect(isQueryOwnedByTab(other, queryKey)).toBe(false);
+    }
   });
 
   it("cancels and refetches only matching keys through the tab cache URL", async () => {

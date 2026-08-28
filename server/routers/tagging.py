@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, execute_queries_parallel, bundle_cache_key, delta_cache_get, delta_cache_put, get_workspace_client, apply_mv_overrides, get_catalog_schema, selected_source_labels, source_label_filter_clause
+from server.db import execute_query, execute_queries_parallel, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation, get_workspace_client, apply_mv_overrides, get_catalog_schema, selected_source_labels, source_label_filter_clause
 from server import workspace_filter as wf
 from server import cache_ttls
 from server.materialized_views import MV_TAG_STATS, MV_TAGGING_SUMMARY
@@ -1122,6 +1122,7 @@ async def get_tagging_dashboard_bundle(
     _dkey = bundle_cache_key("tagging:dashboard-bundle", params["start_date"], params["end_date"], id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation("tagging:dashboard-bundle")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     def _ws(sql: str) -> str:
@@ -1327,5 +1328,5 @@ async def get_tagging_dashboard_bundle(
             "Job and pipeline names may be incomplete — Lakeflow enrichment was unavailable."
         ),
     }
-    delta_cache_put(_dkey, "tagging:dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE)
+    delta_cache_put(_dkey, "tagging:dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=_cache_generation)
     return _resp

@@ -1,6 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { setActiveSourceLabels } from "@/hooks/useBillingData";
+import {
+  getActiveSourceLabels,
+  getActiveSourceScopeKey,
+  setActiveSourceLabels,
+} from "@/hooks/useBillingData";
 import { C } from "@/theme";
 import { Spinner } from "@/components/Spinner";
 
@@ -13,6 +17,26 @@ interface MvSource {
 interface SourceLabelFilterProps {
   variant?: "header" | "rail";
   onApplied?: () => void;
+}
+
+function sameSet(left: Set<string>, right: Set<string>): boolean {
+  return left.size === right.size && Array.from(left).every((value) => right.has(value));
+}
+
+function reconcileSourceSelection(
+  previousLabels: string[],
+  nextLabels: string[],
+  selected: Set<string>,
+): Set<string> {
+  const previous = new Set(previousLabels);
+  const next = new Set(nextLabels);
+  const wasAll = previous.size > 0 && sameSet(previous, selected);
+  if (wasAll || (previous.size === 0 && selected.size === 0)) return next;
+
+  const intersection = new Set(Array.from(selected).filter((label) => next.has(label)));
+  // The UI does not permit an empty selection. If every selected source was
+  // removed, fall back to the remaining complete set (the API's "all" scope).
+  return intersection.size > 0 ? intersection : next;
 }
 
 // Top-nav multi-select for filtering dashboard data by MV source label. Only
@@ -34,25 +58,23 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
   }, [data]);
 
   const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(getActiveSourceLabels()),
+  );
   const [applying, setApplying] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const lastAppliedRef = useRef<string>("");
-
-  // Start with everything selected once labels are known.
-  useEffect(() => {
-    setSelected(new Set(allLabels));
-  }, [allLabels]);
+  const lastAppliedRef = useRef<string>(getActiveSourceScopeKey());
+  const previousLabelsRef = useRef<string[]>([]);
+  const selectedRef = useRef(selected);
 
   const hasSources = (data?.sources?.length ?? 0) > 0;
-  if (!hasSources || allLabels.length === 0) return null;
 
-  const allSelected = selected.size === allLabels.length;
-
-  const apply = async (next: Set<string>) => {
+  const apply = useCallback(async (next: Set<string>) => {
     // At least one source is always selected (the toggle enforces it); a full
     // selection means "all" (empty filter = every source).
-    const effective = next.size === 0 || next.size === allLabels.length ? [] : Array.from(next);
+    const effective = next.size === 0 || sameSet(next, new Set(allLabels))
+      ? []
+      : Array.from(next).sort();
     // Skip the refetch when the effective selection hasn't changed (e.g. closing
     // the dropdown without edits).
     const key = [...effective].sort().join("");
@@ -73,7 +95,26 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
     } finally {
       setApplying(false);
     }
-  };
+  }, [allLabels, onApplied, queryClient]);
+
+  // Keep the visible selection and the module-level applied scope synchronized
+  // when shared sources are added or removed while the dashboard is open.
+  useEffect(() => {
+    const next = reconcileSourceSelection(
+      previousLabelsRef.current,
+      allLabels,
+      selectedRef.current,
+    );
+    previousLabelsRef.current = allLabels;
+    if (sameSet(next, selectedRef.current)) return;
+    selectedRef.current = next;
+    setSelected(next);
+    void apply(next);
+  }, [allLabels, apply]);
+
+  if (!hasSources || allLabels.length === 0) return null;
+
+  const allSelected = sameSet(selected, new Set(allLabels));
 
   const toggle = (label: string) => {
     setSelected((prev) => {
@@ -85,6 +126,7 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
       } else {
         next.add(label);
       }
+      selectedRef.current = next;
       return next;
     });
   };
@@ -134,7 +176,11 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Data source</span>
             {/* No "Clear": at least one source must stay selected. "All" selects every source. */}
-            <button onClick={() => setSelected(new Set(allLabels))} className="text-xs text-gray-500 hover:text-gray-800">All</button>
+            <button onClick={() => {
+              const next = new Set(allLabels);
+              selectedRef.current = next;
+              setSelected(next);
+            }} className="text-xs text-gray-500 hover:text-gray-800">All</button>
           </div>
           <div className="max-h-60 space-y-1 overflow-y-auto">
             {allLabels.map((lbl) => {

@@ -1,6 +1,7 @@
 """Databricks Apps cost analysis API endpoints."""
 
 import asyncio
+import contextvars
 import logging
 import re
 import threading
@@ -18,7 +19,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
-from server.db import execute_query, execute_queries_parallel, get_workspace_client, bundle_cache_key, delta_cache_get, delta_cache_put, apply_mv_overrides, get_catalog_schema, selected_source_labels, source_label_filter_clause
+from server.db import execute_query, execute_queries_parallel, get_workspace_client, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation, CacheGeneration, apply_mv_overrides, get_catalog_schema, selected_source_labels, source_label_filter_clause
 from server import workspace_filter as wf
 from server import cache_ttls
 from server.materialized_views import (
@@ -703,7 +704,13 @@ def _empty_bundle(params: dict, active_only: bool) -> dict[str, Any]:
     }
 
 
-def _compute_apps_bundle(params: dict, id_list: list | None, active_only: bool, dkey: str) -> None:
+def _compute_apps_bundle(
+    params: dict,
+    id_list: list | None,
+    active_only: bool,
+    dkey: str,
+    cache_generation: CacheGeneration,
+) -> None:
     """Background worker: run all Apps queries, build response, write to Delta cache."""
     import time as _time
     _endpoint = f"apps:dashboard-bundle:{'active' if active_only else 'all'}"
@@ -876,7 +883,13 @@ def _compute_apps_bundle(params: dict, id_list: list | None, active_only: bool, 
             resources_by_app = _get_app_resources()
         else:
             resources_by_app = _app_resources_cache
-            threading.Thread(target=_get_app_resources, daemon=True, name="apps-resources-bg").start()
+            resource_context = contextvars.copy_context()
+            threading.Thread(
+                target=resource_context.run,
+                args=(_get_app_resources,),
+                daemon=True,
+                name="apps-resources-bg",
+            ).start()
         connected_artifacts: list[dict[str, Any]] = []
         for uid, entry in registry.items():
             app_name = entry.get("name", uid)
@@ -943,7 +956,13 @@ def _compute_apps_bundle(params: dict, id_list: list | None, active_only: bool, 
         else:
             cache_ttl = 60 if not registry else (600 if id_list else 1800)
         try:
-            delta_cache_put(dkey, _endpoint, _resp, ttl_seconds=cache_ttl)
+            delta_cache_put(
+                dkey,
+                _endpoint,
+                _resp,
+                ttl_seconds=cache_ttl,
+                generation=cache_generation,
+            )
         except Exception as _ce:
             logger.debug("Delta cache write failed for apps/dashboard-bundle: %s", _ce)
         logger.info(
@@ -953,7 +972,13 @@ def _compute_apps_bundle(params: dict, id_list: list | None, active_only: bool, 
     except Exception as e:
         logger.error("apps dashboard-bundle background compute failed: %s", e, exc_info=True)
         try:
-            delta_cache_put(dkey, _endpoint, {"_error": str(e), "status": "error"}, ttl_seconds=60)
+            delta_cache_put(
+                dkey,
+                _endpoint,
+                {"_error": str(e), "status": "error"},
+                ttl_seconds=60,
+                generation=cache_generation,
+            )
         except Exception:
             pass
     finally:
@@ -985,9 +1010,18 @@ async def get_apps_dashboard_bundle(
     with _apps_bundle_inflight_lock:
         if _dkey not in _apps_bundle_inflight:
             _apps_bundle_inflight.add(_dkey)
+            request_context = contextvars.copy_context()
+            cache_generation = capture_cache_generation(_endpoint)
             threading.Thread(
-                target=_compute_apps_bundle,
-                args=(params, id_list, active_only, _dkey),
+                target=request_context.run,
+                args=(
+                    _compute_apps_bundle,
+                    params,
+                    id_list,
+                    active_only,
+                    _dkey,
+                    cache_generation,
+                ),
                 daemon=True,
                 name="apps-bundle-bg",
             ).start()
@@ -1004,14 +1038,17 @@ async def get_apps_dashboard_bundle(
 
 # ── KPI Trend (registered-apps-only) ─────────────────────────────────
 
-def _build_app_id_filter(registry: dict[str, dict[str, str]]) -> str:
+def _build_app_id_filter(
+    registry: dict[str, dict[str, str]],
+    col: str = "u.usage_metadata.app_id",
+) -> str:
     """Build a SQL IN-clause for registered app UUIDs.
     Returns empty string when registry is unavailable so we still show all apps data.
     """
     if not registry:
         return ""  # no registry → no filter, show all billing APPS rows
     ids = ", ".join(f"'{uid}'" for uid in registry)
-    return f"AND u.usage_metadata.app_id IN ({ids})"
+    return f"AND {col} IN ({ids})"
 
 
 @router.get("/kpi-trend")
@@ -1020,21 +1057,33 @@ async def get_apps_kpi_trend(
     start_date: str = Query(default=None),
     end_date: str = Query(default=None),
     granularity: str = Query("daily", description="daily, weekly, monthly"),
+    workspace_ids: str = Query(default=None),
 ) -> dict[str, Any]:
     """KPI trend filtered to registered apps only."""
     params = {
         "start_date": start_date or get_default_start_date(),
         "end_date": end_date or get_default_end_date(),
     }
-    _dkey = bundle_cache_key(f"apps:kpi-trend:{kpi}:{granularity}", params["start_date"], params["end_date"], None)
+    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    cache_endpoint = "trend:apps:kpi"
+    _dkey = bundle_cache_key(
+        f"{cache_endpoint}:{kpi}:{granularity}",
+        params["start_date"],
+        params["end_date"],
+        id_list,
+    )
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation(cache_endpoint)
 
     registry = _app_name_cache  # use stale cache — background refresh handled by dashboard-bundle
-    app_filter = _build_app_id_filter(registry)
+    raw_app_filter = _build_app_id_filter(registry)
+    mv_app_filter = _build_app_id_filter(registry, col="app_id")
+    raw_ws_filter = wf.build_ws_filter_clause(col="u.workspace_id", id_list=id_list)
+    mv_ws_filter = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
 
     if kpi == "apps_spend":
-        query = """
+        raw_query = f"""
         WITH usage_with_price AS (
           SELECT
             u.usage_date,
@@ -1048,36 +1097,64 @@ async def get_apps_kpi_trend(
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND u.billing_origin_product = 'APPS'
+            {raw_ws_filter}
         )
         SELECT usage_date as date, SUM(usage_quantity * price_per_dbu) as value
         FROM usage_with_price
         GROUP BY usage_date
         ORDER BY usage_date
         """
+        mv_query_template = """
+        SELECT usage_date AS date, SUM(total_spend) AS value
+        FROM `{catalog}`.`{schema}`.`daily_apps_summary`
+        WHERE usage_date BETWEEN :start_date AND :end_date
+          {ws_filter}
+        GROUP BY usage_date
+        ORDER BY usage_date
+        """
     elif kpi == "apps_dbus":
-        query = """
+        raw_query = f"""
         SELECT u.usage_date as date, SUM(u.usage_quantity) as value
         FROM system.billing.usage u
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.billing_origin_product = 'APPS'
+          {raw_ws_filter}
         GROUP BY u.usage_date
         ORDER BY u.usage_date
         """
+        mv_query_template = """
+        SELECT usage_date AS date, SUM(total_dbus) AS value
+        FROM `{catalog}`.`{schema}`.`daily_apps_summary`
+        WHERE usage_date BETWEEN :start_date AND :end_date
+          {ws_filter}
+        GROUP BY usage_date
+        ORDER BY usage_date
+        """
     elif kpi == "apps_count":
-        query = f"""
+        raw_query = f"""
         SELECT u.usage_date as date,
                COUNT(DISTINCT u.usage_metadata.app_id) as value
         FROM system.billing.usage u
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.billing_origin_product = 'APPS'
-          {app_filter}
+          {raw_app_filter}
+          {raw_ws_filter}
         GROUP BY u.usage_date
         ORDER BY u.usage_date
         """
+        mv_query_template = """
+        SELECT usage_date AS date, COUNT(DISTINCT app_id) AS value
+        FROM `{catalog}`.`{schema}`.`daily_apps_summary`
+        WHERE usage_date BETWEEN :start_date AND :end_date
+          {app_filter}
+          {ws_filter}
+        GROUP BY usage_date
+        ORDER BY usage_date
+        """
     elif kpi == "apps_avg_cost_per_app":
-        query = f"""
+        raw_query = f"""
         SELECT
           usage_date as date,
           SUM(usage_quantity * COALESCE(p.pricing.default, 0))
@@ -1088,7 +1165,18 @@ async def get_apps_kpi_trend(
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.billing_origin_product = 'APPS'
+          {raw_app_filter}
+          {raw_ws_filter}
+        GROUP BY usage_date
+        ORDER BY usage_date
+        """
+        mv_query_template = """
+        SELECT usage_date AS date,
+          SUM(total_spend) / NULLIF(COUNT(DISTINCT app_id), 0) AS value
+        FROM `{catalog}`.`{schema}`.`daily_apps_summary`
+        WHERE usage_date BETWEEN :start_date AND :end_date
           {app_filter}
+          {ws_filter}
         GROUP BY usage_date
         ORDER BY usage_date
         """
@@ -1096,7 +1184,22 @@ async def get_apps_kpi_trend(
         return {"error": f"Unknown KPI: {kpi}"}
 
     try:
-        results = await asyncio.to_thread(execute_query, query, params)
+        if _check_mv_available():
+            cat, sch = get_catalog_schema()
+            query = mv_query_template.format(
+                catalog=cat,
+                schema=sch,
+                app_filter=mv_app_filter,
+                ws_filter=mv_ws_filter + source_label_filter_clause(mv_query_template),
+            )
+            query = apply_mv_overrides(query, cat, sch)
+            results = await asyncio.to_thread(execute_query, query, params)
+        else:
+            if selected_source_labels():
+                raise RuntimeError(
+                    "Selected shared sources require the Apps managed table and verified unified view."
+                )
+            results = await asyncio.to_thread(execute_query, raw_query, params)
     except Exception as e:
         logger.error("Apps KPI trend query failed for %s: %s", kpi, e)
         return {
@@ -1158,7 +1261,13 @@ async def get_apps_kpi_trend(
             "trend": trend,
         },
     }
-    delta_cache_put(_dkey, "apps:kpi-trend", _resp, ttl_seconds=cache_ttls.TREND)
+    delta_cache_put(
+        _dkey,
+        cache_endpoint,
+        _resp,
+        ttl_seconds=cache_ttls.TREND,
+        generation=_cache_generation,
+    )
     return _resp
 
 

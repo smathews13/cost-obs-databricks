@@ -22,6 +22,11 @@ import { KPITrendModal } from "./KPITrendModal";
 import { LoadingPanels, Spinner } from "./Spinner";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import {
+  buildFilteredUrl,
+  getActiveSourceScopeKey,
+  getWorkspaceScopeKey,
+} from "@/hooks/useBillingData";
 
 interface SQLWarehousing360Props {
   sqlBreakdownData: GranularBreakdownResponse | undefined;
@@ -214,22 +219,24 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
 
   // Pre-warm trend queries so modals open instantly
   const queryClient = useQueryClient();
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
+  const sourceKey = getActiveSourceScopeKey();
   useEffect(() => {
     if (!startDate || !endDate) return;
     for (const kpi of ["sql_queries", "sql_users", "avg_query_duration"]) {
       queryClient.prefetchQuery({
-        queryKey: ["sql-platform-kpi-trend", kpi, startDate, endDate, "daily"],
+        queryKey: ["sql-platform-kpi-trend", kpi, startDate, endDate, "daily", wsKey, sourceKey],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
           params.set("tab", "sql");
-          const res = await fetch(`/api/billing/platform-kpi-trend?${params}`);
+          const res = await fetch(buildFilteredUrl("/api/billing/platform-kpi-trend", params, workspaceIds));
           if (!res.ok) throw new Error("prefetch failed");
           return res.json();
         },
         staleTime: 5 * 60 * 1000,
       });
     }
-  }, [startDate, endDate, queryClient]);
+  }, [startDate, endDate, wsKey, sourceKey, workspaceIds, queryClient]);
 
   // Info box minimize state with localStorage persistence
   const MINIMIZE_KEY = "cost-obs-minimize-sql-info";

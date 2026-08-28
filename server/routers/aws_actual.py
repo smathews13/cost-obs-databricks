@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, bundle_cache_key, delta_cache_get, delta_cache_put
+from server.db import execute_query, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation
 from server import cache_ttls
 
 logger = logging.getLogger(__name__)
@@ -424,6 +424,7 @@ async def get_aws_actual_dashboard_bundle(
             return _dcached
     except Exception as _ce:
         logger.debug("Delta cache read failed for aws_actual/dashboard-bundle: %s", _ce)
+    _cache_generation = capture_cache_generation("aws_actual/dashboard-bundle")
 
     # Fetch all data in parallel for 4x faster response
     summary, by_cluster, by_charge_type, timeseries = await asyncio.gather(
@@ -443,7 +444,7 @@ async def get_aws_actual_dashboard_bundle(
         "end_date": end_date,
     }
     try:
-        delta_cache_put(_dkey, "aws_actual/dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE)
+        delta_cache_put(_dkey, "aws_actual/dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE, generation=_cache_generation)
     except Exception as _ce:
         logger.debug("Delta cache write failed for aws_actual/dashboard-bundle: %s", _ce)
     return _resp

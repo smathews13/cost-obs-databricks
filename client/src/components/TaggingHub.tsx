@@ -21,6 +21,11 @@ import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import {
+  buildFilteredUrl,
+  getActiveSourceScopeKey,
+  getWorkspaceScopeKey,
+} from "@/hooks/useBillingData";
 
 interface TagObject {
   object_id?: string | null;
@@ -162,22 +167,24 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
 
   // Pre-warm trend queries so modals open instantly
   const queryClient = useQueryClient();
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
+  const sourceKey = getActiveSourceScopeKey();
   useEffect(() => {
     if (!startDate || !endDate) return;
     for (const kpi of ["tagged_spend", "untagged_spend", "total_spend"]) {
       queryClient.prefetchQuery({
-        queryKey: ["tagging-kpi-trend", kpi, startDate, endDate, "daily"],
+        queryKey: ["tagging-kpi-trend", kpi, startDate, endDate, "daily", wsKey, sourceKey],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
           params.set("tab", "tagging");
-          const res = await fetch(`/api/billing/kpi-trend?${params}`);
+          const res = await fetch(buildFilteredUrl("/api/billing/kpi-trend", params, workspaceIds));
           if (!res.ok) throw new Error("prefetch failed");
           return res.json();
         },
         staleTime: 5 * 60 * 1000,
       });
     }
-  }, [startDate, endDate, queryClient]);
+  }, [startDate, endDate, wsKey, sourceKey, workspaceIds, queryClient]);
 
   // Info box minimize state with localStorage persistence
   const MINIMIZE_KEY = "cost-obs-minimize-tagging-info";

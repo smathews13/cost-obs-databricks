@@ -7,6 +7,7 @@ difference between the two is the table name.
 """
 
 import asyncio
+import contextvars
 import logging
 import threading
 import time as _time
@@ -16,7 +17,19 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from server.db import execute_query, execute_queries_parallel, get_catalog_schema, get_host_url, bundle_cache_key, delta_cache_get, delta_cache_put
+from server.db import (
+    CacheGeneration,
+    apply_mv_overrides,
+    bundle_cache_key,
+    capture_cache_generation,
+    delta_cache_get,
+    delta_cache_put,
+    execute_queries_parallel,
+    execute_query,
+    get_catalog_schema,
+    get_host_url,
+    source_label_filter_clause,
+)
 from server import workspace_filter as wf
 from server import cache_ttls
 
@@ -246,6 +259,24 @@ def _default_dates(
     return start_date, end_date
 
 
+def _route_dbsql_mv_query(
+    template: str,
+    catalog: str,
+    schema: str,
+    ws_clause: str = "",
+) -> str:
+    """Format one DBSQL MV query with strict source and workspace routing."""
+    query = template.format(catalog=catalog, schema=schema)
+    source_clause = source_label_filter_clause(template)
+    if ws_clause or source_clause:
+        query = query.replace(
+            "AND DATE(start_time) <= :end_date",
+            f"AND DATE(start_time) <= :end_date\n              {ws_clause}\n              {source_clause}",
+            1,
+        )
+    return apply_mv_overrides(query, catalog, schema)
+
+
 def create_dbsql_router(table_name: str) -> APIRouter:
     """Create a DBSQL cost-attribution router for the given MV table name."""
     router = APIRouter()
@@ -254,16 +285,17 @@ def create_dbsql_router(table_name: str) -> APIRouter:
     def _exec(query_key: str, params: dict, catalog: str, schema: str, ws_clause: str = "") -> list[dict]:
         """Execute a dbsql query against Delta."""
         template = sql[query_key]
-        query = template.format(catalog=catalog, schema=schema)
-        if ws_clause:
-            query = query.replace(
-                "AND DATE(start_time) <= :end_date",
-                f"AND DATE(start_time) <= :end_date\n              {ws_clause}",
-                1,
-            )
+        query = _route_dbsql_mv_query(template, catalog, schema, ws_clause)
         return execute_query(query, params)
 
-    def _compute_dbsql_bundle(start_date: str, end_date: str, id_list: list | None, workspace_ids_str: str | None, dkey: str) -> None:
+    def _compute_dbsql_bundle(
+        start_date: str,
+        end_date: str,
+        id_list: list | None,
+        workspace_ids_str: str | None,
+        dkey: str,
+        cache_generation: CacheGeneration,
+    ) -> None:
         """Background worker: run all DBSQL queries in parallel, build response, write to Delta cache."""
         import time as _t
         _start = _t.time()
@@ -490,14 +522,24 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 "start_date": start_date,
                 "end_date": end_date,
             }
-            delta_cache_put(dkey, f"dbsql:{table_name}:dashboard-bundle", _resp,
-                            ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE)
+            delta_cache_put(
+                dkey,
+                f"dbsql:{table_name}:dashboard-bundle",
+                _resp,
+                ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE,
+                generation=cache_generation,
+            )
             logger.info("dbsql dashboard-bundle background compute complete: %.1fs table=%s", _t.time() - _start, table_name)
         except Exception as e:
             logger.error("dbsql dashboard-bundle background compute failed: %s", e, exc_info=True)
             try:
-                delta_cache_put(dkey, f"dbsql:{table_name}:dashboard-bundle",
-                                {"_error": str(e), "status": "error"}, ttl_seconds=60)
+                delta_cache_put(
+                    dkey,
+                    f"dbsql:{table_name}:dashboard-bundle",
+                    {"_error": str(e), "status": "error"},
+                    ttl_seconds=60,
+                    generation=cache_generation,
+                )
             except Exception:
                 pass
         finally:
@@ -1030,9 +1072,21 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         with _dbsql_bundle_inflight_lock:
             if _dkey not in _dbsql_bundle_inflight:
                 _dbsql_bundle_inflight.add(_dkey)
+                request_context = contextvars.copy_context()
+                cache_generation = capture_cache_generation(
+                    f"dbsql:{table_name}:dashboard-bundle"
+                )
                 threading.Thread(
-                    target=_compute_dbsql_bundle,
-                    args=(start_date, end_date, id_list, workspace_ids, _dkey),
+                    target=request_context.run,
+                    args=(
+                        _compute_dbsql_bundle,
+                        start_date,
+                        end_date,
+                        id_list,
+                        workspace_ids,
+                        _dkey,
+                        cache_generation,
+                    ),
                     daemon=True,
                     name=f"dbsql-bundle-bg-{table_name}",
                 ).start()

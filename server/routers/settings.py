@@ -1151,17 +1151,31 @@ def _detect_source_cloud(catalog: str) -> str | None:
 
 def _share_last_updated(catalog: str, schema: str, tables: list[str] | None) -> str | None:
     """Best-effort latest lastModified across the source's shared tables (ISO string)."""
+    from datetime import datetime, timezone
     from server.db import execute_query
     from server.materialized_views import _MV_TABLES
-    probe = (tables or _MV_TABLES)[:1]  # one representative table is enough + cheap
-    for t in probe:
+
+    latest: tuple[datetime, str] | None = None
+    for t in (tables or _MV_TABLES):
         try:
             rows = execute_query(f"DESCRIBE DETAIL `{catalog}`.`{schema}`.`{t}`", None, no_cache=True)
             if rows and rows[0].get("lastModified"):
-                return str(rows[0]["lastModified"])
+                raw = rows[0]["lastModified"]
+                if isinstance(raw, datetime):
+                    parsed = raw
+                else:
+                    parsed = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                parsed = (
+                    parsed.replace(tzinfo=timezone.utc)
+                    if parsed.tzinfo is None
+                    else parsed.astimezone(timezone.utc)
+                )
+                candidate = (parsed, str(raw))
+                if latest is None or candidate[0] > latest[0]:
+                    latest = candidate
         except Exception:
             continue
-    return None
+    return latest[1] if latest else None
 
 
 @router.get("/mv-sources")
@@ -1176,27 +1190,33 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
     sources = get_mv_sources()
     if detail:
         def _enrich():
+            from server.materialized_views import unified_views_rebuild_lock
+
             # Back-fill the `cloud` tag for any source missing it — sources added
             # before cloud detection existed (or when it transiently missed at add
             # time) have no cloud, so the settings card renders no logo and the label
             # in default color. Detect now and PERSIST, so the fast nav path (which
             # never re-detects) gets it too. Detection is cheap and this path (the
             # settings modal) is infrequent.
-            changed = False
-            for s in sources:
-                if not s.get("cloud"):
-                    c = _detect_source_cloud(s.get("catalog"))
-                    if c:
-                        s["cloud"] = c
-                        changed = True
-            if changed:
-                try:
-                    save_mv_sources(sources)
-                except Exception as e:
-                    logger.debug("Could not persist back-filled source cloud (non-fatal): %s", e)
-            for s in sources:
-                s["share_last_updated"] = _share_last_updated(s.get("catalog"), s.get("schema"), s.get("tables"))
-            return sources
+            with unified_views_rebuild_lock():
+                current_sources = get_mv_sources()
+                changed = False
+                for s in current_sources:
+                    if not s.get("cloud"):
+                        c = _detect_source_cloud(s.get("catalog"))
+                        if c:
+                            s["cloud"] = c
+                            changed = True
+                if changed:
+                    try:
+                        save_mv_sources(current_sources)
+                    except Exception as e:
+                        logger.debug("Could not persist back-filled source cloud (non-fatal): %s", e)
+                for s in current_sources:
+                    s["share_last_updated"] = _share_last_updated(
+                        s.get("catalog"), s.get("schema"), s.get("tables")
+                    )
+                return current_sources
         sources = await asyncio.to_thread(_enrich)
     return {"sources": sources, "local_label": get_local_source_label()}
 
@@ -1241,36 +1261,45 @@ async def check_mv_source_freshness(request: Request, label: str) -> dict:
     action verifies what is currently visible, refreshes the local view bindings,
     and returns the provider table's latest metadata timestamp.
     """
+    _require_admin(request)
     from datetime import datetime, timezone
     from server.db import get_mv_sources, get_catalog_schema
-    from server.materialized_views import _MV_TABLES, _table_columns, rebuild_unified_views
-
-    source = next((item for item in get_mv_sources() if item.get("label") == label), None)
-    if source is None:
-        raise HTTPException(status_code=404, detail="Shared source not found")
+    from server.materialized_views import (
+        _MV_TABLES,
+        _rebuild_unified_views_locked,
+        _table_columns,
+        unified_views_rebuild_lock,
+    )
 
     def _check() -> dict:
-        local_catalog, local_schema = get_catalog_schema()
-        selected_tables = source.get("tables") or _MV_TABLES
-        statuses = []
-        for table_name in selected_tables:
-            local_cols = _table_columns(f"`{local_catalog}`.`{local_schema}`.`{table_name}`")
-            source_cols = _table_columns(f"`{source['catalog']}`.`{source['schema']}`.`{table_name}`")
-            status = "absent" if source_cols is None else "match" if local_cols and source_cols == local_cols else "mismatch"
-            statuses.append({"table": table_name, "status": status})
-        build = rebuild_unified_views()
-        return {
-            "ok": bool(build.get("ok")),
-            "label": label,
-            "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "share_last_updated": _share_last_updated(
-                source.get("catalog"), source.get("schema"), selected_tables,
-            ),
-            "matched": sum(1 for item in statuses if item["status"] == "match"),
-            "total": len(statuses),
-            "tables": statuses,
-            "build": build,
-        }
+        with unified_views_rebuild_lock():
+            source = next(
+                (item for item in get_mv_sources() if item.get("label") == label),
+                None,
+            )
+            if source is None:
+                raise HTTPException(status_code=404, detail="Shared source not found")
+            local_catalog, local_schema = get_catalog_schema()
+            selected_tables = source.get("tables") or _MV_TABLES
+            statuses = []
+            for table_name in selected_tables:
+                local_cols = _table_columns(f"`{local_catalog}`.`{local_schema}`.`{table_name}`")
+                source_cols = _table_columns(f"`{source['catalog']}`.`{source['schema']}`.`{table_name}`")
+                status = "absent" if source_cols is None else "match" if local_cols and source_cols == local_cols else "mismatch"
+                statuses.append({"table": table_name, "status": status})
+            build = _rebuild_unified_views_locked(local_catalog, local_schema)
+            return {
+                "ok": bool(build.get("ok")),
+                "label": label,
+                "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "share_last_updated": _share_last_updated(
+                    source.get("catalog"), source.get("schema"), selected_tables,
+                ),
+                "matched": sum(1 for item in statuses if item["status"] == "match"),
+                "total": len(statuses),
+                "tables": statuses,
+                "build": build,
+            }
 
     result = await asyncio.to_thread(_check)
     _invalidate_mv_caches()
@@ -1282,10 +1311,15 @@ async def add_mv_source(request: Request, body: dict) -> dict:
     """Add (or replace by label) an additional MV source and rebuild the unified
     views. The source's tables must match the app's MV structure.
 
-    Not gated on the app admin role — registering a shared-view source only ever
-    adds read-only data on top of this workspace's own, never replacing it."""
+    The source list and dependent view rebuild are one admin-only ordered
+    operation across every server worker."""
+    _require_admin(request)
     from server.db import get_mv_sources, save_mv_sources, get_catalog_schema
-    from server.materialized_views import rebuild_unified_views, _MV_TABLES
+    from server.materialized_views import (
+        _MV_TABLES,
+        _rebuild_unified_views_locked,
+        unified_views_rebuild_lock,
+    )
 
     label = (body.get("label") or "").strip()
     catalog = (body.get("catalog") or "").strip()
@@ -1304,18 +1338,28 @@ async def add_mv_source(request: Request, body: dict) -> dict:
         if not tables:
             raise HTTPException(status_code=400, detail="Select at least one view to include.")
 
-    sources = [s for s in get_mv_sources() if s.get("label") != label]
-    from datetime import datetime, timezone
-    entry = {"label": label, "catalog": catalog, "schema": schema,
-             "added_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
-    if tables is not None:
-        entry["tables"] = tables
-    cloud = await asyncio.to_thread(_detect_source_cloud, catalog)
-    if cloud:
-        entry["cloud"] = cloud
-    sources.append(entry)
-    save_mv_sources(sources)
-    summary = await asyncio.to_thread(rebuild_unified_views)
+    def _add() -> tuple[list[dict], dict]:
+        from datetime import datetime, timezone
+
+        with unified_views_rebuild_lock():
+            sources = [s for s in get_mv_sources() if s.get("label") != label]
+            entry = {
+                "label": label,
+                "catalog": catalog,
+                "schema": schema,
+                "added_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+            if tables is not None:
+                entry["tables"] = tables
+            cloud = _detect_source_cloud(catalog)
+            if cloud:
+                entry["cloud"] = cloud
+            sources.append(entry)
+            save_mv_sources(sources)
+            summary = _rebuild_unified_views_locked(cat, sch)
+            return sources, summary
+
+    sources, summary = await asyncio.to_thread(_add)
     _invalidate_mv_caches()
     # Record the source addition as a config/lineage step in the rebuild history.
     n_views = len(tables) if tables is not None else len(_MV_TABLES)
@@ -1329,14 +1373,23 @@ async def add_mv_source(request: Request, body: dict) -> dict:
 @router.delete("/mv-sources")
 async def remove_mv_source(request: Request, label: str = None) -> dict:
     """Remove an additional MV source by label and rebuild unified views."""
+    _require_admin(request)
     from server.db import get_mv_sources, save_mv_sources
-    from server.materialized_views import rebuild_unified_views
+    from server.materialized_views import (
+        _rebuild_unified_views_locked,
+        unified_views_rebuild_lock,
+    )
 
     if not label:
         raise HTTPException(status_code=400, detail="label query param is required")
-    sources = [s for s in get_mv_sources() if s.get("label") != label]
-    save_mv_sources(sources)
-    summary = await asyncio.to_thread(rebuild_unified_views)
+    def _remove() -> tuple[list[dict], dict]:
+        with unified_views_rebuild_lock():
+            sources = [s for s in get_mv_sources() if s.get("label") != label]
+            save_mv_sources(sources)
+            summary = _rebuild_unified_views_locked()
+            return sources, summary
+
+    sources, summary = await asyncio.to_thread(_remove)
     _invalidate_mv_caches()
     await asyncio.to_thread(
         append_refresh_history, "config", "config", note=f"Removed shared source '{label}'",
@@ -1767,23 +1820,29 @@ def _save_webhook_to_table(settings: dict) -> None:
     from server.db import execute_write
     _ensure_webhook_table()
     table = _config_table("app_webhook_settings")
-    execute_write(f"DELETE FROM {table}", None)
     execute_write(
-        f"INSERT INTO {table} (slack_webhook_url, updated_at) "
-        f"VALUES (:url, current_timestamp())",
+        f"INSERT OVERWRITE {table} "
+        f"SELECT :url AS slack_webhook_url, current_timestamp() AS updated_at",
         {"url": settings.get("slack_webhook_url") or ""},
     )
 
 
 def _save_webhook_settings(settings: dict) -> None:
     """Save webhook settings to Delta table (primary) and file (dev fallback)."""
+    delta_error: Exception | None = None
     try:
         _save_webhook_to_table(settings)
     except Exception as e:
+        delta_error = e
         logger.warning(f"Could not save webhook settings to Delta table: {e}")
     os.makedirs(SETTINGS_DIR, exist_ok=True)
     with open(WEBHOOK_SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
+    if delta_error is not None:
+        raise AppSettingsDurabilityError(
+            "Webhook settings were not saved durably because Delta storage is unavailable. "
+            "A local fallback was written."
+        ) from delta_error
 
 
 @router.get("/webhook")
@@ -1803,7 +1862,10 @@ async def get_webhook_settings() -> dict[str, Any]:
 async def save_webhook_settings(request: Request, settings: WebhookSettings) -> dict[str, Any]:
     """Save webhook settings."""
     _require_admin(request)
-    _save_webhook_settings({"slack_webhook_url": settings.slack_webhook_url})
+    try:
+        _save_webhook_settings({"slack_webhook_url": settings.slack_webhook_url})
+    except AppSettingsDurabilityError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     logger.info("Webhook settings updated")
     return {"status": "saved"}
 
@@ -2057,11 +2119,17 @@ async def get_schedule_settings() -> dict:
 @router.post("/schedule")
 async def save_schedule_endpoint(request: Request, data: dict) -> dict:
     _require_admin(request)
+    current = load_schedule_settings()
+    merged = {**current, **{
+        key: data[key]
+        for key in ("enabled", "frequency", "hour_utc", "lookback_days")
+        if key in data
+    }}
     settings = {
-        "enabled": bool(data.get("enabled", True)),
-        "frequency": data.get("frequency", "nightly"),
-        "hour_utc": max(0, min(23, int(data.get("hour_utc", 5)))),
-        "lookback_days": int(data.get("lookback_days", 180)),
+        "enabled": bool(merged.get("enabled", True)),
+        "frequency": merged.get("frequency", "nightly"),
+        "hour_utc": max(0, min(23, int(merged.get("hour_utc", 5)))),
+        "lookback_days": int(merged.get("lookback_days", 180)),
     }
     if settings["frequency"] not in ("nightly", "weekly", "monthly"):
         settings["frequency"] = "nightly"
@@ -2117,21 +2185,33 @@ def _load_alert_thresholds() -> dict:
     return dict(_ALERT_THRESHOLD_DEFAULTS)
 
 
+def _save_alert_thresholds_to_table(settings: dict) -> None:
+    from server.db import execute_write
+
+    _ensure_alert_thresholds_table()
+    table = _config_table("app_alert_thresholds")
+    execute_write(
+        f"INSERT OVERWRITE {table} "
+        f"SELECT :s AS settings_json, current_timestamp() AS updated_at",
+        {"s": json.dumps(settings)},
+    )
+
+
 def _save_alert_thresholds(settings: dict) -> None:
+    delta_error: Exception | None = None
     try:
-        from server.db import execute_write
-        _ensure_alert_thresholds_table()
-        table = _config_table("app_alert_thresholds")
-        execute_write(f"DELETE FROM {table}", None)
-        execute_write(
-            f"INSERT INTO {table} (settings_json, updated_at) VALUES (:s, current_timestamp())",
-            {"s": json.dumps(settings)},
-        )
+        _save_alert_thresholds_to_table(settings)
     except Exception as e:
+        delta_error = e
         logger.warning("Could not save alert thresholds to Delta: %s", e)
     os.makedirs(SETTINGS_DIR, exist_ok=True)
     with open(ALERT_THRESHOLDS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
+    if delta_error is not None:
+        raise AppSettingsDurabilityError(
+            "Alert thresholds were not saved durably because Delta storage is unavailable. "
+            "A local fallback was written."
+        ) from delta_error
 
 
 @router.get("/alert-thresholds")
@@ -2148,7 +2228,10 @@ async def save_alert_thresholds_endpoint(request: Request) -> dict:
         "daily_budget": max(0.0, float(data.get("daily_budget", 50000))),
         "workspace_budget": max(0.0, float(data.get("workspace_budget", 10000))),
     }
-    _save_alert_thresholds(settings)
+    try:
+        _save_alert_thresholds(settings)
+    except AppSettingsDurabilityError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     logger.info("Alert thresholds saved: %s", settings)
     return {"status": "saved"}
 
@@ -2240,9 +2323,9 @@ def _save_pricing_to_table(settings: dict) -> None:
     from server.db import execute_write
     _ensure_pricing_table()
     table = _config_table("app_pricing_settings")
-    execute_write(f"DELETE FROM {table}", None)
     execute_write(
-        f"INSERT INTO {table} (settings_json, updated_at) VALUES (:s, current_timestamp())",
+        f"INSERT OVERWRITE {table} "
+        f"SELECT :s AS settings_json, current_timestamp() AS updated_at",
         {"s": json.dumps(settings)},
     )
 
@@ -2284,13 +2367,20 @@ def _load_pricing_settings() -> dict:
 
 
 def _save_pricing_settings(settings: dict) -> None:
+    delta_error: Exception | None = None
     try:
         _save_pricing_to_table(settings)
     except Exception as e:
+        delta_error = e
         logger.warning("Could not save pricing settings to Delta: %s", e)
     os.makedirs(SETTINGS_DIR, exist_ok=True)
     with open(PRICING_SETTINGS_FILE, "w") as f:
         json.dump(settings, f)
+    if delta_error is not None:
+        raise AppSettingsDurabilityError(
+            "Pricing settings were not saved durably because Delta storage is unavailable. "
+            "A local fallback was written."
+        ) from delta_error
 
 
 @router.get("/pricing-mode")
@@ -2306,7 +2396,10 @@ async def get_pricing_mode() -> dict[str, Any]:
 async def set_pricing_mode(data: dict) -> dict[str, Any]:
     """Save the pricing mode setting."""
     use_account_prices = bool(data.get("use_account_prices", False))
-    _save_pricing_settings({"use_account_prices": use_account_prices})
+    try:
+        _save_pricing_settings({"use_account_prices": use_account_prices})
+    except AppSettingsDurabilityError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     return {"use_account_prices": use_account_prices, "status": "ok"}
 
 
@@ -2689,11 +2782,24 @@ async def put_unified_settings(request: Request) -> dict:
 
         schedule = body.get("schedule")
         if isinstance(schedule, dict):
+            current_schedule = load_schedule_settings()
+            merged_schedule = {
+                **current_schedule,
+                **{
+                    key: schedule[key]
+                    for key in ("enabled", "frequency", "hour_utc", "lookback_days")
+                    if key in schedule
+                },
+            }
             sched = {
-                "enabled": bool(schedule.get("enabled", True)),
-                "frequency": schedule.get("frequency", "nightly") if schedule.get("frequency") in ("nightly", "weekly", "monthly") else "nightly",
-                "hour_utc": max(0, min(23, int(schedule.get("hour_utc", 5)))),
-                "lookback_days": int(schedule.get("lookback_days", 180)) if int(schedule.get("lookback_days", 180)) in (180, 365, 730, 1095) else 180,
+                "enabled": bool(merged_schedule.get("enabled", True)),
+                "frequency": merged_schedule.get("frequency", "nightly")
+                if merged_schedule.get("frequency") in ("nightly", "weekly", "monthly")
+                else "nightly",
+                "hour_utc": max(0, min(23, int(merged_schedule.get("hour_utc", 5)))),
+                "lookback_days": int(merged_schedule.get("lookback_days", 180))
+                if int(merged_schedule.get("lookback_days", 180)) in (180, 365, 730, 1095)
+                else 180,
             }
             _save_schedule_to_table(sched)
             try:
@@ -2709,4 +2815,7 @@ async def put_unified_settings(request: Request) -> dict:
 
         return {"status": "saved", "updated_count": updated_count}
 
-    return await asyncio.to_thread(_apply)
+    try:
+        return await asyncio.to_thread(_apply)
+    except AppSettingsDurabilityError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e

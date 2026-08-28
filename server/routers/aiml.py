@@ -1,6 +1,7 @@
 """AI/ML 360 API endpoints."""
 
 import asyncio
+import contextvars
 import logging
 import threading
 import time as _time
@@ -10,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from server.db import execute_query, execute_queries_parallel, bundle_cache_key, delta_cache_get, delta_cache_put
+from server.db import CacheGeneration, capture_cache_generation, execute_query, execute_queries_parallel, bundle_cache_key, delta_cache_get, delta_cache_put
 from server import workspace_filter as wf
 from server import cache_ttls
 
@@ -1022,7 +1023,13 @@ async def get_aiml_sku_catalog(
     }
 
 
-def _compute_aiml_bundle(params: dict, id_list: list | None, ws_clause: str, dkey: str) -> None:
+def _compute_aiml_bundle(
+    params: dict,
+    id_list: list | None,
+    ws_clause: str,
+    dkey: str,
+    cache_generation: CacheGeneration,
+) -> None:
     """Background worker: run all 8 AIML queries, build response, write to Delta cache."""
     global _aiml_available, _aiml_last_failure
     try:
@@ -1216,12 +1223,12 @@ def _compute_aiml_bundle(params: dict, id_list: list | None, ws_clause: str, dke
             "start_date": params["start_date"],
             "end_date": params["end_date"],
         }
-        delta_cache_put(dkey, "aiml:dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE)
+        delta_cache_put(dkey, "aiml:dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=cache_generation)
         logger.info("aiml dashboard-bundle background compute complete: %s", dkey)
     except Exception as e:
         logger.error("aiml dashboard-bundle background compute failed: %s", e, exc_info=True)
         try:
-            delta_cache_put(dkey, "aiml:dashboard-bundle", {"_error": str(e), "status": "error"}, ttl_seconds=60)
+            delta_cache_put(dkey, "aiml:dashboard-bundle", {"_error": str(e), "status": "error"}, ttl_seconds=60, generation=cache_generation)
         except Exception:
             pass
     finally:
@@ -1258,9 +1265,18 @@ async def get_aiml_dashboard_bundle(
     with _aiml_bundle_inflight_lock:
         if _dkey not in _aiml_bundle_inflight:
             _aiml_bundle_inflight.add(_dkey)
+            request_context = contextvars.copy_context()
+            cache_generation = capture_cache_generation("aiml:dashboard-bundle")
             threading.Thread(
-                target=_compute_aiml_bundle,
-                args=(params, id_list, ws_clause, _dkey),
+                target=request_context.run,
+                args=(
+                    _compute_aiml_bundle,
+                    params,
+                    id_list,
+                    ws_clause,
+                    _dkey,
+                    cache_generation,
+                ),
                 daemon=True,
                 name="aiml-bundle-bg",
             ).start()

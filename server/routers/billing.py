@@ -11,7 +11,7 @@ from cachetools import TTLCache
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, execute_queries_parallel, get_catalog_schema, get_host_url, get_workspace_client, bundle_cache_key, delta_cache_get, delta_cache_put, apply_mv_overrides, selected_source_labels, source_label_filter_clause
+from server.db import execute_query, execute_queries_parallel, get_catalog_schema, get_host_url, get_workspace_client, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation, apply_mv_overrides, selected_source_labels, source_label_filter_clause
 from server import cache_ttls
 from server.queries import (
     ACCOUNT_INFO,
@@ -441,6 +441,7 @@ async def get_sql_breakdown(
     _dkey = bundle_cache_key("billing:sql-breakdown", params["start_date"], params["end_date"], id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation("billing:sql-breakdown")
 
     try:
         from server import workspace_filter as wf
@@ -478,7 +479,7 @@ async def get_sql_breakdown(
             "end_date": params["end_date"],
             "using_materialized_views": use_mv,
         }
-        delta_cache_put(_dkey, "billing:sql-breakdown", _resp, ttl_seconds=cache_ttls.BUNDLE)
+        delta_cache_put(_dkey, "billing:sql-breakdown", _resp, ttl_seconds=cache_ttls.BUNDLE, generation=_cache_generation)
         return _resp
     except Exception as e:
         # If query.history is not available, return empty result
@@ -548,6 +549,7 @@ async def get_pipeline_objects(
     _dkey = bundle_cache_key("billing:pipeline-objects", params["start_date"], params["end_date"], id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation("billing:pipeline-objects")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     try:
@@ -593,7 +595,7 @@ async def get_pipeline_objects(
             "start_date": params["start_date"],
             "end_date": params["end_date"],
         }
-        delta_cache_put(_dkey, "billing:pipeline-objects", _resp, ttl_seconds=cache_ttls.BUNDLE)
+        delta_cache_put(_dkey, "billing:pipeline-objects", _resp, ttl_seconds=cache_ttls.BUNDLE, generation=_cache_generation)
         return _resp
     except Exception as e:
         return {
@@ -621,6 +623,7 @@ async def get_interactive_breakdown(
     _dkey = bundle_cache_key("billing:interactive-breakdown", params["start_date"], params["end_date"], id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation("billing:interactive-breakdown")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     try:
@@ -659,7 +662,7 @@ async def get_interactive_breakdown(
             "start_date": params["start_date"],
             "end_date": params["end_date"],
         }
-        delta_cache_put(_dkey, "billing:interactive-breakdown", _resp, ttl_seconds=cache_ttls.BUNDLE)
+        delta_cache_put(_dkey, "billing:interactive-breakdown", _resp, ttl_seconds=cache_ttls.BUNDLE, generation=_cache_generation)
         return _resp
     except Exception as e:
         return {
@@ -963,6 +966,7 @@ async def get_infra_bundle(
     _dkey = bundle_cache_key("billing:infra-bundle", params["start_date"], params["end_date"], id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation("billing:infra-bundle")
 
     _ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
@@ -1300,7 +1304,7 @@ async def get_infra_bundle(
             },
         }
         if cluster_status["available"] and timeseries_status["available"]:
-            delta_cache_put(_dkey, "billing:infra-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE)
+            delta_cache_put(_dkey, "billing:infra-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=_cache_generation)
         return _resp
     except Exception as e:
         logger.error(f"Infra bundle error: {e}")
@@ -1790,6 +1794,7 @@ async def get_dashboard_bundle_fast(
     _dkey = bundle_cache_key("billing:dashboard-bundle-fast", params["start_date"], params["end_date"], id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation("billing:dashboard-bundle-fast")
 
     # Build workspace filter — dropdown selection overrides env/file config.
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
@@ -1903,7 +1908,7 @@ async def get_dashboard_bundle_fast(
             if accurate_count > 0:
                 response["summary"]["workspace_count"] = accurate_count
 
-        delta_cache_put(_dkey, "billing:dashboard-bundle-fast", response, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE)
+        delta_cache_put(_dkey, "billing:dashboard-bundle-fast", response, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=_cache_generation)
         return response
     except Exception as e:
         logger.error("dashboard-bundle-fast failed: %s", e)
@@ -2312,6 +2317,7 @@ async def get_sku_breakdown(
     _dkey = bundle_cache_key("billing:sku-breakdown", params["start_date"], params["end_date"], id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation("billing:sku-breakdown")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
     results = await asyncio.to_thread(execute_query, _inject_ws_filter(SKU_BREAKDOWN, ws_clause), params)
 
@@ -2335,7 +2341,7 @@ async def get_sku_breakdown(
         "start_date": params["start_date"],
         "end_date": params["end_date"],
     }
-    delta_cache_put(_dkey, "billing:sku-breakdown", _resp, ttl_seconds=cache_ttls.BUNDLE)
+    delta_cache_put(_dkey, "billing:sku-breakdown", _resp, ttl_seconds=cache_ttls.BUNDLE, generation=_cache_generation)
     return _resp
 
 
@@ -2589,7 +2595,9 @@ async def get_platform_kpis(
             logger.debug(f"MV query stats failed: {e}")
 
     # Get billing-based stats (always use fast query for these)
-    query = PLATFORM_KPIS_FAST if fast or use_mv else PLATFORM_KPIS
+    query = (PLATFORM_KPIS_FAST if fast or use_mv else PLATFORM_KPIS).format(
+        ws_filter=""
+    )
     results = await asyncio.to_thread(execute_query, query, params)
 
     if results and len(results) > 0:
@@ -2607,6 +2615,7 @@ async def get_platform_kpis(
         response["total_jobs"] = int(row.get("total_jobs") or 0)
         response["total_job_runs"] = int(row.get("total_job_runs") or 0)
         response["successful_runs"] = int(row.get("successful_runs") or 0)
+        response["successful_runs_available"] = bool(row.get("result_state_available"))
         response["unique_job_owners"] = int(row.get("unique_job_owners") or 0)
         response["active_workspaces"] = int(row.get("active_workspaces") or 0)
         response["active_notebooks"] = int(row.get("active_notebooks") or 0)
@@ -2634,6 +2643,7 @@ async def get_kpis_bundle(
     _dkey = bundle_cache_key("billing:kpis-bundle", params["start_date"], params["end_date"], id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation("billing:kpis-bundle")
 
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
@@ -2658,12 +2668,14 @@ async def get_kpis_bundle(
     # ws_clause uses "u.workspace_id" (for aliased queries); build a separate clause here.
     billing_ws_clause = wf.build_ws_filter_clause(id_list=id_list, col="workspace_id")
     billing_kpis_sql = _inject_ws_filter(BILLING_KPIS_FAST, billing_ws_clause)
+    lakeflow_ws_clause = wf.build_ws_filter_clause(id_list=id_list, col="workspace_id")
+    lakeflow_kpis_sql = LAKEFLOW_JOB_STATS.format(ws_filter=lakeflow_ws_clause)
 
     # Run billing and lakeflow queries separately so a lakeflow permission failure
     # doesn't zero out the billing-backed KPIs (jobs, workspaces, clusters).
     parallel_queries: list[tuple[str, Any]] = [
         ("billing_kpis", lambda: execute_query(billing_kpis_sql, params)),
-        ("lakeflow_kpis", lambda: execute_query(LAKEFLOW_JOB_STATS, params)),
+        ("lakeflow_kpis", lambda: execute_query(lakeflow_kpis_sql, params)),
         ("anomalies", lambda: execute_query(_inject_ws_filter(anomalies_sql, ws_clause), params)),
     ]
     if use_mv:
@@ -2829,7 +2841,7 @@ async def get_kpis_bundle(
         },
     }
     # Anomaly surfaces need fresher data — cap at 5 min regardless of scope
-    delta_cache_put(_dkey, "billing:kpis-bundle", _kpis_resp, ttl_seconds=cache_ttls.KPI)
+    delta_cache_put(_dkey, "billing:kpis-bundle", _kpis_resp, ttl_seconds=cache_ttls.KPI, generation=_cache_generation)
     return _kpis_resp
 
 
@@ -2840,6 +2852,7 @@ async def get_kpi_trend(
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
     granularity: str = Query("daily", description="Granularity: daily, weekly, monthly"),
     workspace_ids: str = Query(default=None, description="Comma-separated workspace IDs to filter"),
+    tab: str = Query("dbu", description="Dashboard tab that owns this trend cache"),
 ) -> dict[str, Any]:
     """Get trend data for a specific KPI over time."""
     from server import workspace_filter as wf
@@ -2848,20 +2861,20 @@ async def get_kpi_trend(
         "end_date": end_date or get_default_end_date(),
     }
     id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    owner_tab = tab if isinstance(tab, str) and tab in {"dbu", "sql", "aiml", "tagging", "infra"} else "dbu"
+    cache_endpoint = f"trend:{owner_tab}:billing-kpi"
 
-    _dkey = bundle_cache_key(f"billing:kpi-trend:{kpi}:{granularity}", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key(f"{cache_endpoint}:{kpi}:{granularity}", params["start_date"], params["end_date"], id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation(cache_endpoint)
     def _resp(data: dict) -> dict:
-        delta_cache_put(_dkey, "billing:kpi-trend", data, ttl_seconds=cache_ttls.TREND)
+        delta_cache_put(_dkey, cache_endpoint, data, ttl_seconds=cache_ttls.TREND, generation=_cache_generation)
         return data
 
     ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
 
     use_mv = await asyncio.to_thread(_check_mv_available)
-    # MV tables are pre-aggregated and cannot be filtered by individual workspace
-    if id_list:
-        use_mv = False
 
     # Build query based on KPI type — use MVs when available for daily-aggregation KPIs
     # mv_fallback_query is set when using an MV so we can fall back to live if MV is empty
@@ -2870,7 +2883,7 @@ async def get_kpi_trend(
     if kpi == "total_spend" or kpi == "avg_daily_spend":
         if use_mv:
             catalog, schema = get_catalog_schema()
-            query = f"SELECT usage_date as date, SUM(total_spend) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
+            query = f"SELECT usage_date as date, SUM(total_spend) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {ws_clause} {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
             mv_fallback_query = """
         WITH usage_with_price AS (
           SELECT
@@ -2917,7 +2930,7 @@ async def get_kpi_trend(
     elif kpi == "total_dbus":
         if use_mv:
             catalog, schema = get_catalog_schema()
-            query = f"SELECT usage_date as date, SUM(total_dbus) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
+            query = f"SELECT usage_date as date, SUM(total_dbus) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {ws_clause} {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
             mv_fallback_query = """
         SELECT
           usage_date as date,
@@ -2942,7 +2955,7 @@ async def get_kpi_trend(
     elif kpi == "workspace_count":
         if use_mv:
             catalog, schema = get_catalog_schema()
-            query = f"SELECT usage_date as date, COUNT(DISTINCT workspace_id) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
+            query = f"SELECT usage_date as date, COUNT(DISTINCT workspace_id) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {ws_clause} {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
             mv_fallback_query = """
         SELECT
           usage_date as date,
@@ -3286,6 +3299,7 @@ async def get_kpi_trend(
         FROM `{_cat}`.`{_sch}`.`dbsql_cost_per_query`
         WHERE DATE(start_time) >= :start_date
           AND DATE(start_time) <= :end_date
+          {ws_clause}
           {source_label_filter_clause()}
         GROUP BY DATE(start_time)
         ORDER BY date
@@ -3293,7 +3307,7 @@ async def get_kpi_trend(
     elif kpi == "user_spend":
         if use_mv:
             catalog, schema = get_catalog_schema()
-            query = f"SELECT usage_date as date, SUM(user_attributed_spend) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
+            query = f"SELECT usage_date as date, SUM(user_attributed_spend) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {ws_clause} {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
             mv_fallback_query = """
         SELECT
           u.usage_date as date,
@@ -3575,6 +3589,7 @@ async def get_platform_kpi_trend(
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
     granularity: str = Query("daily", description="Granularity: daily, weekly, monthly"),
     workspace_ids: str = Query(default=None, description="Comma-separated workspace IDs to filter"),
+    tab: str = Query("kpis", description="Dashboard tab that owns this trend cache"),
 ) -> dict[str, Any]:
     """Get trend data for platform KPIs over time."""
     from server import workspace_filter as wf
@@ -3583,12 +3598,15 @@ async def get_platform_kpi_trend(
         "end_date": end_date or get_default_end_date(),
     }
     id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    owner_tab = tab if isinstance(tab, str) and tab in {"sql", "kpis"} else "kpis"
+    cache_endpoint = f"trend:{owner_tab}:platform-kpi"
 
-    _dkey = bundle_cache_key(f"billing:platform-kpi-trend:{kpi}:{granularity}", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key(f"{cache_endpoint}:{kpi}:{granularity}", params["start_date"], params["end_date"], id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
+    _cache_generation = capture_cache_generation(cache_endpoint)
     def _resp(data: dict) -> dict:
-        delta_cache_put(_dkey, "billing:platform-kpi-trend", data, ttl_seconds=cache_ttls.TREND)
+        delta_cache_put(_dkey, cache_endpoint, data, ttl_seconds=cache_ttls.TREND, generation=_cache_generation)
         return data
 
     ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
@@ -3778,13 +3796,14 @@ async def get_platform_kpi_trend(
         ORDER BY usage_date
         """
     elif kpi == "successful_runs":
-        query = """
+        query = f"""
         SELECT
           DATE(period_start_time) as date,
           COUNT(CASE WHEN result_state = 'SUCCEEDED' THEN 1 END) as value
         FROM system.lakeflow.job_run_timeline
         WHERE period_start_time >= :start_date
           AND period_start_time < DATE_ADD(CAST(:end_date AS DATE), 1)
+          {ws_clause}
         GROUP BY DATE(period_start_time)
         ORDER BY DATE(period_start_time)
         """
@@ -3930,7 +3949,13 @@ async def get_platform_kpi_trend(
         return {"error": f"Unknown platform KPI: {kpi}"}
 
     try:
-        filtered_query = _inject_qh_ws_filter(query, ws_clause) if kpi in _QH_KPIS else _inject_ws_filter(query, ws_clause)
+        filtered_query = (
+            _inject_qh_ws_filter(query, ws_clause)
+            if kpi in _QH_KPIS
+            else query
+            if kpi == "successful_runs"
+            else _inject_ws_filter(query, ws_clause)
+        )
         results = await asyncio.to_thread(execute_query, filtered_query, params)
     except Exception as e:
         logger.error(f"Platform KPI trend query failed for {kpi}: {e}")

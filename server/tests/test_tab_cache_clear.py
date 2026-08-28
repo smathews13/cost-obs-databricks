@@ -42,6 +42,23 @@ async def test_infra_cache_clear_covers_all_actual_cost_providers():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("tab", ["dbu", "sql", "infra", "kpis", "aiml", "apps", "tagging"])
+async def test_tab_cache_clear_invalidates_only_its_owned_trends(tab):
+    with (
+        patch("server.db.clear_query_cache", return_value=0),
+        patch("server.db.delta_cache_invalidate") as delta_cache_invalidate,
+    ):
+        await health.clear_cache(tab)
+
+    patterns = [call.args[0] for call in delta_cache_invalidate.call_args_list]
+    assert f"trend:{tab}:" in patterns
+    assert all(
+        not pattern.startswith("trend:") or pattern.startswith(f"trend:{tab}:")
+        for pattern in patterns
+    )
+
+
+@pytest.mark.asyncio
 async def test_optimizer_cache_clear_resets_router_caches():
     from server.routers import warehouse_health
 

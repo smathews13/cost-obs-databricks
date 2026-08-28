@@ -66,7 +66,7 @@ export function KPITrendModal({
 }: KPITrendModalProps) {
   const billingTrend = useKPITrend(kpi, startDate, endDate, "daily", workspaceIds, queryKeyPrefix);
   const platformTrend = usePlatformKPITrend(kpi, startDate, endDate, "daily", workspaceIds, queryKeyPrefix);
-  const appsTrend = useAppsKPITrend(kpi, startDate, endDate, "daily");
+  const appsTrend = useAppsKPITrend(kpi, startDate, endDate, "daily", workspaceIds);
   const { data, isLoading } = variant === "platform" ? platformTrend : variant === "apps" ? appsTrend : billingTrend;
 
   const fmt = formatValue ?? (variant === "platform" ? defaultPlatformFormat : defaultBillingFormat);

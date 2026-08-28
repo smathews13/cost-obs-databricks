@@ -19,6 +19,9 @@ describe("shared source freshness", () => {
             ok: true,
             checked_at: "2026-08-28T12:00:00Z",
             share_last_updated: "2026-08-28T11:00:00Z",
+            matched: 1,
+            total: 1,
+            tables: [{ table: "daily_usage_summary", status: "match" }],
           }),
         };
       }
@@ -57,5 +60,48 @@ describe("shared source freshness", () => {
       { method: "POST" },
     ));
     expect(await screen.findByText("Checked just now")).toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      name: "reports a failed rebuild",
+      response: { ok: false, build: { error: "view rebuild failed" }, tables: [{ table: "daily_usage_summary", status: "match" }] },
+      message: "view rebuild failed",
+    },
+    {
+      name: "reports a missing configured view",
+      response: { ok: true, matched: 0, total: 1, tables: [{ table: "daily_usage_summary", status: "absent" }] },
+      message: "Freshness check failed for: daily_usage_summary",
+    },
+  ])("$name instead of showing a successful check", async ({ response, message }) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/mv-sources/check")) {
+        return { ok: true, json: async () => response };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          local_label: "local",
+          sources: [{
+            label: "west",
+            catalog: "shared",
+            schema: "cost_obs",
+            tables: ["daily_usage_summary"],
+          }],
+        }),
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={client}>
+        <MvSourcesSection />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Check freshness" }));
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText("Checked just now")).not.toBeInTheDocument();
   });
 });

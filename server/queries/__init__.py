@@ -1019,10 +1019,12 @@ job_stats AS (
 job_run_stats AS (
   SELECT
     COUNT(*) as total_runs,
+    COUNT(result_state) > 0 as result_state_available,
     COUNT(CASE WHEN result_state = 'SUCCEEDED' THEN 1 END) as successful_runs
   FROM system.lakeflow.job_run_timeline
   WHERE period_start_time >= :start_date
     AND period_start_time < DATE_ADD(CAST(:end_date AS DATE), 1)
+    {ws_filter}
 ),
 cluster_stats AS (
   SELECT
@@ -1052,6 +1054,7 @@ SELECT
   COALESCE(j.total_jobs, 0) as total_jobs,
   COALESCE(j.total_job_runs, 0) as total_job_runs,
   COALESCE(jr.successful_runs, 0) as successful_runs,
+  COALESCE(jr.result_state_available, FALSE) as result_state_available,
   COALESCE(j.unique_job_owners, 0) as unique_job_owners,
   w.active_workspaces,
   COALESCE(c.total_clusters, 0) as active_notebooks,
@@ -1268,10 +1271,12 @@ WITH billing_agg AS (
 job_run_stats AS (
   SELECT
     COUNT(*) as total_runs,
+    COUNT(result_state) > 0 as result_state_available,
     COUNT(CASE WHEN result_state = 'SUCCEEDED' THEN 1 END) as successful_runs
   FROM system.lakeflow.job_run_timeline
   WHERE period_start_time >= :start_date
     AND period_start_time < DATE_ADD(CAST(:end_date AS DATE), 1)
+    {ws_filter}
 )
 SELECT
   0 as total_queries,
@@ -1282,6 +1287,7 @@ SELECT
   COALESCE(b.total_jobs, 0) as total_jobs,
   COALESCE(b.total_job_runs, 0) as total_job_runs,
   COALESCE(jr.successful_runs, 0) as successful_runs,
+  COALESCE(jr.result_state_available, FALSE) as result_state_available,
   COALESCE(b.unique_job_owners, 0) as unique_job_owners,
   COALESCE(b.active_workspaces, 0) as active_workspaces,
   COALESCE(b.total_clusters, 0) as active_notebooks,
@@ -1388,4 +1394,5 @@ FROM system.lakeflow.job_run_timeline
 WHERE period_start_time >= :start_date
   AND period_start_time < DATE_ADD(CAST(:end_date AS DATE), 1)
   AND period_end_time IS NOT NULL
+  {ws_filter}
 """

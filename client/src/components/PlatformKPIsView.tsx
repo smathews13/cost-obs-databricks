@@ -9,6 +9,11 @@ import { useFeatureAvailability } from "@/hooks/useFeatureAvailability";
 import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { LoadingPanels, Spinner } from "@/components/Spinner";
+import {
+  buildFilteredUrl,
+  getActiveSourceScopeKey,
+  getWorkspaceScopeKey,
+} from "@/hooks/useBillingData";
 
 interface PlatformKPIsViewProps {
   data: PlatformKPIsResponse | undefined;
@@ -144,26 +149,26 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
     label: string;
   } | null>(null);
 
-  const wsKey = workspaceIds?.join(",") ?? "";
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
+  const sourceKey = getActiveSourceScopeKey();
 
   // Pre-warm the first 3 KPI trends in the background; the rest load on card click
   useEffect(() => {
     if (!startDate || !endDate) return;
     for (const kpi of PLATFORM_KPI_KEYS.slice(0, 3)) {
       queryClient.prefetchQuery({
-        queryKey: ["kpis-platform-kpi-trend", kpi, startDate, endDate, "daily", wsKey],
+        queryKey: ["kpis-platform-kpi-trend", kpi, startDate, endDate, "daily", wsKey, sourceKey],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
           params.set("tab", "kpis");
-          if (workspaceIds?.length) params.set("workspace_ids", workspaceIds.join(","));
-          const res = await fetch(`/api/billing/platform-kpi-trend?${params}`);
+          const res = await fetch(buildFilteredUrl("/api/billing/platform-kpi-trend", params, workspaceIds));
           if (!res.ok) throw new Error("prefetch failed");
           return res.json();
         },
         staleTime: 5 * 60 * 1000,
       });
     }
-  }, [startDate, endDate, wsKey, queryClient]);
+  }, [startDate, endDate, wsKey, sourceKey, workspaceIds, queryClient]);
 
   // Info box minimize state with localStorage persistence
   const MINIMIZE_KEY = "cost-obs-minimize-kpis-info";

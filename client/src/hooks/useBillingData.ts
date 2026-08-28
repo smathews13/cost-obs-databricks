@@ -69,7 +69,38 @@ async function fetchJson<T>(url: string): Promise<T> {
 // narrow MV reads by source; changing it invalidates queries to force a refetch.
 let _activeSourceLabels: string[] = [];
 export function setActiveSourceLabels(labels: string[]): void {
-  _activeSourceLabels = labels ?? [];
+  _activeSourceLabels = Array.from(new Set(labels ?? [])).filter(Boolean).sort();
+}
+
+export function getActiveSourceLabels(): string[] {
+  return [..._activeSourceLabels];
+}
+
+export function getActiveSourceScopeKey(): string {
+  return _activeSourceLabels.join("\u0001");
+}
+
+export function getWorkspaceScopeKey(workspaceIds?: string[]): string {
+  return workspaceIds?.length ? [...workspaceIds].sort().join(",") : "";
+}
+
+/**
+ * Add the dashboard's active source/workspace scope to an API URL. Source labels
+ * remain repeated query parameters so labels containing commas round-trip.
+ */
+export function buildFilteredUrl(
+  endpoint: string,
+  params: URLSearchParams = new URLSearchParams(),
+  workspaceIds?: string[],
+): string {
+  const scoped = new URLSearchParams(params);
+  for (const label of _activeSourceLabels) {
+    scoped.append("source_labels", label);
+  }
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
+  if (wsKey) scoped.set("workspace_ids", wsKey);
+  const queryString = scoped.toString();
+  return queryString ? `${endpoint}?${queryString}` : endpoint;
 }
 
 function buildUrl(endpoint: string, dateRange?: DateRange): string {
@@ -80,19 +111,14 @@ function buildUrl(endpoint: string, dateRange?: DateRange): string {
   if (dateRange?.endDate) {
     params.set("end_date", dateRange.endDate);
   }
-  // One param per label (not comma-joined) so a label containing a comma round-trips.
-  for (const lbl of _activeSourceLabels) {
-    if (lbl) params.append("source_labels", lbl);
-  }
-  const queryString = params.toString();
-  return queryString ? `${endpoint}?${queryString}` : endpoint;
+  return buildFilteredUrl(endpoint, params);
 }
 
 function buildUrlWithWs(endpoint: string, dateRange?: DateRange, workspaceIds?: string[]): string {
-  const base = buildUrl(endpoint, dateRange);
-  const wsKey = workspaceIds?.length ? workspaceIds.join(",") : null;
-  if (!wsKey) return base;
-  return `${base}${base.includes("?") ? "&" : "?"}workspace_ids=${encodeURIComponent(wsKey)}`;
+  const params = new URLSearchParams();
+  if (dateRange?.startDate) params.set("start_date", dateRange.startDate);
+  if (dateRange?.endDate) params.set("end_date", dateRange.endDate);
+  return buildFilteredUrl(endpoint, params, workspaceIds);
 }
 
 

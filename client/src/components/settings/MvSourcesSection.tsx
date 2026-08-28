@@ -177,6 +177,26 @@ export function MvSourcesSection() {
       const res = await fetch(`/api/settings/mv-sources/check?label=${encodeURIComponent(lbl)}`, { method: "POST" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+      if (body.ok === false) {
+        throw new Error(body.detail || body.error || body.build?.error || "Freshness check failed");
+      }
+      const configuredTables = sources.find((source) => source.label === lbl)?.tables;
+      const statuses = new Map<string, string>(
+        (Array.isArray(body.tables) ? body.tables : [])
+          .map((table: PreviewTable) => [table.table, table.status]),
+      );
+      const failedTables = configuredTables?.length
+        ? configuredTables.filter((table) => statuses.get(table) !== "match")
+        : (Array.isArray(body.tables)
+          ? body.tables.filter((table: PreviewTable) => table.status !== "match").map((table: PreviewTable) => table.table)
+          : []);
+      if (failedTables.length > 0 || (
+        typeof body.total === "number"
+        && typeof body.matched === "number"
+        && body.matched !== body.total
+      )) {
+        throw new Error(`Freshness check failed for: ${failedTables.join(", ") || "configured views"}`);
+      }
       setLastChecked((current) => ({ ...current, [lbl]: body.checked_at || new Date().toISOString() }));
       await queryClient.invalidateQueries({ queryKey: ["mv-sources"] });
       await queryClient.invalidateQueries({ predicate: (query) => (
@@ -272,6 +292,8 @@ export function MvSourcesSection() {
           })}
         </div>
       ) : null}
+
+      {error && !open && <div className="mt-2 rounded bg-red-50 px-2 py-1 text-[11px] text-red-700">{error}</div>}
 
       {open && (
         <div className="mt-2 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">

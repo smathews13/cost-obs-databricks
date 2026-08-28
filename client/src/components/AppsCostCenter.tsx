@@ -19,6 +19,11 @@ import { LoadingPanels } from "./Spinner";
 import { formatIdentity } from "@/utils/identity";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import {
+  buildFilteredUrl,
+  getActiveSourceScopeKey,
+  getWorkspaceScopeKey,
+} from "@/hooks/useBillingData";
 
 interface AppsCostCenterProps {
   data: AppsDashboardBundle | undefined;
@@ -175,21 +180,23 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
 
   // Pre-warm trend queries so modals open instantly (uses apps-specific endpoint)
   const queryClient = useQueryClient();
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
+  const sourceKey = getActiveSourceScopeKey();
   useEffect(() => {
     if (!startDate || !endDate) return;
     for (const kpi of ["apps_spend", "apps_dbus", "apps_count", "apps_avg_cost_per_app"]) {
       queryClient.prefetchQuery({
-        queryKey: ["apps-kpi-trend", kpi, startDate, endDate, "daily"],
+        queryKey: ["apps-kpi-trend", kpi, startDate, endDate, "daily", wsKey, sourceKey],
         queryFn: async () => {
           const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
-          const res = await fetch(`/api/apps/kpi-trend?${params}`);
+          const res = await fetch(buildFilteredUrl("/api/apps/kpi-trend", params, workspaceIds));
           if (!res.ok) throw new Error("prefetch failed");
           return res.json();
         },
         staleTime: 5 * 60 * 1000,
       });
     }
-  }, [startDate, endDate, queryClient]);
+  }, [startDate, endDate, wsKey, sourceKey, workspaceIds, queryClient]);
 
   const handleMinimizeToggle = (checked: boolean) => {
     setInfoMinimized(checked);

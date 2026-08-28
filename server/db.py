@@ -10,6 +10,7 @@ import time
 from concurrent.futures import as_completed
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any, Callable, Generator
 
 # Per-request user token set by UserAuthMiddleware when x-forwarded-access-token
@@ -850,9 +851,23 @@ def save_mv_sources(sources: list[dict]) -> None:
             entry["added_at"] = str(s["added_at"])
         clean.append(entry)
     os.makedirs(os.path.dirname(_MV_SOURCES_FILE), exist_ok=True)
-    with open(_MV_SOURCES_FILE, "w") as f:
+    temp_path = f"{_MV_SOURCES_FILE}.{os.getpid()}.{threading.get_ident()}.tmp"
+    with open(temp_path, "w") as f:
         json.dump(clean, f, indent=2)
-    write_delta_mv_sources(clean)
+        f.flush()
+        os.fsync(f.fileno())
+    # Prepare the local copy first, then land Delta atomically, and only publish
+    # the prepared file after Delta succeeds. A failed durable write therefore
+    # cannot become visible to another app worker as a successful source change.
+    try:
+        write_delta_mv_sources(clean)
+    except Exception:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+        raise
+    os.replace(temp_path, _MV_SOURCES_FILE)
     write_dbfs_mv_sources(clean)
     logger.info("MV sources saved: %s", [s["label"] for s in clean])
 
@@ -918,30 +933,51 @@ def read_delta_mv_sources() -> list[dict]:
 
 
 def write_delta_mv_sources(sources: list[dict]) -> None:
-    """Persist MV sources to the durable Delta table (replace-all). Best-effort.
+    """Atomically replace all MV sources in the durable Delta table.
+
     `added_at` is carried on each source so its original add-time survives the
     replace-all rewrite; only genuinely new sources get a fresh timestamp (set by
     the caller)."""
-    try:
-        table = _mv_sources_table()
-        if not table:
-            return
-        _ensure_mv_sources_table()
-        execute_write(f"DELETE FROM {table}", None)
-        for s in sources:
-            execute_write(
-                f"INSERT INTO {table} (label, catalog, schema, tables, cloud, added_at, updated_at) "
-                f"VALUES (:label, :catalog, :schema, :tables, :cloud, :added_at, current_timestamp())",
-                {
-                    "label": s["label"], "catalog": s["catalog"], "schema": s["schema"],
-                    "tables": json.dumps(s["tables"]) if isinstance(s.get("tables"), list) else None,
-                    "cloud": s.get("cloud"),
-                    "added_at": s.get("added_at"),
-                },
+    table = _mv_sources_table()
+    if not table:
+        return
+    _ensure_mv_sources_table()
+    if not sources:
+        execute_write(
+            f"INSERT OVERWRITE {table} "
+            "SELECT CAST(NULL AS STRING) AS label, CAST(NULL AS STRING) AS catalog, "
+            "CAST(NULL AS STRING) AS schema, CAST(NULL AS STRING) AS tables, "
+            "CAST(NULL AS STRING) AS cloud, CAST(NULL AS STRING) AS added_at, "
+            "CAST(NULL AS TIMESTAMP) AS updated_at WHERE FALSE",
+            None,
+        )
+    else:
+        params: dict[str, Any] = {}
+        value_rows: list[str] = []
+        for index, source in enumerate(sources):
+            value_rows.append(
+                f"(:label_{index}, :catalog_{index}, :schema_{index}, "
+                f":tables_{index}, :cloud_{index}, :added_at_{index})"
             )
-        logger.info("MV sources persisted to Delta table (%d source(s))", len(sources))
-    except Exception as e:
-        logger.warning("Could not persist mv_sources to Delta (non-fatal): %s", e)
+            params.update({
+                f"label_{index}": source["label"],
+                f"catalog_{index}": source["catalog"],
+                f"schema_{index}": source["schema"],
+                f"tables_{index}": json.dumps(source["tables"])
+                if isinstance(source.get("tables"), list)
+                else None,
+                f"cloud_{index}": source.get("cloud"),
+                f"added_at_{index}": source.get("added_at"),
+            })
+        execute_write(
+            f"INSERT OVERWRITE {table} "
+            "SELECT source.label, source.catalog, source.schema, source.tables, "
+            "source.cloud, source.added_at, current_timestamp() AS updated_at "
+            f"FROM VALUES {', '.join(value_rows)} "
+            "AS source(label, catalog, schema, tables, cloud, added_at)",
+            params,
+        )
+    logger.info("MV sources persisted to Delta table (%d source(s))", len(sources))
 
 
 def write_dbfs_mv_sources(sources: list[dict]) -> None:
@@ -1237,6 +1273,90 @@ def bundle_cache_key(endpoint: str, start_date: str, end_date: str, workspace_id
 # round-trip on every bundle request when the payload is already warm.
 _delta_l1: TTLCache = TTLCache(maxsize=50, ttl=300)
 _delta_l1_endpoints: dict[str, str] = {}
+_delta_l1_generations: dict[str, int] = {}
+
+# A manual tab clear must fence out work that started before the clear, including
+# work running in another uvicorn process.  The generation registry lives in
+# /tmp, which is shared by all workers in the app container, and is protected by
+# flock plus a process-local lock.  Holding the operation lock through a remote
+# cache read/write gives clear a strict before/after ordering:
+#   old write -> clear deletes it, or clear -> old write is rejected.
+_CACHE_GENERATION_STATE_PATH = "/tmp/cost-obs-cache-generations.json"
+_CACHE_GENERATION_LOCK_PATH = "/tmp/cost-obs-cache-generations.lock"
+_cache_generation_thread_lock = threading.RLock()
+
+
+@dataclass(frozen=True)
+class CacheGeneration:
+    """Snapshot captured when a cache-producing operation starts."""
+
+    endpoint: str
+    value: int
+
+
+def _read_cache_generation_state() -> dict[str, Any]:
+    try:
+        with open(_CACHE_GENERATION_STATE_PATH) as f:
+            state = json.load(f)
+        if isinstance(state, dict):
+            return {
+                "sequence": int(state.get("sequence", 0)),
+                "global": int(state.get("global", 0)),
+                "prefixes": {
+                    str(k): int(v)
+                    for k, v in (state.get("prefixes") or {}).items()
+                },
+            }
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError):
+        pass
+    return {"sequence": 0, "global": 0, "prefixes": {}}
+
+
+def _write_cache_generation_state(state: dict[str, Any]) -> None:
+    temp_path = f"{_CACHE_GENERATION_STATE_PATH}.{os.getpid()}.{threading.get_ident()}.tmp"
+    with open(temp_path, "w") as f:
+        json.dump(state, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp_path, _CACHE_GENERATION_STATE_PATH)
+
+
+@contextmanager
+def _cache_generation_operation_lock() -> Generator[dict[str, Any], None, None]:
+    """Cross-process lock for generation checks and cache mutations."""
+    import fcntl
+
+    with _cache_generation_thread_lock:
+        with open(_CACHE_GENERATION_LOCK_PATH, "a+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                yield _read_cache_generation_state()
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def _cache_generation_value(endpoint: str, state: dict[str, Any]) -> int:
+    values = [int(state.get("global", 0))]
+    values.extend(
+        int(generation)
+        for prefix, generation in (state.get("prefixes") or {}).items()
+        if endpoint.startswith(prefix)
+    )
+    return max(values, default=0)
+
+
+def capture_cache_generation(endpoint: str) -> CacheGeneration:
+    """Capture the invalidation generation for an endpoint before computing it."""
+    # The state file is atomically replaced, so request threads can snapshot it
+    # without waiting behind a potentially slow remote cache write.
+    state = _read_cache_generation_state()
+    return CacheGeneration(endpoint=endpoint, value=_cache_generation_value(endpoint, state))
+
+
+def _cache_generation_is_current(
+    generation: CacheGeneration, state: dict[str, Any]
+) -> bool:
+    return generation.value == _cache_generation_value(generation.endpoint, state)
 
 
 def delta_cache_get(key: str) -> dict | None:
@@ -1247,7 +1367,17 @@ def delta_cache_get(key: str) -> dict | None:
     Async handlers wanting a Delta read should call asyncio.to_thread(delta_cache_get, key).
     """
     if key in _delta_l1:
-        return _delta_l1[key]
+        endpoint = _delta_l1_endpoints.get(key)
+        cached_generation = _delta_l1_generations.get(key)
+        if endpoint is None or cached_generation is None:
+            return _delta_l1[key]
+        with _cache_generation_thread_lock:
+            state = _read_cache_generation_state()
+            if cached_generation == _cache_generation_value(endpoint, state):
+                return _delta_l1[key]
+            _delta_l1.pop(key, None)
+            _delta_l1_endpoints.pop(key, None)
+            _delta_l1_generations.pop(key, None)
     # Skip the blocking SQL check when called from the event loop thread.
     # The blocking _cfwait below would freeze the event loop for up to 5 seconds;
     # return None (cache miss) instead and let the handler recompute.
@@ -1266,16 +1396,20 @@ def delta_cache_get(key: str) -> dict | None:
         ctx = contextvars.copy_context()
 
         def _run():
-            tok = _user_token.set("")
-            try:
-                return execute_query(
-                    f"SELECT payload_json, endpoint FROM `{cat}`.`{sch}`.`app_response_cache` "
-                    f"WHERE cache_key = :key AND expires_at > CURRENT_TIMESTAMP() LIMIT 1",
-                    {"key": key},
-                    no_cache=True,
-                )
-            finally:
-                _user_token.reset(tok)
+            with _cache_generation_operation_lock() as state:
+                tok = _user_token.set("")
+                try:
+                    rows = execute_query(
+                        f"SELECT payload_json, endpoint FROM `{cat}`.`{sch}`.`app_response_cache` "
+                        f"WHERE cache_key = :key AND expires_at > CURRENT_TIMESTAMP() LIMIT 1",
+                        {"key": key},
+                        no_cache=True,
+                    )
+                finally:
+                    _user_token.reset(tok)
+                endpoint = str(rows[0].get("endpoint") or "") if rows else ""
+                generation = _cache_generation_value(endpoint, state)
+                return rows, generation
 
         future: Future = Future()
 
@@ -1290,108 +1424,154 @@ def delta_cache_get(key: str) -> dict | None:
         if not done:
             logger.debug("Delta cache SQL read timed out after 5s — treating as cache miss")
             return None
-        rows = future.result()
+        rows, generation = future.result()
         if rows and rows[0].get("payload_json"):
             import gzip, base64 as _b64
             result = json.loads(gzip.decompress(_b64.b64decode(rows[0]["payload_json"])).decode())
             _delta_l1[key] = result
             if rows[0].get("endpoint"):
                 _delta_l1_endpoints[key] = str(rows[0]["endpoint"])
+                _delta_l1_generations[key] = generation
             return result
     except Exception as e:
         logger.debug("Delta cache read failed (non-fatal): %s", e)
     return None
 
 
-def delta_cache_put(key: str, endpoint: str, payload: dict, ttl_seconds: int = 600) -> None:
+def delta_cache_put(
+    key: str,
+    endpoint: str,
+    payload: dict,
+    ttl_seconds: int = 600,
+    generation: CacheGeneration | None = None,
+) -> bool:
     """Write a bundle payload to the Delta response cache. Fails silently; one retry on conflict.
 
     L1 is updated synchronously and immediately. The Delta SQL write runs in a fire-and-forget
     daemon thread so the caller (async handler or daemon thread) is never blocked.
     """
-    _delta_l1[key] = payload  # L1 update is always immediate
-    _delta_l1_endpoints[key] = endpoint
-    for stale_key in set(_delta_l1_endpoints) - set(_delta_l1):
-        _delta_l1_endpoints.pop(stale_key, None)
+    operation_generation = generation or capture_cache_generation(endpoint)
+    if operation_generation.endpoint != endpoint:
+        raise ValueError("Cache generation endpoint must match the cache write endpoint.")
 
-    def _write(_key=key, _endpoint=endpoint, _payload=payload, _ttl=ttl_seconds):
-        if not _ensure_response_cache_table():
-            return
-        cat, sch = get_catalog_schema()
-        if not cat or not sch:
-            return
-        import gzip, base64 as _b64
-        compressed = _b64.b64encode(gzip.compress(json.dumps(_payload).encode())).decode("ascii")
-        merge_sql = f"""MERGE INTO `{cat}`.`{sch}`.`app_response_cache` AS tgt
-            USING (SELECT
-                :key      AS cache_key,
-                :endpoint AS endpoint,
-                :payload  AS payload_json,
-                CURRENT_TIMESTAMP() AS computed_at,
-                TIMESTAMPADD(SECOND, {_ttl}, CURRENT_TIMESTAMP()) AS expires_at
-            ) AS src
-            ON tgt.cache_key = src.cache_key
-            WHEN MATCHED THEN UPDATE SET *
-            WHEN NOT MATCHED BY TARGET THEN INSERT *"""
-        merge_params = {"key": _key, "endpoint": _endpoint, "payload": compressed}
-        for attempt in range(2):
-            try:
-                tok = _user_token.set("")
-                try:
-                    execute_query(
-                        f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache` WHERE expires_at < CURRENT_TIMESTAMP()",
-                        no_cache=True,
-                    )
-                    execute_query(merge_sql, merge_params, no_cache=True)
-                finally:
-                    _user_token.reset(tok)
+    # Keep the request path non-blocking with respect to remote Delta writes.
+    # The local lock still orders this worker's L1 update against a clear; the
+    # daemon re-check below performs the authoritative cross-process fence.
+    with _cache_generation_thread_lock:
+        state = _read_cache_generation_state()
+        if not _cache_generation_is_current(operation_generation, state):
+            logger.info("Rejected stale cache write for %s after invalidation", endpoint)
+            return False
+        _delta_l1[key] = payload
+        _delta_l1_endpoints[key] = endpoint
+        _delta_l1_generations[key] = operation_generation.value
+        for stale_key in set(_delta_l1_endpoints) - set(_delta_l1):
+            _delta_l1_endpoints.pop(stale_key, None)
+            _delta_l1_generations.pop(stale_key, None)
+
+    def _write(
+        _key=key,
+        _endpoint=endpoint,
+        _payload=payload,
+        _ttl=ttl_seconds,
+        _generation=operation_generation,
+    ):
+        with _cache_generation_operation_lock() as state:
+            if not _cache_generation_is_current(_generation, state):
+                logger.info("Rejected stale Delta cache write for %s after invalidation", _endpoint)
                 return
-            except Exception as e:
-                if attempt == 0:
-                    logger.debug("Delta cache write conflict, retrying: %s", e)
-                else:
-                    logger.debug("Delta cache write failed after retry (non-fatal): %s", e)
+            if not _ensure_response_cache_table():
+                return
+            cat, sch = get_catalog_schema()
+            if not cat or not sch:
+                return
+            import gzip, base64 as _b64
+            compressed = _b64.b64encode(gzip.compress(json.dumps(_payload).encode())).decode("ascii")
+            merge_sql = f"""MERGE INTO `{cat}`.`{sch}`.`app_response_cache` AS tgt
+                USING (SELECT
+                    :key      AS cache_key,
+                    :endpoint AS endpoint,
+                    :payload  AS payload_json,
+                    CURRENT_TIMESTAMP() AS computed_at,
+                    TIMESTAMPADD(SECOND, {_ttl}, CURRENT_TIMESTAMP()) AS expires_at
+                ) AS src
+                ON tgt.cache_key = src.cache_key
+                WHEN MATCHED THEN UPDATE SET *
+                WHEN NOT MATCHED BY TARGET THEN INSERT *"""
+            merge_params = {"key": _key, "endpoint": _endpoint, "payload": compressed}
+            for attempt in range(2):
+                try:
+                    tok = _user_token.set("")
+                    try:
+                        execute_query(
+                            f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache` WHERE expires_at < CURRENT_TIMESTAMP()",
+                            no_cache=True,
+                        )
+                        execute_query(merge_sql, merge_params, no_cache=True)
+                    finally:
+                        _user_token.reset(tok)
+                    return
+                except Exception as e:
+                    if attempt == 0:
+                        logger.debug("Delta cache write conflict, retrying: %s", e)
+                    else:
+                        logger.debug("Delta cache write failed after retry (non-fatal): %s", e)
 
     threading.Thread(target=_write, daemon=True, name="delta-cache-put").start()
+    return True
 
 
 def delta_cache_invalidate(pattern: str | None = None) -> None:
     """Delete Delta cache entries, optionally filtered by endpoint prefix."""
-    # Keep endpoint metadata beside the hashed L1 keys so a per-tab refresh does
-    # not evict unrelated tabs from the in-process response cache.
-    if pattern:
-        matching_keys = [
-            key for key, endpoint in _delta_l1_endpoints.items()
-            if endpoint.startswith(pattern)
-        ]
-        for key in matching_keys:
-            _delta_l1.pop(key, None)
-            _delta_l1_endpoints.pop(key, None)
-    else:
-        _delta_l1.clear()
-        _delta_l1_endpoints.clear()
-    # Clear Delta (remote)
-    try:
-        cat, sch = get_catalog_schema()
-        if not cat or not sch:
-            return
-        tok = _user_token.set("")
+    with _cache_generation_operation_lock() as state:
+        sequence = int(state.get("sequence", 0)) + 1
+        state["sequence"] = sequence
+        if pattern:
+            state.setdefault("prefixes", {})[pattern] = sequence
+        else:
+            state["global"] = sequence
+            state["prefixes"] = {}
+        _write_cache_generation_state(state)
+
+        # Keep endpoint metadata beside the hashed L1 keys so a per-tab refresh
+        # does not evict unrelated tabs from this worker's response cache.
+        if pattern:
+            matching_keys = [
+                key for key, endpoint in _delta_l1_endpoints.items()
+                if endpoint.startswith(pattern)
+            ]
+            for key in matching_keys:
+                _delta_l1.pop(key, None)
+                _delta_l1_endpoints.pop(key, None)
+                _delta_l1_generations.pop(key, None)
+        else:
+            _delta_l1.clear()
+            _delta_l1_endpoints.clear()
+            _delta_l1_generations.clear()
+
+        # Clear Delta while retaining the same operation lock. An older writer
+        # either completed before this delete or will observe the new generation.
         try:
-            if pattern:
-                execute_query(
-                    f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache` WHERE endpoint LIKE :pat",
-                    {"pat": f"{pattern}%"},
-                    no_cache=True,
-                )
-            else:
-                execute_query(
-                    f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache`",
-                    no_cache=True,
-                )
-        finally:
-            _user_token.reset(tok)
-    except Exception as e:
-        logger.debug("Delta cache invalidation failed (non-fatal): %s", e)
+            cat, sch = get_catalog_schema()
+            if not cat or not sch:
+                return
+            tok = _user_token.set("")
+            try:
+                if pattern:
+                    execute_query(
+                        f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache` WHERE endpoint LIKE :pat",
+                        {"pat": f"{pattern}%"},
+                        no_cache=True,
+                    )
+                else:
+                    execute_query(
+                        f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache`",
+                        no_cache=True,
+                    )
+            finally:
+                _user_token.reset(tok)
+        except Exception as e:
+            logger.debug("Delta cache invalidation failed (non-fatal): %s", e)
 
 # Singleton WorkspaceClient instance
 _workspace_client: WorkspaceClient | None = None
