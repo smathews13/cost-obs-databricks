@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  buildSettingsUpdate,
   hydrateSettingsFromServer,
   loadAppSettings,
   loadTabVisibility,
+  mergeUnifiedSettings,
   persistAppSettings,
   persistTabVisibility,
 } from "../settingsHydration";
@@ -114,5 +116,78 @@ describe("settings hydration", () => {
     expect(hydrated.appSettings.anomalySensitivity).toBe("low");
     expect(hydrated.tabVisibility.dbu).toBe(true);
     expect(hydrated.tabVisibility.sql).toBe(false);
+  });
+
+  it("builds a field-level update and counts exact changed settings", () => {
+    const baselineSettings = loadAppSettings();
+    const baselineVisibility = loadTabVisibility();
+    const currentSettings = {
+      ...baselineSettings,
+      companyName: "Acme",
+      alertDailyBudget: 25000,
+      expDebuggerLink: true,
+    };
+    const currentVisibility = { ...baselineVisibility, infra: false, optimizer: false };
+
+    expect(buildSettingsUpdate(
+      currentSettings,
+      baselineSettings,
+      currentVisibility,
+      baselineVisibility,
+    )).toEqual({
+      payload: {
+        general: { company_name: "Acme" },
+        thresholds: { daily_budget: 25000 },
+        experimental: { exp_debugger_link: true },
+        tab_visibility: { infra: false, optimizer: false },
+      },
+      updatedCount: 5,
+    });
+  });
+
+  it("sends only app settings for a tab-only change", () => {
+    const settings = loadAppSettings();
+    const baselineVisibility = loadTabVisibility();
+    const update = buildSettingsUpdate(
+      settings,
+      settings,
+      { ...baselineVisibility, infra: false },
+      baselineVisibility,
+    );
+
+    expect(update).toEqual({
+      payload: { tab_visibility: { infra: false } },
+      updatedCount: 1,
+    });
+    expect(update.payload).not.toHaveProperty("general");
+    expect(update.payload).not.toHaveProperty("thresholds");
+  });
+
+  it("includes an explicitly cleared webhook and merges partial cache updates", () => {
+    const baselineSettings = { ...loadAppSettings(), slackWebhookUrl: "https://hooks.slack.com/services/secret" };
+    const update = buildSettingsUpdate(
+      { ...baselineSettings, slackWebhookUrl: "" },
+      baselineSettings,
+      loadTabVisibility(),
+      loadTabVisibility(),
+    );
+
+    expect(update).toEqual({
+      payload: { webhook: { slack_webhook_url: "" } },
+      updatedCount: 1,
+    });
+    expect(mergeUnifiedSettings({
+      general: { company_name: "Old" },
+      tab_visibility: { dbu: true, infra: true },
+      webhook: { configured: true, masked_url: "****" },
+    }, {
+      general: { company_name: "New" },
+      tab_visibility: { infra: false },
+      webhook: { slack_webhook_url: "" },
+    })).toMatchObject({
+      general: { company_name: "New" },
+      tab_visibility: { dbu: true, infra: false },
+      webhook: { configured: false, masked_url: null },
+    });
   });
 });

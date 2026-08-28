@@ -48,12 +48,29 @@ export interface UnifiedSettings {
     exp_debugger_link?: unknown;
     enable_architecture_view?: unknown;
   };
+  webhook?: {
+    configured?: boolean;
+    masked_url?: string | null;
+  };
   capabilities?: {
     smtp_configured: boolean;
     workspace_names_available: boolean;
     account_prices_available: boolean;
     is_admin: boolean;
   };
+}
+
+export interface SettingsUpdatePayload {
+  general?: Record<string, unknown>;
+  tab_visibility?: Partial<TabVisibility>;
+  thresholds?: Record<string, unknown>;
+  experimental?: Record<string, unknown>;
+  webhook?: { slack_webhook_url: string };
+}
+
+export interface SettingsUpdate {
+  payload: SettingsUpdatePayload;
+  updatedCount: number;
 }
 
 export const DEFAULT_VISIBILITY: TabVisibility = {
@@ -244,4 +261,113 @@ export function settingsAreEqual(left: AppSettings, right: AppSettings): boolean
 export function tabVisibilityIsEqual(left: TabVisibility, right: TabVisibility): boolean {
   return (Object.keys(DEFAULT_VISIBILITY) as (keyof TabVisibility)[])
     .every((key) => left[key] === right[key]);
+}
+
+const GENERAL_FIELDS = {
+  companyName: "company_name",
+  appDisplayName: "app_display_name",
+  defaultDateRangeDays: "default_date_range_days",
+  defaultLandingTab: "default_landing_tab",
+  refreshIntervalMinutes: "auto_refresh_minutes",
+  density: "density",
+  theme: "theme",
+  showWorkspaceNames: "show_workspace_names",
+  anonymizeUsers: "anonymize_users",
+} as const satisfies Partial<Record<keyof AppSettings, string>>;
+
+const THRESHOLD_FIELDS = {
+  alertSpikePercent: "spike_threshold_percent",
+  alertDailyBudget: "daily_budget",
+  alertWorkspaceBudget: "workspace_budget",
+  anomalySensitivity: "anomaly_sensitivity",
+} as const satisfies Partial<Record<keyof AppSettings, string>>;
+
+const EXPERIMENTAL_FIELDS = {
+  expSetupWizardLink: "exp_setup_wizard_link",
+  expDebuggerLink: "exp_debugger_link",
+  enableArchitectureView: "enable_architecture_view",
+} as const satisfies Partial<Record<keyof AppSettings, string>>;
+
+function collectChangedSettings(
+  current: AppSettings,
+  baseline: AppSettings,
+  mapping: Partial<Record<keyof AppSettings, string>>,
+): Record<string, unknown> {
+  const changed: Record<string, unknown> = {};
+  for (const [clientKey, serverKey] of Object.entries(mapping) as [keyof AppSettings, string][]) {
+    if (current[clientKey] !== baseline[clientKey]) changed[serverKey] = current[clientKey];
+  }
+  return changed;
+}
+
+/**
+ * Build the unified PUT body from field-level changes only. The count is the
+ * exact number of draft fields that differ from the last durable baseline.
+ */
+export function buildSettingsUpdate(
+  currentSettings: AppSettings,
+  baselineSettings: AppSettings,
+  currentVisibility: TabVisibility,
+  baselineVisibility: TabVisibility,
+): SettingsUpdate {
+  const payload: SettingsUpdatePayload = {};
+  let updatedCount = 0;
+
+  const general = collectChangedSettings(currentSettings, baselineSettings, GENERAL_FIELDS);
+  if (Object.keys(general).length) {
+    payload.general = general;
+    updatedCount += Object.keys(general).length;
+  }
+
+  const thresholds = collectChangedSettings(currentSettings, baselineSettings, THRESHOLD_FIELDS);
+  if (Object.keys(thresholds).length) {
+    payload.thresholds = thresholds;
+    updatedCount += Object.keys(thresholds).length;
+  }
+
+  const experimental = collectChangedSettings(currentSettings, baselineSettings, EXPERIMENTAL_FIELDS);
+  if (Object.keys(experimental).length) {
+    payload.experimental = experimental;
+    updatedCount += Object.keys(experimental).length;
+  }
+
+  const tabVisibility: Partial<TabVisibility> = {};
+  for (const key of Object.keys(DEFAULT_VISIBILITY) as (keyof TabVisibility)[]) {
+    if (currentVisibility[key] !== baselineVisibility[key]) tabVisibility[key] = currentVisibility[key];
+  }
+  if (Object.keys(tabVisibility).length) {
+    payload.tab_visibility = tabVisibility;
+    updatedCount += Object.keys(tabVisibility).length;
+  }
+
+  if (currentSettings.slackWebhookUrl !== baselineSettings.slackWebhookUrl) {
+    payload.webhook = { slack_webhook_url: currentSettings.slackWebhookUrl };
+    updatedCount += 1;
+  }
+
+  return { payload, updatedCount };
+}
+
+/** Merge a successful partial update into the cached unified GET shape. */
+export function mergeUnifiedSettings(
+  current: UnifiedSettings | null | undefined,
+  payload: SettingsUpdatePayload,
+): UnifiedSettings {
+  const merged: UnifiedSettings = { ...(current ?? {}) };
+  if (payload.general) merged.general = { ...(current?.general ?? {}), ...payload.general };
+  if (payload.tab_visibility) {
+    merged.tab_visibility = { ...(current?.tab_visibility ?? {}), ...payload.tab_visibility };
+  }
+  if (payload.thresholds) merged.thresholds = { ...(current?.thresholds ?? {}), ...payload.thresholds };
+  if (payload.experimental) {
+    merged.experimental = { ...(current?.experimental ?? {}), ...payload.experimental };
+  }
+  if (payload.webhook) {
+    const configured = Boolean(payload.webhook.slack_webhook_url);
+    merged.webhook = {
+      configured,
+      masked_url: configured ? "https://hooks.slack.com/services/****" : null,
+    };
+  }
+  return merged;
 }

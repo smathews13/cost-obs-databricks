@@ -48,14 +48,47 @@ def test_unified_put_dispatches_architecture_view_setting():
     with (
         patch.object(settings, "_require_admin"),
         patch.object(settings, "save_app_settings") as save,
-        patch.object(settings, "_settings_snapshot", return_value={
-            "experimental": {"enable_architecture_view": True},
-        }),
+        patch.object(settings, "_settings_snapshot") as snapshot,
     ):
         result = asyncio.run(settings.put_unified_settings(request))
 
     save.assert_called_once_with({"enable_architecture_view": True})
-    assert result["experimental"]["enable_architecture_view"] is True
+    snapshot.assert_not_called()
+    assert result == {"status": "saved", "updated_count": 1}
+
+
+def test_unified_put_tab_only_skips_thresholds_webhook_and_snapshot():
+    request = _Request({"tab_visibility": {"infra": False}})
+    with (
+        patch.object(settings, "_require_admin"),
+        patch.object(settings, "save_app_settings") as save_app,
+        patch.object(settings, "_load_alert_thresholds") as load_thresholds,
+        patch.object(settings, "_save_alert_thresholds") as save_thresholds,
+        patch.object(settings, "_save_webhook_settings") as save_webhook,
+        patch.object(settings, "_settings_snapshot") as snapshot,
+    ):
+        result = asyncio.run(settings.put_unified_settings(request))
+
+    save_app.assert_called_once_with({"tab_visibility": {"infra": False}})
+    load_thresholds.assert_not_called()
+    save_thresholds.assert_not_called()
+    save_webhook.assert_not_called()
+    snapshot.assert_not_called()
+    assert result == {"status": "saved", "updated_count": 1}
+
+
+def test_unified_put_allows_clearing_webhook():
+    request = _Request({"webhook": {"slack_webhook_url": ""}})
+    with (
+        patch.object(settings, "_require_admin"),
+        patch.object(settings, "_save_webhook_settings") as save_webhook,
+        patch.object(settings, "save_app_settings") as save_app,
+    ):
+        result = asyncio.run(settings.put_unified_settings(request))
+
+    save_webhook.assert_called_once_with({"slack_webhook_url": ""})
+    save_app.assert_not_called()
+    assert result == {"status": "saved", "updated_count": 1}
 
 
 def test_save_app_settings_persists_architecture_view_to_delta_and_file(tmp_path):

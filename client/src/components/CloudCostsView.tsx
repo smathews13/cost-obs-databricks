@@ -434,7 +434,7 @@ export function CloudCostsView({
         {cloudIntegrations.length < 3 && (
           <button
             onClick={() => { setWizardCloud(null); setWizardExpandedStep(null); setViewingIntegration(null); setShowIntegrationWizard(true); }}
-            className="btn-brand inline-flex items-center gap-1.5 px-4 py-1.5 text-sm"
+            className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#2272B4] px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-[#1B5F96] focus-visible:outline-none focus-visible:shadow-(--focus)"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -516,7 +516,7 @@ export function CloudCostsView({
         {cloudIntegrations.length < 3 && (
           <button
             onClick={() => { setWizardCloud(null); setWizardExpandedStep(null); setViewingIntegration(null); setShowIntegrationWizard(true); }}
-            className="btn-brand inline-flex items-center gap-1.5 px-4 py-1.5 text-sm"
+            className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#2272B4] px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-[#1B5F96] focus-visible:outline-none focus-visible:shadow-(--focus)"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />

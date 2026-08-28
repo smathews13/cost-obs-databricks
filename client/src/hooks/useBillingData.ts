@@ -370,61 +370,136 @@ export function useDashboardBundleFast(dateRange?: DateRange, workspaceIds?: str
 }
 
 const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 3 * 60 * 1000;
 
-async function fetchWithPoll<T>(url: string): Promise<T | null> {
-  const response = await fetch(url);
-  if (response.status === 202) {
-    return null; // still computing: caller will poll
+interface SubmitAndPollOptions {
+  timeoutMs?: number;
+  defaultIntervalMs?: number;
+}
+
+function abortError(): DOMException {
+  return new DOMException("The request was aborted", "AbortError");
+}
+
+function retryDelayMs(response: Response, defaultIntervalMs: number): number {
+  const retryAfter = response.headers.get("Retry-After")?.trim();
+  if (!retryAfter) return defaultIntervalMs;
+
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1000;
   }
-  if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`;
-    try {
-      const body = await response.json();
-      if (body?.detail) detail = `${response.status}: ${body.detail}`;
-    } catch { /* ignore parse errors */ }
-    throw new Error(detail);
-  }
-  const data = await response.json() as T & { _error?: string };
-  if (data && typeof data === "object" && "_error" in data) {
-    throw new Error((data as { _error: string })._error || "Bundle compute failed");
-  }
-  return data;
+
+  const retryAt = Date.parse(retryAfter);
+  return Number.isNaN(retryAt)
+    ? defaultIntervalMs
+    : Math.max(0, retryAt - Date.now());
+}
+
+function abortableDelay(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(abortError());
+
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(abortError());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function timeoutError(url: string, timeoutMs: number): Error {
+  const duration = timeoutMs % 60_000 === 0
+    ? `${timeoutMs / 60_000} minute${timeoutMs === 60_000 ? "" : "s"}`
+    : `${Math.ceil(timeoutMs / 1000)} seconds`;
+  return new Error(`Timed out waiting for ${url} after ${duration}. Please retry.`);
 }
 
 /**
- * AI/ML 360 dashboard bundle: submit-and-poll: returns null while computing, data when ready.
- * isLoading is true while data is null (pending or first fetch).
+ * Submit a bundle request and keep polling the same URL while the server returns
+ * 202. One query invocation owns the whole poll lifecycle, so React Query can
+ * deduplicate it by key and cancel both fetches and delays through its signal.
+ */
+export async function fetchSubmitAndPoll<T>(
+  url: string,
+  signal?: AbortSignal,
+  options: SubmitAndPollOptions = {},
+): Promise<T> {
+  const timeoutMs = options.timeoutMs ?? POLL_TIMEOUT_MS;
+  const defaultIntervalMs = options.defaultIntervalMs ?? POLL_INTERVAL_MS;
+  if (signal?.aborted) throw abortError();
+
+  const operation = new AbortController();
+  const onAbort = () => operation.abort();
+  signal?.addEventListener("abort", onAbort, { once: true });
+  const timeout = window.setTimeout(() => operation.abort(), timeoutMs);
+
+  try {
+    while (true) {
+      const response = await fetch(url, { signal: operation.signal });
+      if (response.status === 202) {
+        await abortableDelay(retryDelayMs(response, defaultIntervalMs), operation.signal);
+        continue;
+      }
+      if (!response.ok) {
+        let detail = `${response.status} ${response.statusText}`;
+        try {
+          const body = await response.json();
+          if (body?.detail) detail = `${response.status}: ${body.detail}`;
+        } catch { /* ignore parse errors */ }
+        throw new Error(detail);
+      }
+      const data = await response.json() as T & { _error?: string };
+      if (data && typeof data === "object" && "_error" in data) {
+        throw new Error((data as { _error: string })._error || "Bundle compute failed");
+      }
+      return data;
+    }
+  } catch (error) {
+    if (signal?.aborted) throw abortError();
+    if (operation.signal.aborted) throw timeoutError(url, timeoutMs);
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+/**
+ * AI/ML 360 dashboard bundle: one abortable request polls until data is ready.
  */
 export function useAIMLDashboardBundle(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
-  const result = useQuery<AIMLDashboardBundle | null>({
+  return useQuery<AIMLDashboardBundle>({
     queryKey: ["aiml", "dashboard-bundle", dateRange, workspaceIds?.join(",") ?? null],
-    queryFn: () => fetchWithPoll<AIMLDashboardBundle>(buildUrlWithWs("/api/aiml/dashboard-bundle", dateRange, workspaceIds)),
+    queryFn: ({ signal }) =>
+      fetchSubmitAndPoll<AIMLDashboardBundle>(
+        buildUrlWithWs("/api/aiml/dashboard-bundle", dateRange, workspaceIds),
+        signal,
+      ),
     enabled,
-    refetchInterval: (q) => q.state.data === null ? POLL_INTERVAL_MS : false,
+    retry: false,
   });
-  return {
-    ...result,
-    data: (result.data ?? undefined) as AIMLDashboardBundle | undefined,
-    isLoading: result.isLoading || result.data === null,
-  };
 }
 
 /**
- * Apps dashboard bundle: submit-and-poll: returns null while computing, data when ready.
- * isLoading is true while data is null (pending or first fetch).
+ * Apps dashboard bundle: one abortable request polls until data is ready.
  */
 export function useAppsDashboardBundle(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
-  const result = useQuery<AppsDashboardBundle | null>({
+  return useQuery<AppsDashboardBundle>({
     queryKey: ["apps", "dashboard-bundle", dateRange, workspaceIds?.join(",") ?? null],
-    queryFn: () => fetchWithPoll<AppsDashboardBundle>(buildUrlWithWs("/api/apps/dashboard-bundle", dateRange, workspaceIds)),
+    queryFn: ({ signal }) =>
+      fetchSubmitAndPoll<AppsDashboardBundle>(
+        buildUrlWithWs("/api/apps/dashboard-bundle", dateRange, workspaceIds),
+        signal,
+      ),
     enabled,
-    refetchInterval: (q) => q.state.data === null ? POLL_INTERVAL_MS : false,
+    retry: false,
   });
-  return {
-    ...result,
-    data: (result.data ?? undefined) as AppsDashboardBundle | undefined,
-    isLoading: result.isLoading || result.data === null,
-  };
 }
 
 /**
@@ -477,7 +552,7 @@ export function useGCPActualCosts(dateRange?: DateRange, enabled: boolean = true
 }
 
 /**
- * DBSQL 360 dashboard bundle: submit-and-poll. Returns null while HTTP 202 is pending.
+ * DBSQL 360 dashboard bundle: submit-and-poll within one abortable query.
  * After a deploy the cost-per-query table can take a couple of minutes to appear, so
  * available=false is polled briefly, then treated as a settled "not configured" result.
  */
@@ -485,19 +560,22 @@ const UNAVAILABLE_POLL_MS = 3 * 60 * 1000;
 const dbsqlUnavailableSince = new Map<string, number>();
 
 export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
-  const result = useQuery<DBSQLDashboardBundle | null>({
+  const result = useQuery<DBSQLDashboardBundle>({
     queryKey: ["dbsql", "dashboard-bundle", dateRange, workspaceIds?.join(",") ?? null],
-    queryFn: () =>
-      fetchWithPoll<DBSQLDashboardBundle>(buildUrlWithWs("/api/dbsql/dashboard-bundle", dateRange, workspaceIds)),
+    queryFn: ({ signal }) =>
+      fetchSubmitAndPoll<DBSQLDashboardBundle>(
+        buildUrlWithWs("/api/dbsql/dashboard-bundle", dateRange, workspaceIds),
+        signal,
+      ),
     staleTime: 5 * 60 * 1000,
     enabled,
+    retry: false,
     refetchInterval: (q) => {
       const key = JSON.stringify(q.queryKey);
       if (q.state.error) {
         dbsqlUnavailableSince.delete(key);
         return false;
       }
-      if (q.state.data === null) return POLL_INTERVAL_MS;
       if (q.state.data?.available === false) {
         const started = dbsqlUnavailableSince.get(key) ?? Date.now();
         dbsqlUnavailableSince.set(key, started);
@@ -517,8 +595,7 @@ export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[
     Date.now() - (dbsqlUnavailableSince.get(waitKey) ?? 0) < UNAVAILABLE_POLL_MS;
   return {
     ...result,
-    data: (result.data ?? undefined) as DBSQLDashboardBundle | undefined,
-    isLoading: !result.isError && (result.isLoading || result.data === null || waitingForTable),
+    isLoading: !result.isError && (result.isLoading || waitingForTable),
   };
 }
 

@@ -18,11 +18,13 @@ export function TabRefreshRegion({
   children,
 }: TabRefreshRegionProps) {
   return (
-    <>
-      <div className="mb-4 flex h-[38px] items-center justify-end">
+    <div className="relative">
+      <div className="absolute right-0 top-0 z-20">
         <TabRefreshButton onRefresh={onRefresh} isRefreshing={isRefreshing} />
       </div>
-      {isLoading ? <LoadingPanels sections={loadingSections} /> : children}
-    </>
+      <div className={isLoading ? "pt-[54px]" : ""}>
+        {isLoading ? <LoadingPanels sections={loadingSections} /> : children}
+      </div>
+    </div>
   );
 }

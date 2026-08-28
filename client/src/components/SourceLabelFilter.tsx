@@ -12,13 +12,14 @@ interface MvSource {
 
 interface SourceLabelFilterProps {
   variant?: "header" | "rail";
+  onApplied?: () => void;
 }
 
 // Top-nav multi-select for filtering dashboard data by MV source label. Only
 // rendered when additional MV sources are configured (otherwise there's a single
 // local label and nothing to filter). Default is all sources (combined); the
 // selection is pushed to the data layer and queries are invalidated to refetch.
-export function SourceLabelFilter({ variant = "header" }: SourceLabelFilterProps) {
+export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabelFilterProps) {
   const queryClient = useQueryClient();
   const { data } = useQuery<{ sources: MvSource[]; local_label: string }>({
     queryKey: ["mv-sources"],
@@ -58,6 +59,7 @@ export function SourceLabelFilter({ variant = "header" }: SourceLabelFilterProps
     if (key === lastAppliedRef.current) return;
     lastAppliedRef.current = key;
     setActiveSourceLabels(effective);
+    onApplied?.();
     // Tactile "Applying…" feedback until the refetch settles: invalidateQueries
     // resolves once the invalidated active queries have refetched.
     setApplying(true);
@@ -100,7 +102,7 @@ export function SourceLabelFilter({ variant = "header" }: SourceLabelFilterProps
         onClick={() => setOpen((o) => !o)}
         aria-label={applying ? "Updating sources" : label()}
         className={variant === "rail"
-          ? "rail-source-filter flex h-[32px] max-w-[104px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border border-white/[.16] bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
+          ? "rail-source-filter flex h-[32px] max-w-[104px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border border-white/[.12] bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
           : "co-filter flex items-center gap-2 whitespace-nowrap px-3"
         }
         title="Filter by data source"

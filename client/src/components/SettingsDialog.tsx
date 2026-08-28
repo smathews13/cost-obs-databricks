@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { SettingsDebugger } from "./settings";
@@ -15,7 +15,9 @@ import { APP_VERSION } from "@/theme";
 import {
   DEFAULT_APP_SETTINGS,
   DEFAULT_VISIBILITY,
+  buildSettingsUpdate,
   hydrateSettingsFromServer,
+  mergeUnifiedSettings,
   persistAppSettings,
   persistTabVisibility,
   type AppSettings,
@@ -30,6 +32,11 @@ export {
 
 type NavKey = "general" | "tabs" | "alerts" | "data" | "access" | "resources" | "experimental";
 type Overlay = "setup" | "debugger" | null;
+type SaveStatus =
+  | { kind: "idle" }
+  | { kind: "saving"; count: number }
+  | { kind: "saved"; count: number }
+  | { kind: "error"; message: string };
 
 export type SettingsCapabilities = NonNullable<UnifiedSettings["capabilities"]>;
 
@@ -59,10 +66,19 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [localVisibility, setLocalVisibility] = useState<TabVisibility>(tabVisibility);
   const [localSettings, setLocalSettings] = useState<AppSettings>(appSettings);
-  const [dirty, setDirty] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [savedVisibility, setSavedVisibility] = useState<TabVisibility>(tabVisibility);
+  const [savedSettings, setSavedSettings] = useState<AppSettings>(appSettings);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>({ kind: "idle" });
   const editingRef = useRef(false);
   const saveInFlightRef = useRef(false);
+  const editRevisionRef = useRef(0);
+
+  const pendingUpdate = useMemo(
+    () => buildSettingsUpdate(localSettings, savedSettings, localVisibility, savedVisibility),
+    [localSettings, savedSettings, localVisibility, savedVisibility],
+  );
+  const dirtyCount = pendingUpdate.updatedCount;
+  const isSaving = saveStatus.kind === "saving";
 
   const { data: permissions } = useQuery<{ admins: string[]; current_user?: string | null }>({
     queryKey: ["user-permissions"],
@@ -94,12 +110,14 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
   const caps = unified?.capabilities;
   const seededRef = useRef(false);
   useEffect(() => {
-    if (!unified || dirty || editingRef.current || saveInFlightRef.current || seededRef.current) return;
+    if (!unified || dirtyCount > 0 || editingRef.current || saveInFlightRef.current || seededRef.current) return;
     seededRef.current = true;
     const hydrated = hydrateSettingsFromServer(unified, localSettings, localVisibility);
     setLocalSettings(hydrated.appSettings);
     setLocalVisibility(hydrated.tabVisibility);
-  }, [unified, dirty, localSettings, localVisibility]);
+    setSavedSettings(hydrated.appSettings);
+    setSavedVisibility(hydrated.tabVisibility);
+  }, [unified, dirtyCount, localSettings, localVisibility]);
 
   // Prefer a real display name; never show the raw SP client-id UUID. Falls back to
   // the app's product name.
@@ -113,13 +131,6 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
     "cost-obs-v1";
   const version = appConfig?.version?.commit_sha;
 
-  useEffect(() => {
-    if (editingRef.current || saveInFlightRef.current) return;
-    setLocalVisibility(tabVisibility);
-    setLocalSettings(appSettings);
-    setDirty(false);
-  }, [tabVisibility, appSettings]);
-
   // Kick non-admins out of admin-only sections/overlays.
   useEffect(() => {
     const adminSections: NavKey[] = ["alerts", "data", "access", "experimental"];
@@ -129,9 +140,9 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
 
   const requestClose = useCallback(() => {
     if (saveInFlightRef.current) return;
-    if (dirty && !window.confirm("You have unsaved changes. Discard them?")) return;
+    if (dirtyCount > 0 && !window.confirm("You have unsaved changes. Discard them?")) return;
     onClose();
-  }, [dirty, onClose]);
+  }, [dirtyCount, onClose]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") requestClose(); };
@@ -142,141 +153,105 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
 
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     editingRef.current = true;
+    seededRef.current = true;
+    editRevisionRef.current += 1;
+    setSaveStatus({ kind: "idle" });
     setLocalSettings((prev) => ({ ...prev, [key]: value }));
-    setDirty(true);
   };
   const toggleTab = (key: keyof TabVisibility) => {
+    const updated = { ...localVisibility, [key]: !localVisibility[key] };
+    if (!Object.values(updated).some(Boolean)) return;
     editingRef.current = true;
-    setLocalVisibility((prev) => {
-      const updated = { ...prev, [key]: !prev[key] };
-      if (!Object.values(updated).some(Boolean)) return prev;
-      return updated;
-    });
-    setDirty(true);
+    seededRef.current = true;
+    editRevisionRef.current += 1;
+    setSaveStatus({ kind: "idle" });
+    setLocalVisibility(updated);
+    if (!updated[localSettings.defaultLandingTab as keyof TabVisibility]) {
+      const firstVisible = (Object.keys(updated) as (keyof TabVisibility)[]).find((tab) => updated[tab]);
+      if (firstVisible) {
+        setLocalSettings((current) => ({ ...current, defaultLandingTab: firstVisible }));
+      }
+    }
   };
 
-  const handleSave = async () => {
-    if (saveInFlightRef.current || !dirty) return;
+  const saveDraft = async (
+    settings: AppSettings,
+    visibility: TabVisibility,
+    successToast = "Settings saved",
+  ) => {
+    if (saveInFlightRef.current) return;
+    const update = buildSettingsUpdate(settings, savedSettings, visibility, savedVisibility);
+    if (update.updatedCount === 0) {
+      setSaveStatus({ kind: "saved", count: 0 });
+      return;
+    }
     saveInFlightRef.current = true;
-    setIsSaving(true);
+    setSaveStatus({ kind: "saving", count: update.updatedCount });
+    const submittedRevision = editRevisionRef.current;
     // Landing-tab fallback: if the chosen tab is now hidden, use the first visible.
-    let settings = localSettings;
-    const landingHidden = !localVisibility[localSettings.defaultLandingTab as keyof TabVisibility];
+    let submittedSettings = settings;
+    const landingHidden = !visibility[settings.defaultLandingTab as keyof TabVisibility];
     if (landingHidden) {
-      const firstVisible = (Object.keys(localVisibility) as (keyof TabVisibility)[]).find((k) => localVisibility[k]);
-      if (firstVisible) settings = { ...localSettings, defaultLandingTab: firstVisible };
+      const firstVisible = (Object.keys(visibility) as (keyof TabVisibility)[]).find((k) => visibility[k]);
+      if (firstVisible) submittedSettings = { ...settings, defaultLandingTab: firstVisible };
     }
-    // One Save = one PUT to the unified aggregator, which dispatches each sub-object
-    // to its domain store (app_settings / alert-thresholds / webhook). Price basis and
-    // refresh schedule save immediately via their own controls, so they're omitted here.
-    const body: Record<string, unknown> = {
-      general: {
-        company_name: settings.companyName, app_display_name: settings.appDisplayName,
-        default_date_range_days: settings.defaultDateRangeDays, default_landing_tab: settings.defaultLandingTab,
-        auto_refresh_minutes: settings.refreshIntervalMinutes, density: settings.density, theme: settings.theme,
-        show_workspace_names: settings.showWorkspaceNames,
-        anonymize_users: settings.anonymizeUsers,
-      },
-      tab_visibility: localVisibility,
-      thresholds: {
-        spike_threshold_percent: settings.alertSpikePercent, daily_budget: settings.alertDailyBudget,
-        workspace_budget: settings.alertWorkspaceBudget, anomaly_sensitivity: settings.anomalySensitivity,
-      },
-      experimental: {
-        exp_setup_wizard_link: settings.expSetupWizardLink,
-        exp_debugger_link: settings.expDebuggerLink,
-        enable_architecture_view: settings.enableArchitectureView,
-      },
-    };
-    if (settings.slackWebhookUrl && settings.slackWebhookUrl !== appSettings.slackWebhookUrl) {
-      body.webhook = { slack_webhook_url: settings.slackWebhookUrl };
-    }
+    const submittedUpdate = buildSettingsUpdate(
+      submittedSettings,
+      savedSettings,
+      visibility,
+      savedVisibility,
+    );
     try {
       const response = await fetch("/api/settings", {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
+        body: JSON.stringify(submittedUpdate.payload), signal: AbortSignal.timeout(15000),
       });
-      const savedSnapshot = await response.json().catch(() => null) as UnifiedSettings | { detail?: string } | null;
+      const result = await response.json().catch(() => null) as { status?: string; updated_count?: number; detail?: string } | null;
       if (!response.ok) {
-        const detail = savedSnapshot && "detail" in savedSnapshot ? savedSnapshot.detail : null;
-        throw new Error(detail || `Server returned ${response.status}`);
+        throw new Error(result?.detail || `Server returned ${response.status}`);
       }
 
       seededRef.current = true;
-      rqClient.setQueryData(["unified-settings"], savedSnapshot);
-      persistAppSettings(settings);
-      persistTabVisibility(localVisibility);
-      setLocalSettings(settings);
-      editingRef.current = false;
-      setDirty(false);
-      onSettingsChange(settings);
-      onTabVisibilityChange(localVisibility);
-      toast(landingHidden ? "Settings saved: landing tab reset to first visible" : "Settings saved");
+      rqClient.setQueryData<UnifiedSettings | null>(["unified-settings"], (current) =>
+        mergeUnifiedSettings(current, submittedUpdate.payload));
+      rqClient.invalidateQueries({ queryKey: ["unified-settings"], refetchType: "none" });
+      persistAppSettings(submittedSettings);
+      persistTabVisibility(visibility);
+      setSavedSettings(submittedSettings);
+      setSavedVisibility(visibility);
+      if (editRevisionRef.current === submittedRevision) {
+        setLocalSettings(submittedSettings);
+        editingRef.current = false;
+        setSaveStatus({ kind: "saved", count: result?.updated_count ?? submittedUpdate.updatedCount });
+      } else {
+        setSaveStatus({ kind: "idle" });
+      }
+      onSettingsChange(submittedSettings);
+      onTabVisibilityChange(visibility);
+      toast(landingHidden ? "Settings saved: landing tab reset to first visible" : successToast);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
+      setSaveStatus({ kind: "error", message });
       toast(`Settings were not saved: ${message}`);
     } finally {
       saveInFlightRef.current = false;
-      setIsSaving(false);
     }
   };
+
+  const handleSave = () => saveDraft(localSettings, localVisibility);
 
   const handleReset = async () => {
     if (saveInFlightRef.current) return;
     if (!window.confirm("Reset all settings to defaults?")) return;
-    saveInFlightRef.current = true;
-    setIsSaving(true);
     const d = { ...DEFAULT_APP_SETTINGS };
-    // Persist the reset to the server too, so it survives reopen (the modal re-seeds
-    // from GET /api/settings). Admin-only on the server; no-op for consumers.
-    try {
-      const response = await fetch("/api/settings", {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-        general: {
-          company_name: d.companyName, app_display_name: d.appDisplayName,
-          default_date_range_days: d.defaultDateRangeDays, default_landing_tab: d.defaultLandingTab,
-          auto_refresh_minutes: d.refreshIntervalMinutes, density: d.density, theme: d.theme,
-          show_workspace_names: d.showWorkspaceNames,
-          anonymize_users: d.anonymizeUsers,
-        },
-        tab_visibility: DEFAULT_VISIBILITY,
-        thresholds: {
-          spike_threshold_percent: d.alertSpikePercent, daily_budget: d.alertDailyBudget,
-          workspace_budget: d.alertWorkspaceBudget, anomaly_sensitivity: d.anomalySensitivity,
-        },
-        experimental: {
-          exp_setup_wizard_link: d.expSetupWizardLink,
-          exp_debugger_link: d.expDebuggerLink,
-          enable_architecture_view: d.enableArchitectureView,
-        },
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      const savedSnapshot = await response.json().catch(() => null) as UnifiedSettings | { detail?: string } | null;
-      if (!response.ok) {
-        const detail = savedSnapshot && "detail" in savedSnapshot ? savedSnapshot.detail : null;
-        throw new Error(detail || `Server returned ${response.status}`);
-      }
-
-      seededRef.current = true;
-      rqClient.setQueryData(["unified-settings"], savedSnapshot);
-      persistAppSettings(d);
-      persistTabVisibility(DEFAULT_VISIBILITY);
-      setLocalSettings(d);
-      setLocalVisibility({ ...DEFAULT_VISIBILITY });
-      editingRef.current = false;
-      setDirty(false);
-      onSettingsChange(d);
-      onTabVisibilityChange({ ...DEFAULT_VISIBILITY });
-      toast("Settings reset to defaults");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      toast(`Settings were not reset: ${message}`);
-    } finally {
-      saveInFlightRef.current = false;
-      setIsSaving(false);
-    }
+    const visibility = { ...DEFAULT_VISIBILITY };
+    editingRef.current = true;
+    seededRef.current = true;
+    editRevisionRef.current += 1;
+    setLocalSettings(d);
+    setLocalVisibility(visibility);
+    setSaveStatus({ kind: "idle" });
+    await saveDraft(d, visibility, "Settings reset to defaults");
   };
 
   const navItems: { key: NavKey; label: string; admin?: boolean }[] = [
@@ -338,7 +313,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
 
           {/* Content */}
           <div style={{ flex: 1, minHeight: 0, overflowY: "auto", backgroundColor: T.surface }}>
-            <div style={{ maxWidth: 720, padding: "20px 24px" }}>
+            <div style={{ width: "100%", padding: "20px 24px" }}>
               {overlay === "setup" && isAdmin && (
                 <SetupWizard embedded onComplete={() => {
                   rqClient.invalidateQueries({ queryKey: ["app-config"] });
@@ -365,12 +340,32 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderTop: `1px solid ${T.borderGroup}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <button onClick={handleReset} disabled={isSaving} style={{ fontSize: 13, color: T.textSecondary, background: "none", border: "none", cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.5 : 1 }}>Reset to defaults</button>
-            {dirty && <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: T.warningFg }}><span style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: "#E0A82E" }} />Unsaved changes</span>}
+            {saveStatus.kind === "saving" ? (
+              <span role="status" style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, color: T.primary }}>
+                <span style={{ width: 11, height: 11, borderRadius: 999, border: `2px solid ${T.borderControl}`, borderTopColor: T.primary }} />
+                Saving {saveStatus.count} setting{saveStatus.count === 1 ? "" : "s"}…
+              </span>
+            ) : saveStatus.kind === "error" ? (
+              <span role="alert" title={saveStatus.message} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: T.dangerFg }}>
+                <span aria-hidden style={{ fontWeight: 700 }}>×</span>
+                Save failed · {dirtyCount} unsaved setting{dirtyCount === 1 ? "" : "s"}
+              </span>
+            ) : dirtyCount > 0 ? (
+              <span role="status" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: T.warningFg }}>
+                <span style={{ width: 7, height: 7, borderRadius: 999, backgroundColor: "#E0A82E" }} />
+                {dirtyCount} unsaved setting{dirtyCount === 1 ? "" : "s"}
+              </span>
+            ) : saveStatus.kind === "saved" ? (
+              <span role="status" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: T.successFg }}>
+                <svg aria-hidden width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="m3 8.3 3.1 3.1L13 4.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                {saveStatus.count} setting{saveStatus.count === 1 ? "" : "s"} updated
+              </span>
+            ) : null}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={requestClose} style={{ height: 32, borderRadius: 4, padding: "0 14px", fontSize: 13, fontWeight: 500, color: T.text, backgroundColor: T.surface, border: `1px solid ${T.borderControl}`, cursor: "pointer" }}>Cancel</button>
-            <button onClick={handleSave} disabled={!dirty || isSaving}
-              style={{ height: 32, borderRadius: 4, padding: "0 14px", fontSize: 13, fontWeight: 500, color: "#FFFFFF", backgroundColor: dirty && !isSaving ? T.primaryFill : "#A9C6DC", cursor: dirty && !isSaving ? "pointer" : "not-allowed", border: "none" }}>
+            <button onClick={handleSave} disabled={dirtyCount === 0 || isSaving}
+              style={{ height: 32, borderRadius: 4, padding: "0 14px", fontSize: 13, fontWeight: 500, color: "#FFFFFF", backgroundColor: dirtyCount > 0 && !isSaving ? T.primaryFill : "#A9C6DC", cursor: dirtyCount > 0 && !isSaving ? "pointer" : "not-allowed", border: "none" }}>
               {isSaving ? "Saving…" : "Save changes"}
             </button>
           </div>

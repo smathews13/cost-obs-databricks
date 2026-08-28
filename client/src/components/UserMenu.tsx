@@ -31,8 +31,26 @@ function workspaceBaseUrl(host: string | null | undefined): string | null {
   ).replace(/\/+$/, "");
 }
 
+export function readableUserName(name: string, email: string): string {
+  const candidate = name.trim();
+  const opaqueIdentity = (
+    !candidate
+    || /^\d/.test(candidate)
+    || /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(candidate)
+  );
+  if (!opaqueIdentity) return candidate;
+
+  const localPart = email.split("@")[0]?.trim();
+  if (!localPart) return email;
+  return localPart
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function userInitials(name: string, email: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const parts = readableUserName(name, email).split(/[\s._-]+/).filter(Boolean);
   if (parts.length >= 2) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
   if (parts.length === 1 && parts[0]) return parts[0].slice(0, 2).toUpperCase();
   return email.slice(0, 2).toUpperCase();
@@ -50,7 +68,8 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
   const openFocusIndexRef = useRef(0);
   const hoverCloseTimerRef = useRef<number | null>(null);
   const baseUrl = useMemo(() => workspaceBaseUrl(workspaceHost), [workspaceHost]);
-  const initials = useMemo(() => userInitials(name, email), [name, email]);
+  const displayName = useMemo(() => readableUserName(name, email), [name, email]);
+  const initials = useMemo(() => userInitials(displayName, email), [displayName, email]);
 
   const closeMenu = useCallback((returnFocus = true) => {
     setOpen(false);
@@ -224,7 +243,7 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
               {initials}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13.5px] font-semibold text-[#1B3139]">{name}</span>
+              <span className="block truncate text-[13.5px] font-semibold text-[#1B3139]">{displayName}</span>
               <span className="block truncate text-[11.5px] text-[#618794]">{email}</span>
             </span>
             {isAdmin && (

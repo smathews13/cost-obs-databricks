@@ -54,12 +54,13 @@ interface KPICardProps {
   color: string;
   onClick?: () => void;
   isLoading?: boolean;
+  titleNoWrap?: boolean;
   /** When set, renders an unavailable state with this reason instead of the value. */
   unavailableReason?: string;
 }
 
 // Memoize KPICard to prevent unnecessary re-renders when parent state changes
-const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, icon, color, onClick, isLoading, unavailableReason }: KPICardProps) {
+const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, icon, color, onClick, isLoading, titleNoWrap, unavailableReason }: KPICardProps) {
   if (unavailableReason) {
     return (
       <div
@@ -94,8 +95,8 @@ const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, ico
           {icon}
         </div>
         <div className="ml-4 flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-500 flex items-center">
-            {title}
+          <p className={`flex items-center text-sm font-medium text-gray-500 ${titleNoWrap ? "justify-between gap-2" : ""}`}>
+            <span className={titleNoWrap ? "whitespace-nowrap" : undefined}>{title}</span>
             {infoTooltip && <InfoTooltip text={infoTooltip} />}
           </p>
           {isLoading ? (
@@ -377,6 +378,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
 
           <KPICard
             title="Total Compute Resources"
+            titleNoWrap
             value={formatNumber(data.active_notebooks)}
             subtitle={`${formatNumber(data.total_clusters ?? data.active_notebooks)} clusters · ${formatNumber(data.sql_warehouses ?? 0)} SQL warehouses`}
             infoTooltip="Distinct clusters plus SQL warehouses with billing usage across the selected period. This includes serverless SQL warehouses, which do not appear as compute clusters."

@@ -11,6 +11,16 @@ const props = {
 };
 
 describe("UserMenu", () => {
+  it("replaces opaque forwarded identity names with a readable email-derived name", async () => {
+    const user = userEvent.setup();
+    render(<UserMenu {...props} name="218942052477871@8259562572257417" />);
+
+    await user.click(screen.getByRole("button", { name: /samuel\.a\.mathews@gmail\.com/i }));
+
+    expect(await screen.findByText("Samuel A Mathews")).toBeInTheDocument();
+    expect(screen.queryByText(/218942052477871/)).not.toBeInTheDocument();
+  });
+
   it("shows workspace navigation, feedback, and logout actions", async () => {
     const user = userEvent.setup();
     render(<UserMenu {...props} />);

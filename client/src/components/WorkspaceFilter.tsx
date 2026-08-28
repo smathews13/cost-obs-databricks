@@ -51,7 +51,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
   if (isLoading) {
     return (
       <div className={variant === "rail"
-        ? "rail-workspace-filter flex h-[32px] max-w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border border-white/[.16] bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] min-[1280px]:max-w-none min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
+        ? "rail-workspace-filter flex h-[32px] max-w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border border-white/[.12] bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] min-[1280px]:max-w-none min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
         : "flex items-center gap-2 whitespace-nowrap rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-500"
       }>
         <Spinner size="sm" />
@@ -118,7 +118,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
         onClick={() => setIsOpen((o) => !o)}
         aria-label={updating ? "Updating workspaces" : label()}
         className={variant === "rail"
-          ? "rail-workspace-filter flex h-[32px] max-w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border border-white/[.16] bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
+          ? "rail-workspace-filter flex h-[32px] max-w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border border-white/[.12] bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
           : "co-filter flex items-center gap-2 whitespace-nowrap px-3"
         }
       >

@@ -38,6 +38,7 @@ export function SettingsPermissions() {
   // Open by default: the exact GRANT SQL is what an admin needs on hand when the app
   // runs as a service principal (the common case), matching the pre-revamp behavior.
   const [grantsOpen, setGrantsOpen] = useState(true);
+  const [sqlCopied, setSqlCopied] = useState(false);
 
   const { data: permissions, isLoading } = useQuery<UserPermissions>({
     queryKey: ["user-permissions"],
@@ -191,7 +192,31 @@ GRANT USE SCHEMA ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;
 GRANT CREATE TABLE ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;
 GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
 
-  const preStyle: React.CSSProperties = { backgroundColor: "#11171C", color: "#E8ECF0", borderRadius: 6, padding: 10, fontFamily: MONO, fontSize: 11.5, overflowX: "auto", whiteSpace: "pre", margin: 0 };
+  const preStyle: React.CSSProperties = {
+    backgroundColor: T.codeBg,
+    color: T.text,
+    border: `1px solid ${T.borderGroup}`,
+    borderRadius: 8,
+    padding: "13px 14px",
+    fontFamily: MONO,
+    fontSize: 11.5,
+    lineHeight: 1.6,
+    overflowX: "auto",
+    whiteSpace: "pre",
+    margin: 0,
+  };
+  const copyGrantSql = () => {
+    navigator.clipboard?.writeText(appGrants);
+    setSqlCopied(true);
+    toast("GRANT SQL copied");
+    window.setTimeout(() => setSqlCopied(false), 1600);
+  };
+  const copyIcon = (
+    <svg aria-hidden width="14" height="14" viewBox="0 0 16 16" fill="none">
+      <rect x="5.25" y="5.25" width="7.5" height="7.5" rx="1.25" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M3.5 10.5H3A1.5 1.5 0 0 1 1.5 9V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
 
   return (
     <div>
@@ -232,28 +257,28 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           </div>
         ) : (
           allUsers.map(({ email, role }, i) => (
-            <div key={email} className="flex items-center justify-between gap-4" style={{ padding: "10px 16px", borderTop: i === 0 ? "none" : `1px solid ${T.borderRow}` }}>
-              <span style={{ fontSize: 13, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{email}</span>
-              <div className="flex items-center gap-3 shrink-0">
-                <Select value={role} onChange={(v) => changeRole(email, v as "admin" | "consumer")}
-                  options={[{ value: "admin", label: "Admin" }, { value: "consumer", label: "Consumer" }]} disabled={saveMutation.isPending} />
-                <LinkButton onClick={() => removeUser(email)}>Remove</LinkButton>
-              </div>
+            <div key={email} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 132px 64px", alignItems: "center", columnGap: 14, minHeight: 52, padding: "9px 16px", borderTop: i === 0 ? "none" : `1px solid ${T.borderRow}` }}>
+              <span title={email} style={{ fontSize: 13, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email}</span>
+              <Select value={role} onChange={(v) => changeRole(email, v as "admin" | "consumer")}
+                options={[{ value: "admin", label: "Admin" }, { value: "consumer", label: "Consumer" }]}
+                disabled={saveMutation.isPending} ariaLabel={`Role for ${email}`} width="100%" />
+              <span style={{ justifySelf: "end" }}><LinkButton onClick={() => removeUser(email)}>Remove</LinkButton></span>
             </div>
           ))
         )}
         {/* Add-user row */}
-        <div className="flex items-center gap-2" style={{ padding: "10px 16px", borderTop: `1px solid ${T.borderRow}`, backgroundColor: T.navBg }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 132px auto", alignItems: "center", columnGap: 10, padding: "12px 16px", borderTop: `1px solid ${T.borderRow}`, backgroundColor: T.navBg }}>
+          <div style={{ minWidth: 0 }}>
             <input
-              type="email" placeholder="user@example.com" value={newUserEmail}
+              type="email" placeholder="user@example.com" aria-label="User email" value={newUserEmail}
               onChange={e => setNewUserEmail(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") addUser(); }}
-              style={{ width: "100%", height: 32, borderRadius: 4, border: `1px solid ${T.borderControl}`, padding: "0 10px", fontSize: 13, color: T.text }}
+              style={{ width: "100%", height: 32, borderRadius: 4, border: `1px solid ${T.borderControl}`, padding: "0 10px", fontSize: 13, color: T.text, backgroundColor: T.surface }}
             />
           </div>
           <Select value={newUserRole} onChange={(v) => setNewUserRole(v as "admin" | "consumer")}
-            options={[{ value: "consumer", label: "Consumer" }, { value: "admin", label: "Admin" }]} />
+            options={[{ value: "consumer", label: "Consumer" }, { value: "admin", label: "Admin" }]}
+            ariaLabel="Role for new user" width="100%" />
           <SecondaryButton onClick={addUser} disabled={!newUserEmail.trim() || saveMutation.isPending}>
             {saveMutation.isPending ? "Saving…" : "Add user"}
           </SecondaryButton>
@@ -281,24 +306,27 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
                 <Callout tone="warning">
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>System-table grants pending</div>
                   <div style={{ marginBottom: 8 }}>Each new app deploy gets a fresh service principal, so grants don't carry over. Until they run, affected metrics show <em>unavailable</em> (never $0.00). Run this as a metastore admin, then re-check.</div>
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-                    <LinkButton onClick={() => { navigator.clipboard?.writeText(appGrants); toast("GRANT SQL copied"); }}>Copy SQL</LinkButton>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                    <SecondaryButton onClick={copyGrantSql}><span className="inline-flex items-center gap-1.5">{copyIcon}{sqlCopied ? "Copied" : "Copy SQL"}</span></SecondaryButton>
                   </div>
                   <pre style={preStyle}>{appGrants}</pre>
                 </Callout>
               </div>
             )}
             <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflow: "hidden" }}>
-              <button type="button" onClick={() => setGrantsOpen(o => !o)}
+              <button type="button" onClick={() => setGrantsOpen(o => !o)} aria-expanded={grantsOpen}
                 style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500, color: T.text }}>
                 App runtime grants: exact SQL (run as metastore admin)
-                <span style={{ color: T.textSecondary }}>{grantsOpen ? "▲" : "▼"}</span>
+                <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none"
+                  style={{ color: T.textSecondary, flexShrink: 0, transform: grantsOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 140ms" }}>
+                  <path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </button>
               {grantsOpen && (
                 <div style={{ borderTop: `1px solid ${T.borderRow}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
                   <div style={{ fontSize: 12, color: T.textSecondary }}>Target SP: <MonoChip>{spName}</MonoChip> · Warehouse <strong>CAN_USE</strong> can't be granted via SQL: set it in SQL Warehouses → Permissions (the app also attempts this on startup).</div>
                   <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                    <LinkButton onClick={() => { navigator.clipboard?.writeText(appGrants); toast("GRANT SQL copied"); }}>Copy SQL</LinkButton>
+                    <SecondaryButton onClick={copyGrantSql}><span className="inline-flex items-center gap-1.5">{copyIcon}{sqlCopied ? "Copied" : "Copy SQL"}</span></SecondaryButton>
                   </div>
                   <pre style={preStyle}>{appGrants}</pre>
                   {userEmail && userEmail !== spName && (

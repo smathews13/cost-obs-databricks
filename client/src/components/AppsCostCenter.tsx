@@ -12,8 +12,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import type { AppsDashboardBundle, AppsApp, AppsConnectedArtifact, DateRange } from "@/types/billing";
-import { useAppsDashboardBundle } from "@/hooks/useBillingData";
+import type { AppsDashboardBundle, AppsApp, AppsConnectedArtifact } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
 import { LoadingPanels } from "./Spinner";
@@ -24,10 +23,12 @@ import { PageHero, Chip, InfoPanel } from "@/components/brand";
 interface AppsCostCenterProps {
   data: AppsDashboardBundle | undefined;
   isLoading: boolean;
+  isError?: boolean;
+  error?: Error | null;
+  onRetry?: () => void;
   host?: string | null;
   startDate?: string;
   endDate?: string;
-  dateRange?: DateRange;
   workspaceIds?: string[];
   workspaceNameMap?: Record<string, string>;
 }
@@ -75,7 +76,7 @@ function InfoTooltip({ text }: { text: string }) {
   );
 }
 
-export function AppsCostCenter({ data: initialData, isLoading: initialLoading, host, startDate, endDate, dateRange, workspaceIds, workspaceNameMap }: AppsCostCenterProps) {
+export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host, startDate, endDate, workspaceIds, workspaceNameMap }: AppsCostCenterProps) {
   const MINIMIZE_KEY = "cost-obs-minimize-apps-info";
 
   const [infoMinimized, setInfoMinimized] = useState(() => {
@@ -104,11 +105,6 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
   const [artifactSearch, setArtifactSearch] = useState("");
   const [artifactPage, setArtifactPage] = useState(1);
   const artifactsPerPage = 10;
-
-  const { data: freshData, isLoading: freshLoading, isError: freshError, error: freshErrorObj, refetch } = useAppsDashboardBundle(dateRange, workspaceIds, true);
-  const data = freshData ?? initialData;
-  const isLoading = freshLoading || initialLoading;
-  const isError = freshError && !data;
 
   // Close workspace filter dropdown on outside click
   useEffect(() => {
@@ -335,7 +331,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
     return data.timeseries.timeseries;
   }, [data?.timeseries]);
 
-  if (isLoading) {
+  if (isLoading && !data && !isError) {
     return <LoadingPanels sections={[
       "Apps Spend Over Time",
       "Apps by Spend",
@@ -343,8 +339,8 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
     ]} />;
   }
 
-  if (isError) {
-    const errMsg = freshErrorObj instanceof Error ? freshErrorObj.message : null;
+  if (isError && !data) {
+    const errMsg = error instanceof Error ? error.message : null;
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-6">
         <div className="flex flex-col items-center justify-center gap-3 py-4">
@@ -353,13 +349,15 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
             ? <p className="text-sm text-red-700 font-mono text-center">{errMsg}</p>
             : <p className="text-sm text-red-700">Check server logs for details.</p>
           }
-          <button
-            onClick={() => refetch()}
-            className="mt-1 rounded-md px-4 py-2 text-sm font-medium text-white"
-            style={{ backgroundColor: C.lava }}
-          >
-            Retry
-          </button>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="mt-1 rounded-md px-4 py-2 text-sm font-medium text-white"
+              style={{ backgroundColor: C.lava }}
+            >
+              Retry
+            </button>
+          )}
         </div>
       </div>
     );

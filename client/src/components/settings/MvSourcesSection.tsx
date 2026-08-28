@@ -71,6 +71,8 @@ export function MvSourcesSection() {
   const [previewing, setPreviewing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [checkingLabel, setCheckingLabel] = useState<string | null>(null);
+  const [lastChecked, setLastChecked] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   // Load catalogs when the add form opens.
@@ -168,6 +170,25 @@ export function MvSourcesSection() {
     }
   };
 
+  const checkFreshness = async (lbl: string) => {
+    setCheckingLabel(lbl);
+    setError(null);
+    try {
+      const res = await fetch(`/api/settings/mv-sources/check?label=${encodeURIComponent(lbl)}`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+      setLastChecked((current) => ({ ...current, [lbl]: body.checked_at || new Date().toISOString() }));
+      await queryClient.invalidateQueries({ queryKey: ["mv-sources"] });
+      await queryClient.invalidateQueries({ predicate: (query) => (
+        ["billing", "aiml", "apps", "tagging", "dbsql", "users-groups"].includes(String(query.queryKey[0]))
+      ) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCheckingLabel(null);
+    }
+  };
+
   const selectClass =
     "w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm text-gray-900 focus:border-[#2272B4] focus:outline-none focus:ring-1 focus:ring-[#2272B4] disabled:bg-gray-100 disabled:text-gray-500";
 
@@ -216,11 +237,36 @@ export function MvSourcesSection() {
                     <span>{s.tables ? `${s.tables.length} view${s.tables.length === 1 ? "" : "s"}` : "all views"}</span>
                     {added && <><span className="text-gray-300">·</span><span>Added {added}</span></>}
                     {shareUpd && <><span className="text-gray-300">·</span><span>Share updated {shareUpd}</span></>}
+                    {lastChecked[s.label] && <><span className="text-gray-300">·</span><span className="text-green-700">Checked just now</span></>}
                   </div>
                 </div>
-                <button onClick={() => removeSource(s.label)} disabled={busy} className="shrink-0 self-start text-xs font-medium text-gray-500 hover:text-red-600 disabled:opacity-50">
-                  Remove
-                </button>
+                <div className="flex shrink-0 self-center items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => checkFreshness(s.label)}
+                    disabled={busy || checkingLabel !== null}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-gray-600 hover:bg-white hover:text-gray-900 disabled:opacity-50"
+                    title="Check the latest data visible from this shared source"
+                  >
+                    {checkingLabel === s.label ? <Spinner size="xs" /> : (
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.6m15.3 2A8 8 0 004.6 9m0 0H9m11 11v-5h-.6a8 8 0 01-15.3-2" />
+                      </svg>
+                    )}
+                    {checkingLabel === s.label ? "Checking…" : "Check freshness"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeSource(s.label)}
+                    disabled={busy || checkingLabel !== null}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-gray-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 6h18m-2 0l-1 14H6L5 6m3 0V4h8v2m-6 4v6m4-6v6" />
+                    </svg>
+                    Remove
+                  </button>
+                </div>
               </div>
             );
           })}

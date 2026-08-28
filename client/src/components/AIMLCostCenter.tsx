@@ -48,6 +48,9 @@ import { PageHero, Chip, InfoPanel } from "@/components/brand";
 interface AIMLCostCenterProps {
   data: AIMLDashboardBundle | undefined;
   isLoading: boolean;
+  isError?: boolean;
+  error?: Error | null;
+  onRetry?: () => void;
   startDate?: string;
   endDate?: string;
   host?: string | null;
@@ -105,7 +108,7 @@ function getClusterUrl(host: string | null | undefined, clusterId: string, works
   return buildUrl(host, `/compute/interactive${wsParam}`);
 }
 
-export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, workspaceIds, workspaceNameMap }: AIMLCostCenterProps) {
+export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, startDate, endDate, host, workspaceIds, workspaceNameMap }: AIMLCostCenterProps) {
   const spNameMap = useSpNameMap();
   const [endpointsPage, setEndpointsPage] = useState(1);
   const [modelsPage, setModelsPage] = useState(1);
@@ -387,7 +390,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
     setEndpointsPage(1);
   }, [endpointsWorkspaceFilterKey]);
 
-  if (isLoading) {
+  if (isLoading && !data && !isError) {
     return <LoadingPanels sections={[
       "AI/ML Spend Over Time",
       "Cost by AI Spend Category",
@@ -396,6 +399,28 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
       "ML Runtime Clusters",
       "Agent Bricks",
     ]} />;
+  }
+
+  if (isError && !data) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-6">
+        <div className="flex flex-col items-center justify-center gap-3 py-4">
+          <p className="text-base font-medium text-red-800">Failed to load AI/ML data</p>
+          <p className="text-center font-mono text-sm text-red-700">
+            {error instanceof Error ? error.message : "Check server logs for details."}
+          </p>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="mt-1 rounded-md px-4 py-2 text-sm font-medium text-white"
+              style={{ backgroundColor: C.lava }}
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      </div>
+    );
   }
 
   if (!data) {

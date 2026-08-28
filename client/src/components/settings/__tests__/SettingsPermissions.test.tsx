@@ -8,7 +8,8 @@
  * 4. When SP is the active identity, the remediation bundle is shown.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SettingsPermissions } from "../SettingsPermissions";
 
@@ -34,18 +35,7 @@ const SP_AUTH_STATUS = {
   schema: "coc",
 };
 
-const USER_AUTH_STATUS = {
-  auth_mode: "user" as const,
-  identity: "user_oauth",
-  token_present: true,
-  user_email: "alice@databricks.com",
-  sp_client_id: "0000-aaaa-bbbb-1234",
-  sp_display_name: "cost-observer-app-sp",
-  catalog: "main",
-  schema: "coc",
-};
-
-function mockApis(authStatus: object, permissionsPayload?: object) {
+function mockApis(authStatus: object, permissionsPayload?: object, userPermissions?: object) {
   const defaultPermissions = {
     permissions: [],
     summary: { total: 0, granted: 0, required_count: 2, required_granted: 2, all_required_granted: true, ready_to_use: true },
@@ -59,6 +49,14 @@ function mockApis(authStatus: object, permissionsPayload?: object) {
     if (url.includes("/api/settings/auth-status")) {
       return Promise.resolve(
         new Response(JSON.stringify(authStatus), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    }
+    if (url.includes("/api/settings/user-permissions")) {
+      return Promise.resolve(
+        new Response(JSON.stringify(userPermissions ?? { admins: [], consumers: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         })
@@ -159,6 +157,46 @@ describe("SettingsPermissions: grant bundle targets actual SP name", () => {
       // Section 1 grants must target the SP; no user-specific grants when SP is active identity
       expect(sqlText).toContain("GRANT USE CATALOG ON CATALOG system TO");
     });
+  });
+});
+
+describe("SettingsPermissions: polished access controls", () => {
+  it("labels role selects and renders the custom focus chevron", async () => {
+    mockApis(SP_AUTH_STATUS, undefined, {
+      admins: ["admin@databricks.com"],
+      consumers: ["viewer@databricks.com"],
+    });
+    renderPermissions();
+
+    const role = await screen.findByRole("combobox", { name: "Role for admin@databricks.com" });
+    expect(role).toHaveStyle({ appearance: "none" });
+    expect(role.parentElement?.querySelector("svg[aria-hidden='true']")).toBeInTheDocument();
+    fireEvent.focus(role);
+    expect(role.parentElement?.getAttribute("style")).toContain("box-shadow");
+    expect(screen.getByRole("combobox", { name: "Role for new user" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "User email" })).toBeInTheDocument();
+  });
+
+  it("uses an accessible SVG chevron and muted SQL panel styling", async () => {
+    mockApis(SP_AUTH_STATUS);
+    renderPermissions();
+
+    const grants = await screen.findByRole("button", {
+      name: "App runtime grants: exact SQL (run as metastore admin)",
+    });
+    expect(grants).toHaveAttribute("aria-expanded", "true");
+    expect(grants.querySelector("svg[aria-hidden='true']")).toBeInTheDocument();
+
+    const sql = document.querySelector("pre");
+    expect(sql).toHaveStyle({
+      backgroundColor: "var(--dob-code-bg, #F2F5F7)",
+      borderRadius: "8px",
+      lineHeight: "1.6",
+    });
+    expect(screen.getByRole("button", { name: /Copy SQL/ })).toBeInTheDocument();
+
+    await userEvent.click(grants);
+    expect(grants).toHaveAttribute("aria-expanded", "false");
   });
 });
 

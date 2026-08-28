@@ -243,7 +243,15 @@ export function SettingsConfig() {
       ) : tablesStatus?.tables?.length ? (
         <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflow: "hidden", opacity: mvRefreshing ? 0.5 : 1, transition: "opacity 300ms" }}>
           <div style={{ overflowX: "auto" }}>
-            <table style={{ minWidth: "100%", borderCollapse: "collapse" }}>
+            <table style={{ width: "100%", minWidth: 820, tableLayout: "fixed", borderCollapse: "collapse" }}>
+              <colgroup>
+                <col style={{ width: "31%" }} />
+                <col style={{ width: "13%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "18%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "14%" }} />
+              </colgroup>
               <thead style={{ backgroundColor: T.navBg }}>
                 <tr>
                   <th style={{ ...th, textAlign: "left" }}>Table</th>
@@ -312,8 +320,15 @@ export function SettingsConfig() {
             {history.length === 0 ? (
               <p style={{ fontSize: 12, color: T.textSecondary, fontStyle: "italic", margin: "0 2px" }}>No operations recorded yet. History appears here after the first manual or nightly rebuild.</p>
             ) : (
-              <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflow: "hidden" }}>
-                <table style={{ minWidth: "100%", borderCollapse: "collapse" }}>
+              <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflowX: "auto" }}>
+                <table style={{ width: "100%", minWidth: 760, tableLayout: "fixed", borderCollapse: "collapse" }}>
+                  <colgroup>
+                    <col style={{ width: "22%" }} />
+                    <col style={{ width: "46%" }} />
+                    <col style={{ width: "12%" }} />
+                    <col style={{ width: "10%" }} />
+                    <col style={{ width: "10%" }} />
+                  </colgroup>
                   <thead style={{ backgroundColor: T.navBg }}>
                     <tr>
                       <th style={{ ...th, textAlign: "left" }}>Date / time</th>

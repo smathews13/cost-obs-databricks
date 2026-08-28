@@ -75,7 +75,7 @@ import { generateCostCSV } from "@/utils/csvExport";
 import { C } from "@/theme";
 import { CostObsLockup, VersionPill, PageHero, Chip, InfoPanel } from "@/components/brand";
 import { LoadingPanels, Spinner } from "@/components/Spinner";
-import { isTabDataRequested } from "@/utils/tabDemand";
+import { buildExportScopeKey, isTabDataRequested } from "@/utils/tabDemand";
 import { refreshTabData, TAB_LOADING_SECTIONS } from "@/utils/tabRefresh";
 import {
   hydrateSettingsFromServer,
@@ -246,6 +246,10 @@ function Dashboard() {
     return first ?? "dbu";
   });
   const [showExportDialog, setShowExportDialog] = useState(false);
+  const [sourceScopeVersion, setSourceScopeVersion] = useState(0);
+  const [preparedExportScope, setPreparedExportScope] = useState<string | null>(null);
+  const [exportPreparingScope, setExportPreparingScope] = useState<string | null>(null);
+  const [exportPreparationArmed, setExportPreparationArmed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
   const [tabVisibility, setTabVisibility] = useState<TabVisibility>(loadTabVisibility);
@@ -482,8 +486,15 @@ function Dashboard() {
     sessionStorage.removeItem("_chunk_reload");
   }, [warehouseReady]);
 
+  const exportScopeKey = buildExportScopeKey(
+    dateRange.startDate,
+    dateRange.endDate,
+    selectedWorkspaceIds,
+    sourceScopeVersion,
+  );
+  const exportPreparationRequested = showExportDialog && exportPreparingScope === exportScopeKey;
   const requested = (tab: ViewTab) =>
-    Boolean(warehouseReady) && isTabDataRequested(tab, activeTab, showExportDialog, tabVisibility);
+    Boolean(warehouseReady) && isTabDataRequested(tab, activeTab, exportPreparationRequested, tabVisibility);
   const dbuRequested = requested("dbu");
   const sqlRequested = requested("sql");
   const infraRequested = requested("infra");
@@ -572,8 +583,20 @@ function Dashboard() {
   const anomaliesLoading = kpisBundleLoading;
   const kpisLoading = kpisBundleLoading;
 
-  const { data: aimlData, isLoading: aimlLoading } = useAIMLDashboardBundle(dateRange, _wsIds, aimlRequested);
-  const { data: appsData, isLoading: appsLoading } = useAppsDashboardBundle(dateRange, _wsIds, appsRequested);
+  const {
+    data: aimlData,
+    isLoading: aimlLoading,
+    isError: aimlError,
+    error: aimlErrorObj,
+    refetch: refetchAiml,
+  } = useAIMLDashboardBundle(dateRange, _wsIds, aimlRequested);
+  const {
+    data: appsData,
+    isLoading: appsLoading,
+    isError: appsError,
+    error: appsErrorObj,
+    refetch: refetchApps,
+  } = useAppsDashboardBundle(dateRange, _wsIds, appsRequested);
   const { data: taggingData, isLoading: taggingLoading } = useTaggingDashboardBundle(dateRange, _wsIds, taggingRequested);
 
   // Cloud actual costs: no workspace filter
@@ -650,8 +673,26 @@ function Dashboard() {
   };
   const activeTabInitialLoading = !warehouseReady || tabLoading[activeTab];
   const showActiveTabLoading = activeTabInitialLoading || explicitRefreshingTab === activeTab;
-  const exportDataLoading = showExportDialog &&
+  const exportDataLoading = exportPreparationRequested &&
     (Object.keys(tabVisibility) as ViewTab[]).some((tab) => tabVisibility[tab] && tabLoading[tab]);
+
+  useEffect(() => {
+    if (!exportPreparationRequested) return;
+    if (!exportPreparationArmed) {
+      setExportPreparationArmed(true);
+      return;
+    }
+    if (exportDataLoading) return;
+    setPreparedExportScope(exportScopeKey);
+    setExportPreparingScope(null);
+  }, [exportDataLoading, exportPreparationArmed, exportPreparationRequested, exportScopeKey]);
+
+  const openExportDialog = () => {
+    const needsPreparation = preparedExportScope !== exportScopeKey;
+    setExportPreparingScope(needsPreparation ? exportScopeKey : null);
+    setExportPreparationArmed(!needsPreparation);
+    setShowExportDialog(true);
+  };
 
   // Workspace list for the filter dropdown: SQL-backed, only fire when warehouse is ready.
   const { data: wsListData, isLoading: wsListLoading } = useQuery<{ workspaces: { id: string; name: string; historical?: boolean }[] }>({
@@ -968,7 +1009,7 @@ function Dashboard() {
             isLoading={wsListLoading}
             variant="rail"
           />
-          <SourceLabelFilter variant="rail" />
+              <SourceLabelFilter variant="rail" onApplied={() => setSourceScopeVersion((version) => version + 1)} />
 
           <div className="min-w-[2px] flex-1" />
 
@@ -1021,9 +1062,9 @@ function Dashboard() {
               )}
               <button
                 type="button"
-                onClick={() => setShowExportDialog(true)}
+                onClick={openExportDialog}
                 aria-label="Export"
-                className="inline-flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[8px] border border-white/40 px-0 text-[12.5px] font-medium text-white transition-colors hover:bg-white/[.10] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1100px]:w-auto min-[1100px]:gap-1.5 min-[1100px]:px-[11px]"
+                className="inline-flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[8px] border border-[#4D98D0] bg-[#2272B4] px-0 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#1B5F96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4D98D0]/50 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1100px]:w-auto min-[1100px]:gap-1.5 min-[1100px]:px-[11px]"
                 title="Export"
               >
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1034,7 +1075,7 @@ function Dashboard() {
               <button
                 type="button"
                 onClick={() => setShowSettings(true)}
-                className="flex h-[32px] w-[28px] shrink-0 items-center justify-center rounded-[6px] text-white opacity-80 transition-colors hover:bg-white/[.10] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139]"
+                className="-ml-[8px] flex h-[32px] w-[28px] shrink-0 items-center justify-center rounded-[6px] text-white opacity-80 transition-colors hover:bg-white/[.10] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139]"
                 title="App Settings"
                 aria-label="App Settings"
               >
@@ -1329,6 +1370,9 @@ function Dashboard() {
           <AIMLCostCenter
             data={aimlData}
             isLoading={aimlLoading}
+            isError={aimlError}
+            error={aimlErrorObj}
+            onRetry={() => void refetchAiml()}
             startDate={dateRange.startDate}
             endDate={dateRange.endDate}
             host={accountInfo?.host}
@@ -1341,10 +1385,12 @@ function Dashboard() {
           <AppsCostCenter
             data={appsData}
             isLoading={appsLoading}
+            isError={appsError}
+            error={appsErrorObj}
+            onRetry={() => void refetchApps()}
             host={accountInfo?.host}
             startDate={dateRange.startDate}
             endDate={dateRange.endDate}
-            dateRange={dateRange}
             workspaceIds={_wsIds}
             workspaceNameMap={workspaceNameMap}
           />

@@ -47,12 +47,21 @@ it("saves successfully and stays on the same open section", async () => {
 
   await userEvent.click(screen.getByRole("button", { name: "Dashboard tabs" }));
   await userEvent.click(screen.getByRole("switch", { name: "Cloud Costs" }));
+  expect(screen.getByText("1 unsaved setting")).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
   await waitFor(() => expect(screen.getByText("Settings saved")).toBeVisible());
+  expect(screen.getByText("1 setting updated")).toBeVisible();
   expect(onClose).not.toHaveBeenCalled();
   expect(screen.getByRole("heading", { name: "Dashboard tabs" })).toBeVisible();
   expect(screen.getByRole("switch", { name: "Cloud Costs" })).toHaveAttribute("aria-checked", "false");
+  client.setQueryData(["unified-settings"], { tab_visibility: { infra: true } });
+  await waitFor(() => expect(screen.getByText("1 setting updated")).toBeVisible());
+  expect(screen.getByRole("switch", { name: "Cloud Costs" })).toHaveAttribute("aria-checked", "false");
+
+  await userEvent.click(screen.getByRole("switch", { name: "Optimize" }));
+  expect(screen.queryByText("1 setting updated")).not.toBeInTheDocument();
+  expect(screen.getByText("1 unsaved setting")).toBeVisible();
 });
 
 it("renders, toggles, saves, and reloads user anonymization", async () => {
@@ -223,6 +232,7 @@ it("retains the draft and dirty state when Save fails", async () => {
 
   await waitFor(() => expect(screen.getByText("Settings were not saved: storage unavailable")).toBeVisible());
   expect(input).toHaveValue("Acme");
+  expect(screen.getByRole("alert")).toHaveTextContent("Save failed · 1 unsaved setting");
   expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
   expect(loadAppSettings().companyName).toBe("");
 });
@@ -291,6 +301,7 @@ it("prevents double submission while a save is in flight", async () => {
 
   expect(putCount).toBe(1);
   expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  expect(screen.getByRole("status")).toHaveTextContent("Saving 1 setting…");
   resolvePut?.({ ok: true, status: 200, json: async () => ({}) });
   await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled());
 });

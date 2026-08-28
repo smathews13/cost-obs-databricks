@@ -123,7 +123,7 @@ describe("PlatformKPIsView: denied dependency renders unavailable, not 0", () =>
   it("keeps the billing-backed compute resource KPI available when compute metadata is denied", () => {
     renderView({ "system.compute.clusters": false });
 
-    expect(screen.getByText("Total Compute Resources")).toBeInTheDocument();
+    expect(screen.getByText("Total Compute Resources")).toHaveClass("whitespace-nowrap");
     expect(screen.getByText("5 clusters · 2 SQL warehouses")).toBeInTheDocument();
     expect(screen.queryByText(/compute\.clusters grant required/i)).not.toBeInTheDocument();
   });

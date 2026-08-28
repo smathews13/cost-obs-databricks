@@ -1233,6 +1233,50 @@ async def preview_mv_source(catalog: str, schema: str) -> dict:
             "matched": matched, "total": len(_MV_TABLES)}
 
 
+@router.post("/mv-sources/check")
+async def check_mv_source_freshness(request: Request, label: str) -> dict:
+    """Re-probe one read-only shared source and rebuild its local union views.
+
+    Delta Sharing recipients cannot force the provider to publish new data. This
+    action verifies what is currently visible, refreshes the local view bindings,
+    and returns the provider table's latest metadata timestamp.
+    """
+    from datetime import datetime, timezone
+    from server.db import get_mv_sources, get_catalog_schema
+    from server.materialized_views import _MV_TABLES, _table_columns, rebuild_unified_views
+
+    source = next((item for item in get_mv_sources() if item.get("label") == label), None)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Shared source not found")
+
+    def _check() -> dict:
+        local_catalog, local_schema = get_catalog_schema()
+        selected_tables = source.get("tables") or _MV_TABLES
+        statuses = []
+        for table_name in selected_tables:
+            local_cols = _table_columns(f"`{local_catalog}`.`{local_schema}`.`{table_name}`")
+            source_cols = _table_columns(f"`{source['catalog']}`.`{source['schema']}`.`{table_name}`")
+            status = "absent" if source_cols is None else "match" if local_cols and source_cols == local_cols else "mismatch"
+            statuses.append({"table": table_name, "status": status})
+        build = rebuild_unified_views()
+        return {
+            "ok": bool(build.get("ok")),
+            "label": label,
+            "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "share_last_updated": _share_last_updated(
+                source.get("catalog"), source.get("schema"), selected_tables,
+            ),
+            "matched": sum(1 for item in statuses if item["status"] == "match"),
+            "total": len(statuses),
+            "tables": statuses,
+            "build": build,
+        }
+
+    result = await asyncio.to_thread(_check)
+    _invalidate_mv_caches()
+    return result
+
+
 @router.post("/mv-sources")
 async def add_mv_source(request: Request, body: dict) -> dict:
     """Add (or replace by label) an additional MV source and rebuild the unified
@@ -2433,6 +2477,18 @@ def save_app_settings(partial: dict) -> dict:
     """Merge and persist app settings, failing if the durable Delta write does not land."""
     current = get_app_settings()
     clean = {k: v for k, v in (partial or {}).items() if k in _APP_SETTINGS_ALLOWED}
+    if isinstance(clean.get("tab_visibility"), dict):
+        current_visibility = current.get("tab_visibility")
+        if not isinstance(current_visibility, dict):
+            current_visibility = _DEFAULT_TAB_VISIBILITY
+        merged_visibility = {
+            **_DEFAULT_TAB_VISIBILITY,
+            **{k: bool(v) for k, v in current_visibility.items() if k in _DEFAULT_TAB_VISIBILITY},
+            **{k: bool(v) for k, v in clean["tab_visibility"].items() if k in _DEFAULT_TAB_VISIBILITY},
+        }
+        if not any(merged_visibility.values()):
+            raise ValueError("At least one dashboard tab must remain visible.")
+        clean["tab_visibility"] = merged_visibility
     merged = {**current, **clean}
     delta_error: Exception | None = None
     try:
@@ -2570,6 +2626,7 @@ async def put_unified_settings(request: Request) -> dict:
     def _apply() -> dict:
         # app_settings-backed groups (general prefs, tab visibility, experimental, sensitivity)
         app_partial: dict = {}
+        updated_count = 0
         general = body.get("general")
         if isinstance(general, dict):
             for k in (
@@ -2579,44 +2636,56 @@ async def put_unified_settings(request: Request) -> dict:
             ):
                 if k in general:
                     app_partial[k] = general[k]
+                    updated_count += 1
         exp = body.get("experimental")
         if isinstance(exp, dict):
             for k in ("exp_setup_wizard_link", "exp_debugger_link", "enable_architecture_view"):
                 if k in exp:
                     app_partial[k] = bool(exp[k])
+                    updated_count += 1
         tv = body.get("tab_visibility")
         if isinstance(tv, dict):
-            merged_tv = {**_DEFAULT_TAB_VISIBILITY, **{k: bool(v) for k, v in tv.items() if k in _DEFAULT_TAB_VISIBILITY}}
-            if not any(merged_tv.values()):
-                raise HTTPException(status_code=400, detail="At least one dashboard tab must remain visible.")
-            app_partial["tab_visibility"] = merged_tv
+            changed_tv = {k: bool(v) for k, v in tv.items() if k in _DEFAULT_TAB_VISIBILITY}
+            if changed_tv:
+                app_partial["tab_visibility"] = changed_tv
+                updated_count += len(changed_tv)
 
         thresholds = body.get("thresholds")
         if isinstance(thresholds, dict):
             if "anomaly_sensitivity" in thresholds:
                 s = str(thresholds["anomaly_sensitivity"]).lower()
                 app_partial["anomaly_sensitivity"] = s if s in _ANOMALY_MULTIPLIER else "medium"
-            if any(k in thresholds for k in ("spike_threshold_percent", "daily_budget", "workspace_budget")):
+                updated_count += 1
+            threshold_keys = {
+                k for k in ("spike_threshold_percent", "daily_budget", "workspace_budget")
+                if k in thresholds
+            }
+            if threshold_keys:
                 cur = _load_alert_thresholds()
                 _save_alert_thresholds({
                     "spike_threshold_percent": max(1.0, min(500.0, float(thresholds.get("spike_threshold_percent", cur.get("spike_threshold_percent", 20))))),
                     "daily_budget": max(0.0, float(thresholds.get("daily_budget", cur.get("daily_budget", 50000)))),
                     "workspace_budget": max(0.0, float(thresholds.get("workspace_budget", cur.get("workspace_budget", 10000)))),
                 })
+                updated_count += len(threshold_keys)
 
         if app_partial:
             try:
                 save_app_settings(app_partial)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from e
             except AppSettingsDurabilityError as e:
                 raise HTTPException(status_code=503, detail=str(e)) from e
 
         webhook = body.get("webhook")
-        if isinstance(webhook, dict) and webhook.get("slack_webhook_url"):
+        if isinstance(webhook, dict) and "slack_webhook_url" in webhook:
             _save_webhook_settings({"slack_webhook_url": webhook["slack_webhook_url"]})
+            updated_count += 1
 
         pricing = body.get("pricing")
         if isinstance(pricing, dict) and "use_account_prices" in pricing:
             _save_pricing_settings({"use_account_prices": bool(pricing["use_account_prices"])})
+            updated_count += 1
 
         schedule = body.get("schedule")
         if isinstance(schedule, dict):
@@ -2633,7 +2702,11 @@ async def put_unified_settings(request: Request) -> dict:
                     json.dump(sched, f, indent=2)
             except OSError:
                 pass
+            updated_count += len({
+                k for k in ("enabled", "frequency", "hour_utc", "lookback_days")
+                if k in schedule
+            })
 
-        return _settings_snapshot(request)
+        return {"status": "saved", "updated_count": updated_count}
 
     return await asyncio.to_thread(_apply)

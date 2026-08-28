@@ -47,7 +47,7 @@ describe("chrome filter variants", () => {
       "max-w-[116px]",
       "min-[1280px]:max-w-[190px]",
       "bg-white/[.07]",
-      "border-white/[.16]",
+      "border-white/[.12]",
     );
     expect(screen.getByText("Workspaces")).toHaveClass("min-[1180px]:hidden");
     expect(trigger).not.toHaveClass("co-filter");
@@ -75,7 +75,7 @@ describe("chrome filter variants", () => {
       "max-w-[104px]",
       "min-[1280px]:max-w-[190px]",
       "bg-white/[.07]",
-      "border-white/[.16]",
+      "border-white/[.12]",
     );
     expect(screen.getByText("Sources")).toHaveClass("min-[1180px]:hidden");
     expect(trigger).not.toHaveClass("co-filter");
