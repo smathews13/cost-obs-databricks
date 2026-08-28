@@ -207,14 +207,14 @@ export function useInfraCostsTimeseries(dateRange?: DateRange, enabled: boolean 
 }
 
 export function useAccountInfo() {
-  // Fast call — returns instantly from host URL detection (no SQL)
+  // Fast call: returns instantly from host URL detection (no SQL)
   const fast = useQuery<AccountInfo>({
     queryKey: ["billing", "account"],
     queryFn: () => fetchJson("/api/billing/account"),
     staleTime: Infinity,
   });
 
-  // Slow call — backfills account_id from billing data (may take seconds)
+  // Slow call: backfills account_id from billing data (may take seconds)
   const details = useQuery<{ account_id: string | null; cloud: string | null }>({
     queryKey: ["billing", "account-details"],
     queryFn: () => fetchJson("/api/billing/account-details"),
@@ -374,7 +374,7 @@ const POLL_INTERVAL_MS = 2000;
 async function fetchWithPoll<T>(url: string): Promise<T | null> {
   const response = await fetch(url);
   if (response.status === 202) {
-    return null; // still computing — caller will poll
+    return null; // still computing: caller will poll
   }
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
@@ -392,7 +392,7 @@ async function fetchWithPoll<T>(url: string): Promise<T | null> {
 }
 
 /**
- * AI/ML 360 dashboard bundle — submit-and-poll: returns null while computing, data when ready.
+ * AI/ML 360 dashboard bundle: submit-and-poll: returns null while computing, data when ready.
  * isLoading is true while data is null (pending or first fetch).
  */
 export function useAIMLDashboardBundle(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
@@ -410,7 +410,7 @@ export function useAIMLDashboardBundle(dateRange?: DateRange, workspaceIds?: str
 }
 
 /**
- * Apps dashboard bundle — submit-and-poll: returns null while computing, data when ready.
+ * Apps dashboard bundle: submit-and-poll: returns null while computing, data when ready.
  * isLoading is true while data is null (pending or first fetch).
  */
 export function useAppsDashboardBundle(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
@@ -482,7 +482,7 @@ export function useGCPActualCosts(dateRange?: DateRange, enabled: boolean = true
  * @param enabled - Whether to enable the query (set false when tab not active)
  */
 /**
- * DBSQL 360 dashboard bundle — submit-and-poll: returns null while computing, data when ready.
+ * DBSQL 360 dashboard bundle: submit-and-poll: returns null while computing, data when ready.
  * isLoading is true while data is null (pending or first fetch).
  */
 export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {

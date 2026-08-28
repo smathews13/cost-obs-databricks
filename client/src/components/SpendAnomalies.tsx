@@ -111,9 +111,9 @@ function CalendarView({
                           : { opacity: 0.2, background: "rgba(128,128,128,0.05)" }
                       }
                     >
-                      {/* Day number — top right */}
+                      {/* Day number: top right */}
                       <span className="absolute right-1 top-0.5 text-[10px] leading-none">{format(day, "d")}</span>
-                      {/* Percent + arrow — centered */}
+                      {/* Percent + arrow: centered */}
                       {anomaly && (
                         <div className="flex h-full items-center justify-center gap-0.5">
                           <span>{Math.abs(anomaly.change_percent).toFixed(0)}%</span>
@@ -176,7 +176,7 @@ export function SpendAnomalies({ data, isLoading }: SpendAnomaliesProps) {
         <h3 className="mb-4 text-lg font-semibold text-gray-900">Largest Spend Changes</h3>
         <div className="flex h-40 flex-col items-center justify-center gap-2 text-gray-500">
           <p className="text-base font-medium">No significant spend changes detected</p>
-          <p className="text-sm">This is good news — spending has been stable over the selected period</p>
+          <p className="text-sm">This is good news: spending has been stable over the selected period</p>
         </div>
       </div>
     );
@@ -204,7 +204,7 @@ export function SpendAnomalies({ data, isLoading }: SpendAnomaliesProps) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Search — only in table mode, left of date badge */}
+          {/* Search: only in table mode, left of date badge */}
           {viewMode === "table" && (
             <div className="relative">
               <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -224,7 +224,7 @@ export function SpendAnomalies({ data, isLoading }: SpendAnomaliesProps) {
             <svg className="h-3.5 w-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            {format(parseISO(data.start_date), "MMM d, yyyy")} – {format(parseISO(data.end_date), "MMM d, yyyy")}
+            {format(parseISO(data.start_date), "MMM d, yyyy")} to {format(parseISO(data.end_date), "MMM d, yyyy")}
           </span>
           {/* View toggle */}
           <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">

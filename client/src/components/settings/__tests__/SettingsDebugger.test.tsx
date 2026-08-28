@@ -30,7 +30,7 @@ beforeEach(() => {
 // Auth mode sourcing
 // ---------------------------------------------------------------------------
 
-describe("SettingsDebugger — auth mode sourcing", () => {
+describe("SettingsDebugger: auth mode sourcing", () => {
   it("shows the auth_mode from /api/settings/auth-status, not a hardcoded default", async () => {
     // /api/settings/config returns a payload WITHOUT auth_mode
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
@@ -49,7 +49,7 @@ describe("SettingsDebugger — auth mode sourcing", () => {
           identity: "user_oauth",
         }), { status: 200, headers: { "Content-Type": "application/json" } }));
       }
-      // /api/debug/run — never called since user hasn't clicked "Run Diagnostics"
+      // /api/debug/run: never called since user hasn't clicked "Run Diagnostics"
       return Promise.resolve(new Response("{}", { status: 200 }));
     });
 
@@ -65,7 +65,7 @@ describe("SettingsDebugger — auth mode sourcing", () => {
     expect(screen.queryByText("service_principal")).not.toBeInTheDocument();
   });
 
-  it("shows '—' when /api/settings/auth-status is unavailable", async () => {
+  it("shows 'N/A' when /api/settings/auth-status is unavailable", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/settings/config")) {
@@ -87,10 +87,10 @@ describe("SettingsDebugger — auth mode sourcing", () => {
       expect(screen.getByText("Auth mode")).toBeInTheDocument();
     });
 
-    // Falls back to "—" rather than a stale hardcoded value. (Several deployment-info
-    // fields render "—" when their source is unavailable, so match all occurrences.)
+    // Falls back to "N/A" rather than a stale hardcoded value. (Several deployment-info
+    // fields render "N/A" when their source is unavailable, so match all occurrences.)
     await waitFor(() => {
-      expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("N/A").length).toBeGreaterThan(0);
     });
   });
 });
@@ -149,7 +149,7 @@ function mockApisWithDiag(diagPayload: object) {
 // Failure class → action label mapping
 // ---------------------------------------------------------------------------
 
-describe("SettingsDebugger — failure class action labels", () => {
+describe("SettingsDebugger: failure class action labels", () => {
   it("warehouse permission failure renders 'Grant SQL' button", async () => {
     mockApisWithDiag(makeDiagResult([{
       id: "wh-perm",
@@ -234,7 +234,7 @@ describe("SettingsDebugger — failure class action labels", () => {
       status: "fail",
       detail: "Materialized view is 48 hours stale",
       fix: "Rebuild the materialized view to restore fresh data.",
-      // no failure_class — must be inferred from category
+      // no failure_class: must be inferred from category
     }]));
 
     renderWithQuery(<SettingsDebugger />);
@@ -250,14 +250,14 @@ describe("SettingsDebugger — failure class action labels", () => {
 // Schema mismatch: prose fix, not raw SQL
 // ---------------------------------------------------------------------------
 
-describe("SettingsDebugger — schema mismatch renders rebuild state, not raw SQL error", () => {
+describe("SettingsDebugger: schema mismatch renders rebuild state, not raw SQL error", () => {
   it("schema_mismatch check shows 'Rebuild' button", async () => {
     mockApisWithDiag(makeDiagResult([{
       id: "schema-mismatch",
       category: "materialized_views",
       label: "billing_summary schema mismatch",
       status: "fail",
-      detail: "Column 'workspace_id' not found in main.coc.billing_summary — expected by current query",
+      detail: "Column 'workspace_id' not found in main.coc.billing_summary: expected by current query",
       fix: "Drop and rebuild the materialized view to apply the latest schema.",
       failure_class: "schema_mismatch",
     }]));

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Package, TrendingUp, Users, X, Tag, Trash2, Calendar, PlayCircle, Server, Database, Workflow, Bot, BarChart3 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, ReferenceLine, Legend } from "recharts";
 import { formatCurrency, formatNumber } from "@/utils/formatters";
-import { C } from "@/theme";
+import { C, seriesColor } from "@/theme";
 import { PageHero } from "@/components/brand";
 
 type UseCaseStage = 'Live' | 'Development' | 'Planned' | 'Inactive';
@@ -102,14 +102,12 @@ const STAGE_COLORS: Record<UseCaseStage, { bg: string; text: string; border: str
 function StageBadge({ stage }: { stage: UseCaseStage }) {
   const colors = STAGE_COLORS[stage] || STAGE_COLORS.Development;
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${colors.bg} ${colors.text} ${colors.border}`}>
+    <span className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium border ${colors.bg} ${colors.text} ${colors.border}`}>
       {stage === 'Live' && <PlayCircle className="h-3 w-3" />}
       {stage}
     </span>
   );
 }
-
-const COLORS = [C.lava, C.lavaHover, C.busy, C.coral, C.s1, C.coralBrd];
 
 interface UserInfo {
   email: string;
@@ -1431,7 +1429,7 @@ export default function UseCases() {
     name: uc.name,
     value: uc.total_spend,
     percentage: uc.percentage,
-    fill: COLORS[idx % COLORS.length],
+    fill: seriesColor(idx),
   })) || [];
 
   // Prepare monthly chart data with formatted month labels

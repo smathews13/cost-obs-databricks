@@ -20,8 +20,8 @@ import { format, parseISO } from "date-fns";
 import type { GranularBreakdownResponse, DBSQLDashboardBundle, QueryCostByWarehouse } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
-import { C } from "@/theme";
-import { PageHero, Chip } from "@/components/brand";
+import { C, seriesColor } from "@/theme";
+import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
 interface SQLWarehousing360Props {
   sqlBreakdownData: GranularBreakdownResponse | undefined;
@@ -48,11 +48,9 @@ const SOURCE_TYPE_COLORS: Record<string, string> = {
   Unknown: C.slate,
 };
 
-const COLORS = [C.s2, C.s5, C.s3, C.s3, C.s4, C.s5, C.s1, C.lava, C.slate];
-
 const COST_TOOLTIP_TEXT = "Costs are estimates: the warehouse's billed DBU-hours are divided across all queries in the period, weighted by task duration. A fast query running during a low-activity window can inherit a large share of the hour's cost.";
 
-// Stable module-level formatters for the Top Users bar chart — passing inline
+// Stable module-level formatters for the Top Users bar chart: passing inline
 // arrows to Recharts churns identity every render and re-triggers animations,
 // which is what caused the labels to flicker.
 const USER_BAR_TICK_FMT = (v: number | string) => formatCurrency(typeof v === "number" ? v : Number(v));
@@ -427,7 +425,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
   const summary = queryData?.summary;
   const sourceTypes = queryData?.timeseries?.source_types || [];
   // Only treat query data as unavailable once a response has actually arrived.
-  // While queryData is undefined the tab is still loading — don't flash the
+  // While queryData is undefined the tab is still loading: don't flash the
   // "not available" banner prematurely.
   const hasQueryData = queryData != null ? queryData.available : undefined;
 
@@ -437,7 +435,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
 
   return (
     <div className="space-y-6">
-      {/* Region-scope banner — system.compute / system.query are region-scoped, so
+      {/* Region-scope banner: system.compute / system.query are region-scoped, so
           SQL/warehouse detail only covers workspaces in this metastore's region even
           though account-wide billing (spend totals) spans all regions. */}
       {SHOW_REGION_SCOPE_BANNER && queryData?.region_scope?.limited && (
@@ -479,7 +477,19 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
         </div>
       ) : (
         <>
-          {/* Header */}
+          <InfoPanel
+            title="SQL Warehousing: What's on this tab"
+            minimized={infoMinimized}
+            onToggle={handleMinimizeToggle}
+          >
+            <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+              <li><strong style={{ color: C.navy }}>Spend by Source:</strong> Click any source (Genie, AI/BI, SQL Editor, Jobs, Notebooks) to drill into the top queries from that source</li>
+              <li><strong style={{ color: C.navy }}>Warehouse Spend:</strong> Breakdown by warehouse type and utilization patterns</li>
+              <li><strong style={{ color: C.navy }}>SKU Breakdown:</strong> Spend split across Serverless, Pro, Classic, and other SQL SKUs</li>
+              <li><strong style={{ color: C.navy }}>Top Users by Query Spend:</strong> Human users and service principals ranked by SQL query cost</li>
+            </ul>
+          </InfoPanel>
+
           <PageHero
             icon={
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -499,49 +509,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
             }
           />
 
-          {/* Info Banner */}
-          <div className="p-4" style={{ background: C.oatMed, borderRadius: 10 }}>
-            <div className="flex">
-              <div className="flex-shrink-0" style={{ color: C.lava }}>
-                <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div className="ml-3 flex-1">
-                <button className="flex w-full items-center justify-between" onClick={() => handleMinimizeToggle(!infoMinimized)}>
-                  <h3 className="text-sm font-semibold" style={{ color: C.navy }}>SQL Warehousing — What's on this tab</h3>
-                  <svg className={`h-4 w-4 transition-transform ${infoMinimized ? "" : "rotate-180"}`} style={{ color: C.slate }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {!infoMinimized && (
-                  <>
-                    <div className="mt-2 text-sm" style={{ color: C.body }}>
-                      <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                        <li><strong style={{ color: C.navy }}>Spend by Source:</strong> Click any source (Genie, AI/BI, SQL Editor, Jobs, Notebooks) to drill into the top queries from that source</li>
-                        <li><strong style={{ color: C.navy }}>Warehouse Spend:</strong> Breakdown by warehouse type and utilization patterns</li>
-                        <li><strong style={{ color: C.navy }}>SKU Breakdown:</strong> Spend split across Serverless, Pro, Classic, and other SQL SKUs</li>
-                        <li><strong style={{ color: C.navy }}>Top Users by Query Spend:</strong> Human users and service principals ranked by SQL query cost</li>
-                      </ul>
-                    </div>
-                    <div className="mt-3 flex justify-start">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={infoMinimized}
-                          onChange={(e) => handleMinimizeToggle(e.target.checked)}
-                          className="h-3.5 w-3.5 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
-                        />
-                        <span className="text-xs text-orange-600">Minimize from now on</span>
-                      </label>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Stale data warning — shown when MV exists but has no data in the selected range */}
+          {/* Stale data warning: shown when MV exists but has no data in the selected range */}
           {summary?.total_queries === 0 && (summary?.data_range?.total_rows ?? 0) > 0 && (() => {
             const earliest = summary.data_range?.earliest_date;
             const latest = summary.data_range?.latest_date;
@@ -557,7 +525,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   <p className="text-sm font-medium text-amber-800">No data in selected range</p>
                   <p className="mt-1 text-sm text-amber-700">
                     {rangeOutside ? (
-                      <>The Query data runs from <strong>{earliest}</strong> to <strong>{latest}</strong> — adjust the date range to see data.</>
+                      <>The Query data runs from <strong>{earliest}</strong> to <strong>{latest}</strong>: adjust the date range to see data.</>
                     ) : (
                       <>No SQL warehouse queries found for the selected {workspaceIds?.length ? `${workspaceIds.length} workspace${workspaceIds.length > 1 ? 's' : ''}` : 'filters'} in this date range. Try selecting all workspaces or a different date range.</>
                     )}
@@ -573,20 +541,20 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
             // Show unavailable state instead of fake 0 when query.history is explicitly denied
             // or when summary data is null (no data returned despite query succeeding).
             const summaryUnavailable = queryHistoryGranted === false
-              ? "query.history grant required — run SP grants to fix"
+              ? "query.history grant required: run SP grants to fix"
               : (summary == null && hasQueryData ? "No summary data returned" : undefined);
 
             if (summaryUnavailable) {
               return (
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">
                   <span className="font-medium text-gray-700">Query summary unavailable</span>
-                  <span className="ml-2">— {summaryUnavailable}</span>
+                  <span className="ml-2">: {summaryUnavailable}</span>
                 </div>
               );
             }
 
             return (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all" onClick={() => startDate && endDate && setSelectedKPI({kpi: "sql_spend", label: "Daily SQL Spend Trend", variant: "billing"})}>
               <div className="flex items-center">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
@@ -597,10 +565,10 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 <div className="ml-4">
                   <div className="text-sm font-medium text-gray-500">Total Query Spend</div>
                   <div className="text-2xl font-semibold text-gray-900">
-                    {summary != null ? formatCurrency(summary.total_spend ?? 0) : "—"}
+                    {summary != null ? formatCurrency(summary.total_spend ?? 0) : "N/A"}
                   </div>
                   <div className="mt-1 text-xs text-gray-500">
-                    {summary != null ? `${formatNumber(summary.total_dbus ?? 0)} DBUs · over ${startDate && endDate ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1 : "?"} days` : "—"}
+                    {summary != null ? `${formatNumber(summary.total_dbus ?? 0)} DBUs · over ${startDate && endDate ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1 : "?"} days` : "N/A"}
                   </div>
                   <p className="mt-1 text-xs text-lava">See trend →</p>
                 </div>
@@ -616,14 +584,14 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 <div className="ml-4">
                   <div className="text-sm font-medium text-gray-500">Total Queries</div>
                   <div className="text-2xl font-semibold text-gray-900">
-                    {summary != null ? formatNumber(summary.total_queries ?? 0) : "—"}
+                    {summary != null ? formatNumber(summary.total_queries ?? 0) : "N/A"}
                   </div>
                   <div className="mt-1 text-xs text-gray-500">
                     {summary != null ? (() => {
                       const days = startDate && endDate ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1 : null;
                       const avgPerDay = days ? Math.round((summary.total_queries ?? 0) / days) : null;
                       return `${avgPerDay != null ? formatNumber(avgPerDay) + " avg/day · " : ""}${formatCurrency(summary.avg_cost_per_query ?? 0)}/query`;
-                    })() : "—"}
+                    })() : "N/A"}
                   </div>
                   <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
                 </div>
@@ -639,10 +607,10 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 <div className="ml-4">
                   <div className="text-sm font-medium text-gray-500">Unique SQL Users</div>
                   <div className="text-2xl font-semibold text-gray-900">
-                    {summary != null ? formatNumber(summary.unique_users ?? 0) : "—"}
+                    {summary != null ? formatNumber(summary.unique_users ?? 0) : "N/A"}
                   </div>
                   <div className="mt-1 text-xs text-gray-500">
-                    {summary != null ? `across ${formatNumber(summary.unique_warehouses ?? 0)} SQL warehouses` : "—"}
+                    {summary != null ? `across ${formatNumber(summary.unique_warehouses ?? 0)} SQL warehouses` : "N/A"}
                   </div>
                   <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
                 </div>
@@ -658,7 +626,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 <div className="ml-4">
                   <div className="text-sm font-medium text-gray-500">Query Duration</div>
                   <div className="text-2xl font-semibold text-gray-900">
-                    {summary != null ? formatDuration(summary.avg_duration_seconds ?? 0) : "—"}
+                    {summary != null ? formatDuration(summary.avg_duration_seconds ?? 0) : "N/A"}
                   </div>
                   <div className="mt-1 text-xs text-gray-500">
                     average per query
@@ -684,7 +652,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
             />
           )}
 
-          {/* Daily Query Costs + Top Users — side by side */}
+          {/* Daily Query Costs + Top Users: side by side */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* Timeseries Chart */}
             <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
@@ -705,8 +673,8 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                         type="monotone"
                         dataKey={type}
                         stackId="1"
-                        stroke={SOURCE_TYPE_COLORS[type] || COLORS[idx % COLORS.length]}
-                        fill={SOURCE_TYPE_COLORS[type] || COLORS[idx % COLORS.length]}
+                        stroke={SOURCE_TYPE_COLORS[type] || seriesColor(idx)}
+                        fill={SOURCE_TYPE_COLORS[type] || seriesColor(idx)}
                         fillOpacity={0.6}
                       />
                     ))}
@@ -755,7 +723,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                       }}
                     >
                       {userBarData.map((_entry, idx) => (
-                        <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
+                        <Cell key={idx} fill={seriesColor(idx)} />
                       ))}
                       <LabelList dataKey="total_spend" position="right" formatter={USER_BAR_LABEL_FMT} style={USER_BAR_LABEL_STYLE} />
                     </Bar>
@@ -769,7 +737,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
             </div>
           </div>
 
-          {/* Warehouse Spend by Type + Warehouse Count by Size — side by side */}
+          {/* Warehouse Spend by Type + Warehouse Count by Size: side by side */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
               <h3 className="mb-4 text-lg font-semibold text-gray-900">Warehouse Spend by Type</h3>
@@ -784,7 +752,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                     </div>
                   );
                 }
-                const typeColors: Record<string, string> = { SERVERLESS: C.s2, PRO: C.s5, CLASSIC: C.s4, Unknown: C.muted };
+                const typeColors: Record<string, string> = { SERVERLESS: C.s3, PRO: C.s5, CLASSIC: C.s4, Unknown: C.muted };
                 return (
                   <ResponsiveContainer width="100%" height={300}>
                     <AreaChart data={tsData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
@@ -848,7 +816,6 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   if (s === "UNKNOWN") continue;
                   bySize[s] = (bySize[s] || 0) + 1;
                 }
-                const sizeColors = [C.s2, C.s5, C.s3, C.s4, C.lava, C.s5, C.s1, C.lava];
                 const chartData = Object.entries(bySize)
                   .sort((a, b) => b[1] - a[1])
                   .map(([name, count]) => ({ name: name.replace(/_/g, " "), count }));
@@ -940,7 +907,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                           <Tooltip contentStyle={{ backgroundColor: C.white, border: `1px solid ${C.hairline}`, borderRadius: "8px" }} />
                           <Bar dataKey="count" name="Warehouses" radius={[0, 4, 4, 0]}>
                             {chartData.map((_, idx) => (
-                              <Cell key={idx} fill={sizeColors[idx % sizeColors.length]} />
+                              <Cell key={idx} fill={seriesColor(idx)} />
                             ))}
                             <LabelList dataKey="count" position="right" style={{ fontSize: 11, fill: C.slate }} />
                           </Bar>
@@ -955,7 +922,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
           </div>
           </div>
 
-          {/* Query Source Breakdown — full width */}
+          {/* Query Source Breakdown: full width */}
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
               <h3 className="mb-4 text-lg font-semibold text-gray-900">Query Source Breakdown</h3>
               {queryData?.by_source?.sources && queryData.by_source.sources.length > 0 ? (
@@ -1221,7 +1188,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
         </>
       )}
 
-      {/* Source Drilldown Modal — rendered via portal to avoid stacking context issues */}
+      {/* Source Drilldown Modal: rendered via portal to avoid stacking context issues */}
       {selectedSource && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" onClick={() => setSelectedSource(null)}>
           <div className="mx-4 w-full max-w-5xl rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -1232,7 +1199,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                   style={{ backgroundColor: SOURCE_TYPE_COLORS[selectedSource] || C.slate }}
                 />
                 <h3 className="text-lg font-semibold text-gray-900">
-                  Top 5 Queries — {selectedSource}
+                  Top 5 Queries: {selectedSource}
                 </h3>
               </div>
               <button onClick={() => setSelectedSource(null)} className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-600">
@@ -1287,7 +1254,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                         <td className="whitespace-nowrap px-4 py-3 text-right">
                           {srcHistUrl
                             ? <a href={srcHistUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-lava hover:underline">History ↗</a>
-                            : <span className="text-xs text-gray-500">—</span>
+                            : <span className="text-xs text-gray-500">N/A</span>
                           }
                         </td>
                       </tr>
@@ -1311,7 +1278,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
           <div className="mx-4 w-full max-w-4xl rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Queries — {selectedUser.display}</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Queries: {selectedUser.display}</h3>
                 {userQueriesData?.total_spend != null && (
                   <p className="text-sm text-gray-500 mt-0.5">
                     {userQueriesData.query_count} queries · {formatCurrency(userQueriesData.total_spend)} total
@@ -1350,20 +1317,20 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                       return (
                         <tr key={q.statement_id || idx} className="hover:bg-gray-50">
                           <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-500">
-                            {q.start_time ? (() => { try { return format(new Date(q.start_time), "MMM d, HH:mm"); } catch { return q.start_time; } })() : "—"}
+                            {q.start_time ? (() => { try { return format(new Date(q.start_time), "MMM d, HH:mm"); } catch { return q.start_time; } })() : "N/A"}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">
                             <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{q.query_source_type}</span>
                           </td>
                           <td className="max-w-xs px-4 py-3">
-                            <div className="truncate font-mono text-xs text-gray-500" title={q.statement_preview}>{q.statement_preview || "—"}</div>
+                            <div className="truncate font-mono text-xs text-gray-500" title={q.statement_preview}>{q.statement_preview || "N/A"}</div>
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-500">{formatDuration(q.duration_seconds)}</td>
                           <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-gray-900">{formatCurrency(q.cost)}</td>
                           <td className="whitespace-nowrap px-4 py-3 text-right">
                             {histUrl
                               ? <a href={histUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-lava hover:underline">History ↗</a>
-                              : <span className="text-xs text-gray-500">—</span>}
+                              : <span className="text-xs text-gray-500">N/A</span>}
                           </td>
                         </tr>
                       );
@@ -1372,7 +1339,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                       <>
                         <tr>
                           <td colSpan={6} className="bg-gray-50 px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray-500">
-                            Historical — profile links may be expired (25+ days ago)
+                            Historical: profile links may be expired (25+ days ago)
                           </td>
                         </tr>
                         {staleUserQueries.map((q, idx) => {
@@ -1380,13 +1347,13 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                           return (
                             <tr key={q.statement_id || idx} className="opacity-60 hover:bg-gray-50">
                               <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-500">
-                                {q.start_time ? (() => { try { return format(new Date(q.start_time), "MMM d, HH:mm"); } catch { return q.start_time; } })() : "—"}
+                                {q.start_time ? (() => { try { return format(new Date(q.start_time), "MMM d, HH:mm"); } catch { return q.start_time; } })() : "N/A"}
                               </td>
                               <td className="whitespace-nowrap px-4 py-3">
                                 <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{q.query_source_type}</span>
                               </td>
                               <td className="max-w-xs px-4 py-3">
-                                <div className="truncate font-mono text-xs text-gray-500" title={q.statement_preview}>{q.statement_preview || "—"}</div>
+                                <div className="truncate font-mono text-xs text-gray-500" title={q.statement_preview}>{q.statement_preview || "N/A"}</div>
                               </td>
                               <td className="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-500">{formatDuration(q.duration_seconds)}</td>
                               <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-gray-900">{formatCurrency(q.cost)}</td>
@@ -1434,54 +1401,22 @@ export function OptimizeMethodologyPanel() {
     v ? localStorage.setItem(MINIMIZE_KEY, "true") : localStorage.removeItem(MINIMIZE_KEY);
   };
   return (
-    <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 shrink-0">
-          <svg className="h-5 w-5 text-orange-400" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-          </svg>
-        </div>
-        <div className="ml-1 flex-1">
-          <button className="flex w-full items-center justify-between" onClick={() => toggle(!minimized)}>
-            <h3 className="text-sm font-medium text-orange-800">Optimize — Methodology</h3>
-            <svg className={`h-4 w-4 text-orange-500 transition-transform ${minimized ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          {!minimized && (
-            <>
-              <div className="mt-2 text-sm text-orange-700">
-                <p className="mb-2 font-medium">Idle Time</p>
-                <ul className="list-inside list-disc space-y-1">
-                  <li><strong>Uptime</strong>: Derived from <code className="rounded bg-orange-100 px-1 text-xs">system.compute.warehouse_events</code> — the delta between START and STOP lifecycle events per warehouse</li>
-                  <li><strong>Active query time</strong>: Sum of query durations from <code className="rounded bg-orange-100 px-1 text-xs">system.query.history</code> for the same warehouse and window</li>
-                  <li><strong>Idle time</strong>: Uptime minus active query time (floored at zero)</li>
-                  <li><strong>Est. idle spend</strong>: <code className="rounded bg-orange-100 px-1 text-xs">total_billed_spend × (idle_minutes / uptime_minutes)</code> — prorated from Databricks billing data</li>
-                  <li>Serverless warehouses are excluded — they scale per-query and do not emit start/stop events</li>
-                </ul>
-                <p className="mb-2 mt-3 font-medium">Rightsizing</p>
-                <ul className="list-inside list-disc space-y-1">
-                  <li><strong>Over-Scaled</strong>: Warehouse has multiple clusters (auto-scaling enabled) but median concurrency per query window never exceeded 1 — extra clusters never needed</li>
-                  <li><strong>Oversized</strong>: Warehouse size (M, L, XL…) is larger than query complexity warrants — average query duration and data scanned suggest a smaller size would suffice</li>
-                  <li>Recommendations are based on the <code className="rounded bg-orange-100 px-1 text-xs">system.compute.warehouse_events</code> and <code className="rounded bg-orange-100 px-1 text-xs">system.query.history</code> system tables over the selected date range</li>
-                </ul>
-              </div>
-              <div className="mt-3 flex justify-start">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={minimized}
-                    onChange={(e) => toggle(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
-                  />
-                  <span className="text-xs text-orange-600">Minimize from now on</span>
-                </label>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+    <InfoPanel title="Optimize: Methodology" minimized={minimized} onToggle={toggle}>
+      <p className="mb-2 font-medium">Idle Time</p>
+      <ul className="list-inside list-disc space-y-1">
+        <li><strong>Uptime</strong>: Derived from <code className="rounded bg-white/60 px-1 text-xs">system.compute.warehouse_events</code> using the time between START and STOP lifecycle events</li>
+        <li><strong>Active query time</strong>: Sum of query durations from <code className="rounded bg-white/60 px-1 text-xs">system.query.history</code> for the same warehouse and window</li>
+        <li><strong>Idle time</strong>: Uptime minus active query time, floored at zero</li>
+        <li><strong>Estimated idle spend</strong>: Billed spend prorated by the idle share of uptime</li>
+        <li>Serverless warehouses are excluded because they scale per query and do not emit start and stop events</li>
+      </ul>
+      <p className="mb-2 mt-3 font-medium">Rightsizing</p>
+      <ul className="list-inside list-disc space-y-1">
+        <li><strong>Over scaled</strong>: Multiple clusters were available, but median concurrency never exceeded one</li>
+        <li><strong>Oversized</strong>: Query duration and data scanned suggest that a smaller warehouse may be sufficient</li>
+        <li>Recommendations use warehouse events and query history over the selected date range</li>
+      </ul>
+    </InfoPanel>
   );
 }
 
@@ -1530,7 +1465,7 @@ export function WarehouseRightsizingView({ host }: { host?: string | null }) {
         <div>
           <h3 className="text-base font-semibold text-gray-900 flex items-center">
             Warehouse Rightsizing
-            <InfoTooltip text="Two categories of rightsizing opportunities. Over-scaled: warehouse scaled to 2+ clusters over the last 30 days but peak query concurrency stayed below capacity — consider reducing max_num_clusters. Oversized: a Large or bigger warehouse with average queue time < 15s and median query duration < 3 minutes — consider downsizing one tier." />
+            <InfoTooltip text="Two categories of rightsizing opportunities. Over-scaled: warehouse scaled to 2+ clusters over the last 30 days but peak query concurrency stayed below capacity: consider reducing max_num_clusters. Oversized: a Large or bigger warehouse with average queue time < 15s and median query duration < 3 minutes: consider downsizing one tier." />
           </h3>
         </div>
         <div className="flex items-center gap-3">
@@ -1597,7 +1532,7 @@ export function WarehouseRightsizingView({ host }: { host?: string | null }) {
             : (
               <span className="inline-flex items-center gap-2">
                 <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                No rightsizing recommendations — all warehouses appear appropriately sized.
+                No rightsizing recommendations: all warehouses appear appropriately sized.
               </span>
             )}
         </div>
@@ -1655,7 +1590,7 @@ export function WarehouseRightsizingView({ host }: { host?: string | null }) {
                           rec.warehouse_name || rec.warehouse_id
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-500">{rec.warehouse_size || "—"}</td>
+                      <td className="px-4 py-3 text-gray-500">{rec.warehouse_size || "N/A"}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${badgeColor[rec.recommendation_type] || "bg-gray-100 text-gray-700"}`}>
                           {badgeLabel[rec.recommendation_type] || rec.recommendation_type}
@@ -1743,7 +1678,7 @@ export function WarehouseIdleTimeView({
       auto_stop_mins: number;
       max_num_clusters: number;
       total_spend: number;
-      // null when the backend suppressed attribution — serverless, multi-cluster,
+      // null when the backend suppressed attribution: serverless, multi-cluster,
       // or when uptime came from the billing fallback rather than lifecycle events.
       estimated_idle_spend: number | null;
       low_confidence: boolean;
@@ -1823,7 +1758,7 @@ export function WarehouseIdleTimeView({
         <div>
           <h3 className="text-base font-semibold text-gray-900 flex items-center">
             Top Warehouses by Idle Time
-            <InfoTooltip text="Idle time = warehouse uptime minus busy time (union of query intervals — bounded by wall-clock even under concurrency). Est. Idle Spend is only computed for CLASSIC single-cluster warehouses because serverless bills per-query with warm-hold at a reduced rate, and multi-cluster warehouses have concurrent cluster billing that wall-clock uptime can't reconstruct. For serverless rows, look at Warm-Hold (minutes held ready between queries, capped at auto_stop_mins) and the 'low conf.' badge — the actionable knob is auto_stop_mins, not raw idle %." />
+            <InfoTooltip text="Idle time = warehouse uptime minus busy time (union of query intervals: bounded by wall-clock even under concurrency). Est. Idle Spend is only computed for CLASSIC single-cluster warehouses because serverless bills per-query with warm-hold at a reduced rate, and multi-cluster warehouses have concurrent cluster billing that wall-clock uptime can't reconstruct. For serverless rows, look at Warm-Hold (minutes held ready between queries, capped at auto_stop_mins) and the 'low conf.' badge: the actionable knob is auto_stop_mins, not raw idle %." />
           </h3>
         </div>
         {data?.available && data.warehouses.length > 0 && (() => {
@@ -1979,7 +1914,7 @@ export function WarehouseIdleTimeView({
                           {wh.uptime_source === "billing" && (
                             <span
                               className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-                              title="Approximate — derived from hourly billing buckets because no lifecycle events were emitted in the window. Sub-hour bursts inflate uptime, which in turn inflates idle time and idle spend."
+                              title="Approximate: derived from hourly billing buckets because no lifecycle events were emitted in the window. Sub-hour bursts inflate uptime, which in turn inflates idle time and idle spend."
                             >
                               est.
                             </span>
@@ -1998,7 +1933,7 @@ export function WarehouseIdleTimeView({
                           {wh.low_confidence && (
                             <span
                               className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-                              title="Low confidence — serverless with wall-clock uptime above 95% of the window. Almost certainly a keep-alive probe firing under auto_stop_mins, not literal continuous compute. Look at Warm-Hold instead."
+                              title="Low confidence: serverless with wall-clock uptime above 95% of the window. Almost certainly a keep-alive probe firing under auto_stop_mins, not literal continuous compute. Look at Warm-Hold instead."
                             >
                               low conf.
                             </span>
@@ -2009,7 +1944,7 @@ export function WarehouseIdleTimeView({
                       <td className={`px-4 py-3 text-right ${wh.estimated_idle_spend == null ? "text-gray-400" : wh.uptime_source === "billing" ? "text-red-500" : "font-medium text-red-600"}`}>
                         {wh.estimated_idle_spend != null ? (
                           wh.uptime_source === "billing" ? (
-                            <span title="Approximate — uptime for this warehouse comes from billing buckets, so the idle-spend proration is directionally noisy.">
+                            <span title="Approximate: uptime for this warehouse comes from billing buckets, so the idle-spend proration is directionally noisy.">
                               ~{fmt$(wh.estimated_idle_spend)}
                             </span>
                           ) : (
@@ -2019,15 +1954,15 @@ export function WarehouseIdleTimeView({
                           <span
                             title={
                               wh.warehouse_type === "SERVERLESS"
-                                ? `Serverless — dollar attribution suppressed. Serverless bills per-query with warm-hold at a reduced rate, not full-rate wall-clock. Warm-hold: ${fmtHours(wh.warm_hold_minutes)} at ${wh.auto_stop_mins}m auto_stop_mins. Keep-alive score: ${wh.keep_alive_score.toFixed(1)}%.`
+                                ? `Serverless: dollar attribution suppressed. Serverless bills per-query with warm-hold at a reduced rate, not full-rate wall-clock. Warm-hold: ${fmtHours(wh.warm_hold_minutes)} at ${wh.auto_stop_mins}m auto_stop_mins. Keep-alive score: ${wh.keep_alive_score.toFixed(1)}%.`
                                 : wh.max_num_clusters > 1
-                                ? `Multi-cluster (up to ${wh.max_num_clusters} clusters) — wall-clock cluster_count > 0 can't reconstruct concurrent cluster billing. Warm-hold: ${fmtHours(wh.warm_hold_minutes)}.`
+                                ? `Multi-cluster (up to ${wh.max_num_clusters} clusters): wall-clock cluster_count > 0 can't reconstruct concurrent cluster billing. Warm-hold: ${fmtHours(wh.warm_hold_minutes)}.`
                                 : wh.uptime_source === "billing"
-                                ? "Lifecycle events missing — uptime denominator uncertain, dollar attribution suppressed."
-                                : "Suppressed — see Warm-Hold and auto_stop_mins for the actionable metric."
+                                ? "Lifecycle events missing: uptime denominator uncertain, dollar attribution suppressed."
+                                : "Suppressed: see Warm-Hold and auto_stop_mins for the actionable metric."
                             }
                           >
-                            —
+                            N/A
                           </span>
                         )}
                       </td>

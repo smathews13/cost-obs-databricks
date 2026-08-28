@@ -86,7 +86,7 @@ function fixActionLabel(check: DiagCheck): string {
 }
 
 /** Returns true when the fix text looks like SQL that should be rendered as a code block.
- * Requires BOTH a leading SQL keyword AND a statement-terminating semicolon — prose
+ * Requires BOTH a leading SQL keyword AND a statement-terminating semicolon: prose
  * remediation that merely starts with a keyword word (e.g. "Drop and rebuild the
  * materialized view…") has no semicolon and must render as prose, not a code block. */
 function fixIsSql(fix: string): boolean {
@@ -326,7 +326,7 @@ export function SettingsDebugger({ onGoToConfig }: SettingsDebuggerProps) {
         Diagnose permission errors, missing materialized views, and data availability issues. Run a full check to get step-by-step remediation.
       </p>
 
-      {/* Deployment snapshot — two columns to minimise height */}
+      {/* Deployment snapshot: two columns to minimise height */}
       <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Deployment Info</p>
         {(configLoading || authLoading) ? (
@@ -358,12 +358,12 @@ export function SettingsDebugger({ onGoToConfig }: SettingsDebuggerProps) {
               <dd className="font-mono text-gray-700">
                 {installReport?.version?.commit_date || (installReport?.version?.commit_sha
                   ? <code className="rounded bg-gray-200 px-1 font-mono text-gray-700">{installReport.version.commit_sha}</code>
-                  : <span className="text-gray-500">—</span>)}
+                  : <span className="text-gray-500">N/A</span>)}
               </dd>
               <dt className="text-gray-500">Auth mode</dt>
-              <dd className="font-medium text-gray-700">{authStatusSlim?.auth_mode ?? "—"}</dd>
+              <dd className="font-medium text-gray-700">{authStatusSlim?.auth_mode ?? "N/A"}</dd>
               <dt className="text-gray-500">Identity</dt>
-              <dd className="font-medium text-gray-700">{authStatusSlim?.identity ?? "—"}</dd>
+              <dd className="font-medium text-gray-700">{authStatusSlim?.identity ?? "N/A"}</dd>
               {authStatusSlim?.locked_to_sp != null && (
                 <>
                   <dt className="text-gray-500">Locked to SP</dt>
@@ -392,7 +392,7 @@ export function SettingsDebugger({ onGoToConfig }: SettingsDebuggerProps) {
             {/* Right: warehouse / storage */}
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 content-start">
               <dt className="text-gray-500">Warehouse ID</dt>
-              <dd className="font-mono text-gray-700 truncate">{installReport?.warehouse?.id ?? "—"}</dd>
+              <dd className="font-mono text-gray-700 truncate">{installReport?.warehouse?.id ?? "N/A"}</dd>
               {installReport?.warehouse?.name && (
                 <>
                   <dt className="text-gray-500">Name</dt>
@@ -406,14 +406,14 @@ export function SettingsDebugger({ onGoToConfig }: SettingsDebuggerProps) {
                 </>
               )}
               <dt className="text-gray-500">State</dt>
-              <dd className="font-medium text-gray-700">{installReport?.warehouse?.state ?? "—"}</dd>
+              <dd className="font-medium text-gray-700">{installReport?.warehouse?.state ?? "N/A"}</dd>
               <dt className="text-gray-500">Source</dt>
-              <dd className="font-medium text-gray-700">{installReport?.warehouse?.source ?? "—"}</dd>
+              <dd className="font-medium text-gray-700">{installReport?.warehouse?.source ?? "N/A"}</dd>
               <dt className="text-gray-500">Storage</dt>
               <dd className="font-mono text-gray-700 truncate">
                 {installReport?.storage_location
                   ? `${installReport.storage_location.catalog}.${installReport.storage_location.schema}`
-                  : "—"}
+                  : "N/A"}
               </dd>
             </dl>
           </div>
@@ -472,7 +472,7 @@ export function SettingsDebugger({ onGoToConfig }: SettingsDebuggerProps) {
         )}
 
         {isError && (
-          <span className="text-sm text-red-600">Diagnostics request failed — check server logs</span>
+          <span className="text-sm text-red-600">Diagnostics request failed: check server logs</span>
         )}
       </div>
 

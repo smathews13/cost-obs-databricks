@@ -8,7 +8,7 @@ interface DateRangePickerProps {
   onChange: (range: DateRange) => void;
 }
 
-// End date is always yesterday — today's cost data is incomplete/inaccurate
+// End date is always yesterday: today's cost data is incomplete/inaccurate
 const yesterday = () => format(subDays(new Date(), 1), "yyyy-MM-dd");
 
 const PRESETS = [
@@ -67,7 +67,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
           </svg>
         )}
         <span className="flex-1 text-center">
-          {updating ? "Updating…" : `${formatDisplayDate(value.startDate)} – ${formatDisplayDate(value.endDate)}`}
+          {updating ? "Updating…" : `${formatDisplayDate(value.startDate)} to ${formatDisplayDate(value.endDate)}`}
         </span>
         <svg className={`h-4 w-4 shrink-0 text-gray-500 transition-transform ${isOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />

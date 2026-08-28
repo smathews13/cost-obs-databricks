@@ -32,7 +32,7 @@ export function formatIdentity(id: string, spNameMap?: Record<string, string>): 
   if (!id) return id;
   const v = id.trim();
   if (isServicePrincipal(v)) {
-    // Lookup case-insensitively — backend normalizes keys to lowercase but
+    // Lookup case-insensitively: backend normalizes keys to lowercase but
     // billing identity_metadata.run_as can arrive with mixed casing.
     const resolved = spNameMap?.[v.toLowerCase()] ?? spNameMap?.[v];
     if (resolved) return resolved;
@@ -45,7 +45,7 @@ export function formatIdentity(id: string, spNameMap?: Record<string, string>): 
 }
 
 /**
- * Full tooltip label — shows the raw ID for copy-pasting.
+ * Full tooltip label: shows the raw ID for copy-pasting.
  */
 export function identityTitle(id: string): string {
   return id ?? "";

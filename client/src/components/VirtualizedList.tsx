@@ -17,7 +17,7 @@ interface VirtualizedListProps<T> {
  * Minimal fixed-row-height virtualized list. Only kicks in when items.length > threshold
  * (default 30). Below that, renders every row so short lists behave normally.
  *
- * Assumes every row is exactly `itemHeight` px tall — if you use it with variable-height
+ * Assumes every row is exactly `itemHeight` px tall: if you use it with variable-height
  * rows the offsets will drift. Every current caller uses uniform 36px rows.
  */
 export function VirtualizedList<T>({
@@ -37,7 +37,7 @@ export function VirtualizedList<T>({
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
-  // Short-list fast path — no offsets, no math, just render everything.
+  // Short-list fast path: no offsets, no math, just render everything.
   if (items.length <= threshold) {
     return (
       <div
@@ -54,7 +54,7 @@ export function VirtualizedList<T>({
 
   const total = items.length * itemHeight;
   const visibleCount = Math.ceil(maxHeight / itemHeight);
-  // Clamp startIndex to a valid range — when items shrinks (e.g., search filter narrows the list)
+  // Clamp startIndex to a valid range: when items shrinks (e.g., search filter narrows the list)
   // while the user was scrolled down, a stale scrollTop can push startIndex past the end and
   // slice returns nothing. The browser eventually fires a scroll event to correct it, but this
   // avoids the transient blank render.

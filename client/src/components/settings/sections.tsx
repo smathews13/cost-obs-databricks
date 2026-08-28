@@ -104,7 +104,7 @@ export function GeneralSection({ localSettings, updateSetting, tabVisibility, ca
             options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "Match system" }]} />} />
         <Row label="Price basis"
           helper={caps && !caps.account_prices_available
-            ? "system.billing.account_prices not accessible (private preview) — account prices fall back to list prices. Saves immediately."
+            ? "system.billing.account_prices not accessible (private preview): account prices fall back to list prices. Saves immediately."
             : "Account prices read from system.billing.account_prices (private preview). Saves immediately."}
           control={<Select value={pricing?.use_account_prices ? "account" : "list"} onChange={(v) => setPricing(v === "account")}
             options={[{ value: "list", label: "List prices" }, { value: "account", label: "Account prices" }]} />} />
@@ -185,7 +185,7 @@ export function AlertsSection({ localSettings, updateSetting, caps }: CommonProp
               const n = (d.breaches || []).length;
               if (!r.ok) toast("Alert check failed");
               else if (n === 0) toast("No threshold breaches in the latest data");
-              else toast(`${n} breach${n === 1 ? "" : "es"} found${d.sent ? " — posted to Slack" : " (configure a webhook to deliver)"}`);
+              else toast(`${n} breach${n === 1 ? "" : "es"} found${d.sent ? ": posted to Slack" : " (configure a webhook to deliver)"}`);
             } catch { toast("Alert check failed"); }
             finally { setChecking(false); }
           }}>{checking ? "Checking…" : "Run check"}</SecondaryButton>} />
@@ -208,10 +208,10 @@ export function ResourcesSection() {
       <SectionTitle title="Resources" subtitle="Bound compute and storage. These are set in app.yaml and change only on redeploy." />
       <Group>
         <Row first label={<span className="inline-flex items-center gap-2">{dot(wh?.state === "RUNNING" ? "#277C43" : "#8CA0B0")} SQL warehouse</span>}
-          helper={wh ? `${wh.name || wh.id} · ${wh.size || "—"} · ${wh.state}` : "No warehouse bound."}
+          helper={wh ? `${wh.name || wh.id} · ${wh.size || "N/A"} · ${wh.state}` : "No warehouse bound."}
           control={<MonoChip>resource: sql-warehouse</MonoChip>} />
         <Row label="Permissions table" helper="Roles persist here across redeploys."
-          control={<MonoChip>{loc?.catalog && loc?.schema ? `${loc.catalog}.${loc.schema}.app_user_permissions` : "—"}</MonoChip>} />
+          control={<MonoChip>{loc?.catalog && loc?.schema ? `${loc.catalog}.${loc.schema}.app_user_permissions` : "N/A"}</MonoChip>} />
         <Row label="Workspace filter pool" helper="Set via COST_OBS_WORKSPACES at deploy time."
           control={<span style={{ fontSize: 12, color: T.textSecondary }}>Redeploy to change</span>} />
       </Group>
@@ -237,7 +237,7 @@ export function ExperimentalSection({ localSettings, updateSetting }: CommonProp
         <Row label="Clear query cache" helper="Next loads re-query the warehouse."
           control={<SecondaryButton disabled={clearing} onClick={async () => {
             setClearing(true);
-            try { await fetch("/api/cache/clear", { method: "POST" }); await qc.invalidateQueries(); toast("Query cache cleared — next loads re-query the warehouse"); }
+            try { await fetch("/api/cache/clear", { method: "POST" }); await qc.invalidateQueries(); toast("Query cache cleared: next loads re-query the warehouse"); }
             catch { toast("Could not clear cache"); }
             finally { setClearing(false); }
           }}>{clearing ? "Clearing…" : "Clear cache"}</SecondaryButton>} />
@@ -265,7 +265,7 @@ function ScheduleGroup() {
   const hours = Array.from({ length: 24 }, (_, h) => ({ value: h, label: `${String(h).padStart(2, "0")}:00 UTC` }));
   return (
     <Group label="Refresh schedule">
-      <Row first label="Scheduled refresh" helper="Full rebuilds take 3–8 minutes; incremental refreshes finish in under a minute."
+      <Row first label="Scheduled refresh" helper="Full rebuilds take 3 to 8 minutes; incremental refreshes finish in under a minute."
         control={<Toggle checked={s.enabled} onChange={(v) => save({ ...s, enabled: v })} />} />
       {s.enabled && <Row label="Frequency" helper="How often to rebuild the managed tables."
         control={<Select value={s.frequency} onChange={(v) => save({ ...s, frequency: v as Schedule["frequency"] })}
@@ -290,17 +290,17 @@ export function DataTablesSection({ localSettings, updateSetting, caps }: Common
       <SectionTitle title="Data & tables" subtitle="Where the app stores its managed tables and how they refresh." />
       <Group label="Storage location">
         <Row first label="Catalog & schema" helper="Fixed after setup. Redeploy or re-run setup to change."
-          control={<MonoChip>{loc?.catalog && loc?.schema ? `${loc.catalog}.${loc.schema}` : "—"}</MonoChip>} />
+          control={<MonoChip>{loc?.catalog && loc?.schema ? `${loc.catalog}.${loc.schema}` : "N/A"}</MonoChip>} />
         <Row label="Workspace filter" helper="Set at deploy time via COST_OBS_WORKSPACES. Redeploy to change."
           control={<span style={{ fontSize: 12, color: T.textSecondary }}>All workspaces</span>} />
         <Row label="Workspace display names"
           helper={caps && !caps.workspace_names_available
-            ? "Grant missing — showing IDs. Names come from system.access.workspaces_latest once the SP can read it."
+            ? "Grant missing: showing IDs. Names come from system.access.workspaces_latest once the SP can read it."
             : "Show resolved names from system.access.workspaces_latest instead of IDs."}
           control={<Toggle checked={localSettings.showWorkspaceNames} disabled={caps ? !caps.workspace_names_available : false} onChange={(v) => updateSetting("showWorkspaceNames", v)} />} />
       </Group>
       <ScheduleGroup />
-      {/* Shared Delta-Sharing sources + managed-tables status/rebuild/history/danger —
+      {/* Shared Delta-Sharing sources + managed-tables status/rebuild/history/danger :
           DuBois-styled, self-contained (owns the table-status polling + rebuild + drop). */}
       <SettingsConfig />
     </div>

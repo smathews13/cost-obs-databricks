@@ -60,7 +60,7 @@ function renderSettingsConfig(tablesPayload: object) {
         })
       );
     }
-    // All other setup endpoints — return empty OK
+    // All other setup endpoints: return empty OK
     return Promise.resolve(new Response("{}", { status: 200 }));
   });
 
@@ -86,7 +86,7 @@ function renderSettingsConfig(tablesPayload: object) {
 // Degraded state: Drop Tables button disabled
 // ---------------------------------------------------------------------------
 
-describe("SettingsConfig — destructive action disabled in degraded state", () => {
+describe("SettingsConfig: destructive action disabled in degraded state", () => {
   it("'Drop Tables' button is disabled when a required table is missing", async () => {
     renderSettingsConfig(DEGRADED_TABLES);
 
@@ -104,7 +104,7 @@ describe("SettingsConfig — destructive action disabled in degraded state", () 
     expect(await screen.findByText(/table.*already missing|missing.*table/i)).toBeInTheDocument();
   });
 
-  it("confirm UI never appears in degraded state — hard block, no break-glass path", async () => {
+  it("confirm UI never appears in degraded state: hard block, no break-glass path", async () => {
     renderSettingsConfig(DEGRADED_TABLES);
 
     await screen.findByRole("button", { name: /drop tables/i });
@@ -127,7 +127,7 @@ describe("SettingsConfig — destructive action disabled in degraded state", () 
 // CONFIRM gate: must type exact text before final drop button enables
 // ---------------------------------------------------------------------------
 
-describe("SettingsConfig — CONFIRM gate before irreversible drop", () => {
+describe("SettingsConfig: CONFIRM gate before irreversible drop", () => {
   it("shows the CONFIRM input after clicking 'Drop Tables'", async () => {
     renderSettingsConfig(HEALTHY_TABLES);
 
@@ -147,7 +147,7 @@ describe("SettingsConfig — CONFIRM gate before irreversible drop", () => {
     expect(confirmBtn).toBeDisabled();
 
     const input = screen.getByPlaceholderText(/type confirm/i);
-    await userEvent.type(input, "confirm"); // lowercase — must not enable
+    await userEvent.type(input, "confirm"); // lowercase: must not enable
     expect(confirmBtn).toBeDisabled();
 
     await userEvent.clear(input);

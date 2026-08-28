@@ -59,7 +59,7 @@ function PermissionErrorBlock({ error, onGranted }: { error: string; onGranted: 
   const [grantStatus, setGrantStatus] = useState<"idle" | "running" | "ok" | "fail">("idle");
   const [grantMessage, setGrantMessage] = useState("");
 
-  // Extract the GRANT SQL from the error message — use [\s\S] so periods in
+  // Extract the GRANT SQL from the error message: use [\s\S] so periods in
   // email addresses (e.g. sam.mathews@databricks.com) don't break the match
   const grantMatch = error.match(/(GRANT [\s\S]+)$/);
   const rawGrants = grantMatch ? grantMatch[1].trim() : null;
@@ -93,7 +93,7 @@ function PermissionErrorBlock({ error, onGranted }: { error: string; onGranted: 
       }
     } catch {
       setGrantStatus("fail");
-      setGrantMessage("Request failed — check server logs");
+      setGrantMessage("Request failed: check server logs");
     }
   };
 
@@ -104,7 +104,7 @@ function PermissionErrorBlock({ error, onGranted }: { error: string; onGranted: 
       {grantSql && (
         <div className="rounded border border-gray-700 bg-gray-900 overflow-hidden">
           <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-700">
-            <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">SQL — run as metastore admin</span>
+            <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">SQL: run as metastore admin</span>
             <button
               onClick={handleCopy}
               className="text-[11px] font-medium text-gray-500 hover:text-white transition-colors"
@@ -132,7 +132,7 @@ function PermissionErrorBlock({ error, onGranted }: { error: string; onGranted: 
           {grantStatus === "ok" || grantStatus === "running"
             ? grantMessage
             : grantStatus === "fail"
-            ? <span className="text-red-700">{grantMessage} — copy the SQL above and ask a metastore admin to run it.</span>
+            ? <span className="text-red-700">{grantMessage}: copy the SQL above and ask a metastore admin to run it.</span>
             : "Requires metastore admin rights. If this fails, copy the SQL above and ask your admin."}
         </p>
       </div>
@@ -151,7 +151,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
   const [creating, setCreating] = useState(false);
   const [tablesJustCreated, setTablesJustCreated] = useState(false);
   // Poll-loop handles, held in refs so Skip (and unmount) can cancel the loop
-  // that handleCreateTables started — the loop is otherwise a closure with no
+  // that handleCreateTables started: the loop is otherwise a closure with no
   // external cancellation handle, which is why a frozen build had no way out.
   const pollCancelledRef = useRef(false);
   const pollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -192,7 +192,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
           const rawSch = cfg?.storage_location?.schema || "";
           const isEnvVar = cfg?.storage_location?.catalog_source === "env_var";
           setStorageEnvVarLocked(isEnvVar);
-          // Never pre-fill with the forbidden defaults — force the user to choose explicitly
+          // Never pre-fill with the forbidden defaults: force the user to choose explicitly
           setCatalogInput(rawCat.toLowerCase() === "main" ? "" : rawCat);
           setSchemaInput(rawSch.toLowerCase() === "cost_obs" && rawCat.toLowerCase() === "main" ? "" : rawSch);
         }
@@ -263,7 +263,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
 
   // Stop the build poll and move on. The background build keeps running on the
   // server (tables still get built; the dashboard falls back to direct system
-  // queries meanwhile) — Skip only releases the wizard so a stuck/slow build
+  // queries meanwhile): Skip only releases the wizard so a stuck/slow build
   // can never trap the user on this step. Plain function (not memoized) so it
   // always calls the current-render goNext with the live `step`.
   const handleSkipTables = () => {
@@ -310,7 +310,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
         } else if (taskStatus === "error") {
           clearPollTimers();
           setCreating(false);
-          const detail = status?.task?.error || "Table creation failed — check server logs for details.";
+          const detail = status?.task?.error || "Table creation failed: check server logs for details.";
           setError(`Table creation failed: ${detail}`);
         } else if (taskStatus === "interrupted") {
           clearPollTimers();
@@ -322,13 +322,13 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
       };
       pollTimeoutRef.current = setTimeout(schedulePoll, 2000);
 
-      // Safety timeout after 10 minutes — cancelled on normal completion so it
+      // Safety timeout after 10 minutes: cancelled on normal completion so it
       // doesn't fire on the Complete step after a successful build.
       safetyTimeoutRef.current = setTimeout(() => {
         pollCancelledRef.current = true;
         clearPollTimers();
         setCreating(false);
-        setError("Table creation is taking longer than expected — you can Skip to continue; tables keep building in the background. Check /api/setup/status for progress.");
+        setError("Table creation is taking longer than expected: you can Skip to continue; tables keep building in the background. Check /api/setup/status for progress.");
       }, 600000);
     } catch (e) {
       setCreating(false);
@@ -359,7 +359,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
         setSelectedWsIds(new Set((data.workspaces ?? []).map((w: { id: string }) => w.id)));
       }
     } catch {
-      // non-fatal — user can skip
+      // non-fatal: user can skip
     } finally {
       setWsLoading(false);
     }
@@ -376,7 +376,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
       });
       if (res.ok) setWsSaved(true);
     } catch {
-      // ignore — not fatal
+      // ignore: not fatal
     }
   };
 
@@ -400,7 +400,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
 
   const wizardInner = (
     <>
-        {/* Header — hidden in embedded mode (already inside App Settings dialog) */}
+        {/* Header: hidden in embedded mode (already inside App Settings dialog) */}
         {!embedded && (
         <div className="relative rounded-t-xl px-8 py-6" style={{ backgroundColor: C.navy }}>
           {onClose && (
@@ -555,7 +555,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
                 <button
                   onClick={handleSkipTables}
                   className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-                  title="Continue setup — tables keep building in the background"
+                  title="Continue setup: tables keep building in the background"
                 >
                   Skip
                 </button>
@@ -592,7 +592,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
                     if (!cat || !sch) return;
                     setError(null);
 
-                    // Step 1: Save config — skip when catalog/schema come from env vars
+                    // Step 1: Save config: skip when catalog/schema come from env vars
                     // (env vars always win in get_catalog_schema(); saving to file is a no-op).
                     setStorageChecks({ config: null, catalog: null, schema: null });
                     if (storageEnvVarLocked) {
@@ -633,7 +633,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
                       setStorageChecks(c => ({ ...c, config: true }));
                     }
 
-                    // Step 2: Create catalog (auto-retry — warehouse may be cold on first use)
+                    // Step 2: Create catalog (auto-retry: warehouse may be cold on first use)
                     setStoragePhase("creating-catalog");
                     {
                       let done = false;
@@ -660,7 +660,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
                           if (attempt === 3) {
                             const isTimeout = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
                             setError(isTimeout
-                              ? "Warehouse is starting up — click Retry to try again (usually succeeds within 60s)."
+                              ? "Warehouse is starting up: click Retry to try again (usually succeeds within 60s)."
                               : `Could not create catalog: ${e}`);
                             setStorageChecks(c => ({ ...c, catalog: false }));
                             setStoragePhase("error");
@@ -670,7 +670,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
                       }
                     }
 
-                    // Step 3: Create schema (auto-retry — warehouse may be cold on first use)
+                    // Step 3: Create schema (auto-retry: warehouse may be cold on first use)
                     setStoragePhase("creating-schema");
                     {
                       let done = false;
@@ -697,7 +697,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
                           if (attempt === 3) {
                             const isTimeout = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
                             setError(isTimeout
-                              ? "Warehouse is starting up — click Retry to try again (usually succeeds within 60s)."
+                              ? "Warehouse is starting up: click Retry to try again (usually succeeds within 60s)."
                               : `Could not create schema: ${e}`);
                             setStorageChecks(c => ({ ...c, schema: false }));
                             setStoragePhase("error");
@@ -901,8 +901,8 @@ function BrowseField({
           ) : options.length === 0 ? (
             <div className="px-3 py-2 text-xs text-gray-500">
               {failed
-                ? "Couldn't list here — type the name in instead."
-                : "Nothing you can access here — type a name to create a new one."}
+                ? "Couldn't list here: type the name in instead."
+                : "Nothing you can access here: type a name to create a new one."}
             </div>
           ) : (
             options.map((o) => (
@@ -1049,7 +1049,7 @@ function WizardPermissionsStep({
       </p>
       {!loading && coreReady && (
         <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-700">
-          Core access confirmed — you can proceed to Create Tables.
+          Core access confirmed: you can proceed to Create Tables.
         </div>
       )}
       <ReadinessChecks
@@ -1303,7 +1303,7 @@ function WorkspaceFilterStep({
                       <div className="flex items-center gap-1.5">
                         <span className="text-sm font-medium text-gray-800 truncate">{ws.name}</span>
                         {ws.historical && (
-                          <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="This workspace no longer exists in the account — data is historical.">
+                          <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600" title="This workspace no longer exists in the account: data is historical.">
                             historical
                           </span>
                         )}
@@ -1318,7 +1318,7 @@ function WorkspaceFilterStep({
 
           {selectedIds.size === 0 && (
             <p className="text-xs text-gray-500">
-              No workspaces selected — all workspaces will be visible in the dashboard. Select specific workspaces to restrict the data shown.
+              No workspaces selected: all workspaces will be visible in the dashboard. Select specific workspaces to restrict the data shown.
             </p>
           )}
         </>

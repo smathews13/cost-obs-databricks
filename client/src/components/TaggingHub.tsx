@@ -18,8 +18,8 @@ import {
 import type { TaggingDashboardBundle } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
-import { C } from "@/theme";
-import { PageHero, Chip } from "@/components/brand";
+import { C, seriesColor } from "@/theme";
+import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
 interface TagObject {
   object_id?: string | null;
@@ -46,7 +46,6 @@ const COLORS = {
   untagged: C.lava,
 };
 
-const TAG_COLORS = [C.s2, C.s5, C.s3, C.s3, C.s4, C.s5, C.s1, C.lava, C.slate];
 const TAG_PAGE_SIZE = 10;
 
 const formatCurrency = (value: number) =>
@@ -218,7 +217,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
       .map(([key, spend], idx) => ({
         tag_key: key,
         total_spend: spend,
-        fill: TAG_COLORS[idx % TAG_COLORS.length],
+        fill: seriesColor(idx),
       }));
   }, [data]);
 
@@ -340,7 +339,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
       .map(([key, spend], idx) => ({
         tag_key: key,
         total_spend: spend,
-        fill: TAG_COLORS[idx % TAG_COLORS.length],
+        fill: seriesColor(idx),
       }));
   }, [filteredTags, selectedTagFilters, tagBreakdownData, isTagFilterActive, isTagValueFilterActive]);
 
@@ -382,7 +381,19 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      <InfoPanel
+        title="Tagging Best Practices"
+        minimized={infoMinimized}
+        onToggle={handleMinimizeToggle}
+      >
+        <ul className="list-inside list-disc space-y-1">
+          <li>Add <strong>custom_tags</strong> to clusters, jobs, and endpoints for cost attribution</li>
+          <li>Use consistent tag keys like <code>Owner</code>, <code>Team</code>, <code>Project</code>, <code>CostCenter</code></li>
+          <li>Tags propagate to billing usage records for chargeback and reporting</li>
+          <li>Higher tag coverage improves cost visibility and accountability</li>
+        </ul>
+      </InfoPanel>
+
       <PageHero
         icon={
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -402,50 +413,8 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
         }
       />
 
-      {/* Info Banner */}
-      <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
-        <div className="flex">
-          <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-orange-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3 flex-1">
-            <button className="flex w-full items-center justify-between" onClick={() => handleMinimizeToggle(!infoMinimized)}>
-              <h3 className="text-sm font-medium text-orange-800">Tagging Best Practices</h3>
-              <svg className={`h-4 w-4 text-orange-500 transition-transform ${infoMinimized ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {!infoMinimized && (
-              <>
-                <div className="mt-2 text-sm text-orange-700">
-                  <ul className="list-inside list-disc space-y-1">
-                    <li>Add <strong>custom_tags</strong> to clusters, jobs, and endpoints for cost attribution</li>
-                    <li>Use consistent tag keys like <code>Owner</code>, <code>Team</code>, <code>Project</code>, <code>CostCenter</code></li>
-                    <li>Tags propagate to billing usage records for chargeback and reporting</li>
-                    <li>Higher tag coverage = better cost visibility and accountability</li>
-                  </ul>
-                </div>
-                <div className="mt-3 flex justify-start">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={infoMinimized}
-                      onChange={(e) => handleMinimizeToggle(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
-                    />
-                    <span className="text-xs text-orange-600">Minimize from now on</span>
-                  </label>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div
           className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
           style={{ borderColor: C.hairline }}
@@ -500,7 +469,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Cost Per-Tag</p>
               <p className="text-2xl font-semibold text-gray-900">
-                {data?.avg_cost_per_tag != null ? formatCurrency(data.avg_cost_per_tag) : "—"}
+                {data?.avg_cost_per_tag != null ? formatCurrency(data.avg_cost_per_tag) : "N/A"}
               </p>
               <p className="text-sm text-gray-500">avg. over {daysDiff} days</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
@@ -522,9 +491,9 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
             <div className="ml-4">
               <p className="flex items-center text-sm font-medium text-gray-500">
                 Total Tags
-                <InfoTooltip text="Distinct tag key-value pairs applied across all resources over the full date range. The trend drilldown shows per-day counts — a tag on a long-running resource is counted each day it appears, so daily totals are lower than this cumulative figure." />
+                <InfoTooltip text="Distinct tag key-value pairs applied across all resources over the full date range. The trend drilldown shows per-day counts: a tag on a long-running resource is counted each day it appears, so daily totals are lower than this cumulative figure." />
               </p>
-              <p className="text-2xl font-semibold text-gray-900">{data?.total_tag_count?.toLocaleString() ?? "—"}</p>
+              <p className="text-2xl font-semibold text-gray-900">{data?.total_tag_count?.toLocaleString() ?? "N/A"}</p>
               <p className="text-sm text-gray-500">unique key:value pairs</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
@@ -545,7 +514,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
         />
       )}
 
-      {/* Tag Coverage + Tag Coverage Over Time — side by side */}
+      {/* Tag Coverage + Tag Coverage Over Time: side by side */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Tag Coverage Pie Chart */}
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
@@ -620,7 +589,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
         </div>
       </div>
 
-      {/* Spend by Tag + Spend by Key — side by side */}
+      {/* Spend by Tag + Spend by Key: side by side */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Spend by Tag Table (left) */}
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
@@ -705,7 +674,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               </div>
             )}
           </div>
-          {/* Tag value filter pills — only shown when a partial selection is active */}
+          {/* Tag value filter pills: only shown when a partial selection is active */}
           {isTagValueFilterActive && (
             <div className="mb-3 flex max-h-24 flex-wrap items-center gap-1.5 overflow-y-auto pr-1">
               {selectedTagValueFilters.map(kv => {
@@ -766,7 +735,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                 </table>
                 {tagTotalPages > 1 && (
                   <div className="mt-3 flex items-center justify-between border-t border-gray-200 pt-3">
-                    <p className="text-xs text-gray-500">{tagStart + 1}–{Math.min(tagStart + TAG_PAGE_SIZE, filteredTags.length)} of {filteredTags.length}</p>
+                    <p className="text-xs text-gray-500">{tagStart + 1} to {Math.min(tagStart + TAG_PAGE_SIZE, filteredTags.length)} of {filteredTags.length}</p>
                     <div className="flex gap-2">
                       <button onClick={() => setTagPage(p => Math.max(1, p - 1))} disabled={tagPage === 1}
                         className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">Previous</button>
@@ -857,7 +826,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               </div>
             )}
           </div>
-          {/* Tag key filter pills — only shown when a partial selection is active */}
+          {/* Tag key filter pills: only shown when a partial selection is active */}
           {isTagFilterActive && (
             <div className="mb-3 flex max-h-24 flex-wrap items-center gap-1.5 overflow-y-auto pr-1">
               {selectedTagFilters.map(key => (
@@ -916,7 +885,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                 </table>
                 {keyTotalPages > 1 && (
                   <div className="mt-3 flex items-center justify-between border-t border-gray-200 pt-3">
-                    <p className="text-xs text-gray-500">{keyStart + 1}–{Math.min(keyStart + TAG_PAGE_SIZE, filteredTagBreakdownData.length)} of {filteredTagBreakdownData.length}</p>
+                    <p className="text-xs text-gray-500">{keyStart + 1} to {Math.min(keyStart + TAG_PAGE_SIZE, filteredTagBreakdownData.length)} of {filteredTagBreakdownData.length}</p>
                     <div className="flex gap-2">
                       <button onClick={() => setKeyPage(p => Math.max(1, p - 1))} disabled={keyPage === 1}
                         className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">Previous</button>
@@ -963,7 +932,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               <div className="flex items-center gap-3">
                 <span className="rounded bg-orange-100 px-2 py-1 text-sm font-medium text-orange-800">{selectedTag.tag_key}</span>
                 <h3 className="text-lg font-semibold text-gray-900">
-                  Top 5 Objects — {selectedTag.tag_value}
+                  Top 5 Objects: {selectedTag.tag_value}
                 </h3>
               </div>
               <button onClick={() => setSelectedTag(null)} className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-600">

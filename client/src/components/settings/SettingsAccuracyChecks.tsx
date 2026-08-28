@@ -33,7 +33,7 @@ const CHECK_LABELS: Record<string, { label: string; description: string }> = {
   },
   price_coverage: {
     label: "Price Coverage",
-    description: "Checks what percentage of DBUs have no matching list price — above 5% is flagged.",
+    description: "Checks what percentage of DBUs have no matching list price: above 5% is flagged.",
   },
   null_attribution: {
     label: "NULL Attribution Audit",
@@ -45,11 +45,11 @@ const CHECK_LABELS: Record<string, { label: string; description: string }> = {
   },
   sql_attribution: {
     label: "SQL Attribution Accuracy",
-    description: "Compares attributed SQL spend against billing totals. A gap is expected — query history doesn't capture idle time, system queries, or metadata operations.",
+    description: "Compares attributed SQL spend against billing totals. A gap is expected: query history doesn't capture idle time, system queries, or metadata operations.",
   },
   query_history_duplicates: {
     label: "Query History Duplicates",
-    description: "Checks for duplicate statement_ids in system.query.history — above 1% is flagged.",
+    description: "Checks for duplicate statement_ids in system.query.history: above 1% is flagged.",
   },
   mv_vs_live: {
     label: "Materialized View vs Live",
@@ -159,7 +159,7 @@ function CheckDetails({ name, details }: { name: string; details: Record<string,
             <div key={s.sku_name + s.cloud} className="text-xs">
               <span className="font-mono text-gray-700">{s.sku_name}</span>
               <span className="ml-1 text-gray-500">({s.cloud})</span>
-              <span className="ml-2 text-gray-500">{s.active_prices} prices · ${s.min_price}–${s.max_price}</span>
+              <span className="ml-2 text-gray-500">{s.active_prices} prices · ${s.min_price} to ${s.max_price}</span>
             </div>
           ))}
         </div>
@@ -390,7 +390,7 @@ export function SettingsAccuracyChecks() {
                       : "All checks passed")
                     : `${result.summary.failed} check${result.summary.failed !== 1 ? "s" : ""} failed`}
                 </p>
-                <p className="text-xs text-gray-500">{result?.date_range?.start_date || "—"} → {result?.date_range?.end_date || "—"}</p>
+                <p className="text-xs text-gray-500">{result?.date_range?.start_date || "N/A"} → {result?.date_range?.end_date || "N/A"}</p>
               </div>
             </div>
             <div className="flex items-center gap-4 text-sm">

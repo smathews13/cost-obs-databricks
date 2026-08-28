@@ -20,9 +20,10 @@ import { Footer } from "@/components/Footer";
 import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure.png";
 import gcpLogo from "@/assets/gcp.svg";
+import { Bot } from "lucide-react";
 
 // Retry a dynamic import on failure. First retry handles transient network blips.
-// If the second attempt also fails (stale deployment — browser has old index.html with
+// If the second attempt also fails (stale deployment: browser has old index.html with
 // outdated chunk hashes that 404 after a redeploy), force a hard page reload to pick up
 // the new assets. A sessionStorage flag prevents reload loops if assets are genuinely broken.
 function lazyWithRetry<T>(factory: () => Promise<T>): Promise<T> {
@@ -37,7 +38,7 @@ function lazyWithRetry<T>(factory: () => Promise<T>): Promise<T> {
   );
 }
 
-// Lazy-loaded tab views — chunks download on first render
+// Lazy-loaded tab views: chunks download on first render
 const InteractiveBreakdown = lazy(() => lazyWithRetry(() => import("@/components/InteractiveBreakdown").then(m => ({ default: m.InteractiveBreakdown }))));
 const CloudCostsView = lazy(() => lazyWithRetry(() => import("@/components/CloudCostsView").then(m => ({ default: m.CloudCostsView }))));
 const PlatformKPIsView = lazy(() => lazyWithRetry(() => import("@/components/PlatformKPIsView").then(m => ({ default: m.PlatformKPIsView }))));
@@ -95,7 +96,7 @@ import { CostObsLockup, VersionPill, PageHero, Chip } from "@/components/brand";
 import { Spinner } from "@/components/Spinner";
 
 // Keep the Databricks Apps pod warm while the tab is open.
-// Cold starts take 30s–1min; a lightweight ping every 4 min prevents idle suspension.
+// Cold starts take 30s to 1min; a lightweight ping every 4 min prevents idle suspension.
 function useKeepAlive() {
   useEffect(() => {
     const ping = () => fetch("/api/ping", { method: "GET" }).catch(() => {});
@@ -138,8 +139,8 @@ function AccountPricingBanner() {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
       {available
-        ? `Account prices active — ${discountPercent.toFixed(1)}% discount applied across ${skuCount} SKUs (from system.billing.account_prices)`
-        : "Account prices mode active — system.billing.account_prices not available, showing list prices"}
+        ? `Account prices active: ${discountPercent.toFixed(1)}% discount applied across ${skuCount} SKUs (from system.billing.account_prices)`
+        : "Account prices mode active: system.billing.account_prices not available, showing list prices"}
     </div>
   );
 }
@@ -175,7 +176,7 @@ function SpGrantsBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
         </svg>
         {isWarehouseIssue ? (
           <span className="text-xs text-amber-800">
-            <strong>SP missing warehouse access</strong> — the service principal{billingAccess.sp_client_id ? ` (${billingAccess.sp_client_id})` : ""} cannot use the SQL warehouse.
+            <strong>SP missing warehouse access</strong>: the service principal{billingAccess.sp_client_id ? ` (${billingAccess.sp_client_id})` : ""} cannot use the SQL warehouse.
             A workspace admin must run:{" "}
             <code className="rounded bg-amber-100 px-1 font-mono">
               GRANT CAN_USE ON WAREHOUSE {billingAccess.warehouse_id || "<warehouse_id>"} TO `{billingAccess.sp_client_id || "<sp_client_id>"}`
@@ -183,7 +184,7 @@ function SpGrantsBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
           </span>
         ) : (
           <span className="text-xs text-amber-800">
-            <strong>SP grants missing</strong> — the service principal lacks system table access after the last git deploy.
+            <strong>SP grants missing</strong>: the service principal lacks system table access after the last git deploy.
             Re-run the Permissions setup to restore access.
           </span>
         )}
@@ -227,14 +228,14 @@ function Dashboard() {
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
   const [tabVisibility, setTabVisibility] = useState<TabVisibility>(loadTabVisibility);
   // true = show wizard, false = show dashboard.
-  // True until /api/setup/status resolves — blocks the dashboard from rendering.
+  // True until /api/setup/status resolves: blocks the dashboard from rendering.
   // Skip for returning users (local cache says done) so they never see a loading gate.
   const [setupCheckPending, setSetupCheckPending] = useState<boolean>(
     () => localStorage.getItem("coc-setup-complete") !== "true" &&
           sessionStorage.getItem("coc-setup-complete") !== "true"
   );
   const [showSetupWizard, setShowSetupWizard] = useState<boolean>(false);
-  // Set when user closes wizard without completing — shows the incomplete banner on dashboard.
+  // Set when user closes wizard without completing: shows the incomplete banner on dashboard.
   const [setupIncomplete, setSetupIncomplete] = useState(false);
   // Stored so onLaunchWizard can abort the in-flight status check and prevent it from
   // overriding the manually-triggered wizard with a stale "ready" response.
@@ -245,12 +246,12 @@ function Dashboard() {
     await rqClient.cancelQueries();
     // Await cache clear so server-side cache is empty before any query fires
     await fetch("/api/cache/clear", { method: "POST" }).catch(() => {});
-    // refetchQueries bypasses enabled:false — forces all tab-gated queries to fetch too
+    // refetchQueries bypasses enabled:false: forces all tab-gated queries to fetch too
     await rqClient.refetchQueries({ type: "all" });
   };
 
   // On every load, verify setup status with the server.
-  // 60s timeout — allows for cold App pod start.
+  // 60s timeout: allows for cold App pod start.
   useEffect(() => {
     const controller = new AbortController();
     setupStatusAbortRef.current = controller;
@@ -269,7 +270,7 @@ function Dashboard() {
           sessionStorage.setItem("coc-setup-complete", "true");
           setShowSetupWizard(false);
         } else if (status?.status === "setup_required") {
-          // Only show wizard on a definitive "setup_required" — not on transient states
+          // Only show wizard on a definitive "setup_required": not on transient states
           // like "initializing". Avoids wizard flash during cold start or mid-build polling.
           if (!prevCompleted()) {
             localStorage.removeItem("coc-setup-complete");
@@ -282,7 +283,7 @@ function Dashboard() {
       .catch(() => {
         clearTimeout(timeout);
         setSetupCheckPending(false);
-        // Network error, timeout, or non-JSON — trust local cache rather than flashing wizard.
+        // Network error, timeout, or non-JSON: trust local cache rather than flashing wizard.
         if (!prevCompleted()) {
           setShowSetupWizard(true);
         }
@@ -390,7 +391,7 @@ function Dashboard() {
 
   const { applyPricing, multiplier: pricingMultiplier } = usePricing();
 
-  // Central warehouse warming poller — single source of truth for warehouse state.
+  // Central warehouse warming poller: single source of truth for warehouse state.
   // Polls every 5s while warming_up, 15s once warm (catches post-idle auto-stop within ~15s).
   const { data: warehouseStatus } = useQuery<{ status: "warm" | "warming_up" | "unavailable"; state?: string }>({
     queryKey: ["health", "sql-warehouse"],
@@ -400,12 +401,12 @@ function Dashboard() {
   });
   const warehouseWarming = warehouseStatus?.status === "warming_up";
   // True only when we've confirmed the warehouse is accepting queries.
-  // Undefined (not yet fetched) is treated as NOT ready — prevents firing 15+ SQL
+  // Undefined (not yet fetched) is treated as NOT ready: prevents firing 15+ SQL
   // queries against a cold warehouse before we know its state.
   const warehouseReady = warehouseStatus?.status === "warm";
 
   // SettingsConfig writes true here when a rebuild starts, false when it finishes.
-  // Suppresses the cold-start screen during rebuilds — the warehouse waking up
+  // Suppresses the cold-start screen during rebuilds: the warehouse waking up
   // was caused by the rebuild itself, not a cold app load.
   const { data: rebuildInProgress = false } = useQuery<boolean>({
     queryKey: ["rebuild-in-progress"],
@@ -431,7 +432,7 @@ function Dashboard() {
   // Fast bundle for quick initial load (uses materialized views)
   const { data: bundle, isLoading: bundleLoading } = useDashboardBundleFast(dateRange, selectedWorkspaceIds.length ? selectedWorkspaceIds : undefined, warehouseReady);
 
-  // Extract data from fast bundle — apply pricing multiplier when account prices are active
+  // Extract data from fast bundle: apply pricing multiplier when account prices are active
   const summary = useMemo(() => {
     const s = bundle?.summary;
     if (!s || pricingMultiplier === 1.0) return s;
@@ -507,7 +508,7 @@ function Dashboard() {
   const { data: appsData, isLoading: appsLoading } = useAppsDashboardBundle(dateRange, _wsIds, warehouseReady);
   const { data: taggingData, isLoading: taggingLoading } = useTaggingDashboardBundle(dateRange, _wsIds, warehouseReady);
 
-  // Cloud actual costs — no workspace filter
+  // Cloud actual costs: no workspace filter
   const { data: awsActualData, isLoading: awsActualLoading } = useAWSActualCosts(dateRange, warehouseReady);
   const { data: azureActualData, isLoading: azureActualLoading } = useAzureActualCosts(dateRange, warehouseReady);
   const { data: gcpActualData, isLoading: gcpActualLoading } = useGCPActualCosts(dateRange, warehouseReady);
@@ -516,7 +517,7 @@ function Dashboard() {
   const { data: dbsqlTopQueriesData, isLoading: dbsqlTopQueriesLoading } = useDBSQLTopQueries(dateRange, _wsIds, warehouseReady);
   const { data: usersGroupsData } = useUsersGroupsBundle(dateRange, _wsIds, warehouseReady);
 
-  // Optimizer tab — prefetch rightsizing and idle-time in background so the tab loads instantly,
+  // Optimizer tab: prefetch rightsizing and idle-time in background so the tab loads instantly,
   // and capture the data so the PDF export can include it under the Optimize section.
   const { data: optimizeRightsizingData } = useQuery<{
     available: boolean;
@@ -576,7 +577,7 @@ function Dashboard() {
   useQuery({ queryKey: ["monthly-consumption"], queryFn: async () => { const r = await fetch("/api/use-cases/monthly-consumption"); if (!r.ok) throw new Error("Failed"); return r.json(); }, enabled: useCasesEnabled });
   useQuery({ queryKey: ["available-tags"], queryFn: async () => { const r = await fetch("/api/tagging/available-tags"); if (!r.ok) return { tags: {}, count: 0 }; return r.json(); } });
 
-  // Workspace list for the filter dropdown — SQL-backed, only fire when warehouse is ready.
+  // Workspace list for the filter dropdown: SQL-backed, only fire when warehouse is ready.
   const { data: wsListData, isLoading: wsListLoading } = useQuery<{ workspaces: { id: string; name: string; historical?: boolean }[] }>({
     queryKey: ["billing", "workspaces"],
     queryFn: () => fetch("/api/billing/workspaces").then(r => r.json()),
@@ -606,7 +607,7 @@ function Dashboard() {
     [wsListData?.workspaces, workspaceNameMap],
   );
 
-  // Service-principal display-name map — refetches after 10 min so if the first
+  // Service-principal display-name map: refetches after 10 min so if the first
   // SCIM call missed (e.g. permission granted later, backend was in cold-start),
   // consumers recover without a hard refresh.
   const { data: spListData } = useQuery<{ map: Record<string, string> }>({
@@ -618,7 +619,7 @@ function Dashboard() {
   // spListData is undefined (otherwise every parent render churns the context).
   const spNameMap = useMemo(() => spListData?.map ?? {}, [spListData?.map]);
 
-  // Settings data — all prefetched in the background after the main bundle loads.
+  // Settings data: all prefetched in the background after the main bundle loads.
   // `enabled` gates each query on `!!bundle` so settings requests don't race the
   // critical-path billing queries on cold start.
   const _settingsReady = !!bundle;
@@ -635,7 +636,7 @@ function Dashboard() {
   useQuery({ queryKey: ["settings-schedule"],      enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/settings/schedule"); return r.ok ? r.json() : null; }, staleTime: 5 * 60 * 1000 });
   useQuery({ queryKey: ["setup-workspace-filter"], enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/setup/workspace-filter"); return r.ok ? r.json() : null; }, staleTime: 5 * 60 * 1000 });
   useQuery({ queryKey: ["billing", "account"],     enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/billing/account"); return r.ok ? r.json() : null; }, staleTime: Infinity });
-  // settings-tables-status is NOT pre-fetched — it runs SQL against every app table
+  // settings-tables-status is NOT pre-fetched: it runs SQL against every app table
   // and returns stale false-negatives if it fires before the background MV build completes.
 
   // Memoize infra data transformations to avoid re-creating arrays on every render
@@ -808,7 +809,7 @@ function Dashboard() {
     <SpNameMapContext.Provider value={spNameMap}>
     <div className="min-h-screen" style={{ backgroundColor: (appSettings.theme === "dark" || (appSettings.theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches)) ? '#1B1F23' : C.oatPage }}>
       <TopProgressBar />
-      {/* Setup incomplete banner — non-dismissable, shown when wizard was closed without finishing */}
+      {/* Setup incomplete banner: non-dismissable, shown when wizard was closed without finishing */}
       {setupIncomplete && (
         <div className="flex items-center justify-between gap-4 px-4 py-2.5 border-b" style={{ backgroundColor: C.coralTint, borderColor: C.coralBrd }}>
           <div className="flex items-center gap-2 min-w-0">
@@ -816,19 +817,19 @@ function Dashboard() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
             </svg>
             <span className="text-xs font-medium text-orange-800">
-              Setup incomplete — materialized views have not been created. Data may be slower or incomplete.
+              Setup incomplete: materialized views have not been created. Data may be slower or incomplete.
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
               onClick={() => {
-                // Manually mark setup complete (tables already exist — e.g. the flag
+                // Manually mark setup complete (tables already exist: e.g. the flag
                 // was lost after a redeploy). Dismisses the banner without a rebuild.
                 setSetupIncomplete(false);
                 fetch("/api/setup/mark-complete", { method: "POST" }).catch(() => {});
               }}
               className="rounded-md border border-orange-300 px-3 py-1.5 text-xs font-medium text-orange-800 hover:bg-orange-100 transition-colors"
-              title="Mark setup complete without rebuilding — use when the tables already exist"
+              title="Mark setup complete without rebuilding: use when the tables already exist"
             >
               Mark complete
             </button>
@@ -852,14 +853,10 @@ function Dashboard() {
       {/* Account Info Banner */}
       <div className="text-white" style={{ backgroundColor: C.navy, height: 46 }}>
         <div className="mx-auto flex h-full max-w-7xl items-center px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex w-full items-center justify-between gap-8">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="white">
-                  <path d="M20 4H4L7 8L4 12H20L17 8L20 4Z" opacity="0.9"/>
-                  <path d="M20 8H4L7 12L4 16H20L17 12L20 8Z" opacity="0.7"/>
-                  <path d="M20 12H4L7 16L4 20H20L17 16L20 12Z" opacity="0.5"/>
-                </svg>
+                <img src="/databricks.svg" alt="" className="h-6 w-6" />
                 <span className="text-sm opacity-75">Databricks Account</span>
               </div>
               <div className="flex items-center gap-3">
@@ -890,7 +887,7 @@ function Dashboard() {
                         </span>
                         <div className="flex items-center gap-1 mt-0.5">
                           {selectedWorkspaceIds.length === 0 ? (
-                            // All workspaces selected — show names if pool ≤ 2, else "All"
+                            // All workspaces selected: show names if pool ≤ 2, else "All"
                             wsFilterList.length <= 2
                               ? wsFilterList.map((w) => {
                                   const lbl = w.workspace_name || w.workspace_id;
@@ -951,25 +948,25 @@ function Dashboard() {
                 {authStatus && authStatus.identity !== "user_oauth" && (
                   <>
                     {authStatus.sp_display_name && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-green-500/20 px-2 py-0.5 text-[10px] font-semibold text-green-200" title={authStatus.sp_display_name}>
+                      <span className="inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] font-semibold text-green-200" style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }} title={authStatus.sp_display_name}>
                         <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
                         <span className="font-mono">{authStatus.sp_display_name.slice(0, 8)}</span>
                         <span className="opacity-60">ID</span>
                       </span>
                     )}
                     {(authStatus.sp_user_name || authStatus.sp_client_id) && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-green-500/20 px-2 py-0.5 text-[10px] font-semibold text-green-200" title={authStatus.sp_user_name || authStatus.sp_client_id}>
+                      <span className="inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] font-semibold text-green-200" style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }} title={authStatus.sp_user_name || authStatus.sp_client_id}>
                         <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
                         <span className="font-mono">{(authStatus.sp_user_name || authStatus.sp_client_id || "").slice(0, 8)}</span>
-                        <span className="opacity-60">SP</span>
+                        <Bot className="h-3.5 w-3.5 opacity-70" aria-label="Service principal" />
                       </span>
                     )}
                   </>
                 )}
                 {warehouseStatus && (
                   <span
-                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                    style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.13)", color: "rgba(255,255,255,0.9)" }}
+                    className="inline-flex h-6 items-center gap-1 rounded px-2 text-[10px] font-semibold text-green-200"
+                    style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }}
                     title={`SQL Warehouse: ${warehouseStatus.state ?? warehouseStatus.status}`}
                   >
                     <span
@@ -1042,7 +1039,7 @@ function Dashboard() {
           </div>
           {/* Tab Navigation */}
           <div className="mt-4 overflow-x-auto overflow-y-hidden" style={{ borderBottom: "1px solid var(--hairline)" }}>
-            <nav className="-mb-px flex justify-center space-x-4 min-w-max">
+            <nav className="-mb-px flex min-w-max justify-center space-x-7 [&_svg]:h-[15px] [&_svg]:w-[15px]">
               {tabVisibility.dbu && (
               <button
                 onClick={() => setActiveTab("dbu")}
@@ -1188,7 +1185,7 @@ function Dashboard() {
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <div key={activeTab} className="animate-fade-in relative">
-          {/* Per-tab refresh button — top-right corner, across from each tab's title.
+          {/* Per-tab refresh button: top-right corner, across from each tab's title.
               Hidden on infra (cloud costs) tab. */}
           {activeTab !== "infra" && activeTab !== "optimizer" && (
             <div className="absolute right-0 top-1 z-20">
@@ -1284,6 +1281,7 @@ function Dashboard() {
         ) : activeTab === "optimizer" ? (
           <TabErrorBoundary tabName="Optimize">
           <div className="space-y-6">
+            <OptimizeMethodologyPanel />
             <PageHero
               icon={
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1293,7 +1291,6 @@ function Dashboard() {
               title="Optimize"
               subtitle="Rightsizing recommendations and cost optimization insights"
             />
-            <OptimizeMethodologyPanel />
             <WarehouseIdleTimeView host={accountInfo?.host} startDate={dateRange.startDate} endDate={dateRange.endDate} workspaceIds={_wsIds} />
             <WarehouseRightsizingView host={accountInfo?.host} />
           </div>

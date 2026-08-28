@@ -30,7 +30,7 @@ interface ExportDialogProps {
   tabVisibility: TabVisibility;
 }
 
-// Map export sections to the tab that owns them — order matches tab nav so the
+// Map export sections to the tab that owns them: order matches tab nav so the
 // PDF reads in the same order as the app.
 const sectionToTab: Record<keyof ExportSections, keyof TabVisibility | null> = {
   summary: "dbu",
@@ -176,7 +176,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
             </div>
             {format === "csv" && (
               <p className="mt-2 text-xs text-gray-500">
-                Downloads a multi-sheet Excel workbook (.xls) — one sheet per app tab — with active workspace and date filters applied.
+                Downloads a multi-sheet Excel workbook (.xls): one sheet per app tab: with active workspace and date filters applied.
               </p>
             )}
           </div>

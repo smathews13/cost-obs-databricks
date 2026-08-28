@@ -34,7 +34,7 @@ export function useUpdatingIndicator(maxMs = 12000): { updating: boolean; arm: (
     if (grace.current) clearTimeout(grace.current);
     if (maxT.current) clearTimeout(maxT.current);
     // If no fetch has started shortly after the change, the result was served from
-    // cache (query key within staleTime) — clear rather than hang on the safety timer.
+    // cache (query key within staleTime): clear rather than hang on the safety timer.
     grace.current = setTimeout(() => { if (!sawInFlight.current) stop(); }, 500);
     maxT.current = setTimeout(stop, maxMs);  // hard safety so it can never stick
   };

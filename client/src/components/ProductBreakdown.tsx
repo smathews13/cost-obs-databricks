@@ -12,9 +12,9 @@ import {
 import type { ProductBreakdownResponse, WorkspaceBreakdown } from "@/types/billing";
 import { formatCurrencyCompact as formatCurrency } from "@/utils/formatters";
 import { VirtualizedList } from "./VirtualizedList";
-import { C } from "@/theme";
+import { C, seriesColor } from "@/theme";
 
-// Hoisted formatters — see SKUBreakdown for rationale.
+// Hoisted formatters: see SKUBreakdown for rationale.
 const fmtCurrency = (v: unknown) => formatCurrency(v as number);
 const fmtTooltip = (value: number | undefined) => formatCurrency(value ?? 0);
 const fmtTooltipLabel = (label: unknown) => `Product: ${label}`;
@@ -40,7 +40,7 @@ const WsRow = memo(function WsRow({ wsId, wsName, selected, onToggle, historical
       </div>
       <span className="truncate text-gray-700">{wsName}</span>
       {historical && (
-        <span className="ml-auto shrink-0 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700" title="This workspace no longer exists in the account — data is historical.">
+        <span className="ml-auto shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[9px] font-medium text-gray-600" title="This workspace no longer exists in the account. Its data is historical.">
           historical
         </span>
       )}
@@ -58,7 +58,7 @@ interface ProductBreakdownProps {
 
 const CATEGORY_COLORS: Record<string, string> = {
   "SQL - DBSQL": C.s2,
-  "SQL - Genie": C.s5,
+  "SQL - Genie": C.s2,
   SQL: C.s2,
   "ETL - Batch": C.s3,
   "ETL - Streaming": C.s3,
@@ -68,14 +68,8 @@ const CATEGORY_COLORS: Record<string, string> = {
   "AI Search": C.s5,
   "Fine-Tuning": C.s4,
   "AI Functions": C.s5,
-  Other: C.slate,
+  Other: C.s5,
 };
-
-const COLOR_ROTATION = [
-  C.s2, C.lava, C.s5, C.s3, C.s4,
-  C.s5, C.s1, C.lava, C.s3, C.slate,
-  C.s5, C.s4,
-];
 
 export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading, workspaces, dateRange, workspaceNameMap }: ProductBreakdownProps) {
   const allWsIds = useMemo(
@@ -341,7 +335,7 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
           />
           <Bar dataKey="total_spend" name="Spend" radius={[0, 4, 4, 0]} isAnimationActive={false}>
             {chartData.map((entry, idx) => (
-              <Cell key={entry.name} fill={CATEGORY_COLORS[entry.name] || COLOR_ROTATION[idx % COLOR_ROTATION.length]} />
+              <Cell key={entry.name} fill={CATEGORY_COLORS[entry.name] || seriesColor(idx)} />
             ))}
             <LabelList dataKey="total_spend" position="right" formatter={fmtCurrency} style={LABEL_STYLE} />
           </Bar>

@@ -54,7 +54,7 @@ export function CloudIntegrationWizard({
               <h2 className="text-lg font-semibold text-gray-900">
                 {wizardCloud === null
                   ? "Integrate Cloud Environment Costs"
-                  : `${wizardCloud === "azure" ? "Azure" : wizardCloud === "gcp" ? "Google Cloud" : "AWS"} Cost Integration — Setup Guide`}
+                  : `${wizardCloud === "azure" ? "Azure" : wizardCloud === "gcp" ? "Google Cloud" : "AWS"} Cost Integration: Setup Guide`}
               </h2>
               <p className="mt-0.5 text-sm text-gray-500">
                 {wizardCloud === null
@@ -153,7 +153,7 @@ export function CloudIntegrationWizard({
                   "Enable Standard usage cost export to a BigQuery dataset",
                   "Note the GCP project ID and BigQuery dataset name",
                   "Create an Omni connection or use BigQuery connector in Databricks",
-                  "Validate data in Databricks — confirm billing rows in Delta (Final Step)",
+                  "Validate data in Databricks: confirm billing rows in Delta (Final Step)",
                 ] : [
                   "Sign in to AWS Console → Billing & Cost Management → Data Exports",
                   "Create a Standard Data Export (CUR 2.0) with resource IDs and daily frequency",
@@ -267,7 +267,7 @@ export function CloudIntegrationWizard({
                                 <ol className="space-y-2">
                                   <li className="flex gap-2"><span className="font-medium text-gray-700">a.</span><span>In the GCP Console, open <strong>Billing</strong> from the top navigation menu</span></li>
                                   <li className="flex gap-2"><span className="font-medium text-gray-700">b.</span><span>In the left sidebar, click <strong>Billing export</strong></span></li>
-                                  <li className="flex gap-2"><span className="font-medium text-gray-700">c.</span><span>You'll see the BigQuery export section — this is where you'll enable cost data export in Step 2</span></li>
+                                  <li className="flex gap-2"><span className="font-medium text-gray-700">c.</span><span>You'll see the BigQuery export section: this is where you'll enable cost data export in Step 2</span></li>
                                 </ol>
                                 <div className="mt-3 rounded-md bg-amber-50 p-3 text-sm text-amber-800">
                                   <strong>⏱ Note:</strong> Initial GCP billing export can take up to 48 hours. After that, data is updated daily.
@@ -287,7 +287,7 @@ export function CloudIntegrationWizard({
                               </>
                             ) : step === 3 ? (
                               <>
-                                <p className="mb-3">Note the GCP project ID and BigQuery dataset name — you'll need these to configure the Databricks connector.</p>
+                                <p className="mb-3">Note the GCP project ID and BigQuery dataset name: you'll need these to configure the Databricks connector.</p>
                                 <ol className="space-y-2">
                                   <li className="flex gap-2"><span className="font-medium text-gray-700">a.</span><span>Note the <strong>GCP project ID</strong> (visible in the GCP Console project selector)</span></li>
                                   <li className="flex gap-2"><span className="font-medium text-gray-700">b.</span><span>Note the <strong>BigQuery dataset name</strong> you chose (e.g., <code className="rounded bg-gray-200 px-1">billing_export</code>)</span></li>

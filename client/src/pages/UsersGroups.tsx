@@ -6,6 +6,7 @@ import {
 } from "recharts";
 import { useUsersGroupsBundle } from "@/hooks/useBillingData";
 import { KPITrendModal } from "@/components/KPITrendModal";
+import { Bot } from "lucide-react";
 
 function InfoTooltip({ text }: { text: string }) {
   const [show, setShow] = useState(false);
@@ -33,23 +34,8 @@ function InfoTooltip({ text }: { text: string }) {
 import type { UserSpend } from "@/hooks/useBillingData";
 import type { DateRange } from "@/types/billing";
 import { formatIdentity, isServicePrincipal, useSpNameMap } from "@/utils/identity";
-import { C } from "@/theme";
-import { PageHero, Chip } from "@/components/brand";
-
-const COLORS = [C.s2, C.s5, C.s3, C.s3, C.s4, C.s5, C.s1, C.lava, C.slate, C.s5];
-
-const PRODUCT_COLORS: Record<string, string> = {
-  "ETL - Batch": C.s2,
-  "ETL - Streaming": C.s5,
-  "Interactive": C.s3,
-  "SQL": C.s3,
-  "Serverless": C.s4,
-  "Model Serving": C.s5,
-  "Fine-Tuning": C.s1,
-  "AI Search": C.lava,
-  "AI Functions": C.lava,
-  "Other": C.slate,
-};
+import { C, productColor, seriesColor } from "@/theme";
+import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
 function fmt(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
@@ -124,7 +110,7 @@ function UserDetailModal({ user, onClose }: { user: UserSpend; onClose: () => vo
                         <span className="font-medium text-gray-800">{fmt(p.spend)}</span>
                       </div>
                       <div className="h-1.5 w-full rounded-full bg-gray-100">
-                        <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: PRODUCT_COLORS[p.product] || C.muted }} />
+                        <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: productColor(p.product) }} />
                       </div>
                     </div>
                   );
@@ -198,12 +184,12 @@ function ProductDrilldown({ topUsers }: { topUsers: UserSpend[] }) {
                   <span className="font-medium text-gray-800">{fmt(spend)} <span className="text-gray-500">({pct.toFixed(1)}%)</span></span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-gray-100">
-                  <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: isSelected ? C.lava : (PRODUCT_COLORS[product] || C.muted) }} />
+                  <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: isSelected ? C.lava : productColor(product) }} />
                 </div>
               </button>
               {isSelected && top5.length > 0 && (
                 <div className="mt-2 mb-1 ml-2 rounded-lg border border-gray-100 bg-gray-50 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Top users — {product}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Top users: {product}</p>
                   <div className="space-y-1.5">
                     {top5.map((u, i) => (
                       <div key={u.email} className="flex items-center justify-between text-xs">
@@ -322,7 +308,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-  // Bar chart — top 15 users (always from unfiltered top users)
+  // Bar chart: top 15 users (always from unfiltered top users)
   // Use raw email as the Recharts category key to avoid duplicate-key issues for SPs
   // Pre-format labels so Recharts category axis shows abbreviated SP names directly
   const seenLabels = new Set<string>();
@@ -348,7 +334,21 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      <InfoPanel
+        title="User Spend: Best Practices and Methodology"
+        minimized={infoMinimized}
+        onToggle={handleMinimizeToggle}
+        minimizeLabel="Don't show again"
+      >
+        <ul className="list-inside list-disc space-y-1">
+          <li><strong>Attribution model</strong>: Spend is attributed via <code>identity_metadata.run_as</code> in <code>system.billing.usage</code>, which identifies the user or service principal that triggered the workload.</li>
+          <li><strong>Service principals</strong>: Jobs and automated pipelines run as service principals. High automated spend is normal; focus on human spend for personal cost governance.</li>
+          <li><strong>Active users</strong>: Distinct identities with any DBU spend in the period, not just SQL query users.</li>
+          <li><strong>Cost governance</strong>: Set user spend alerts to notify individuals or managers when spend exceeds a threshold.</li>
+          <li><strong>Reducing costs</strong>: Review top spenders for long running interactive clusters, idle warehouses, or redundant notebook sessions.</li>
+        </ul>
+      </InfoPanel>
+
       <PageHero
         icon={
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -368,47 +368,9 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
         }
       />
 
-      {/* Best Practices Banner */}
-      <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
-        <div className="flex">
-          <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-orange-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3 flex-1">
-            <button className="flex w-full items-center justify-between" onClick={() => handleMinimizeToggle(!infoMinimized)}>
-              <h3 className="text-sm font-medium text-orange-800">User Spend — Best Practices & Methodology</h3>
-              <svg className={`h-4 w-4 text-orange-500 transition-transform ${infoMinimized ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {!infoMinimized && (
-              <>
-                <div className="mt-2 text-sm text-orange-700">
-                  <ul className="list-inside list-disc space-y-1">
-                    <li><strong>Attribution model</strong>: Spend is attributed via <code>identity_metadata.run_as</code> in <code>system.billing.usage</code> — the user or service principal that triggered the workload.</li>
-                    <li><strong>Service principals</strong>: Jobs and automated pipelines run as SPs. High SP spend is normal and expected; focus on human user spend for personal cost governance.</li>
-                    <li><strong>Active users</strong>: Distinct identities with any DBU spend in the period — not just SQL query users.</li>
-                    <li><strong>Cost governance</strong>: Set per-user spend alerts in the Alerts tab to notify individuals or managers when spend exceeds a threshold.</li>
-                    <li><strong>Reducing costs</strong>: Review the top spenders for long-running interactive clusters, idle warehouses, or redundant notebook sessions.</li>
-                  </ul>
-                </div>
-                <div className="mt-3 flex justify-start">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={infoMinimized} onChange={(e) => handleMinimizeToggle(e.target.checked)} className="h-3.5 w-3.5 rounded border-orange-300 text-orange-600 focus:ring-orange-500" />
-                    <span className="text-xs text-orange-700">Don't show again</span>
-                  </label>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
       {<>
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="co-kpi-grid grid grid-cols-2 gap-4 lg:grid-cols-4">
         {/* Active users */}
         <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all" onClick={() => startDate && endDate && setSelectedKPI({kpi: "total_users", label: "Daily Unique Active Users", variant: "platform"})}>
           <div className="flex items-center gap-3">
@@ -420,8 +382,8 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                 Unique Active Users
                 <InfoTooltip text="Distinct users (humans and service principals) with any DBU spend in the selected date range, across all products." />
               </p>
-              <p className="text-2xl font-semibold text-gray-900">{summary?.user_count?.toLocaleString() ?? "—"}</p>
-              <p className="text-xs text-gray-500">across {summary?.workspace_count ?? "—"} workspaces</p>
+              <p className="text-2xl font-semibold text-gray-900">{summary?.user_count?.toLocaleString() ?? "N/A"}</p>
+              <p className="text-xs text-gray-500">across {summary?.workspace_count ?? "N/A"} workspaces</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
@@ -437,7 +399,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                 User Spend
                 <InfoTooltip text="Total list-price spend in the date range divided by the number of distinct active users. Includes all products." />
               </p>
-              <p className="text-2xl font-semibold text-gray-900">{summary ? fmt(summary.avg_spend_per_user) : "—"}</p>
+              <p className="text-2xl font-semibold text-gray-900">{summary ? fmt(summary.avg_spend_per_user) : "N/A"}</p>
               <p className="text-xs text-gray-500">Per-user spend over {daysDiff} days</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
@@ -476,9 +438,9 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                   {summary.spend_growth_pct >= 0 ? "+" : ""}{summary.spend_growth_pct}%
                 </p>
               ) : (
-                <p className="text-2xl font-semibold" style={{ color: C.muted }}>—</p>
+                <p className="text-2xl font-semibold" style={{ color: C.muted }}>N/A</p>
               )}
-              <p className="text-[11px] text-gray-500">{summary?.user_count?.toLocaleString() ?? "—"} total users · {daysDiff} days</p>
+              <p className="text-[11px] text-gray-500">{summary?.user_count?.toLocaleString() ?? "N/A"} total users · {daysDiff} days</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
@@ -517,7 +479,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                 if (u) setSelectedUser(u);
               }} style={{ cursor: "pointer" }}>
                 {barData.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  <Cell key={i} fill={seriesColor(i)} />
                 ))}
               </Bar>
             </BarChart>
@@ -528,7 +490,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
         <ProductDrilldown topUsers={topUsers} />
       </div>
 
-      {/* User growth charts — always last 6 months */}
+      {/* User growth charts: always last 6 months */}
       {data?.user_growth && data.user_growth.length > 1 && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
@@ -551,9 +513,9 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
             <h3 className="text-lg font-medium text-gray-900 mb-1 flex items-center">
               Monthly User Growth
-              <InfoTooltip text="Counts distinct users whose earliest recorded DBU spend falls within each calendar month — i.e., users appearing for the first time that month. Always shows the last 6 months regardless of the date filter above." />
+              <InfoTooltip text="Counts distinct users whose earliest recorded DBU spend falls within each calendar month: i.e., users appearing for the first time that month. Always shows the last 6 months regardless of the date filter above." />
             </h3>
-            <p className="text-xs text-gray-500 mb-4">New users appearing for the first time each month — last 6 months</p>
+            <p className="text-xs text-gray-500 mb-4">New users appearing for the first time each month: last 6 months</p>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={data!.user_growth} margin={{ left: 0, right: 16, top: 20, bottom: 0 }}>
                 <XAxis dataKey="month" stroke={C.muted} fontSize={12} tickMargin={8} tickFormatter={m => { const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; const parts = m.split("-"); return months[parseInt(parts[1], 10) - 1] || m; }} />
@@ -688,8 +650,8 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                   <tr key={u.user_email} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2.5">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white text-xs font-semibold" style={{ backgroundColor: COLORS[globalIdx % COLORS.length] }}>
-                          {sp ? "SP" : (anonymizeUsers ? (globalIdx + 1).toString() : u.user_email.charAt(0).toUpperCase())}
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white text-xs font-semibold" style={{ backgroundColor: seriesColor(globalIdx) }}>
+                          {sp ? <Bot className="h-4 w-4" aria-label="Service principal" /> : (anonymizeUsers ? (globalIdx + 1).toString() : u.user_email.charAt(0).toUpperCase())}
                         </div>
                         <div className="min-w-0">
                           <span className="text-gray-800 font-medium truncate max-w-55 block">{displayUser(u.user_email)}</span>
@@ -699,7 +661,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <div className="w-16 h-1.5 rounded-full bg-gray-100">
-                          <div className="h-1.5 rounded-full" style={{ width: `${Math.min(u.percentage, 100)}%`, backgroundColor: COLORS[globalIdx % COLORS.length] }} />
+                          <div className="h-1.5 rounded-full" style={{ width: `${Math.min(u.percentage, 100)}%`, backgroundColor: seriesColor(globalIdx) }} />
                         </div>
                         <span className="text-gray-500 text-xs w-10 text-right">{(u.percentage ?? 0).toFixed(1)}%</span>
                       </div>
@@ -708,7 +670,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                     <td className="px-4 py-3 text-right text-gray-600">{formatNumber(u.total_dbus ?? 0)}</td>
                     <td className="px-4 py-3 text-right text-gray-600">{u.active_days}</td>
                     <td className="px-4 py-3">
-                      <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600">{u.primary_product}</span>
+                      <Chip>{u.primary_product}</Chip>
                     </td>
                     <td className="px-4 py-3">
                       <button onClick={() => setSelectedUser(u)} className="text-xs text-gray-500 hover:text-gray-700 underline">

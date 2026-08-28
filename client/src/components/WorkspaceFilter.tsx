@@ -8,7 +8,7 @@ interface Workspace {
   historical?: boolean;
 }
 
-// Guards against ids that would render a bogus option — null, or the strings
+// Guards against ids that would render a bogus option: null, or the strings
 // "None"/"null"/"" that leak in when a null workspace id is stringified upstream.
 function isValidWorkspaceId(id: string | null | undefined): id is string {
   if (id == null) return false;
@@ -27,7 +27,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading }
   const { updating, arm } = useUpdatingIndicator();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
-  // Draft state — reflects checkbox clicks but is NOT applied until "Apply" is clicked.
+  // Draft state: reflects checkbox clicks but is NOT applied until "Apply" is clicked.
   // draftAll=true means "all workspaces" (no filter). draftAll=false + draftIds=[]
   // means "nothing selected" (Apply is disabled until at least one is checked).
   const [draftAll, setDraftAll] = useState(true);
@@ -71,7 +71,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading }
     if (draftIds.includes(id)) {
       const next = draftIds.filter((x) => x !== id);
       setDraftIds(next);
-      // Don't auto-switch to "all" when last is unchecked — let the user see nothing
+      // Don't auto-switch to "all" when last is unchecked: let the user see nothing
       // selected and be forced to pick something before Apply is enabled.
     } else {
       const next = [...draftIds, id];
@@ -212,7 +212,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading }
                       {ws.workspace_name || `Workspace ${id}`}
                     </span>
                     {ws.historical && (
-                      <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="This workspace no longer exists in the account — data is historical.">
+                      <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600" title="This workspace no longer exists in the account. Its data is historical.">
                         historical
                       </span>
                     )}

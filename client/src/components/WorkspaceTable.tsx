@@ -46,7 +46,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
   const spNameMap = useSpNameMap();
   // Whether any Delta-shared summary sources are active. This live breakdown is a
   // system-table query (it needs per-product/per-user detail the shared summary MVs
-  // don't carry), so it reflects only THIS account's workspaces — a note explains
+  // don't carry), so it reflects only THIS account's workspaces: a note explains
   // why its totals can trail the MV-backed KPIs when shared sources are present.
   const { data: mvSources } = useQuery<{ sources: { label: string }[] }>({
     queryKey: ["mv-sources"],
@@ -130,7 +130,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
     );
   }
 
-  // Drop rows with no real workspace id — a null id stringified upstream renders
+  // Drop rows with no real workspace id: a null id stringified upstream renders
   // as a bogus "Workspace None" row; it should never appear in this view.
   const validWorkspaces = data.workspaces.filter((ws) => {
     const id = ws.workspace_id;
@@ -139,7 +139,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
   // Historical = no resolvable display name (neither a live name from workspaceNameMap
   // nor a name in the billing history). Such a workspace no longer exists in the
   // account (deleted/orphaned), so it's hidden by default behind "Show historical" and
-  // badged when shown — keeping the default row count aligned with the active-workspace
+  // badged when shown: keeping the default row count aligned with the active-workspace
   // KPI. Mirrors the backend `historical` flag (workspace_name is None).
   const isHistoricalWs = (ws: typeof data.workspaces[0]) =>
     !ws.workspace_id ||
@@ -190,7 +190,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
           </h3>
           {hasSharedSources && (
             <p className="mt-0.5 text-xs text-gray-500">
-              This workspace's account only — shared sources are included in the totals above, not this live breakdown.
+              This workspace's account only: shared sources are included in the totals above, not this live breakdown.
             </p>
           )}
         </div>
@@ -206,7 +206,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
               Show historical ({historicalCount})
                 <span className="relative group ml-0.5">
                   <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Workspaces whose names could not be resolved — likely decommissioned or inaccessible</span>
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Workspaces whose names could not be resolved: likely decommissioned or inaccessible</span>
                 </span>
             </label>
           )}

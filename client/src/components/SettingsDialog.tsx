@@ -49,8 +49,8 @@ function saveTabVisibility(visibility: TabVisibility) {
 export interface AppSettings {
   defaultDateRangeDays: 7 | 14 | 30 | 60 | 90;
   refreshIntervalMinutes: 0 | 5 | 15 | 30;
-  compactMode: boolean;              // deprecated — migrated to `density`
-  darkMode: boolean;                 // deprecated — migrated to `theme`
+  compactMode: boolean;              // deprecated: migrated to `density`
+  darkMode: boolean;                 // deprecated: migrated to `theme`
   density: "comfortable" | "compact";
   theme: "light" | "dark" | "system";
   defaultLandingTab: string;
@@ -312,7 +312,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
       body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
     }).then(() => rqClient.invalidateQueries({ queryKey: ["unified-settings"] })).catch(() => {});
     setDirty(false);
-    toast(landingHidden ? "Settings saved — landing tab reset to first visible" : "Settings saved");
+    toast(landingHidden ? "Settings saved: landing tab reset to first visible" : "Settings saved");
   };
 
   const handleReset = () => {

@@ -4,7 +4,7 @@
  * Key invariants:
  * 1. available=false → dependency-blocked amber panel, not fake zeros.
  * 2. available=true + summary=null → "No summary data returned" gray panel.
- * 3. available=true + all-zero summary → $0 rendered (valid zero activity), not "—".
+ * 3. available=true + all-zero summary → $0 rendered (valid zero activity), not "N/A".
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -13,7 +13,7 @@ import { SQLWarehousing360 } from "../SQLWarehousing360";
 import type { DBSQLDashboardBundle } from "@/types/billing";
 
 // ---------------------------------------------------------------------------
-// Mock useFeatureAvailability — tests control grant state without a server
+// Mock useFeatureAvailability: tests control grant state without a server
 // ---------------------------------------------------------------------------
 
 vi.mock("@/hooks/useFeatureAvailability", () => ({
@@ -32,7 +32,7 @@ const fetchMock = vi.fn<typeof fetch>();
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
-  // Default: all grants unknown — never blocks rendering
+  // Default: all grants unknown: never blocks rendering
   vi.mocked(useFeatureAvailability).mockReturnValue({
     warehouseGranted: undefined,
     tableGranted: () => undefined,
@@ -70,7 +70,7 @@ const BASE_BUNDLE_AVAILABLE: DBSQLDashboardBundle = {
 // available=false: dependency-blocked state
 // ---------------------------------------------------------------------------
 
-describe("SQLWarehousing360 — available=false renders dependency-blocked panel", () => {
+describe("SQLWarehousing360: available=false renders dependency-blocked panel", () => {
   it("shows the 'Query-level cost attribution is not available' heading", () => {
     renderSQLView({ available: false, start_date: "2026-01-01", end_date: "2026-01-31" });
 
@@ -99,7 +99,7 @@ describe("SQLWarehousing360 — available=false renders dependency-blocked panel
 // available=true + summary=null: internal error / no data returned
 // ---------------------------------------------------------------------------
 
-describe("SQLWarehousing360 — available=true but summary null renders unavailable banner", () => {
+describe("SQLWarehousing360: available=true but summary null renders unavailable banner", () => {
   it("shows 'Query summary unavailable' when summary is absent", () => {
     renderSQLView({ ...BASE_BUNDLE_AVAILABLE, summary: undefined });
 
@@ -121,10 +121,10 @@ describe("SQLWarehousing360 — available=true but summary null renders unavaila
 });
 
 // ---------------------------------------------------------------------------
-// available=true + all-zero summary: valid zero activity → $0, not "—"
+// available=true + all-zero summary: valid zero activity → $0, not "N/A"
 // ---------------------------------------------------------------------------
 
-describe("SQLWarehousing360 — available=true with zero-value summary renders $0", () => {
+describe("SQLWarehousing360: available=true with zero-value summary renders $0", () => {
   const zeroSummary: DBSQLDashboardBundle = {
     ...BASE_BUNDLE_AVAILABLE,
     summary: {
@@ -147,10 +147,10 @@ describe("SQLWarehousing360 — available=true with zero-value summary renders $
     expect(screen.getByText(/total query spend/i)).toBeInTheDocument();
   });
 
-  it("shows a currency value ($0) rather than '—' for zero spend", () => {
+  it("shows a currency value ($0) rather than 'N/A' for zero spend", () => {
     renderSQLView(zeroSummary);
 
-    // formatCurrency(0) → "$0" — valid zero activity, not a missing-data dash
+    // formatCurrency(0) → "$0": valid zero activity, not a missing-data dash
     const spendValues = screen.getAllByText(/^\$0/);
     expect(spendValues.length).toBeGreaterThan(0);
   });

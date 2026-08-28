@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-// DuBois product-UI tokens (spec §3). Scoped to the Settings modal only — the rest of
+// DuBois product-UI tokens (spec §3). Scoped to the Settings modal only: the rest of
 // the app keeps its marketing-brand orange. Red means danger only; toggles are blue.
 //
 // Each token is a CSS custom property (`var(--dob-*, <light fallback>)`) so the modal

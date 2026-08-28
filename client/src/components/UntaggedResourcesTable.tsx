@@ -94,7 +94,7 @@ export function UntaggedResourcesTable({
     return false;
   });
 
-  // Multi-select resource type filter — all selected by default. Replaces the old single-tab picker.
+  // Multi-select resource type filter: all selected by default. Replaces the old single-tab picker.
   const [selectedResourceTypes, setSelectedResourceTypes] = useState<Exclude<UntaggedTab, "all">[]>([...ALL_RESOURCE_TYPES]);
   const [tabDropdownOpen, setTabDropdownOpen] = useState(false);
   const tabDropdownRef = useRef<HTMLDivElement>(null);
@@ -273,7 +273,7 @@ export function UntaggedResourcesTable({
           Show historical ({historicalCount})
           <span className="relative group ml-0.5">
             <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            <span className="absolute bottom-full left-0 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Resources whose names could not be resolved — likely deleted or from inaccessible workspaces</span>
+            <span className="absolute bottom-full left-0 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Resources whose names could not be resolved: likely deleted or from inaccessible workspaces</span>
           </span>
         </label>
         <div className="relative" ref={tabDropdownRef}>

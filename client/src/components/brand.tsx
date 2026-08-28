@@ -25,9 +25,9 @@ export function CostObsLockup({
   const light = variant === "light";
   return (
     <span className={cn("inline-flex items-center gap-2", className)}>
-      <CostObsMark className="h-[30px] w-[30px]" whiteOrbit={!light} />
+      <CostObsMark className="h-9 w-9" whiteOrbit={!light} />
       <span
-        className="text-[21px] font-bold leading-none tracking-tight"
+        className="text-[24px] font-bold leading-none tracking-tight"
         style={{ color: light ? C.ink : C.white, fontFamily: FONT_SANS }}
       >
         cost-obs
@@ -56,7 +56,7 @@ export function PageHero({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-6 flex items-start justify-between gap-4">
+    <div className="flex items-start justify-between gap-4">
       <div className="flex items-start gap-3">
         <div
           className="flex h-11 w-11 shrink-0 items-center justify-center"
@@ -85,22 +85,71 @@ export function PageHero({
   );
 }
 
+export function InfoPanel({
+  title,
+  minimized,
+  onToggle,
+  children,
+  minimizeLabel = "Minimize from now on",
+}: {
+  title: string;
+  minimized: boolean;
+  onToggle: (minimized: boolean) => void;
+  children: ReactNode;
+  minimizeLabel?: string;
+}) {
+  return (
+    <div className="p-4" style={{ background: C.oatMed, borderRadius: 10 }}>
+      <div className="flex">
+        <div className="shrink-0" style={{ color: C.lava }}>
+          <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+          </svg>
+        </div>
+        <div className="ml-3 flex-1">
+          <button className="flex w-full items-center justify-between text-left" onClick={() => onToggle(!minimized)}>
+            <h3 className="text-sm font-semibold" style={{ color: C.navy }}>{title}</h3>
+            <svg className={cn("h-4 w-4 transition-transform", minimized ? "" : "rotate-180")} style={{ color: C.slate }} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {!minimized && (
+            <>
+              <div className="mt-2 text-sm" style={{ color: C.body }}>{children}</div>
+              <label className="mt-3 flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={minimized}
+                  onChange={(event) => onToggle(event.target.checked)}
+                  className="h-3.5 w-3.5 rounded"
+                  style={{ accentColor: C.navy }}
+                />
+                <span className="text-xs" style={{ color: C.slate }}>{minimizeLabel}</span>
+              </label>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type ChipKind = "neutral" | "serverless" | "historical" | "filter" | "idle" | "workspace";
 
 const CHIP: Record<ChipKind, { bg: string; fg: string; border?: string }> = {
-  neutral: { bg: C.oatPage, fg: C.ink, border: C.hairline },
-  serverless: { bg: C.greenTint, fg: C.greenInk },
-  historical: { bg: C.amberTint, fg: C.amberInk },
-  filter: { bg: C.coralTint, fg: C.lavaHover },
-  idle: { bg: C.maroonTint, fg: C.maroon },
-  workspace: { bg: C.oatMed, fg: C.slate },
+  neutral: { bg: C.oatMed, fg: C.slate, border: C.hairline },
+  serverless: { bg: C.oatMed, fg: C.slate, border: C.hairline },
+  historical: { bg: C.oatMed, fg: C.slate, border: C.hairline },
+  filter: { bg: C.oatMed, fg: C.slate, border: C.hairline },
+  idle: { bg: C.oatMed, fg: C.slate, border: C.hairline },
+  workspace: { bg: C.oatMed, fg: C.slate, border: C.hairline },
 };
 
 export function Chip({ kind = "neutral", children, className }: { kind?: ChipKind; children: ReactNode; className?: string }) {
   const t = CHIP[kind];
   return (
     <span
-      className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", className)}
+      className={cn("inline-flex h-6 items-center rounded-[var(--r-chip)] px-2 text-xs font-medium", className)}
       style={{ background: t.bg, color: t.fg, border: t.border ? `1px solid ${t.border}` : undefined }}
     >
       {children}
@@ -109,9 +158,8 @@ export function Chip({ kind = "neutral", children, className }: { kind?: ChipKin
 }
 
 export function changeTone(pct: number): { bg: string; fg: string; label: string } {
-  if (Math.abs(pct) < 0.5) return { bg: C.oatMed, fg: C.slate, label: "±0.0%" };
-  if (pct > 0) return { bg: C.coralTint, fg: C.lavaHover, label: `+${pct.toFixed(1)}%` };
-  return { bg: C.greenTint, fg: C.greenInk, label: `${pct.toFixed(1)}%` };
+  if (Math.abs(pct) < 0.5) return { bg: C.coralTint, fg: C.lavaHover, label: "±0.0%" };
+  return { bg: C.coralTint, fg: C.lavaHover, label: `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%` };
 }
 
 export function ChartTooltipFrame({

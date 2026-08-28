@@ -199,7 +199,7 @@ export function ReadinessChecks({
   const anyEnhancedFailing = result.enhanced.some(c => !c.granted);
 
   // Copyable GRANT SQL for every failing check, de-duplicated line-by-line. Built
-  // from the fix_sql the readiness endpoint returns per check — no on-behalf-of
+  // from the fix_sql the readiness endpoint returns per check: no on-behalf-of
   // grant call is made (a metastore admin runs this, which always works).
   const combinedGrantSql = Array.from(new Set(
     [
@@ -229,7 +229,7 @@ export function ReadinessChecks({
         </button>
       </div>
 
-      {/* Grant SQL — shown when any check is failing. A metastore admin copies and
+      {/* Grant SQL: shown when any check is failing. A metastore admin copies and
           runs this, then clicks Re-check. No on-behalf-of grant is attempted. */}
       {(anyCoreFailing || anyEnhancedFailing) && combinedGrantSql && (
         <div className="rounded-lg border border-[#FF3621]/20 bg-orange-50 px-4 py-3 space-y-2">
@@ -239,7 +239,7 @@ export function ReadinessChecks({
           </div>
           <p className="text-[11px] text-gray-600">
             Run this as a <strong>metastore admin</strong> (<code className="font-mono">system.access.audit</code> also
-            requires an <strong>account admin</strong>){result.sp_client_id ? <> — the service principal is <code className="font-mono">{result.sp_client_id}</code></> : null},
+            requires an <strong>account admin</strong>){result.sp_client_id ? <>: the service principal is <code className="font-mono">{result.sp_client_id}</code></> : null},
             then click <strong>Re-check</strong>.
           </p>
           <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-gray-900 px-3 py-2 text-[10px] leading-relaxed text-green-400">
@@ -280,7 +280,7 @@ export function ReadinessChecks({
         <div>
           <div className="mb-2 flex items-center gap-2">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Enhanced Tables</h4>
-            <span className="text-[10px] text-gray-500">Optional — enables richer analytics</span>
+            <span className="text-[10px] text-gray-500">Optional: enables richer analytics</span>
             {anyEnhancedFailing && (
               <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
                 {result.enhanced.filter(c => !c.granted).length} missing
@@ -293,7 +293,7 @@ export function ReadinessChecks({
         </div>
       )}
 
-      {/* Feature-plane readiness — what's actually usable given the control-plane state above */}
+      {/* Feature-plane readiness: what's actually usable given the control-plane state above */}
       <FeaturePlaneReadiness result={result} />
     </div>
   );
@@ -309,10 +309,10 @@ interface FeatureArea {
 
 const FEATURE_AREAS: FeatureArea[] = [
   { label: "Cost Overview & Spend",       requiredTables: ["system.billing.usage"],                requiresWarehouse: true },
-  { label: "Platform KPIs — Queries",     requiredTables: ["system.query.history"],                requiresWarehouse: true },
-  { label: "Platform KPIs — Jobs",        requiredTables: ["system.lakeflow.pipelines"],           requiresWarehouse: true },
-  { label: "Platform KPIs — Clusters",    requiredTables: ["system.compute.clusters"],             requiresWarehouse: true },
-  { label: "Platform KPIs — Serving",     requiredTables: ["system.serving.served_entities"],      requiresWarehouse: true },
+  { label: "Platform KPIs: Queries",     requiredTables: ["system.query.history"],                requiresWarehouse: true },
+  { label: "Platform KPIs: Jobs",        requiredTables: ["system.lakeflow.pipelines"],           requiresWarehouse: true },
+  { label: "Platform KPIs: Clusters",    requiredTables: ["system.compute.clusters"],             requiresWarehouse: true },
+  { label: "Platform KPIs: Serving",     requiredTables: ["system.serving.served_entities"],      requiresWarehouse: true },
   { label: "SQL Warehousing 360",         requiredTables: ["system.billing.usage", "system.query.history"], requiresWarehouse: true },
   { label: "Interactive Compute",         requiredTables: ["system.billing.usage", "system.compute.clusters"], requiresWarehouse: true },
   { label: "Pipeline Objects",            requiredTables: ["system.billing.usage", "system.lakeflow.pipelines"], requiresWarehouse: true },
@@ -326,7 +326,7 @@ function FeaturePlaneReadiness({ result }: { result: ReadinessResult }) {
     allChecks.filter(c => c.table).map(c => [c.table!, c.granted])
   );
 
-  // Three distinct states — never conflate "problem confirmed" with "not checked yet":
+  // Three distinct states: never conflate "problem confirmed" with "not checked yet":
   //   ready      = all dependencies explicitly granted
   //   unavailable = at least one dependency explicitly denied (false in map)
   //   unverified  = table not present in readiness payload at all (no check ran)
@@ -394,7 +394,7 @@ function FeaturePlaneReadiness({ result }: { result: ReadinessResult }) {
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
                 </svg>
               ) : (
-                /* unverified — gray info dot, not a warning icon */
+                /* unverified: gray info dot, not a warning icon */
                 <svg className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
                 </svg>
@@ -402,7 +402,7 @@ function FeaturePlaneReadiness({ result }: { result: ReadinessResult }) {
               <div className="flex-1 min-w-0">
                 <span className="font-medium text-gray-800">{f.label}</span>
                 {f.state === "unavailable" && !f.warehouseOk && (
-                  <p className="text-red-500 mt-0.5">Blocked — warehouse access denied</p>
+                  <p className="text-red-500 mt-0.5">Blocked: warehouse access denied</p>
                 )}
                 {f.state === "unavailable" && f.warehouseOk && f.missingGrants.length > 0 && (
                   <p className="text-red-500 mt-0.5">
@@ -410,7 +410,7 @@ function FeaturePlaneReadiness({ result }: { result: ReadinessResult }) {
                   </p>
                 )}
                 {f.state === "unverified" && (
-                  <p className="text-gray-500 mt-0.5">Not yet verified — run a re-check to confirm</p>
+                  <p className="text-gray-500 mt-0.5">Not yet verified: run a re-check to confirm</p>
                 )}
               </div>
             </div>

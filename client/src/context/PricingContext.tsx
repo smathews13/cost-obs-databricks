@@ -1,5 +1,5 @@
 /**
- * PricingContext — provides the active pricing multiplier to all components.
+ * PricingContext: provides the active pricing multiplier to all components.
  *
  * When `use_account_prices` is enabled in Settings, the backend computes a
  * usage-weighted blended multiplier (account_price / list_price) from

@@ -43,7 +43,7 @@ interface PreviewResult {
 
 // Settings → Config: register additional materialized-view source locations
 // (typically Delta-shared in from another workspace) whose tables share the app's
-// MV structure. They are unioned into every MV read (additive — local data always
+// MV structure. They are unioned into every MV read (additive: local data always
 // included) and tagged with the source's label for later filtering. After a
 // catalog + schema is chosen, the views actually present in that schema are listed
 // and the user multiselects which ones to include.
@@ -107,7 +107,7 @@ export function MvSourcesSection() {
   }, [catalog, schema]);
 
   // Views actually present in the shared schema (match or column-mismatch); absent
-  // ones aren't shown. Only matching views can be selected — a column mismatch can't
+  // ones aren't shown. Only matching views can be selected: a column mismatch can't
   // be unioned into the app's structure.
   const presentTables = (preview?.tables ?? []).filter((t) => t.status !== "absent");
   const matchableCount = presentTables.filter((t) => t.status === "match").length;
@@ -138,7 +138,7 @@ export function MvSourcesSection() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
-      // Refresh the sources list AND every dashboard tab — the unified views just
+      // Refresh the sources list AND every dashboard tab: the unified views just
       // changed, so all visuals should refetch (the global progress bar reflects it).
       await queryClient.invalidateQueries();
       resetForm();
@@ -157,7 +157,7 @@ export function MvSourcesSection() {
       const res = await fetch(`/api/settings/mv-sources?label=${encodeURIComponent(lbl)}`, { method: "DELETE" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
-      // Refresh the sources list AND every dashboard tab — the unified views just
+      // Refresh the sources list AND every dashboard tab: the unified views just
       // changed, so all visuals should refetch (the global progress bar reflects it).
       await queryClient.invalidateQueries();
     } catch (e) {
@@ -249,7 +249,7 @@ export function MvSourcesSection() {
               ) : preview ? (
                 presentTables.length === 0 ? (
                   <span className="text-[11px] text-red-600">
-                    No summary views found at this location — check that the shared schema holds this app's views.
+                    No summary views found at this location: check that the shared schema holds this app's views.
                   </span>
                 ) : (
                   <>
@@ -292,7 +292,7 @@ export function MvSourcesSection() {
                             {isMatch ? (
                               <span className="shrink-0 rounded-full bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-700">matches</span>
                             ) : (
-                              <span className="shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500" title="Column structure differs from this app's view — cannot be unioned.">structure differs</span>
+                              <span className="shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500" title="Column structure differs from this app's view: cannot be unioned.">structure differs</span>
                             )}
                           </label>
                         );

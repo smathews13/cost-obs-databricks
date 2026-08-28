@@ -3,7 +3,7 @@ import { normalizeReadinessResult } from "../ReadinessChecks";
 import type { ReadinessResult } from "../ReadinessChecks";
 
 // ---------------------------------------------------------------------------
-// normalizeReadinessResult — pure function, no DOM needed
+// normalizeReadinessResult: pure function, no DOM needed
 // ---------------------------------------------------------------------------
 
 const validPayload = {
@@ -110,7 +110,7 @@ describe("normalizeReadinessResult", () => {
 // Mirrors SetupWizard.tsx: disabled={loading || readiness == null || (readiness.overall !== "ready" && readiness.overall !== "core_ready")}
 // This test is intentionally kept as a pure logic test (no DOM) so it remains
 // cheap and deterministic. If the disabled condition ever changes, this suite
-// catches it immediately — the component-level behavior follows from this invariant.
+// catches it immediately: the component-level behavior follows from this invariant.
 // ---------------------------------------------------------------------------
 
 function isNextDisabled(loading: boolean, readiness: ReadinessResult | null): boolean {

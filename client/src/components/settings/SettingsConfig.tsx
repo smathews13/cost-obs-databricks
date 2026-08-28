@@ -23,7 +23,7 @@ function ColWarn({ error }: { error: string }) {
   );
 }
 
-// Module-level — survives tab switches (component unmount/remount)
+// Module-level: survives tab switches (component unmount/remount)
 let _mvRefreshing = false;
 let _mvPrevRefreshTime: string | null = null;
 let _mvDeadline = 0;
@@ -40,7 +40,7 @@ const RETENTION: Record<string, string> = {
   dbsql_cost_per_query: "~13mo (query.history)",
 };
 
-// Managed-tables surface for the "Data & tables" settings section — DuBois styled.
+// Managed-tables surface for the "Data & tables" settings section: DuBois styled.
 // Catalog/schema location, workspace filter, and refresh schedule are rendered by the
 // parent DataTablesSection; this owns table status, rebuild, shared sources, and drop.
 export function SettingsConfig() {
@@ -132,7 +132,7 @@ export function SettingsConfig() {
     queryClient.setQueryData(["rebuild-in-progress"], true);
     try {
       await fetch(`/api/settings/refresh-mvs?lookback_days=${lookbackDays}`, { method: "POST" });
-    } catch { /* fire-and-forget — server runs refresh in background */ }
+    } catch { /* fire-and-forget: server runs refresh in background */ }
     if (_mvPollInterval) clearInterval(_mvPollInterval);
     setTimeout(() => _mvPollCallback?.(), 3_000);
     _mvPollInterval = setInterval(() => _mvPollCallback?.(), 30_000);
@@ -165,7 +165,7 @@ export function SettingsConfig() {
 
   const rs = tablesStatus?.refresh_status;
   // Safety invariant: when a required (non-optional) managed table is already missing,
-  // the system is degraded — the drop action is hard-blocked (no break-glass path) so a
+  // the system is degraded: the drop action is hard-blocked (no break-glass path) so a
   // broken deploy can't be dropped into a worse state. The CONFIRM gate is the second layer.
   const degradedTables = (tablesStatus?.tables ?? []).some((t) => t.exists === false && !t.optional);
   const th: React.CSSProperties = { padding: "6px 10px", fontSize: 11, fontWeight: 600, color: T.textSecondary, whiteSpace: "nowrap" };
@@ -206,7 +206,7 @@ export function SettingsConfig() {
         <div style={{ marginBottom: 12 }}><Callout tone="warning">{tablesStatus.auth_error}</Callout></div>
       )}
       {mvRefreshing && (
-        <div style={{ marginBottom: 12 }}><Callout tone="warning">Rebuilding materialized views in the background — this may take a few minutes. The table below updates automatically when complete.</Callout></div>
+        <div style={{ marginBottom: 12 }}><Callout tone="warning">Rebuilding materialized views in the background: this may take a few minutes. The table below updates automatically when complete.</Callout></div>
       )}
 
       {/* Table */}
@@ -233,8 +233,8 @@ export function SettingsConfig() {
                   const missing = t.exists === false && !t.optional;
                   const notConfigured = t.exists === false && t.optional;
                   const unknown = t.exists === null;
-                  const mark = missing ? { c: T.dangerFg, s: "✗" } : notConfigured ? { c: T.textFaint, s: "–" } : unknown ? { c: T.textFaint, s: "?" } : { c: T.successFg, s: "✓" };
-                  let fresh: React.ReactNode = <span style={{ color: T.textFaint }}>—</span>;
+                  const mark = missing ? { c: T.dangerFg, s: "✗" } : notConfigured ? { c: T.textFaint, s: "N/A" } : unknown ? { c: T.textFaint, s: "?" } : { c: T.successFg, s: "✓" };
+                  let fresh: React.ReactNode = <span style={{ color: T.textFaint }}>N/A</span>;
                   if (t.days_behind != null) {
                     if (t.days_behind === 0) fresh = <span style={{ color: T.successFg, fontWeight: 600 }}>Today</span>;
                     else if ((billingSource && t.days_behind <= 4) || (queryHistorySource && t.days_behind <= 2)) fresh = <span style={{ color: T.successFg, fontWeight: 600 }}>Up to date</span>;
@@ -248,11 +248,11 @@ export function SettingsConfig() {
                         <span style={{ color: mark.c, marginRight: 6 }}>{mark.s}</span>{t.name}{t.error && <ColWarn error={t.error} />}
                       </td>
                       <td style={td}>
-                        {t.table_type ? <span style={{ fontSize: 10, fontWeight: 500, color: T.textSecondary, backgroundColor: T.codeBg, borderRadius: 3, padding: "1px 6px" }}>{t.table_type}</span> : "—"}
+                        {t.table_type ? <span style={{ fontSize: 10, fontWeight: 500, color: T.textSecondary, backgroundColor: T.codeBg, borderRadius: 3, padding: "1px 6px" }}>{t.table_type}</span> : "N/A"}
                       </td>
-                      <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.textSecondary }}>{t.row_count != null ? t.row_count.toLocaleString() : "—"}</td>
-                      <td style={{ ...td, textAlign: "right", color: T.textSecondary, fontSize: 11 }}>{RETENTION[t.name] ?? "—"}</td>
-                      <td style={{ ...td, textAlign: "right", fontFamily: MONO, color: T.textSecondary }}>{t.max_date ? t.max_date.slice(0, 10) : "—"}</td>
+                      <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.textSecondary }}>{t.row_count != null ? t.row_count.toLocaleString() : "N/A"}</td>
+                      <td style={{ ...td, textAlign: "right", color: T.textSecondary, fontSize: 11 }}>{RETENTION[t.name] ?? "N/A"}</td>
+                      <td style={{ ...td, textAlign: "right", fontFamily: MONO, color: T.textSecondary }}>{t.max_date ? t.max_date.slice(0, 10) : "N/A"}</td>
                       <td style={{ ...td, textAlign: "right" }}>{fresh}</td>
                     </tr>
                   );
@@ -270,7 +270,7 @@ export function SettingsConfig() {
       {/* Rebuild history */}
       {tablesStatus && (() => {
         const history = rs?.refresh_history ?? [];
-        const fmtWindow = (d: number) => (!d ? "—" : d === 180 ? "6 months" : d === 365 ? "1 year" : d === 730 ? "2 years" : d === 1095 ? "3 years" : `${d} days`);
+        const fmtWindow = (d: number) => (!d ? "N/A" : d === 180 ? "6 months" : d === 365 ? "1 year" : d === 730 ? "2 years" : d === 1095 ? "3 years" : `${d} days`);
         const fmtDuration = (s: number) => (s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`);
         const fmtTs = (ts: string) => { try { return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }); } catch { return ts; } };
         const toneFor = (s: string) => s === "success" ? T.successFg : s === "partial_error" ? T.warningFg : s === "config" ? T.primary : s === "dropped" ? T.textFaint : T.dangerFg;
@@ -303,8 +303,8 @@ export function SettingsConfig() {
                           {/* Config/lineage events (e.g. adding a shared source) carry a note describing the change. */}
                           {e.note ? e.note : <span style={{ textTransform: "capitalize" }}>{e.trigger}</span>}
                         </td>
-                        <td style={{ ...td, textAlign: "right", color: T.textSecondary }}>{e.status === "config" ? "—" : fmtWindow(e.lookback_days ?? 0)}</td>
-                        <td style={{ ...td, textAlign: "right", color: T.textSecondary, fontVariantNumeric: "tabular-nums" }}>{e.status === "dropped" || e.status === "config" ? "—" : fmtDuration(e.duration_seconds)}</td>
+                        <td style={{ ...td, textAlign: "right", color: T.textSecondary }}>{e.status === "config" ? "N/A" : fmtWindow(e.lookback_days ?? 0)}</td>
+                        <td style={{ ...td, textAlign: "right", color: T.textSecondary, fontVariantNumeric: "tabular-nums" }}>{e.status === "dropped" || e.status === "config" ? "N/A" : fmtDuration(e.duration_seconds)}</td>
                         <td style={{ ...td, textAlign: "right", color: toneFor(e.status), fontWeight: 600, textTransform: "capitalize" }} title={e.error}>{resultLabel(e.status)}</td>
                       </tr>
                     ))}
@@ -324,7 +324,7 @@ export function SettingsConfig() {
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.dangerFg }}>Drop all managed tables</div>
                 <div style={{ fontSize: 12, color: T.dangerFg, marginTop: 2, opacity: 0.85 }}>
-                  Permanently deletes the app-managed tables from your catalog. The dashboard stops loading until you rebuild. No source data is lost — <code style={{ fontFamily: MONO }}>system.*</code> is the source of truth.
+                  Permanently deletes the app-managed tables from your catalog. The dashboard stops loading until you rebuild. No source data is lost: <code style={{ fontFamily: MONO }}>system.*</code> is the source of truth.
                 </div>
               </div>
               {!wipePending
@@ -333,7 +333,7 @@ export function SettingsConfig() {
             </div>
             {degradedTables && (
               <div style={{ marginTop: 10, fontSize: 12, color: T.warningFg }}>
-                A required table is already missing — drop is disabled until the tables are rebuilt.
+                A required table is already missing: drop is disabled until the tables are rebuilt.
               </div>
             )}
             {wipePending && (

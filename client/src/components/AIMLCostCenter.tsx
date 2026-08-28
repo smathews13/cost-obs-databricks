@@ -41,8 +41,8 @@ import type { PieLabelRenderProps, LegendPayload } from "recharts";
 import type { AIMLDashboardBundle } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
-import { C } from "@/theme";
-import { PageHero, Chip } from "@/components/brand";
+import { C, seriesColor } from "@/theme";
+import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
 interface AIMLCostCenterProps {
   data: AIMLDashboardBundle | undefined;
@@ -68,7 +68,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   "AI Search": C.s5,
   "Fine Tuning": C.s1,
 };
-const FALLBACK_COLORS = [C.s2, C.s5, C.s3, C.s3, C.s4, C.s5, C.s1, C.lava, C.slate];
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -300,7 +299,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
       if (CATEGORY_COLORS[name]) {
         map[name] = CATEGORY_COLORS[name];
       } else {
-        map[name] = FALLBACK_COLORS[fallbackIdx % FALLBACK_COLORS.length];
+        map[name] = seriesColor(fallbackIdx);
         fallbackIdx++;
       }
     }
@@ -315,7 +314,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
         name,
         value: cat.total_spend,
         percentage: cat.percentage ?? 0,
-        fill: categoryColorMap[name] || FALLBACK_COLORS[0],
+        fill: categoryColorMap[name] || C.s1,
       };
     });
   }, [data, categoryColorMap]);
@@ -410,7 +409,21 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
 
   return (
     <div className="animate-fade-in space-y-6">
-      {/* Header */}
+      <InfoPanel
+        title="AI/ML Cost Categories"
+        minimized={infoMinimized}
+        onToggle={handleMinimizeToggle}
+      >
+        <ul className="list-inside list-disc space-y-1">
+          <li><strong>Foundation Models</strong>: Token based usage via Databricks Model Serving (Anthropic, OpenAI, Gemini, Llama)</li>
+          <li><strong>Serverless Inference</strong>: Custom model and agent endpoints on Databricks managed infrastructure</li>
+          <li><strong>Batch Inference</strong>: Batch inference jobs for large scale offline predictions</li>
+          <li><strong>Fine Tuning</strong>: Model tuning runs using Databricks Mosaic AI</li>
+          <li><strong>AI Search</strong>: Databricks AI Search index compute costs</li>
+          <li><strong>Model Serving</strong>: Other model serving workloads not captured above</li>
+        </ul>
+      </InfoPanel>
+
       <PageHero
         icon={
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -430,52 +443,8 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
         }
       />
 
-      {/* Info Banner */}
-      <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
-        <div className="flex">
-          <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-orange-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3 flex-1">
-            <button className="flex w-full items-center justify-between" onClick={() => handleMinimizeToggle(!infoMinimized)}>
-              <h3 className="text-sm font-medium text-orange-800">AI/ML Cost Categories</h3>
-              <svg className={`h-4 w-4 text-orange-500 transition-transform ${infoMinimized ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {!infoMinimized && (
-              <>
-                <div className="mt-2 text-sm text-orange-700">
-                  <ul className="list-inside list-disc space-y-1">
-                    <li><strong>Foundation Models</strong>: Pay-per-token usage via Databricks Model Serving (Anthropic, OpenAI, Gemini, Llama)</li>
-                    <li><strong>Serverless Inference</strong>: Custom model/agent endpoints on Databricks managed infrastructure</li>
-                    <li><strong>Batch Inference</strong>: Batch inference jobs for large-scale offline predictions</li>
-                    <li><strong>Fine-Tuning</strong>: Model fine-tuning runs using Databricks Mosaic AI</li>
-                    <li><strong>AI Search</strong>: Databricks AI Search index compute costs</li>
-                    <li><strong>Model Serving</strong>: Other model serving workloads not captured above</li>
-                  </ul>
-                </div>
-                <div className="mt-3 flex justify-start">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={infoMinimized}
-                      onChange={(e) => handleMinimizeToggle(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
-                    />
-                    <span className="text-xs text-orange-600">Minimize from now on</span>
-                  </label>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div
           className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
           style={{ borderColor: C.hairline }}
@@ -593,8 +562,8 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                     type="monotone"
                     dataKey={category}
                     stackId="1"
-                    stroke={categoryColorMap[category] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length]}
-                    fill={categoryColorMap[category] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length]}
+                    stroke={categoryColorMap[category] || seriesColor(idx)}
+                    fill={categoryColorMap[category] || seriesColor(idx)}
                     fillOpacity={0.6}
                   />
                 ))}
@@ -807,7 +776,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                 {endpointsData.length > PAGE_SIZE && (
                   <div className="mt-3 flex items-center justify-between border-t border-gray-200 pt-3">
                     <p className="text-xs text-gray-500">
-                      {(endpointsPage - 1) * PAGE_SIZE + 1}–{Math.min(endpointsPage * PAGE_SIZE, endpointsData.length)} of {endpointsData.length}
+                      {(endpointsPage - 1) * PAGE_SIZE + 1} to {Math.min(endpointsPage * PAGE_SIZE, endpointsData.length)} of {endpointsData.length}
                     </p>
                     <div className="flex gap-1">
                       <button onClick={() => setEndpointsPage(p => Math.max(1, p - 1))} disabled={endpointsPage === 1} className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">Prev</button>
@@ -936,7 +905,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                     {filteredModels.length > PAGE_SIZE && (
                       <div className="mt-3 flex items-center justify-between border-t border-gray-200 pt-3">
                         <p className="text-xs text-gray-500">
-                          {(modelsPage - 1) * PAGE_SIZE + 1}–{Math.min(modelsPage * PAGE_SIZE, filteredModels.length)} of {filteredModels.length}
+                          {(modelsPage - 1) * PAGE_SIZE + 1} to {Math.min(modelsPage * PAGE_SIZE, filteredModels.length)} of {filteredModels.length}
                         </p>
                         <div className="flex gap-1">
                           <button onClick={() => setModelsPage(p => Math.max(1, p - 1))} disabled={modelsPage === 1} className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">Prev</button>
@@ -990,7 +959,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                       Show historical ({historicalMlCount})
                       <span className="relative group ml-0.5">
                         <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Clusters whose names could not be resolved — likely terminated or from inaccessible workspaces</span>
+                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Clusters whose names could not be resolved: likely terminated or from inaccessible workspaces</span>
                       </span>
                     </label>
                   )}
@@ -1092,7 +1061,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                                 <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 max-w-40 truncate" title={cluster.owner}>
                                   {formatIdentity(cluster.owner, spNameMap)}
                                 </span>
-                              ) : <span className="text-sm text-gray-500">—</span>}
+                              ) : <span className="text-sm text-gray-500">N/A</span>}
                             </td>
                             <td className="whitespace-nowrap px-4 py-4 text-right text-sm text-gray-500">{formatNumber(cluster.total_dbus)}</td>
                             <td className="whitespace-nowrap px-4 py-4 text-right text-sm text-gray-900">{formatCurrency(cluster.total_spend)}</td>
@@ -1158,7 +1127,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                       Show historical ({historicalAgentCount})
                       <span className="relative group ml-0.5">
                         <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Agents whose names could not be resolved — likely deleted or renamed</span>
+                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Agents whose names could not be resolved: likely deleted or renamed</span>
                       </span>
                     </label>
                   )}
@@ -1292,7 +1261,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                                 {agent.days_active}
                               </td>
                               <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-500">
-                                {agent.last_seen || "—"}
+                                {agent.last_seen || "N/A"}
                               </td>
                             </tr>
                             {isSelected && (
@@ -1309,7 +1278,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                                     </div>
                                     <div className="rounded-lg bg-white p-3 border border-orange-200">
                                       <p className="text-xs text-gray-500">First Seen</p>
-                                      <p className="text-lg font-semibold text-gray-900">{agent.first_seen || "—"}</p>
+                                      <p className="text-lg font-semibold text-gray-900">{agent.first_seen || "N/A"}</p>
                                     </div>
                                     <div className="rounded-lg bg-white p-3 border border-orange-200">
                                       <p className="text-xs text-gray-500">Workspaces</p>

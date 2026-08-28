@@ -17,8 +17,8 @@ import { useAppsDashboardBundle } from "@/hooks/useBillingData";
 import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
 import { formatIdentity } from "@/utils/identity";
-import { C } from "@/theme";
-import { PageHero, Chip } from "@/components/brand";
+import { C, seriesColor } from "@/theme";
+import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
 interface AppsCostCenterProps {
   data: AppsDashboardBundle | undefined;
@@ -31,8 +31,6 @@ interface AppsCostCenterProps {
   workspaceIds?: string[];
   workspaceNameMap?: Record<string, string>;
 }
-
-const APP_COLORS = [C.s2, C.s5, C.s3, C.s3, C.s4, C.s5, C.s1, C.lava, C.slate, C.s5];
 
 const PIE_COLORS = {
   active: C.s3,   // green
@@ -91,7 +89,7 @@ function AppHostingComparison({
   // Annualize this single app's spend from the selected range
   const annualDatabricksSpend = daysInRange > 0 ? (appSpend / daysInRange) * 365 : appSpend * 12;
 
-  // DIY cost estimates for 1 app (Year 1 — includes one-time costs)
+  // DIY cost estimates for 1 app (Year 1: includes one-time costs)
   const diyLow = DIY_INFRA_COSTS.reduce((sum, c) => sum + c.lowPerApp, 0);
   const diyHigh = DIY_INFRA_COSTS.reduce((sum, c) => sum + c.highPerApp, 0);
   const diyMid = (diyLow + diyHigh) / 2;
@@ -158,7 +156,7 @@ function AppHostingComparison({
         <div>
           <div className="mb-1 flex items-center justify-between text-sm">
             <span className="font-medium text-gray-700">Self-Hosted DIY (Estimated)</span>
-            <span className="font-semibold text-gray-900">{formatCurrency(diyLow)} – {formatCurrency(diyHigh)}<span className="text-xs font-normal text-gray-500">/yr</span></span>
+            <span className="font-semibold text-gray-900">{formatCurrency(diyLow)} to {formatCurrency(diyHigh)}<span className="text-xs font-normal text-gray-500">/yr</span></span>
           </div>
           <div className="relative h-8 w-full rounded-md bg-gray-100 overflow-hidden">
             {/* Low end */}
@@ -186,7 +184,7 @@ function AppHostingComparison({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <p className="text-sm font-medium text-green-800">
-              Estimated savings: {formatCurrency(savingsLow)} – {formatCurrency(savingsHigh)}/yr ({savingsPercent.toFixed(0)}% lower TCO with Databricks Apps)
+              Estimated savings: {formatCurrency(savingsLow)} to {formatCurrency(savingsHigh)}/yr ({savingsPercent.toFixed(0)}% lower TCO with Databricks Apps)
             </p>
           </div>
         </div>
@@ -227,7 +225,7 @@ function AppHostingComparison({
                       )}
                     </td>
                     <td className="px-4 py-2 text-right font-medium text-gray-900">
-                      {formatCurrency(cost.lowPerApp)}{cost.lowPerApp !== cost.highPerApp ? ` – ${formatCurrency(cost.highPerApp)}` : ""}
+                      {formatCurrency(cost.lowPerApp)}{cost.lowPerApp !== cost.highPerApp ? ` to ${formatCurrency(cost.highPerApp)}` : ""}
                     </td>
                     <td className="px-4 py-2 text-xs text-gray-500">{cost.description}</td>
                   </tr>
@@ -236,7 +234,7 @@ function AppHostingComparison({
                 <tr className="bg-gray-50 font-semibold">
                   <td className="px-4 py-2 text-gray-900">DIY Total (Year 1)</td>
                   <td className="px-4 py-2 text-right text-gray-900">
-                    {formatCurrency(diyLow)} – {formatCurrency(diyHigh)}
+                    {formatCurrency(diyLow)} to {formatCurrency(diyHigh)}
                   </td>
                   <td className="px-4 py-2 text-xs text-gray-500">Includes one-time + recurring</td>
                 </tr>
@@ -246,7 +244,7 @@ function AppHostingComparison({
                   <td className="px-4 py-2 text-right font-semibold" style={{ color: C.lava }}>
                     {formatCurrency(annualDatabricksSpend)}
                   </td>
-                  <td className="px-4 py-2 text-xs text-gray-500">Compute, infra, security, data access — all included</td>
+                  <td className="px-4 py-2 text-xs text-gray-500">Compute, infra, security, data access: all included</td>
                 </tr>
               </tbody>
             </table>
@@ -458,7 +456,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
       if (cat !== "Other") allNames.add(cat);
     }
     for (const name of allNames) {
-      map[name] = APP_COLORS[idx % APP_COLORS.length];
+      map[name] = seriesColor(idx);
       idx++;
     }
     map["Other"] = C.muted;
@@ -484,7 +482,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
       .map(ws => {
         const name = resolveWsName(ws.id);
         // No real name resolved (fell back to "Workspace <id>") => the workspace
-        // no longer exists in the account — mark it historical.
+        // no longer exists in the account: mark it historical.
         return { id: ws.id, name, historical: name === `Workspace ${ws.id}` };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -634,7 +632,20 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
 
   return (
     <div className="animate-fade-in space-y-6">
-      {/* Header */}
+      <InfoPanel
+        title="About Databricks Apps Costs"
+        minimized={infoMinimized}
+        onToggle={handleMinimizeToggle}
+      >
+        <ul className="list-inside list-disc space-y-1">
+          <li><strong>Databricks Apps</strong>: Custom web applications deployed and hosted on Databricks</li>
+          <li><strong>Active apps</strong>: Apps with compute usage in the last 7 days of the selected range</li>
+          <li><strong>Inactive apps</strong>: Deployed but no recent compute usage (may still be running at idle)</li>
+          <li><strong>Historical apps</strong>: Billing entries with no matching deployed app (deleted or from other workspaces)</li>
+          <li>Costs tracked per app from <code className="rounded bg-white/60 px-1">system.billing.usage</code></li>
+        </ul>
+      </InfoPanel>
+
       <PageHero
         icon={
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -654,51 +665,8 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
         }
       />
 
-      {/* Info Banner */}
-      <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
-        <div className="flex">
-          <div className="shrink-0">
-            <svg className="h-5 w-5 text-orange-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3 flex-1">
-            <button className="flex w-full items-center justify-between" onClick={() => handleMinimizeToggle(!infoMinimized)}>
-              <h3 className="text-sm font-medium text-orange-800">About Databricks Apps Costs</h3>
-              <svg className={`h-4 w-4 text-orange-500 transition-transform ${infoMinimized ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {!infoMinimized && (
-              <>
-                <div className="mt-2 text-sm text-orange-700">
-                  <ul className="list-inside list-disc space-y-1">
-                    <li><strong>Databricks Apps</strong>: Custom web applications deployed and hosted on Databricks</li>
-                    <li><strong>Active apps</strong>: Apps with compute usage in the last 7 days of the selected range</li>
-                    <li><strong>Inactive apps</strong>: Deployed but no recent compute usage (may still be running at idle)</li>
-                    <li><strong>Historical apps</strong>: Billing entries with no matching deployed app (deleted or from other workspaces)</li>
-                    <li>Costs tracked per-app from <code className="bg-orange-100 px-1 rounded">system.billing.usage</code></li>
-                  </ul>
-                </div>
-                <div className="mt-3 flex justify-start">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={infoMinimized}
-                      onChange={(e) => handleMinimizeToggle(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
-                    />
-                    <span className="text-xs text-orange-600">Minimize from now on</span>
-                  </label>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* Summary Cards with click-to-trend */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div
           className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
           style={{ borderColor: C.hairline }}
@@ -751,7 +719,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500 flex items-center gap-1">Active Apps<InfoTooltip text="An app is counted as active on any day it generates compute usage. This shows the daily average — how many apps run on a typical day in the selected period. Apps that are deployed but idle (no compute) are not counted." /></p>
+              <p className="text-sm font-medium text-gray-500 flex items-center gap-1">Active Apps<InfoTooltip text="An app is counted as active on any day it generates compute usage. This shows the daily average: how many apps run on a typical day in the selected period. Apps that are deployed but idle (no compute) are not counted." /></p>
               <p className="text-2xl font-semibold text-gray-900">{formatNumber(summary.avg_daily_apps ?? summary.app_count)}</p>
               <p className="mt-1 text-xs text-gray-500">avg. over {summary.workspace_count} workspaces</p>
               {startDate && endDate && <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
@@ -792,14 +760,14 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
         />
       )}
 
-      {/* App Status Breakdown + Spend Over Time — side by side */}
+      {/* App Status Breakdown + Spend Over Time: side by side */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* App Status Breakdown — Pie Chart */}
+        {/* App Status Breakdown: Pie Chart */}
         {pieData.length > 0 && (
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
             <h3 className="mb-4 flex items-center text-lg font-semibold text-gray-900">
               App Status Breakdown
-              <InfoTooltip text="Active = apps with compute usage in the last 7 days of the selected range (cumulative count). The Active Apps KPI card above shows the daily average — fewer apps run every single day than appear active over any 7-day window, so the two numbers will differ." />
+              <InfoTooltip text="Active = apps with compute usage in the last 7 days of the selected range (cumulative count). The Active Apps KPI card above shows the daily average: fewer apps run every single day than appear active over any 7-day window, so the two numbers will differ." />
             </h3>
             <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">
               <ResponsiveContainer width="100%" height={250} className="max-w-xs">
@@ -842,7 +810,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                   <div className="h-3 w-3 rounded-full" style={{ backgroundColor: PIE_COLORS.historical }} />
                   <div>
                     <Chip kind="workspace">{formatNumber(unregisteredSummary.count)} Historical</Chip>
-                    <p className="text-xs text-gray-500">Deleted or unregistered — exist in billing system tables only</p>
+                    <p className="text-xs text-gray-500">Deleted or unregistered: exist in billing system tables only</p>
                   </div>
                 </div>
               </div>
@@ -850,7 +818,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
           </div>
         )}
 
-        {/* Spend Over Time — daily */}
+        {/* Spend Over Time: daily */}
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Apps Spend Over Time</h3>
           {dailyTimeseries.length > 0 ? (
@@ -895,7 +863,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
         </div>
       </div>
 
-      {/* App Grid — each app is a clickable tile */}
+      {/* App Grid: each app is a clickable tile */}
       <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="shrink-0 text-lg font-semibold text-gray-900">
@@ -965,7 +933,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                                 </div>
                                 <span className="truncate text-xs text-gray-700">{ws.name}</span>
                                 {ws.historical && (
-                                  <span className="ml-auto shrink-0 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700" title="This workspace no longer exists in the account — data is historical.">
+                                  <span className="ml-auto shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[9px] font-medium text-gray-600" title="This workspace no longer exists in the account. Its data is historical.">
                                     historical
                                   </span>
                                 )}
@@ -1012,7 +980,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
             )}
           </div>
         </div>
-        {/* Workspace filter pills — only shown for partial selections (all-selected is the default).
+        {/* Workspace filter pills: only shown for partial selections (all-selected is the default).
             Hard cap and scroll to prevent unbounded pill sprawl with 50+ workspaces. */}
         {selectedWorkspaces.length > 0 && selectedWorkspaces.length < availableWorkspaces.length && (
           selectedWorkspaces.length > 12 ? (
@@ -1047,14 +1015,14 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
           )
         )}
 
-        {/* Detail panel — shown when an app is selected */}
+        {/* Detail panel: shown when an app is selected */}
         {selectedApp && (
           <div className="mb-6 animate-fade-in rounded-lg border border-gray-200 bg-gray-50 p-5">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
                 <div
                   className="flex h-12 w-12 items-center justify-center rounded-lg text-white text-sm font-bold"
-                  style={{ backgroundColor: appColorMap[selectedApp.app_name] || APP_COLORS[0] }}
+                  style={{ backgroundColor: appColorMap[selectedApp.app_name] || C.s1 }}
                 >
                   <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -1117,7 +1085,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                 <p className="text-lg font-semibold text-gray-900">
                   {selectedApp.last_usage_date
                     ? new Date(selectedApp.last_usage_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                    : "—"}
+                    : "N/A"}
                 </p>
               </div>
             </div>
@@ -1149,7 +1117,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
               </div>
             )}
 
-            {/* Per-app hosting cost comparison — experimental */}
+            {/* Per-app hosting cost comparison: experimental */}
             {enableHostingComparison && (
               <div className="mt-4 space-y-3">
                 <div className="flex items-start gap-3 rounded-lg border border-orange-300 bg-orange-50 px-4 py-3">
@@ -1175,7 +1143,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
               <span>{selectedApp.percentage.toFixed(1)}% of total spend</span>
               <span>Workspace count: {selectedApp.workspace_count}</span>
               {!selectedApp.is_registered && (
-                <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-yellow-700">Not in Apps registry — may be deleted</span>
+                <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-yellow-700">Not in Apps registry: may be deleted</span>
               )}
             </div>
           </div>
@@ -1186,7 +1154,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
           <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
             {paginatedApps.map((app, idx) => {
               const isSelected = selectedApp?.app_id === app.app_id;
-              const color = appColorMap[app.app_name] || APP_COLORS[idx % APP_COLORS.length];
+              const color = appColorMap[app.app_name] || seriesColor(idx);
               const isResolved = app.app_name !== app.app_id;
 
               // Scale icon size linearly based on spend (min 32px, max 56px)
@@ -1207,7 +1175,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                   }`}
                   title={`${app.app_name}${isResolved ? ` (${app.app_id})` : ""}\n${formatCurrency(app.total_spend)} · ${app.days_active}d active`}
                 >
-                  {/* App icon — letter avatar */}
+                  {/* App icon: letter avatar */}
                   <div
                     className="flex items-center justify-center rounded-md text-white transition-transform group-hover:scale-110"
                     style={{ backgroundColor: color, width: iconSize, height: iconSize }}
@@ -1233,7 +1201,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
             No apps matching "{searchQuery}"
           </div>
         ) : (
-          // Not user-filter driven — likely still-warming warehouse or a
+          // Not user-filter driven: likely still-warming warehouse or a
           // response we short-cached at 60s. Show the spinner instead of a
           // definitive "No apps found" so the UI doesn't imply confirmed
           // empty when we haven't finished loading.
@@ -1518,7 +1486,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
             {totalArtifactPages > 1 && (
               <div className="mt-4 flex items-center justify-between border-t border-gray-200 pt-4">
                 <p className="text-sm text-gray-500">
-                  Showing {(safePage - 1) * artifactsPerPage + 1}–{Math.min(safePage * artifactsPerPage, filteredArtifacts.length)} of {filteredArtifacts.length}
+                  Showing {(safePage - 1) * artifactsPerPage + 1} to {Math.min(safePage * artifactsPerPage, filteredArtifacts.length)} of {filteredArtifacts.length}
                 </p>
                 <div className="flex gap-2">
                   <button

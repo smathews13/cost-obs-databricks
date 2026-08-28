@@ -24,7 +24,7 @@ import type { UsersGroupsBundle } from "@/hooks/useBillingData";
 import type { ExportSections } from "@/components/ExportDialog";
 import { formatCurrency, formatNumber } from "./formatters";
 
-// Optimize tab exports — pulled from /api/sql/warehouse-health and
+// Optimize tab exports: pulled from /api/sql/warehouse-health and
 // /api/sql/warehouse-health/idle-time; kept structural so the two views
 // can evolve independently without churning the PDF payload.
 export interface OptimizeExport {
@@ -57,9 +57,9 @@ export interface OptimizeExport {
   };
 }
 
-// Databricks navy — unified header color for all PDF tables
+// Databricks navy: unified header color for all PDF tables
 const DB_HEADER: [number, number, number] = [27, 49, 57];
-// Databricks brand orange — section titles and accent elements
+// Databricks brand orange: section titles and accent elements
 const DB_ORANGE: [number, number, number] = [255, 54, 33];
 // Subtle warm alternating row tint for striped tables
 const DB_ALT_ROW: [number, number, number] = [248, 249, 250];
@@ -251,7 +251,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     // ignore
   }
 
-  // Brand header bar — Databricks orange across top of page 1
+  // Brand header bar: Databricks orange across top of page 1
   doc.setFillColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
   doc.rect(0, 0, pageWidth, 18, "F");
 
@@ -259,7 +259,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
   doc.setFontSize(18);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(255, 255, 255);
-  const title = companyName ? `${companyName} — cost-obs Report` : "cost-obs Report";
+  const title = companyName ? `${companyName}: cost-obs Report` : "cost-obs Report";
   doc.text(title, pageWidth / 2, 12, { align: "center" });
   doc.setTextColor(0, 0, 0);
   yPos = 28;
@@ -274,7 +274,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
   );
   yPos += 5;
   doc.text(
-    `Date range: ${data.dateRange?.start || "—"} to ${data.dateRange?.end || "—"}`,
+    `Date range: ${data.dateRange?.start || "N/A"} to ${data.dateRange?.end || "N/A"}`,
     pageWidth / 2,
     yPos,
     { align: "center" }
@@ -804,8 +804,8 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
       const clusterRows = data.aiml.ml_clusters.clusters.slice(0, 10).map((c) => [
         c.cluster_name.length > 28 ? c.cluster_name.substring(0, 25) + "..." : c.cluster_name,
-        c.runtime_version || "—",
-        (c.owner || "—").length > 20 ? (c.owner || "—").substring(0, 17) + "..." : c.owner || "—",
+        c.runtime_version || "N/A",
+        (c.owner || "N/A").length > 20 ? (c.owner || "N/A").substring(0, 17) + "..." : c.owner || "N/A",
         formatCurrency(c.total_spend),
         c.days_active.toString(),
       ]);
@@ -839,7 +839,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       yPos += 6;
 
       const agentRows = data.aiml.agent_bricks.agents.slice(0, 10).map((a) => [
-        (a.agent_name || "—").length > 28 ? (a.agent_name || "—").substring(0, 25) + "..." : a.agent_name || "—",
+        (a.agent_name || "N/A").length > 28 ? (a.agent_name || "N/A").substring(0, 25) + "..." : a.agent_name || "N/A",
         a.agent_type || "Agent",
         formatCurrency(a.total_spend),
         formatCurrency(a.avg_daily_spend),
@@ -957,7 +957,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     yPos += 5;
     // Cost Per-Tag + Total Tags KPIs (populated by the MV fast path on daily_tag_summary).
     if (typeof data.tagging.avg_cost_per_tag === "number" && data.tagging.avg_cost_per_tag != null) {
-      doc.text(`Avg Cost Per Tag: ${formatCurrency(data.tagging.avg_cost_per_tag)} (over ${taggingSummary.total_spend ? "date range" : "—"})`, 14, yPos);
+      doc.text(`Avg Cost Per Tag: ${formatCurrency(data.tagging.avg_cost_per_tag)} (over ${taggingSummary.total_spend ? "date range" : "N/A"})`, 14, yPos);
       yPos += 5;
     }
     if (typeof data.tagging.total_tag_count === "number" && data.tagging.total_tag_count != null) {
@@ -1165,7 +1165,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     yPos = getLastTableY(doc) + 12;
   }
 
-  // Spend Anomalies — moved here from the DBU section because SpendAnomalies
+  // Spend Anomalies: moved here from the DBU section because SpendAnomalies
   // actually renders inside PlatformKPIsView in the app; the PDF should mirror
   // the tab it lives under.
   if (includeSections.anomalies && data.anomalies && data.anomalies.anomalies.length > 0) {
@@ -1202,7 +1202,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
     yPos = getLastTableY(doc) + 12;
 
-    // Calendar heatmap of daily changes — mirrors the SpendAnomalies calendar view.
+    // Calendar heatmap of daily changes: mirrors the SpendAnomalies calendar view.
     if (yPos > 200) { doc.addPage(); yPos = 20; }
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
@@ -1484,7 +1484,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     }
   }
 
-  // Optimize — Warehouse Rightsizing + Idle Time summary tables (new tab, no PDF section before).
+  // Optimize: Warehouse Rightsizing + Idle Time summary tables (new tab, no PDF section before).
   if (includeSections.optimize && data.optimize) {
     const hasRightsizing = (data.optimize.rightsizing?.recommendations?.length ?? 0) > 0;
     const hasIdle = (data.optimize.idle?.warehouses?.length ?? 0) > 0;
@@ -1522,7 +1522,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
 
         const rows = data.optimize.rightsizing.recommendations.slice(0, 10).map((r) => [
           r.warehouse_name || r.warehouse_id,
-          r.warehouse_size || "—",
+          r.warehouse_size || "N/A",
           r.recommendation_type,
           r.recommendation_text.length > 80
             ? r.recommendation_text.substring(0, 77) + "..."
@@ -1575,8 +1575,8 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
           .slice(0, 10)
           .map((w) => [
             w.warehouse_name || w.warehouse_id,
-            w.warehouse_size || "—",
-            w.warehouse_type || "—",
+            w.warehouse_size || "N/A",
+            w.warehouse_type || "N/A",
             `${(w.idle_minutes / 60).toFixed(1)} h`,
             `${w.idle_pct.toFixed(1)}%`,
             formatCurrency(w.estimated_idle_spend),

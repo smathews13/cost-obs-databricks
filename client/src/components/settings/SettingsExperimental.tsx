@@ -45,7 +45,7 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
         </p>
 
         <div className="space-y-3">
-          {/* App Hosting Cost Comparison — hidden from customers, preserved for future use
+          {/* App Hosting Cost Comparison: hidden from customers, preserved for future use
           <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 cursor-pointer hover:border-gray-300 transition-colors">
             <input type="checkbox" checked={localSettings.enableAppHostingComparison} onChange={(e) => updateSetting("enableAppHostingComparison", e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
             <div>
@@ -55,12 +55,12 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
           </label>
           */}
 
-          {/* Cost Accuracy Checks — hidden from customers, preserved for future use
+          {/* Cost Accuracy Checks: hidden from customers, preserved for future use
           <label className="flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 cursor-pointer hover:border-gray-300 transition-colors">
             <input type="checkbox" checked={localSettings.enableAccuracyChecks} onChange={(e) => updateSetting("enableAccuracyChecks", e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
             <div>
               <div className="text-sm font-medium text-gray-900">Cost Accuracy Checks</div>
-              <div className="mt-0.5 text-xs text-gray-500">Add an Accuracy Checks tab to Settings for running cross-validation queries that verify cost reporting is correct — detecting double-counting, missing attribution, and price lookup gaps.</div>
+              <div className="mt-0.5 text-xs text-gray-500">Add an Accuracy Checks tab to Settings for running cross-validation queries that verify cost reporting is correct: detecting double-counting, missing attribution, and price lookup gaps.</div>
             </div>
           </label>
           */}
@@ -92,7 +92,7 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
                   {useAccountPrices && pricingAvailable && discountPercent > 0
                     ? <span className="font-medium text-green-600">{discountPercent.toFixed(1)}% discount active.</span>
                     : useAccountPrices && !pricingAvailable && !pricingLoading
-                    ? <span className="text-amber-600">Table not yet available (private preview) — showing list prices.</span>
+                    ? <span className="text-amber-600">Table not yet available (private preview): showing list prices.</span>
                     : <>Prices sourced from <code className="rounded bg-gray-100 px-0.5">system.billing.account_prices</code> (negotiated account rates, private preview) or <code className="rounded bg-gray-100 px-0.5">system.billing.list_prices</code> as fallback. Used to compute effective spend vs. list-price spend.</>
                   }
                 </p>
@@ -244,7 +244,7 @@ export function SettingsExperimental({ localSettings, updateSetting, saveStatus 
             </div>
           </div>
 
-          {/* Unity AI Gateway — coming soon */}
+          {/* Unity AI Gateway: coming soon */}
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-3 opacity-50 cursor-not-allowed select-none">
             <div className="flex items-center gap-2">
               <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">

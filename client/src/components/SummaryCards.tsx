@@ -49,7 +49,7 @@ interface CardProps {
 
 function isMutedValue(value: string) {
   const n = value.replace(/[$,]/g, "").trim();
-  return n === "0" || n === "0.00" || n === "—" || n === "N/A" || n === "n/a";
+  return n === "0" || n === "0.00" || n === "N/A" || n === "N/A" || n === "n/a";
 }
 
 function Card({ title, value, subtitle, infoTooltip, icon, isLoading, onClick }: CardProps) {

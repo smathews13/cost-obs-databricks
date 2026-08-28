@@ -12,7 +12,7 @@ import {
 import type { SKUBreakdownResponse, WorkspaceBreakdown } from "@/types/billing";
 import { formatCurrency } from "@/utils/formatters";
 import { VirtualizedList } from "./VirtualizedList";
-import { C } from "@/theme";
+import { C, seriesColor } from "@/theme";
 
 interface SKUBreakdownProps {
   data: SKUBreakdownResponse | undefined;
@@ -47,7 +47,7 @@ const WsRow = memo(function WsRow({ wsId, wsName, selected, onToggle, historical
       </div>
       <span className="truncate text-gray-700">{wsName}</span>
       {historical && (
-        <span className="ml-auto shrink-0 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700" title="This workspace no longer exists in the account — data is historical.">
+        <span className="ml-auto shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[9px] font-medium text-gray-600" title="This workspace no longer exists in the account. Its data is historical.">
           historical
         </span>
       )}
@@ -82,7 +82,7 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
 
   // Clear sets the filter to []; length === 1 routes through the scoped endpoint,
   // otherwise (empty or partial multi-select) we show the account-wide view. So
-  // an empty selection is functionally "all" — don't flag it as an active filter.
+  // an empty selection is functionally "all": don't flag it as an active filter.
   const isWorkspaceFilterActive = workspaceFilters.length > 0 && workspaceFilters.length < allWorkspaceIds.length;
 
   // Sync workspaceFilters → selectedWorkspace for the existing fetch logic.
@@ -266,7 +266,7 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
             </p>
           )}
           {workspaceFilters.length > 1 && isWorkspaceFilterActive && (
-            <p className="text-xs text-amber-600 mt-1">Showing aggregate view — select one workspace to filter by workspace</p>
+            <p className="text-xs text-amber-600 mt-1">Showing aggregate view: select one workspace to filter by workspace</p>
           )}
         </div>
         {workspaceSelector}
@@ -290,7 +290,7 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
           />
           <Bar dataKey="total_spend" name="Spend" radius={[0, 4, 4, 0]} isAnimationActive={false}>
             {barData.map((_entry, idx) => (
-              <Cell key={idx} fill={idx === 0 ? C.s1 : C.s2} />
+              <Cell key={idx} fill={seriesColor(idx)} />
             ))}
             <LabelList dataKey="total_spend" position="right" formatter={fmtCurrency} style={LABEL_STYLE} />
           </Bar>

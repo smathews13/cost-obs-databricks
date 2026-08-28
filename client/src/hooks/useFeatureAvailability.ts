@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { normalizeReadinessResult } from "@/components/settings/ReadinessChecks";
 import type { ReadinessCheck } from "@/components/settings/ReadinessChecks";
 
-/** Shared query key — import this whenever you need to invalidate readiness. */
+/** Shared query key: import this whenever you need to invalidate readiness. */
 export const READINESS_QUERY_KEY = ["setup-readiness"] as const;
 
 export interface FeatureAvailability {
@@ -23,7 +23,7 @@ export interface FeatureAvailability {
  * Shared hook for per-feature availability derived from /api/setup/readiness.
  *
  * Only marks a feature unavailable when a dependency is **explicitly denied**
- * (false). Unknown state (undefined) never blocks rendering — it just means
+ * (false). Unknown state (undefined) never blocks rendering: it just means
  * we haven't confirmed availability yet. Use isLoaded to distinguish the two.
  *
  * TanStack Query caches under READINESS_QUERY_KEY so this is safe to call

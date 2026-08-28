@@ -36,7 +36,7 @@ import { AWSActualView } from "./AWSActualView";
 import { CloudIntegrationWizard } from "./CloudIntegrationWizard";
 import type { CloudIntegration } from "./CloudIntegrationWizard";
 import { C } from "@/theme";
-import { PageHero, Chip } from "@/components/brand";
+import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
 type CostMode = "estimated" | "actual";
 
@@ -74,8 +74,7 @@ type SortField = "cluster_name" | "estimated_aws_cost" | "total_dbu_hours" | "da
 type SortDirection = "asc" | "desc";
 
 const FAMILY_PALETTE = [
-  C.s2, C.s5, C.s3, C.s3, C.s4,
-  C.s5, C.s1, C.lava, C.slate,
+  C.s1, C.s2, C.s3, C.s4, C.s5,
 ];
 
 const INSTANCE_COLORS: Record<string, string> = {
@@ -457,69 +456,40 @@ export function CloudCostsView({
   ) : null;
 
   const EstimationInfoBox = data && (
-    <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
-      <div className="flex">
-        <div className="flex-shrink-0">
-          <svg className="h-5 w-5 text-orange-400" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-          </svg>
-        </div>
-        <div className="ml-3 flex-1">
-          <button
-            className="flex w-full items-center justify-between"
-            onClick={() => handleMinimizeToggle(!infoMinimized)}
-          >
-            <h3 className="text-sm font-medium text-orange-800">Estimated {cloudDisplayName} Infrastructure Cost — Methodology</h3>
-            <svg className={`h-4 w-4 text-orange-500 transition-transform ${infoMinimized ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          {!infoMinimized && (
-            <>
-              <div className="mt-2 text-sm text-orange-700">
-                {isAzure ? (
-                  <ul className="list-inside list-disc space-y-1">
-                    <li>Estimates <strong>Azure VM Pay-As-You-Go</strong> costs (East US, Linux) per node based on cluster instance types</li>
-                    <li>Node uptime is derived from DBU hours — clusters are billed for every node-hour while running</li>
-                    <li>Pricing sourced from Azure public pricing (2025); East US rates used as baseline</li>
-                    <li><strong>Not included:</strong> Managed Disk storage (P10 ~$19.71/mo, P20 ~$38.40/mo per disk), outbound bandwidth ($0.087/GB)</li>
-                    <li>Actual costs may vary by region, SKU availability, and subscription discounts</li>
-                  </ul>
-                ) : isGCP ? (
-                  <ul className="list-inside list-disc space-y-1">
-                    <li>Estimates <strong>Compute Engine On-Demand</strong> costs (us-central1, Linux) per node based on cluster machine types</li>
-                    <li>Node uptime is derived from DBU hours — clusters are billed for every node-hour while running</li>
-                    <li>Pricing sourced from GCP public pricing (2025); us-central1 rates used as baseline</li>
-                    <li><strong>Not included:</strong> Persistent Disk storage (~$0.04/GB-month SSD), egress charges, Google Cloud Storage</li>
-                    <li>Actual costs may vary by region, Committed Use Discounts, and Spot VM usage</li>
-                  </ul>
-                ) : (
-                  <ul className="list-inside list-disc space-y-1">
-                    <li>Estimates <strong>EC2 On-Demand</strong> costs (us-east-1, Linux) per node based on cluster instance types</li>
-                    <li>Node uptime is derived from DBU hours — clusters are billed for every node-hour while running</li>
-                    <li>Pricing sourced from AWS public pricing (2025); us-east-1 rates used as baseline</li>
-                    <li><strong>Not included:</strong> EBS gp3 storage (~$0.08–$0.10/GB-month), data transfer, Route 53</li>
-                    <li>Actual costs may vary by region, purchasing model, and AWS organization discounts</li>
-                  </ul>
-                )}
-              </div>
-              <div className="mt-3 flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={infoMinimized}
-                    onChange={(e) => handleMinimizeToggle(e.target.checked)}
-                    className="h-3.5 w-3.5 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
-                  />
-                  <span className="text-xs text-orange-600">Minimize from now on</span>
-                </label>
-                <span className="text-xs text-orange-500 italic">For exact costs, integrate {isAzure ? "Azure Cost Management" : isGCP ? "GCP Billing Export" : "AWS CUR 2.0"} below ↓</span>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+    <InfoPanel
+      title={`Estimated ${cloudDisplayName} Infrastructure Cost: Methodology`}
+      minimized={infoMinimized}
+      onToggle={handleMinimizeToggle}
+    >
+      {isAzure ? (
+        <ul className="list-inside list-disc space-y-1">
+          <li>Estimates Azure VM consumption rates (East US, Linux) per node based on cluster instance types</li>
+          <li>Node uptime is derived from DBU hours. Clusters are billed for every node hour while running</li>
+          <li>Pricing uses Azure public rates from 2025 with East US as the baseline</li>
+          <li><strong>Not included:</strong> Managed Disk storage and outbound bandwidth</li>
+          <li>Actual costs may vary by region, SKU availability, and subscription discounts</li>
+        </ul>
+      ) : isGCP ? (
+        <ul className="list-inside list-disc space-y-1">
+          <li>Estimates Compute Engine consumption rates (us-central1, Linux) per node based on cluster machine types</li>
+          <li>Node uptime is derived from DBU hours. Clusters are billed for every node hour while running</li>
+          <li>Pricing uses GCP public rates from 2025 with us-central1 as the baseline</li>
+          <li><strong>Not included:</strong> Persistent Disk storage, egress charges, and Google Cloud Storage</li>
+          <li>Actual costs may vary by region, committed use discounts, and Spot VM usage</li>
+        </ul>
+      ) : (
+        <ul className="list-inside list-disc space-y-1">
+          <li>Estimates EC2 consumption rates (us-east-1, Linux) per node based on cluster instance types</li>
+          <li>Node uptime is derived from DBU hours. Clusters are billed for every node hour while running</li>
+          <li>Pricing uses AWS public rates from 2025 with us-east-1 as the baseline</li>
+          <li><strong>Not included:</strong> EBS gp3 storage, data transfer, and Route 53</li>
+          <li>Actual costs may vary by region, purchasing model, and AWS organization discounts</li>
+        </ul>
+      )}
+      <p className="mt-3 text-xs italic" style={{ color: C.slate }}>
+        For exact costs, integrate {isAzure ? "Azure Cost Management" : isGCP ? "GCP Billing Export" : "AWS CUR 2.0"} below.
+      </p>
+    </InfoPanel>
   );
 
   const CurSetupBanner = !actualAvailable ? (
@@ -641,7 +611,7 @@ export function CloudCostsView({
           <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Infrastructure Costs</h3>
           <div className="flex h-32 flex-col items-center justify-center gap-2 text-gray-500">
             <p className="text-base font-medium">No cluster instance data available</p>
-            <p className="text-sm text-center max-w-md">Cluster-level VM cost estimates require classic (non-serverless) compute. This workspace may be using serverless jobs, SQL warehouses, or serverless DLT — which don't expose instance types.</p>
+            <p className="text-sm text-center max-w-md">Cluster-level VM cost estimates require classic (non-serverless) compute. This workspace may be using serverless jobs, SQL warehouses, or serverless DLT: which don't expose instance types.</p>
           </div>
         </div>
       </div>
@@ -808,6 +778,8 @@ export function CloudCostsView({
 
   return (
     <div className="animate-fade-in space-y-6">
+      {EstimationInfoBox}
+
       <PageHero
         icon={
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -828,12 +800,10 @@ export function CloudCostsView({
           </>
         }
       />
-
-      {EstimationInfoBox}
       {ModeToggle}
       {CurSetupBanner}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div
           className="relative rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
           style={{ borderColor: C.hairline }}

@@ -103,10 +103,10 @@ function renderPermissions() {
 // SP identity panel
 // ---------------------------------------------------------------------------
 
-describe("SettingsPermissions — SP identity panel", () => {
+describe("SettingsPermissions: SP identity panel", () => {
   it("renders the Service principal auth mode from auth-status", async () => {
     // The Query-authentication group identifies the app's identity from auth-status.
-    // (The raw client-id UUID is no longer surfaced here — the panel identifies the SP
+    // (The raw client-id UUID is no longer surfaced here: the panel identifies the SP
     // by its display name, per the settings-revamp Access design.)
     mockApis(SP_AUTH_STATUS);
     renderPermissions();
@@ -132,7 +132,7 @@ describe("SettingsPermissions — SP identity panel", () => {
 // Grant SQL bundle uses the actual SP name
 // ---------------------------------------------------------------------------
 
-describe("SettingsPermissions — grant bundle targets actual SP name", () => {
+describe("SettingsPermissions: grant bundle targets actual SP name", () => {
   it("grant SQL uses sp_display_name, not a placeholder", async () => {
     mockApis(SP_AUTH_STATUS);
     renderPermissions();
@@ -149,7 +149,7 @@ describe("SettingsPermissions — grant bundle targets actual SP name", () => {
   });
 
   it("grant SQL does not include the requesting user's email when they differ from SP", async () => {
-    // SP auth — user_email is the SP's own email
+    // SP auth: user_email is the SP's own email
     mockApis(SP_AUTH_STATUS);
     renderPermissions();
 

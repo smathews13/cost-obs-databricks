@@ -7,7 +7,7 @@ import { KPITrendModal } from "@/components/KPITrendModal";
 import { formatNumber, formatBytesNoDecimal, formatRowCount, formatDurationSeconds } from "@/utils/formatters";
 import { useFeatureAvailability } from "@/hooks/useFeatureAvailability";
 import { C } from "@/theme";
-import { PageHero, Chip } from "@/components/brand";
+import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
 interface PlatformKPIsViewProps {
   data: PlatformKPIsResponse | undefined;
@@ -62,7 +62,7 @@ const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, ico
   if (unavailableReason) {
     return (
       <div
-        className="rounded-lg bg-white p-6 border"
+        className="co-kpi-card rounded-lg bg-white p-6 border"
         style={{ borderColor: C.hairline }}
         title={unavailableReason}
       >
@@ -72,8 +72,8 @@ const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, ico
           </div>
           <div className="ml-4 flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-500">{title}</p>
-            <p className="mt-1 text-2xl font-semibold text-gray-300">—</p>
-            <p className="mt-0.5 text-xs text-gray-500">Unavailable — {unavailableReason}</p>
+            <p className="mt-1 text-2xl font-semibold text-gray-300">N/A</p>
+            <p className="mt-0.5 text-xs text-gray-500">Unavailable: {unavailableReason}</p>
           </div>
         </div>
       </div>
@@ -82,7 +82,7 @@ const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, ico
 
   return (
     <div
-      className={`rounded-lg bg-white p-6 border transition-all ${
+      className={`co-kpi-card rounded-lg bg-white p-6 border transition-all ${
         onClick ? "shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01]" : ""
       }`}
       style={{ borderColor: C.hairline }}
@@ -134,7 +134,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
   const queryHistoryGranted = tableGranted("system.query.history");
 
   // Only suppress a card when the dependency is **explicitly** denied, not when unknown.
-  const jobsUnavailable       = lakeflowGranted === false    ? "lakeflow grants required — run SP grants to fix" : undefined;
+  const jobsUnavailable       = lakeflowGranted === false    ? "lakeflow grants required: run SP grants to fix" : undefined;
   const clustersUnavailable   = computeGranted === false     ? "compute.clusters grant required" : undefined;
   const servingUnavailable    = servingGranted === false     ? "serving.served_entities grant required" : undefined;
   const queryHistUnavailable  = queryHistoryGranted === false ? "query.history grant required" : undefined;
@@ -230,7 +230,19 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
 
   return (
     <div className="animate-fade-in space-y-6">
-      {/* Header */}
+      <InfoPanel
+        title="Platform Health and Usage Metrics"
+        minimized={infoMinimized}
+        onToggle={handleMinimizeToggle}
+      >
+        <ul className="list-inside list-disc space-y-1">
+          <li><strong>Query and Data Processing</strong>: SQL execution, data scanned, and compute time across all warehouses</li>
+          <li><strong>Jobs and Workflows</strong>: Automated job executions, success rates, and notebook usage</li>
+          <li><strong>Platform Utilization</strong>: Active workspaces, model serving endpoints, user adoption, and usage stickiness (DAU/MAU)</li>
+          <li>Click any metric card to view historical trends and patterns</li>
+        </ul>
+      </InfoPanel>
+
       <PageHero
         icon={
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -252,54 +264,9 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
 
       {data.data_stale && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
-          Showing cached data — live query returned no results. Values reflect the last successful load.
+          Showing cached data because the live query returned no results. Values reflect the last successful load.
         </div>
       )}
-
-      {/* Info Banner */}
-      <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
-        <div className="flex">
-          <div className="flex-shrink-0">
-            <svg className="h-5 w-5 text-orange-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <div className="ml-3 flex-1">
-            <button
-              className="flex w-full items-center justify-between"
-              onClick={() => handleMinimizeToggle(!infoMinimized)}
-            >
-              <h3 className="text-sm font-medium text-orange-800">Platform Health & Usage Metrics</h3>
-              <svg className={`h-4 w-4 text-orange-500 transition-transform ${infoMinimized ? "" : "rotate-180"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-            {!infoMinimized && (
-              <>
-                <div className="mt-2 text-sm text-orange-700">
-                  <ul className="list-inside list-disc space-y-1">
-                    <li><strong>Query & Data Processing</strong>: SQL query execution, data scanned, and compute time across all warehouses</li>
-                    <li><strong>Jobs & Workflows</strong>: Automated job executions, success rates, and notebook usage</li>
-                    <li><strong>Platform Utilization</strong>: Active workspaces, model serving endpoints, user adoption, and usage stickiness (DAU/MAU)</li>
-                    <li>Click any metric card to view historical trends and patterns</li>
-                  </ul>
-                </div>
-                <div className="mt-3 flex justify-start">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={infoMinimized}
-                      onChange={(e) => handleMinimizeToggle(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
-                    />
-                    <span className="text-xs text-orange-600">Minimize from now on</span>
-                  </label>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* Query & Data Processing Metrics */}
       <div>
@@ -375,7 +342,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
             title="Total Active Jobs"
             value={formatNumber(data.total_jobs)}
             subtitle={`${formatNumber(data.unique_job_owners)} unique owners`}
-            infoTooltip="Distinct jobs with billing usage across the full selected period. The daily trend shows unique jobs active each day, which is typically lower — the same job counts once per day vs. once for the entire period."
+            infoTooltip="Distinct jobs with billing usage across the full selected period. The daily trend shows unique jobs active each day, which is typically lower: the same job counts once per day vs. once for the entire period."
             color="bg-orange-100"
             isLoading={isLoading || isFetching}
             unavailableReason={jobsUnavailable}
@@ -420,7 +387,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
             title="Total Unique Clusters"
             value={formatNumber(data.active_notebooks)}
             subtitle={periodDays > 0 ? `active across ${periodDays} day${periodDays === 1 ? "" : "s"}` : "Unique clusters, period total"}
-            infoTooltip="Distinct clusters with billing usage across the full selected period. The daily trend shows unique clusters active each day, which is typically lower — the same cluster counts once per day vs. once for the entire period."
+            infoTooltip="Distinct clusters with billing usage across the full selected period. The daily trend shows unique clusters active each day, which is typically lower: the same cluster counts once per day vs. once for the entire period."
             color="bg-orange-100"
             isLoading={isLoading || isFetching}
             unavailableReason={clustersUnavailable}
@@ -458,7 +425,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
               title="Unique Models Served"
               value={formatNumber(data.models_served)}
               subtitle={(data.avg_daily_models ?? 0) > 0 ? `${formatNumber(data.avg_daily_models ?? 0)} served daily` : `${formatNumber(data.total_serving_dbus)} DBUs`}
-              infoTooltip="Distinct model-serving endpoints active at any point during the period. The daily trend shows unique endpoints per day, which is typically lower — the same endpoint counts once per day vs. once for the entire period."
+              infoTooltip="Distinct model-serving endpoints active at any point during the period. The daily trend shows unique endpoints per day, which is typically lower: the same endpoint counts once per day vs. once for the entire period."
               color="bg-orange-100"
               isLoading={isLoading || isFetching}
               unavailableReason={servingUnavailable}
@@ -476,7 +443,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
             value={formatNumber(data.unique_query_users)}
             subtitle={`${formatNumber(data.unique_job_owners ?? 0)} job owners`}
             isLoading={isLoading || isFetching}
-            infoTooltip="Distinct SQL query executors in the selected period (matches the daily trend). Job owners shown separately — some users may appear in both groups."
+            infoTooltip="Distinct SQL query executors in the selected period (matches the daily trend). Job owners shown separately: some users may appear in both groups."
             color="bg-orange-100"
             onClick={startDate && endDate ? () => handleKPIClick("total_users", "Daily Active Users") : undefined}
             icon={

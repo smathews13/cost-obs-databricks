@@ -223,7 +223,7 @@ export function generateCostCSV(
   if (userRows.length) sheets.push(sheet("Users", userRows));
 
   // === KPIs & Trends tab ===
-  // (no structured table data in platformKPIs currently — skip or add when available)
+  // (no structured table data in platformKPIs currently: skip or add when available)
 
   // Build SpreadsheetML workbook
   const styles = `<Styles>

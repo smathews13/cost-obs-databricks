@@ -2,7 +2,7 @@
  * Regression tests for PlatformKPIsView fake-zero prevention.
  *
  * Core invariant: when a system table grant is explicitly denied (false),
- * the corresponding KPI cards must show the unavailable state (renders "—"),
+ * the corresponding KPI cards must show the unavailable state (renders "N/A"),
  * NOT zero or a loading spinner.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -32,7 +32,7 @@ function makeTableGranted(overrides: Record<string, boolean | undefined> = {}) {
 // Complete KPI payload so the card-rendering path is reached. The component
 // early-returns an empty state when `data` is undefined; the unavailable-vs-zero
 // invariant only applies once data exists and a grant is denied (a denied card
-// renders "—" regardless of its numeric value).
+// renders "N/A" regardless of its numeric value).
 const SAMPLE_DATA = {
   total_queries: 100,
   unique_query_users: 10,
@@ -78,10 +78,10 @@ function renderView(tableOverrides: Record<string, boolean | undefined> = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Core invariant: denied → "—" (Unavailable), not 0
+// Core invariant: denied → "N/A" (Unavailable), not 0
 // ---------------------------------------------------------------------------
 
-describe("PlatformKPIsView — denied dependency renders unavailable, not 0", () => {
+describe("PlatformKPIsView: denied dependency renders unavailable, not 0", () => {
   beforeEach(() => {
     vi.mocked(useFeatureAvailability).mockReset();
   });
@@ -103,7 +103,7 @@ describe("PlatformKPIsView — denied dependency renders unavailable, not 0", ()
     // The KPI value "0" must not appear as a standalone text node in unavailable cards
     const cards = screen.getAllByTitle(/query\.history grant required/i);
     cards.forEach(card => {
-      // The card's value cell should show "—" not "0"
+      // The card's value cell should show "N/A" not "0"
       expect(card).not.toHaveTextContent(/^\s*0\s*$/);
     });
   });
@@ -127,7 +127,7 @@ describe("PlatformKPIsView — denied dependency renders unavailable, not 0", ()
   });
 
   it("does NOT show unavailable state when grant is undefined (unknown)", () => {
-    // undefined = not yet loaded — must NOT block rendering
+    // undefined = not yet loaded: must NOT block rendering
     renderView({ "system.query.history": undefined });
 
     const unavailableEls = screen.queryAllByText(/query\.history grant required/i);

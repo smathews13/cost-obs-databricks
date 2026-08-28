@@ -37,7 +37,7 @@ export function PermissionsDialog() {
     return localStorage.getItem(STORAGE_KEY) === "true";
   });
 
-  // Check auth mode — if OAuth is active, SP permissions are irrelevant
+  // Check auth mode: if OAuth is active, SP permissions are irrelevant
   const { data: authStatus } = useQuery<{ identity: string }>({
     queryKey: ["settings-auth-status"],
     queryFn: () => fetch("/api/settings/auth-status").then(r => r.json()),
@@ -94,7 +94,7 @@ export function PermissionsDialog() {
     return null;
   }
 
-  // OAuth active — SP permissions are irrelevant; show a lightweight acknowledgment instead
+  // OAuth active: SP permissions are irrelevant; show a lightweight acknowledgment instead
   if (isOAuth) {
     return createPortal(
       <div
@@ -117,7 +117,7 @@ export function PermissionsDialog() {
               <div>
                 <p className="text-sm font-medium text-green-800">No SP grants required</p>
                 <p className="text-sm text-green-700 mt-0.5">
-                  All queries run under your own Unity Catalog identity — system table access follows your personal permissions, not the service principal's.
+                  All queries run under your own Unity Catalog identity: system table access follows your personal permissions, not the service principal's.
                 </p>
               </div>
             </div>
@@ -164,7 +164,7 @@ export function PermissionsDialog() {
     );
   }
 
-  // Load silently in the background — don't block the dashboard with a full-screen overlay.
+  // Load silently in the background: don't block the dashboard with a full-screen overlay.
   if (isLoading || error || !data) {
     return null;
   }

@@ -185,7 +185,7 @@ export function KPITrendModal({
                 )}
                 {data.summary.trend === "decreasing" && (
                   <>
-                    <TrendingDown className="h-5 w-5" style={{ color: C.greenInk }} />
+                    <TrendingDown className="h-5 w-5" style={{ color: C.lavaHover }} />
                     <span className="text-sm font-medium" style={{ color: C.ink }}>
                       Trending downward by {Math.abs(data.summary.change_percent).toFixed(1)}% from {formattedStart} to {formattedEnd}
                     </span>
@@ -193,7 +193,7 @@ export function KPITrendModal({
                 )}
                 {data.summary.trend === "flat" && (
                   <>
-                    <Minus className="h-5 w-5" style={{ color: C.slate }} />
+                    <Minus className="h-5 w-5" style={{ color: C.lavaHover }} />
                     <span className="text-sm font-medium" style={{ color: C.ink }}>
                       Relatively stable (±{Math.abs(data.summary.change_percent).toFixed(1)}%) from {formattedStart} to {formattedEnd}
                     </span>

@@ -54,7 +54,7 @@ export function SettingsPermissions() {
     refetchInterval: 30 * 1000,
   });
 
-  // Shared readiness query — same key as useFeatureAvailability so all components read one cache entry.
+  // Shared readiness query: same key as useFeatureAvailability so all components read one cache entry.
   const {
     data: readiness,
     isLoading: readinessLoading,
@@ -151,10 +151,10 @@ export function SettingsPermissions() {
     : overall === "core_ready" ? { fg: T.warningFg, bg: T.warningBg, border: T.warningBorder }
     : overall ? { fg: T.dangerFg, bg: T.dangerBg, border: T.dangerBorder }
     : { fg: T.textSecondary, bg: T.navBg, border: T.borderGroup };
-  const bannerLabel = ready ? "System tables access verified — billing.usage · query.history · schema grants"
-    : overall === "core_ready" ? "Core system tables verified — some optional grants missing"
-    : overall === "needs_action" ? "System-table grants pending — some metrics show unavailable"
-    : overall === "not_ready" ? "System tables not accessible — run the grants below"
+  const bannerLabel = ready ? "System tables access verified: billing.usage · query.history · schema grants"
+    : overall === "core_ready" ? "Core system tables verified: some optional grants missing"
+    : overall === "needs_action" ? "System-table grants pending: some metrics show unavailable"
+    : overall === "not_ready" ? "System tables not accessible: run the grants below"
     : readinessLoading ? "Checking system-table access…" : "System-table access status unknown";
 
   const spName = authStatus?.sp_display_name || authStatus?.sp_client_id || "<service-principal>";
@@ -222,7 +222,7 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
         {allUsers.length === 0 ? (
           <div style={{ padding: "12px 16px", fontSize: 12, color: T.textSecondary, fontStyle: "italic" }}>
             {permissions?.current_user ? `${permissions.current_user} (you) is the implicit default admin. ` : ""}
-            No users explicitly configured — everyone is a Consumer. Add users below to elevate access.
+            No users explicitly configured: everyone is a Consumer. Add users below to elevate access.
           </div>
         ) : (
           allUsers.map(({ email, role }, i) => (
@@ -285,19 +285,19 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
             <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflow: "hidden" }}>
               <button type="button" onClick={() => setGrantsOpen(o => !o)}
                 style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500, color: T.text }}>
-                App runtime grants — exact SQL (run as metastore admin)
+                App runtime grants: exact SQL (run as metastore admin)
                 <span style={{ color: T.textSecondary }}>{grantsOpen ? "▲" : "▼"}</span>
               </button>
               {grantsOpen && (
                 <div style={{ borderTop: `1px solid ${T.borderRow}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ fontSize: 12, color: T.textSecondary }}>Target SP: <MonoChip>{spName}</MonoChip> · Warehouse <strong>CAN_USE</strong> can't be granted via SQL — set it in SQL Warehouses → Permissions (the app also attempts this on startup).</div>
+                  <div style={{ fontSize: 12, color: T.textSecondary }}>Target SP: <MonoChip>{spName}</MonoChip> · Warehouse <strong>CAN_USE</strong> can't be granted via SQL: set it in SQL Warehouses → Permissions (the app also attempts this on startup).</div>
                   <div style={{ display: "flex", justifyContent: "flex-end" }}>
                     <LinkButton onClick={() => { navigator.clipboard?.writeText(appGrants); toast("GRANT SQL copied"); }}>Copy SQL</LinkButton>
                   </div>
                   <pre style={preStyle}>{appGrants}</pre>
                   {userEmail && userEmail !== spName && (
                     <>
-                      <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 4 }}>Optional — user read access for {userEmail}:</div>
+                      <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 4 }}>Optional: user read access for {userEmail}:</div>
                       <pre style={preStyle}>{`GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${userEmail}\`;`}</pre>
                     </>
                   )}

@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import { formatCurrency } from "@/utils/formatters";
 import { formatIdentity } from "@/utils/identity";
-import { C } from "@/theme";
+import { C, seriesColor } from "@/theme";
 
 interface UserGroupSpendData {
   groups: { group_name: string; total_spend: number; total_dbus: number; user_count: number; percentage: number }[];
@@ -24,11 +24,6 @@ interface UserGroupBreakdownProps {
   data: UserGroupSpendData | undefined;
   isLoading: boolean;
 }
-
-const GROUP_COLORS = [
-  C.s2, C.lava, C.s5, C.s3, C.s4,
-  C.s5, C.s1, C.lava, C.s3, C.slate,
-];
 
 export function UserGroupBreakdown({ data, isLoading }: UserGroupBreakdownProps) {
   const isGroups = data?.source === "groups";
@@ -105,7 +100,7 @@ export function UserGroupBreakdown({ data, isLoading }: UserGroupBreakdownProps)
           />
           <Bar isAnimationActive={false} dataKey="total_spend" name="Spend" radius={[0, 4, 4, 0]}>
             {barData.map((_entry, idx) => (
-              <Cell key={idx} fill={GROUP_COLORS[idx % GROUP_COLORS.length]} />
+              <Cell key={idx} fill={seriesColor(idx)} />
             ))}
             <LabelList dataKey="total_spend" position="right" formatter={(v: unknown) => formatCurrency(v as number)} style={{ fontSize: 11, fill: C.slate }} />
           </Bar>
