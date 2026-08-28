@@ -514,7 +514,21 @@ function Dashboard() {
 
   const { data: dbsqlData, isLoading: dbsqlLoading, isError: dbsqlError } = useDBSQLQueryCosts(dateRange, _wsIds, warehouseReady);
   const { data: dbsqlTopQueriesData, isLoading: dbsqlTopQueriesLoading } = useDBSQLTopQueries(dateRange, _wsIds, warehouseReady);
-  const { data: usersGroupsData } = useUsersGroupsBundle(dateRange, _wsIds, warehouseReady);
+  const { data: usersGroupsData, isLoading: usersGroupsLoading } = useUsersGroupsBundle(dateRange, _wsIds, warehouseReady);
+  const useCasesHaveSettled = ["use-cases", "use-cases-summary"].every((key) => {
+    const status = rqClient.getQueryState([key])?.status;
+    return status === "success" || status === "error";
+  });
+  const activeTabInitialLoading =
+    activeTab === "dbu" ? (!warehouseReady || bundleLoading) :
+    activeTab === "kpis" ? (!warehouseReady || kpisBundleLoading) :
+    activeTab === "aiml" ? (!warehouseReady || aimlLoading) :
+    activeTab === "apps" ? (!warehouseReady || appsLoading) :
+    activeTab === "tagging" ? (!warehouseReady || taggingLoading) :
+    activeTab === "sql" ? (!warehouseReady || sqlLoading || dbsqlLoading) :
+    activeTab === "users-groups" ? (!warehouseReady || usersGroupsLoading) :
+    activeTab === "use-cases" ? !useCasesHaveSettled :
+    false;
 
   // Optimizer tab: prefetch rightsizing and idle-time in background so the tab loads instantly,
   // and capture the data so the PDF export can include it under the Optimize section.
@@ -1028,7 +1042,7 @@ function Dashboard() {
           <div className="grid grid-cols-3 items-center gap-4">
             <div>
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setActiveTab("dbu")} title="Back to $DBU Spend" className="cursor-pointer hover:opacity-80 transition-opacity">
+                <button type="button" onClick={() => setActiveTab("dbu")} title="Back to DBU Overview" className="cursor-pointer hover:opacity-80 transition-opacity">
                   <CostObsLockup />
                 </button>
                 <VersionPill />
@@ -1059,7 +1073,7 @@ function Dashboard() {
                 }`}
               >
                 <span className="mr-2 -mt-0.5 inline-flex h-4 w-4 items-center justify-center font-mono text-base font-bold">$</span>
-                $DBU Spend
+                DBU Overview
               </button>
               )}
               {tabVisibility.sql && (
@@ -1192,7 +1206,7 @@ function Dashboard() {
         <div key={activeTab} className="animate-fade-in relative">
           {/* Per-tab refresh button: top-right corner, across from each tab's title.
               Hidden on infra (cloud costs) tab. */}
-          {activeTab !== "infra" && activeTab !== "optimizer" && (
+          {activeTab !== "infra" && activeTab !== "optimizer" && !activeTabInitialLoading && (
             <div className="absolute right-0 top-1 z-20">
               <TabRefreshButton onRefresh={handleTabRefresh} />
             </div>
@@ -1214,12 +1228,12 @@ function Dashboard() {
               "Interactive Compute",
             ]} />
           ) : (
-          <TabErrorBoundary tabName="$DBU Spend">
+          <TabErrorBoundary tabName="DBU Overview">
           <div className="space-y-6">
             {/* Header */}
             <PageHero
               icon={<span className="font-mono text-xl font-bold">$</span>}
-              title="$DBU Spend"
+              title="DBU Overview"
               subtitle={
                 <>
                   Databricks Unit consumption and cost breakdown

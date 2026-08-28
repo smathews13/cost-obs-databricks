@@ -258,7 +258,7 @@ Use **Settings → Permissions** to manage who can administer or view the app.
 
 ## What It Does
 
-### $DBU Spend
+### DBU Overview
 | Feature | Description |
 |---|---|
 | **Spend Over Time** | Daily spend timeseries by product category |

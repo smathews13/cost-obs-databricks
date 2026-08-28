@@ -140,7 +140,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
           aria-modal="true"
           aria-labelledby="export-dialog-title"
           aria-describedby="export-dialog-description"
-          className="animate-dialog relative w-full max-w-4xl overflow-hidden"
+          className="animate-dialog relative flex h-[92vh] max-h-208 w-full max-w-4xl flex-col overflow-hidden"
           style={{
             background: C.card,
             border: "none",
@@ -218,9 +218,9 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
           </div>
 
           {/* Content */}
-          <div className="max-h-104 overflow-y-auto px-6 py-5" style={{ background: C.card }}>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4" style={{ background: C.card }}>
             {/* Quick actions */}
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold" style={{ color: C.ink }}>Report sections</div>
                 <div className="mt-0.5 text-xs" style={{ color: C.slate }}>
@@ -248,7 +248,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
             </div>
 
             {/* Sections */}
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-1.5 sm:grid-cols-2">
               {visibleKeys.map((key) => {
                 const { label, description } = sectionLabels[key];
                 const checked = sections[key];
@@ -256,7 +256,7 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
                 return (
                   <label
                     key={key}
-                    className="flex cursor-pointer items-start gap-3 p-3.5 transition-colors"
+                    className="flex cursor-pointer items-start gap-2.5 px-3 py-2.5 transition-colors"
                     style={{
                       background: checked ? C.coralTint : C.card,
                       border: `1px solid ${checked ? C.coralBrd : C.hairline}`,
@@ -272,8 +272,8 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
                       style={{ accentColor: C.lava }}
                     />
                     <div className="flex-1">
-                      <div className="text-sm font-semibold leading-5" style={{ color: C.ink }}>{label}</div>
-                      <div className="mt-0.5 text-xs leading-[1.45]" style={{ color: C.slate }}>{description}</div>
+                      <div className="text-sm font-semibold leading-4" style={{ color: C.ink }}>{label}</div>
+                      <div className="mt-0.5 truncate text-xs leading-4" style={{ color: C.slate }} title={description}>{description}</div>
                     </div>
                   </label>
                 );

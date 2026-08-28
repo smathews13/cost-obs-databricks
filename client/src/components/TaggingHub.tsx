@@ -114,17 +114,19 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
   const tagValueFilterSeen = useRef<Set<string>>(new Set());
 
   // Tag drilldown state
-  const [selectedTag, setSelectedTag] = useState<{tag_key: string; tag_value: string} | null>(null);
+  const [selectedTag, setSelectedTag] = useState<{tag_key: string; tag_value: string | null} | null>(null);
   const [tagObjectsCache, setTagObjectsCache] = useState<Record<string, TagObject[]>>({});
   const [tagObjectsLoading, setTagObjectsLoading] = useState(false);
-  const tagObjects = selectedTag ? (tagObjectsCache[`${selectedTag.tag_key}::${selectedTag.tag_value}`] || []) : [];
+  const tagObjects = selectedTag ? (tagObjectsCache[`${selectedTag.tag_key}::${selectedTag.tag_value ?? "*"}`] || []) : [];
 
-  const handleTagClick = (tagKey: string, tagValue: string) => {
-    setSelectedTag({ tag_key: tagKey, tag_value: tagValue });
-    const cacheKey = `${tagKey}::${tagValue}`;
+  const handleTagClick = (tagKey: string, tagValue?: string) => {
+    const normalizedValue = tagValue ?? null;
+    setSelectedTag({ tag_key: tagKey, tag_value: normalizedValue });
+    const cacheKey = `${tagKey}::${normalizedValue ?? "*"}`;
     if (!tagObjectsCache[cacheKey]) {
       setTagObjectsLoading(true);
-      const params = new URLSearchParams({ tag_key: tagKey, tag_value: tagValue });
+      const params = new URLSearchParams({ tag_key: tagKey });
+      if (normalizedValue) params.set("tag_value", normalizedValue);
       if (startDate) params.set("start_date", startDate);
       if (endDate) params.set("end_date", endDate);
       fetch(`/api/tagging/top-objects-by-tag?${params}`)
@@ -872,7 +874,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                     {pagedKeys.map((entry, idx) => {
                       const pct = totalKeySpend > 0 ? (entry.total_spend / totalKeySpend) * 100 : 0;
                       return (
-                        <tr key={idx} className="hover:bg-gray-50">
+                        <tr key={idx} className="cursor-pointer hover:bg-gray-50" onClick={() => handleTagClick(entry.tag_key)}>
                           <td className="whitespace-nowrap px-2 py-2 text-xs font-medium text-gray-900">
                             <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-gray-700" title={entry.tag_key}>{entry.tag_key}</span>
                           </td>
@@ -942,7 +944,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               <div className="flex items-center gap-3">
                 <span className="rounded border border-gray-200 bg-gray-100 px-2 py-1 text-sm font-medium text-gray-700">{selectedTag.tag_key}</span>
                 <h3 className="text-lg font-semibold text-gray-900">
-                  Top 5 Objects: {selectedTag.tag_value}
+                  {selectedTag.tag_value ? `Top 5 Objects: ${selectedTag.tag_value}` : "Top 5 Objects Across All Values"}
                 </h3>
               </div>
               <button onClick={() => setSelectedTag(null)} className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-600">

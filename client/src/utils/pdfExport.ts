@@ -312,18 +312,56 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
     awsCosts: true,
     optimize: true,
   };
-
-  // Read company name from settings for branding
-  let companyName = "";
-  try {
-    const stored = localStorage.getItem("coc-app-settings");
-    if (stored) {
-      const settings = JSON.parse(stored);
-      if (settings.companyName) companyName = settings.companyName;
-    }
-  } catch {
-    // ignore
-  }
+  const hasCloudCosts = Boolean(data.awsCosts && (
+    data.awsCosts.total_estimated_cost > 0
+    || data.awsCosts.clusters?.length
+    || data.awsCosts.instance_families?.length
+  ));
+  const hasAiml = Boolean(data.aiml && (
+    data.aiml.summary?.total_spend > 0
+    || data.aiml.summary?.total_dbus > 0
+    || data.aiml.categories?.categories?.length
+    || data.aiml.providers?.providers?.length
+    || data.aiml.endpoints?.endpoints?.length
+    || data.aiml.models?.models?.length
+    || data.aiml.ml_clusters?.clusters?.length
+    || data.aiml.agent_bricks?.agents?.length
+  ));
+  const hasApps = Boolean(data.apps && (
+    data.apps.summary?.total_spend > 0
+    || data.apps.summary?.app_count > 0
+    || data.apps.apps?.apps?.length
+  ));
+  const hasTagging = Boolean(data.tagging && (
+    data.tagging.summary?.total_spend > 0
+    || data.tagging.cost_by_tag?.tags?.length
+    || Object.values(data.tagging.untagged ?? {}).some((group) => (group?.count ?? 0) > 0)
+  ));
+  const hasPlatformKpis = Boolean(data.platformKPIs && [
+    data.platformKPIs.total_queries,
+    data.platformKPIs.total_rows_read,
+    data.platformKPIs.total_bytes_read,
+    data.platformKPIs.total_compute_seconds,
+    data.platformKPIs.total_jobs,
+    data.platformKPIs.total_job_runs,
+    data.platformKPIs.successful_runs,
+    data.platformKPIs.active_workspaces,
+    data.platformKPIs.active_notebooks,
+    data.platformKPIs.models_served,
+  ].some((value) => Number(value) > 0));
+  const hasQuery360 = Boolean(data.query360 && data.query360.available !== false && (
+    (data.query360.summary?.total_spend ?? 0) > 0
+    || (data.query360.summary?.total_queries ?? 0) > 0
+    || data.query360.by_source?.sources?.length
+    || data.query360.by_warehouse?.warehouses?.length
+    || data.query360.by_user?.users?.length
+    || data.query360.top_queries?.queries?.length
+  ));
+  const hasUsers = Boolean(data.users && (
+    data.users.summary?.user_count > 0
+    || data.users.summary?.total_spend > 0
+    || data.users.top_users?.length
+  ));
 
   // Branded masthead uses the checked-in cost-obs lockup and official
   // Databricks logomark geometry.
@@ -334,15 +372,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
   doc.setFillColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
   doc.rect(0, 22, pageWidth, 1.2, "F");
 
-  doc.setFontSize(20);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
-  const title = companyName ? `${companyName}: cost-obs Report` : "cost-obs Report";
-  doc.text(title, 14, 35);
-  doc.setDrawColor(PDF_HAIRLINE[0], PDF_HAIRLINE[1], PDF_HAIRLINE[2]);
-  doc.setLineWidth(0.3);
-  doc.line(14, 39, pageWidth - 14, 39);
-  yPos = 47;
+  yPos = 32;
 
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
@@ -587,7 +617,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
   }
 
   // AWS Infrastructure
-  if (includeSections.awsCosts && data.awsCosts) {
+  if (includeSections.awsCosts && data.awsCosts && hasCloudCosts) {
     doc.addPage();
     yPos = 20;
 
@@ -697,7 +727,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
   }
 
   // AI/ML 360
-  if (includeSections.aiml && data.aiml) {
+  if (includeSections.aiml && data.aiml && hasAiml) {
     doc.addPage();
     yPos = 20;
 
@@ -945,7 +975,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
   }
 
   // Apps
-  if (includeSections.apps && data.apps) {
+  if (includeSections.apps && data.apps && hasApps) {
     doc.addPage();
     yPos = 20;
 
@@ -1011,7 +1041,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
   }
 
   // Tagging
-  if (includeSections.tagging && data.tagging) {
+  if (includeSections.tagging && data.tagging && hasTagging) {
     doc.addPage();
     yPos = 20;
 
@@ -1147,7 +1177,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
   }
 
   // Platform KPIs & Trends
-  if (includeSections.platformKPIs && data.platformKPIs) {
+  if (includeSections.platformKPIs && data.platformKPIs && hasPlatformKpis) {
     doc.addPage();
     yPos = 20;
 
@@ -1227,7 +1257,9 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
 
     const platformMetrics = [
       ["Active Workspaces", formatNumber(kpi.active_workspaces)],
-      ["Active Notebooks", formatNumber(kpi.active_notebooks)],
+      ["Active Compute Resources", formatNumber(kpi.active_notebooks)],
+      ["Clusters", formatNumber(kpi.total_clusters ?? kpi.active_notebooks)],
+      ["SQL Warehouses", formatNumber(kpi.sql_warehouses ?? 0)],
       ["Models Served", formatNumber(kpi.models_served)],
       ["Total Serving DBUs", formatNumber(kpi.total_serving_dbus)],
     ];
@@ -1295,7 +1327,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
   }
 
   // Query 360 (SQL Warehousing)
-  if (includeSections.query360 && data.query360) {
+  if (includeSections.query360 && data.query360 && hasQuery360) {
     doc.addPage();
     yPos = 20;
 
@@ -1503,7 +1535,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
   }
 
   // Users
-  if (includeSections.users && data.users) {
+  if (includeSections.users && data.users && hasUsers) {
     doc.addPage();
     yPos = 20;
 
@@ -1707,11 +1739,13 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
       doc.internal.pageSize.height - 10,
       { align: "center" }
     );
-    doc.text(
-      "cost-obs",
-      pageWidth - 14,
-      doc.internal.pageSize.height - 10,
-      { align: "right" }
+    doc.addImage(
+      brandAssets.costObsLockup,
+      "PNG",
+      pageWidth - 36,
+      doc.internal.pageSize.height - 13,
+      22,
+      4.8,
     );
   }
 

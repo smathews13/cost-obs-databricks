@@ -7,7 +7,7 @@ import {
 import { useUsersGroupsBundle } from "@/hooks/useBillingData";
 import { KPITrendModal } from "@/components/KPITrendModal";
 import { Bot } from "lucide-react";
-import { LoadingPanels, Spinner } from "@/components/Spinner";
+import { LoadingPanels } from "@/components/Spinner";
 
 function InfoTooltip({ text }: { text: string }) {
   const [show, setShow] = useState(false);
@@ -55,19 +55,6 @@ function formatNumber(n: number) {
 
 function UserDetailModal({ user, onClose }: { user: UserSpend; onClose: () => void }) {
   const spNameMap = useSpNameMap();
-  const [detail, setDetail] = useState<{ permission_grants: { type: string; value: string }[] } | null>(null);
-  const [detailLoading, setDetailLoading] = useState(true);
-  useEffect(() => {
-    let cancelled = false;
-    setDetail(null);
-    setDetailLoading(true);
-    fetch(`/api/users-groups/user-detail/${encodeURIComponent(user.user_email)}`)
-      .then(r => r.json())
-      .then(d => { if (!cancelled) setDetail(d); })
-      .catch(() => { if (!cancelled) setDetail({ permission_grants: [] }); })
-      .finally(() => { if (!cancelled) setDetailLoading(false); });
-    return () => { cancelled = true; };
-  }, [user.user_email]);
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
@@ -126,24 +113,6 @@ function UserDetailModal({ user, onClose }: { user: UserSpend; onClose: () => vo
             </div>
           )}
 
-          {/* Permission grants */}
-          <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Permission grants</h4>
-            {detailLoading ? (
-              <div className="flex items-center gap-2 py-2 text-sm text-gray-500">
-                <Spinner size="sm" />
-                <span>Loading permission grants…</span>
-              </div>
-            ) : detail?.permission_grants.length ? (
-              <div className="flex flex-wrap gap-1.5">
-                {detail.permission_grants.map((pg, i) => (
-                  <span key={i} className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">{pg.value}</span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500">No permission grants found.</p>
-            )}
-          </div>
         </div>
       </div>
     </div>,

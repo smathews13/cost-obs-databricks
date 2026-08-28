@@ -130,13 +130,11 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
   const { tableGranted } = useFeatureAvailability();
 
   const lakeflowGranted     = tableGranted("system.lakeflow.pipelines");
-  const computeGranted      = tableGranted("system.compute.clusters");
   const servingGranted      = tableGranted("system.serving.served_entities");
   const queryHistoryGranted = tableGranted("system.query.history");
 
   // Only suppress a card when the dependency is **explicitly** denied, not when unknown.
   const jobsUnavailable       = lakeflowGranted === false    ? "lakeflow grants required: run SP grants to fix" : undefined;
-  const clustersUnavailable   = computeGranted === false     ? "compute.clusters grant required" : undefined;
   const servingUnavailable    = servingGranted === false     ? "serving.served_entities grant required" : undefined;
   const queryHistUnavailable  = queryHistoryGranted === false ? "query.history grant required" : undefined;
 
@@ -206,10 +204,6 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
   // Success rate requires job result state data from system.lakeflow tables
   // If successful_runs is 0 but we have job runs, it means we don't have the result state data
   const hasSuccessRateData = data.successful_runs > 0;
-
-  const periodDays = startDate && endDate
-    ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1
-    : 0;
 
   const successRatePct = hasSuccessRateData && data.total_job_runs > 0
     ? ((data.successful_runs / data.total_job_runs) * 100).toFixed(1)
@@ -385,14 +379,13 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
           />
 
           <KPICard
-            title="Total Unique Clusters"
+            title="Total Compute Resources"
             value={formatNumber(data.active_notebooks)}
-            subtitle={periodDays > 0 ? `active across ${periodDays} day${periodDays === 1 ? "" : "s"}` : "Unique clusters, period total"}
-            infoTooltip="Distinct clusters with billing usage across the full selected period. The daily trend shows unique clusters active each day, which is typically lower: the same cluster counts once per day vs. once for the entire period."
+            subtitle={`${formatNumber(data.total_clusters ?? data.active_notebooks)} clusters · ${formatNumber(data.sql_warehouses ?? 0)} SQL warehouses`}
+            infoTooltip="Distinct clusters plus SQL warehouses with billing usage across the selected period. This includes serverless SQL warehouses, which do not appear as compute clusters."
             color="bg-orange-100"
             isLoading={isLoading || isFetching}
-            unavailableReason={clustersUnavailable}
-            onClick={!clustersUnavailable && startDate && endDate ? () => handleKPIClick("active_notebooks", "Daily Active Clusters") : undefined}
+            onClick={startDate && endDate ? () => handleKPIClick("active_notebooks", "Daily Active Compute Resources") : undefined}
             icon={
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />

@@ -313,6 +313,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
     }).then(() => rqClient.invalidateQueries({ queryKey: ["unified-settings"] })).catch(() => {});
     setDirty(false);
     toast(landingHidden ? "Settings saved: landing tab reset to first visible" : "Settings saved");
+    onClose();
   };
 
   const handleReset = () => {

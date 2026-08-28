@@ -530,7 +530,7 @@ filtered AS (
     price_per_dbu
   FROM tagged_usage
   LATERAL VIEW EXPLODE(custom_tags) t AS tk, tv
-  WHERE tk = :tag_key AND tv = :tag_value
+  WHERE tk = :tag_key AND (:tag_value = '' OR tv = :tag_value)
 ),
 objects AS (
   SELECT
@@ -973,16 +973,16 @@ async def get_cost_by_tag(
 @router.get("/top-objects-by-tag")
 async def get_top_objects_by_tag(
     tag_key: str = Query(description="Tag key to drill into"),
-    tag_value: str = Query(description="Tag value to drill into"),
+    tag_value: str | None = Query(default=None, description="Optional tag value; omit to aggregate all values for the key"),
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
 ) -> dict[str, Any]:
-    """Get top 5 most expensive objects for a specific tag key/value pair."""
+    """Get top 5 most expensive objects for a tag key, optionally scoped to one value."""
     params = {
         "start_date": start_date or get_default_start_date(),
         "end_date": end_date or get_default_end_date(),
         "tag_key": tag_key,
-        "tag_value": tag_value,
+        "tag_value": tag_value or "",
     }
 
     results = await asyncio.to_thread(execute_query, TOP_OBJECTS_BY_TAG, params)

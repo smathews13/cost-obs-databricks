@@ -11,7 +11,7 @@ import {
 
 // Tab labels for landing-tab select + visibility list (spec §6 order).
 export const TAB_LABELS: Record<keyof TabVisibility, string> = {
-  dbu: "$DBU Spend", sql: "SQL", aiml: "AI/ML", apps: "Apps", tagging: "Tagging",
+  dbu: "DBU Overview", sql: "SQL", aiml: "AI/ML", apps: "Apps", tagging: "Tagging",
   "users-groups": "Users", kpis: "Platform KPIs & Trends", infra: "Cloud Costs",
   optimizer: "Optimize", "use-cases": "Use Cases",
 };

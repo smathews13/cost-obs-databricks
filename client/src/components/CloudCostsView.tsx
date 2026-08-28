@@ -40,6 +40,8 @@ import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
 type CostMode = "estimated" | "actual";
+const EMPTY_CLUSTERS: AWSCostsResponse["clusters"] = [];
+const EMPTY_INSTANCE_FAMILIES: AWSCostsResponse["instance_families"] = [];
 
 interface CloudCostsViewProps {
   data: AWSCostsResponse | undefined;
@@ -321,6 +323,12 @@ export function CloudCostsView({
   const gcpActualAvailable = gcpActualData?.available === true;
   const multipleActualAvailable = [awsActualAvailable, azureActualAvailable, gcpActualAvailable].filter(Boolean).length > 1;
   const actualAvailable = awsActualAvailable || azureActualAvailable || gcpActualAvailable;
+  const preferredActualCloud: "AWS" | "AZURE" | "GCP" =
+    awsActualAvailable ? "AWS" : azureActualAvailable ? "AZURE" : "GCP";
+  const activeActualCloudAvailable =
+    activeActualCloud === "AWS" ? awsActualAvailable :
+    activeActualCloud === "AZURE" ? azureActualAvailable :
+    gcpActualAvailable;
 
   const cloudTabs: Array<{ key: "AWS" | "AZURE" | "GCP"; label: string; logo: string; activeClass: string; available: boolean }> = [
     { key: "AWS",   label: "AWS",   logo: awsLogo,   activeClass: "text-orange-600", available: awsActualAvailable },
@@ -368,45 +376,6 @@ export function CloudCostsView({
     actualLoading
   ));
 
-  if (showLoading) {
-    return <LoadingPanels sections={[
-      "Infrastructure Costs",
-      "Cluster Costs",
-      "Usage by Instance Family",
-      "Cluster Cost Breakdown",
-    ]} />;
-  }
-
-  if (costMode === "actual" && activeActualCloud === "AZURE" && azureActualData?.available) {
-    return (
-      <AzureActualView
-        azureActualData={azureActualData}
-        cloudTabSwitcher={CloudTabSwitcher}
-        onSwitchToEstimated={() => setCostMode("estimated")}
-      />
-    );
-  }
-
-  if (costMode === "actual" && activeActualCloud === "GCP" && gcpActualData?.available) {
-    return (
-      <GCPActualView
-        gcpActualData={gcpActualData}
-        cloudTabSwitcher={CloudTabSwitcher}
-        onSwitchToEstimated={() => setCostMode("estimated")}
-      />
-    );
-  }
-
-  if (costMode === "actual" && activeActualCloud === "AWS" && actualData?.available) {
-    return (
-      <AWSActualView
-        actualData={actualData}
-        cloudTabSwitcher={CloudTabSwitcher}
-        onSwitchToEstimated={() => setCostMode("estimated")}
-      />
-    );
-  }
-
   const ModeToggle = actualAvailable ? (
     <div className="mb-6 flex items-center justify-between">
       <div className="flex items-center gap-2">
@@ -421,7 +390,10 @@ export function CloudCostsView({
       <div className="flex items-center gap-2">
         <div className="flex rounded-lg bg-gray-100 p-1">
           <button
-            onClick={() => setCostMode("actual")}
+            onClick={() => {
+              if (!activeActualCloudAvailable) setActiveActualCloud(preferredActualCloud);
+              setCostMode("actual");
+            }}
             className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
               costMode === "actual"
                 ? "bg-white text-orange-600 shadow"
@@ -499,13 +471,20 @@ export function CloudCostsView({
         <div className="flex items-center gap-3">
           <div className="flex rounded-lg bg-gray-100 p-1">
             <button
-              disabled
-              className="cursor-not-allowed rounded-md px-4 py-1.5 text-sm font-medium text-gray-500"
+              onClick={() => setCostMode("actual")}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                costMode === "actual" ? "bg-white text-orange-600 shadow" : "text-gray-500 hover:text-gray-900"
+              }`}
               title={`Configure ${isAzure ? "Azure Cost Management Export" : "AWS CUR"} to enable actual costs`}
             >
               Actual Costs
             </button>
-            <button className="rounded-md bg-white px-4 py-1.5 text-sm font-medium text-orange-600 shadow">
+            <button
+              onClick={() => setCostMode("estimated")}
+              className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                costMode === "estimated" ? "bg-white text-orange-600 shadow" : "text-gray-500 hover:text-gray-900"
+              }`}
+            >
               Estimated
             </button>
           </div>
@@ -569,49 +548,21 @@ export function CloudCostsView({
   ) : null;
 
   const billingSummary: InfraBillingSummary | undefined = infraData?.billing_summary;
-
-  if (data?.error) {
-    return (
-      <div className="space-y-6">
-        {ModeToggle}
-        {CurSetupBanner}
-        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-          <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Infrastructure Costs</h3>
-          <p className="text-sm text-amber-600">{data.error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!data || data.clusters.length === 0) {
-    const hasBillingSummary = billingSummary != null && billingSummary.total_cost != null && billingSummary.total_cost > 0;
-    return (
-      <div className="space-y-6">
-        {ModeToggle}
-        {CurSetupBanner}
-        {hasBillingSummary && (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-              <p className="text-sm font-medium text-gray-500">Compute Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(billingSummary!.total_cost ?? 0)}</p>
-              <p className="mt-1 text-xs text-gray-500">{billingSummary!.days_in_range ?? 0} days (all-purpose + jobs + DLT)</p>
-            </div>
-            <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-              <p className="text-sm font-medium text-gray-500">Avg Active Clusters / Day</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatNumber(billingSummary!.avg_clusters_per_day ?? 0)}</p>
-              <p className="mt-1 text-xs text-gray-500">daily average</p>
-            </div>
-            <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-              <p className="text-sm font-medium text-gray-500">Avg Cost / Cluster</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(billingSummary!.avg_cost_per_cluster ?? 0)}</p>
-              <p className="mt-1 text-xs text-gray-500">per cluster per day</p>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
+  const IntegrationWizard = (
+    <CloudIntegrationWizard
+      show={showIntegrationWizard}
+      onClose={() => { setShowIntegrationWizard(false); setViewingIntegration(null); }}
+      wizardCloud={wizardCloud}
+      setWizardCloud={setWizardCloud}
+      wizardExpandedStep={wizardExpandedStep}
+      setWizardExpandedStep={setWizardExpandedStep}
+      viewingIntegration={viewingIntegration}
+      cloudIntegrations={cloudIntegrations}
+      addIntegration={addIntegration}
+      isAzure={isAzure}
+      isGCP={isGCP}
+    />
+  );
   function getInstanceFamily(instanceType: string | null | undefined): string {
     if (!instanceType) return 'unknown';
     if (instanceType.startsWith('Standard_')) {
@@ -621,6 +572,8 @@ export function CloudCostsView({
     const dotIdx = instanceType.indexOf('.');
     return dotIdx > 0 ? instanceType.slice(0, dotIdx) : instanceType;
   }
+  const clusters = data?.clusters ?? EMPTY_CLUSTERS;
+  const instanceFamilies = data?.instance_families ?? EMPTY_INSTANCE_FAMILIES;
 
   const cloudSummary = useMemo(() => {
     if (!data) return { totalCost: 0, totalDBUHours: 0, avgActiveClustersPerDay: 0, avgCostPerCluster: 0 };
@@ -651,11 +604,11 @@ export function CloudCostsView({
     return { totalCost: estimatedTotal, totalDBUHours, avgActiveClustersPerDay: clustersWithTypes.length, avgCostPerCluster };
   }, [data, infraTimeseriesData, billingSummary]);
 
-  const historicalClusterCount = data.clusters.filter(c => !c.driver_instance_type && !c.worker_instance_type).length;
+  const historicalClusterCount = clusters.filter(c => !c.driver_instance_type && !c.worker_instance_type).length;
 
   const filteredClusters = useMemo(
-    () => showHistoricalClusters ? data.clusters : data.clusters.filter(c => c.driver_instance_type || c.worker_instance_type),
-    [data.clusters, showHistoricalClusters],
+    () => showHistoricalClusters ? clusters : clusters.filter(c => c.driver_instance_type || c.worker_instance_type),
+    [clusters, showHistoricalClusters],
   );
 
   const familyFilteredClusters = useMemo(
@@ -671,11 +624,11 @@ export function CloudCostsView({
 
   const availableTableFamilies = useMemo(() => {
     const families = new Set<string>();
-    (data.instance_families || []).forEach(f => {
+    instanceFamilies.forEach(f => {
       if (f.instance_family && f.instance_family !== 'unknown') families.add(f.instance_family);
     });
     return [...families].sort();
-  }, [data.instance_families]);
+  }, [instanceFamilies]);
 
   useEffect(() => {
     const seen = tableFamilySeen.current;
@@ -748,7 +701,7 @@ export function CloudCostsView({
   const endIndex = startIndex + itemsPerPage;
   const paginatedClusters = sortedClusters.slice(startIndex, endIndex);
 
-  const familyChartData = data.instance_families
+  const familyChartData = instanceFamilies
     .filter((f) => f.instance_family && f.instance_family !== "unknown")
     .slice(0, 10)
     .map((f) => ({
@@ -769,6 +722,88 @@ export function CloudCostsView({
       return { ...point, "AWS Cost": filteredCost };
     });
   }, [timeseriesData, selectedFamilies]);
+
+  if (showLoading) {
+    return <LoadingPanels sections={[
+      "Infrastructure Costs",
+      "Cluster Costs",
+      "Usage by Instance Family",
+      "Cluster Cost Breakdown",
+    ]} />;
+  }
+
+  if (costMode === "actual" && activeActualCloud === "AZURE" && azureActualData?.available) {
+    return <AzureActualView azureActualData={azureActualData} cloudTabSwitcher={CloudTabSwitcher} onSwitchToEstimated={() => setCostMode("estimated")} />;
+  }
+  if (costMode === "actual" && activeActualCloud === "GCP" && gcpActualData?.available) {
+    return <GCPActualView gcpActualData={gcpActualData} cloudTabSwitcher={CloudTabSwitcher} onSwitchToEstimated={() => setCostMode("estimated")} />;
+  }
+  if (costMode === "actual" && activeActualCloud === "AWS" && actualData?.available) {
+    return <AWSActualView actualData={actualData} cloudTabSwitcher={CloudTabSwitcher} onSwitchToEstimated={() => setCostMode("estimated")} />;
+  }
+  if (costMode === "actual" && !actualAvailable) {
+    return (
+      <div className="space-y-6">
+        {CurSetupBanner}
+        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+          <h3 className="text-lg font-semibold text-gray-900">Actual cloud costs are not connected yet</h3>
+          <p className="mt-2 text-sm text-gray-500">
+            Add an AWS CUR, Azure Cost Management, or GCP Billing export integration to populate this view.
+          </p>
+        </div>
+        {IntegrationWizard}
+      </div>
+    );
+  }
+  if (data?.error) {
+    return (
+      <div className="space-y-6">
+        {ModeToggle}
+        {CurSetupBanner}
+        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+          <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Infrastructure Costs</h3>
+          <p className="text-sm text-amber-600">{data.error}</p>
+        </div>
+        {IntegrationWizard}
+      </div>
+    );
+  }
+  if (!data || clusters.length === 0) {
+    const hasBillingSummary = billingSummary != null && billingSummary.total_cost != null && billingSummary.total_cost > 0;
+    return (
+      <div className="space-y-6">
+        {ModeToggle}
+        {CurSetupBanner}
+        {hasBillingSummary ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+              <p className="text-sm font-medium text-gray-500">Compute Spend</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(billingSummary.total_cost ?? 0)}</p>
+              <p className="mt-1 text-xs text-gray-500">{billingSummary.days_in_range ?? 0} days (all-purpose + jobs + DLT)</p>
+            </div>
+            <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+              <p className="text-sm font-medium text-gray-500">Avg Active Clusters / Day</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatNumber(billingSummary.avg_clusters_per_day ?? 0)}</p>
+              <p className="mt-1 text-xs text-gray-500">daily average</p>
+            </div>
+            <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+              <p className="text-sm font-medium text-gray-500">Avg Cost / Cluster</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(billingSummary.avg_cost_per_cluster ?? 0)}</p>
+              <p className="mt-1 text-xs text-gray-500">per cluster per day</p>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+            <h3 className="text-lg font-semibold text-gray-900">No classic cluster infrastructure to estimate</h3>
+            <p className="mt-2 text-sm text-gray-500">
+              Serverless SQL infrastructure is managed by Databricks and does not expose VM instance types, so this tab cannot estimate its underlying cloud-provider cost.
+            </p>
+          </div>
+        )}
+        {IntegrationWizard}
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -1355,19 +1390,7 @@ export function CloudCostsView({
         <img src={gcpLogo} alt="" style={{ width: 1, height: 1 }} />
       </div>
 
-      <CloudIntegrationWizard
-        show={showIntegrationWizard}
-        onClose={() => { setShowIntegrationWizard(false); setViewingIntegration(null); }}
-        wizardCloud={wizardCloud}
-        setWizardCloud={setWizardCloud}
-        wizardExpandedStep={wizardExpandedStep}
-        setWizardExpandedStep={setWizardExpandedStep}
-        viewingIntegration={viewingIntegration}
-        cloudIntegrations={cloudIntegrations}
-        addIntegration={addIntegration}
-        isAzure={isAzure}
-        isGCP={isGCP}
-      />
+      {IntegrationWizard}
     </div>
   );
 }

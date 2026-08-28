@@ -48,6 +48,8 @@ const SAMPLE_DATA = {
   avg_daily_workspaces: 2,
   total_workspace_count: 4,
   active_notebooks: 7,
+  total_clusters: 5,
+  sql_warehouses: 2,
   models_served: 2,
   total_serving_dbus: 50,
   avg_daily_models: 1,
@@ -114,10 +116,12 @@ describe("PlatformKPIsView: denied dependency renders unavailable, not 0", () =>
     expect(screen.getAllByText(/lakeflow grants required/i).length).toBeGreaterThan(0);
   });
 
-  it("shows unavailable state for compute.clusters KPI when grant is false", () => {
+  it("keeps the billing-backed compute resource KPI available when compute metadata is denied", () => {
     renderView({ "system.compute.clusters": false });
 
-    expect(screen.getAllByText(/compute\.clusters grant required/i).length).toBeGreaterThan(0);
+    expect(screen.getByText("Total Compute Resources")).toBeInTheDocument();
+    expect(screen.getByText("5 clusters · 2 SQL warehouses")).toBeInTheDocument();
+    expect(screen.queryByText(/compute\.clusters grant required/i)).not.toBeInTheDocument();
   });
 
   it("shows unavailable state for serving.served_entities KPI when grant is false", () => {

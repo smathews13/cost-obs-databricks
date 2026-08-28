@@ -1,7 +1,7 @@
 import type { TabVisibility } from "../SettingsDialog";
 
 const TAB_LABELS: Record<keyof TabVisibility, { label: string; color: string }> = {
-  dbu: { label: "$DBU Spend", color: "#FF3621" },
+  dbu: { label: "DBU Overview", color: "#FF3621" },
   sql: { label: "SQL", color: "#FF3621" },
   aiml: { label: "AI/ML", color: "#FF3621" },
   apps: { label: "Apps", color: "#FF3621" },

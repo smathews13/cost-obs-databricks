@@ -2371,7 +2371,8 @@ async def get_kpis_bundle(
             "total_queries": 0, "unique_query_users": 0,
             "total_rows_read": 0, "total_bytes_read": 0, "total_compute_seconds": 0,
             "total_jobs": 0, "total_job_runs": 0, "successful_runs": 0, "total_job_run_hours": 0,
-            "unique_job_owners": 0, "active_workspaces": 0, "avg_daily_workspaces": 0, "active_notebooks": 0,
+            "unique_job_owners": 0, "active_workspaces": 0, "avg_daily_workspaces": 0,
+            "active_notebooks": 0, "total_clusters": 0, "sql_warehouses": 0,
             "models_served": 0, "total_serving_dbus": 0, "avg_daily_models": 0,
             "avg_daily_query_users": 0, "total_workspace_count": 0, "stickiness_pct": 0,
             "start_date": params["start_date"], "end_date": params["end_date"],
@@ -2383,7 +2384,8 @@ async def get_kpis_bundle(
         "total_queries": 0, "unique_query_users": 0,
         "total_rows_read": 0, "total_bytes_read": 0, "total_compute_seconds": 0,
         "total_jobs": 0, "total_job_runs": 0, "successful_runs": 0, "total_job_run_hours": 0,
-        "unique_job_owners": 0, "active_workspaces": 0, "avg_daily_workspaces": 0, "active_notebooks": 0,
+        "unique_job_owners": 0, "active_workspaces": 0, "avg_daily_workspaces": 0,
+        "active_notebooks": 0, "total_clusters": 0, "sql_warehouses": 0,
         "models_served": 0, "total_serving_dbus": 0, "avg_daily_models": 0,
         "avg_daily_query_users": 0, "total_workspace_count": 0, "stickiness_pct": 0,
         "start_date": params["start_date"], "end_date": params["end_date"],
@@ -2415,7 +2417,13 @@ async def get_kpis_bundle(
         kpis_response["total_job_runs"] = int(row.get("total_job_runs") or 0)
         kpis_response["unique_job_owners"] = int(row.get("unique_job_owners") or 0)
         kpis_response["active_workspaces"] = int(row.get("active_workspaces") or 0)
-        kpis_response["active_notebooks"] = int(row.get("total_clusters") or 0)
+        total_clusters = int(row.get("total_clusters") or 0)
+        sql_warehouses = int(row.get("sql_warehouses") or 0)
+        kpis_response["total_clusters"] = total_clusters
+        kpis_response["sql_warehouses"] = sql_warehouses
+        # Kept under the legacy response key for API compatibility. This KPI now
+        # represents all compute resources, including serverless SQL warehouses.
+        kpis_response["active_notebooks"] = total_clusters + sql_warehouses
         kpis_response["models_served"] = int(row.get("models_served") or 0)
         kpis_response["total_serving_dbus"] = float(row.get("total_serving_dbus") or 0)
 
@@ -3455,11 +3463,12 @@ async def get_platform_kpi_trend(
         query = """
         SELECT
           usage_date as date,
-          COUNT(DISTINCT usage_metadata.cluster_id) as value
+          COUNT(DISTINCT usage_metadata.cluster_id)
+            + COUNT(DISTINCT CASE WHEN billing_origin_product = 'SQL' THEN usage_metadata.warehouse_id END) as value
         FROM system.billing.usage
         WHERE usage_date >= :start_date
           AND usage_date <= :end_date
-          AND usage_metadata.cluster_id IS NOT NULL
+          AND (usage_metadata.cluster_id IS NOT NULL OR usage_metadata.warehouse_id IS NOT NULL)
           AND usage_quantity > 0
         GROUP BY usage_date
         ORDER BY usage_date

@@ -260,6 +260,8 @@ export interface PlatformKPIsResponse {
   avg_daily_workspaces?: number;
   total_workspace_count?: number;
   active_notebooks: number;
+  total_clusters?: number;
+  sql_warehouses?: number;
   models_served: number;
   total_serving_dbus: number;
   avg_daily_models?: number;
