@@ -5,6 +5,7 @@ import { formatCurrency, formatNumber, workspaceUrl } from "@/utils/formatters";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { VirtualizedList } from "./VirtualizedList";
 import { C } from "@/theme";
+import { Spinner } from "./Spinner";
 
 interface WorkspaceTableProps {
   data: WorkspaceBreakdownResponse | undefined;
@@ -109,7 +110,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
     return (
       <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         <div className="flex h-48 flex-col items-center justify-center gap-3">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+          <Spinner size="lg" />
           <p className="text-sm text-gray-500">Loading workspaces...</p>
         </div>
       </div>

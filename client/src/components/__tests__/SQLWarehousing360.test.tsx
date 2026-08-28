@@ -2,7 +2,7 @@
  * Regression tests for SQLWarehousing360 summary display states.
  *
  * Key invariants:
- * 1. available=false → dependency-blocked amber panel, not fake zeros.
+ * 1. available=false → loading state while first-deploy query data is prepared.
  * 2. available=true + summary=null → "No summary data returned" gray panel.
  * 3. available=true + all-zero summary → $0 rendered (valid zero activity), not "N/A".
  */
@@ -67,16 +67,15 @@ const BASE_BUNDLE_AVAILABLE: DBSQLDashboardBundle = {
 };
 
 // ---------------------------------------------------------------------------
-// available=false: dependency-blocked state
+// available=false: first-deploy loading state
 // ---------------------------------------------------------------------------
 
-describe("SQLWarehousing360: available=false renders dependency-blocked panel", () => {
-  it("shows the 'Query-level cost attribution is not available' heading", () => {
+describe("SQLWarehousing360: available=false renders loading state", () => {
+  it("shows the shared loading indicator", () => {
     renderSQLView({ available: false, start_date: "2026-01-01", end_date: "2026-01-31" });
 
-    expect(
-      screen.getByText(/query-level cost attribution.*not available/i)
-    ).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /loading/i })).toBeInTheDocument();
+    expect(screen.getByText(/loading query analytics/i)).toBeInTheDocument();
   });
 
   it("does NOT show the KPI summary cards", () => {
@@ -85,13 +84,10 @@ describe("SQLWarehousing360: available=false renders dependency-blocked panel", 
     expect(screen.queryByText(/total query spend/i)).not.toBeInTheDocument();
   });
 
-  it("shows the remediation guidance (grant system.query.history via Settings)", () => {
-    // The old "Create Materialized Views" button was removed; the dependency-blocked
-    // panel now points the admin at the GRANT SQL in Settings → Permissions.
+  it("does not flash the missing-grant guidance on first load", () => {
     renderSQLView({ available: false, start_date: "2026-01-01", end_date: "2026-01-31" });
 
-    expect(screen.getByText(/system\.query\.history/i)).toBeInTheDocument();
-    expect(screen.getByText(/settings\s*→\s*permissions/i)).toBeInTheDocument();
+    expect(screen.queryByText(/query-level cost attribution.*not available/i)).not.toBeInTheDocument();
   });
 });
 

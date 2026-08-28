@@ -10,6 +10,7 @@ import {
   CartesianGrid,
 } from "recharts";
 import { format, parseISO } from "date-fns";
+import { Spinner } from "./Spinner";
 import type { TimeseriesResponse } from "@/types/billing";
 import { formatCurrencyCompact as formatCurrency } from "@/utils/formatters";
 import { C, productColor } from "@/theme";
@@ -48,7 +49,9 @@ export const SpendChart = memo(function SpendChart({ data, isLoading }: SpendCha
   if (isLoading) {
     return (
       <CardShell title="Spend Over Time">
-        <div className="h-80 animate-pulse rounded" style={{ backgroundColor: C.hairline }} />
+        <div className="flex h-80 items-center justify-center">
+          <Spinner size="md" />
+        </div>
       </CardShell>
     );
   }

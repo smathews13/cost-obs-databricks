@@ -492,7 +492,8 @@ export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[
       fetchWithPoll<DBSQLDashboardBundle>(buildUrlWithWs("/api/dbsql/dashboard-bundle", dateRange, workspaceIds)),
     staleTime: 5 * 60 * 1000,
     enabled,
-    refetchInterval: (q) => q.state.data === null ? POLL_INTERVAL_MS : false,
+    refetchInterval: (q) =>
+      q.state.data === null || q.state.data?.available === false ? POLL_INTERVAL_MS : false,
   });
 }
 

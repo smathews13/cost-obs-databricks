@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { TabVisibility } from "@/components/SettingsDialog";
 import { C } from "@/theme";
+import { CostObsMark } from "@/components/brand";
 
 export interface ExportSections {
   summary: boolean;
@@ -129,26 +130,52 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
   };
 
   return createPortal(
-    <div className="animate-backdrop fixed inset-0 z-50 overflow-y-auto bg-black/30" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="flex min-h-full items-center justify-center p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
-        <div className="animate-dialog relative w-full max-w-4xl rounded-lg bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="animate-backdrop fixed inset-0 z-50 overflow-y-auto bg-black/40"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="flex min-h-full items-center justify-center p-4 sm:p-6" onClick={(e) => e.target === e.currentTarget && onClose()}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="export-dialog-title"
+          aria-describedby="export-dialog-description"
+          className="animate-dialog relative w-full max-w-4xl overflow-hidden"
+          style={{
+            background: C.card,
+            border: `1px solid ${C.hairline}`,
+            borderRadius: 12,
+            boxShadow: "var(--sh-modal)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
           {/* Header */}
-          <div className="border-b border-gray-200 px-6 py-4">
+          <div className="px-6 py-5" style={{ background: C.navy, borderBottom: `1px solid ${C.hairline}` }}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-100">
-                  <svg className="h-5 w-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
+                <div
+                  className="flex h-11 w-11 shrink-0 items-center justify-center"
+                  style={{ background: C.white, borderRadius: 8 }}
+                >
+                  <CostObsMark className="h-8 w-8" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Export Report</h3>
-                  <p className="text-sm text-gray-500">Select format and sections to include</p>
+                  <h3 id="export-dialog-title" className="text-lg font-bold leading-tight" style={{ color: C.white }}>
+                    Export report
+                  </h3>
+                  <p id="export-dialog-description" className="mt-0.5 text-sm" style={{ color: C.muted }}>
+                    Choose a format and the sections to include.
+                  </p>
                 </div>
               </div>
               <button
+                type="button"
                 onClick={onClose}
-                className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-500"
+                aria-label="Close export dialog"
+                className="flex h-9 w-9 items-center justify-center transition-colors focus-visible:outline-none focus-visible:shadow-(--focus)"
+                style={{ color: C.white, borderRadius: 8 }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.12)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
               >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -158,55 +185,73 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
           </div>
 
           {/* Format picker */}
-          <div className="px-6 pt-4 pb-2">
-            <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+          <div className="px-6 pb-4 pt-5" style={{ background: C.oatPage, borderBottom: `1px solid ${C.hairline}` }}>
+            <div className="mb-2 text-xs font-bold uppercase tracking-[0.12em]" style={{ color: C.slate }}>
+              File format
+            </div>
+            <div
+              className="inline-flex overflow-hidden"
+              role="group"
+              aria-label="Export format"
+              style={{ border: `1px solid ${C.hairline}`, borderRadius: 8, background: C.oatMed }}
+            >
               {(["pdf", "csv"] as ExportFormat[]).map((f) => (
                 <button
+                  type="button"
                   key={f}
                   onClick={() => setFormat(f)}
-                  className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                    format === f
-                      ? "bg-white text-gray-900 shadow-sm"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
+                  aria-pressed={format === f}
+                  className="min-w-20 px-4 py-2 text-sm font-semibold transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:shadow-(--focus)"
+                  style={{
+                    background: format === f ? C.card : "transparent",
+                    color: format === f ? C.navy : C.slate,
+                    borderLeft: f === "csv" ? `1px solid ${C.hairline}` : undefined,
+                    boxShadow: format === f ? `inset 0 -2px 0 ${C.lava}` : "none",
+                  }}
                 >
                   {f.toUpperCase()}
                 </button>
               ))}
             </div>
             {format === "csv" && (
-              <p className="mt-2 text-xs text-gray-500">
-                Downloads a multi-sheet Excel workbook (.xls): one sheet per app tab: with active workspace and date filters applied.
+              <p className="mt-2 text-xs leading-5" style={{ color: C.slate }}>
+                Downloads a multi-sheet Excel workbook (.xls), with one sheet per app tab and the active workspace and date filters applied.
               </p>
             )}
           </div>
 
           {/* Content */}
-          <div className="max-h-96 overflow-y-auto px-6 py-4">
+          <div className="max-h-104 overflow-y-auto px-6 py-5" style={{ background: C.card }}>
             {/* Quick actions */}
-            <div className="mb-4 flex items-center justify-between">
-              <span className="text-sm text-gray-500">{selectedCount} of {visibleKeys.length} sections selected</span>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold" style={{ color: C.navy }}>Report sections</div>
+                <div className="mt-0.5 text-xs" style={{ color: C.slate }}>
+                  {selectedCount} of {visibleKeys.length} selected
+                </div>
+              </div>
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={selectAll}
-                  className="text-sm font-medium hover:text-lava-hover"
-                  style={{ color: C.lava }}
+                  className="px-2 py-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:shadow-(--focus)"
+                  style={{ color: C.lava, borderRadius: 4 }}
                 >
-                  Select All
+                  Select all
                 </button>
-                <span className="text-gray-300">|</span>
                 <button
+                  type="button"
                   onClick={selectNone}
-                  className="text-sm font-medium hover:text-lava-hover"
-                  style={{ color: C.lava }}
+                  className="px-2 py-1 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:shadow-(--focus)"
+                  style={{ color: C.lava, borderRadius: 4 }}
                 >
-                  Select None
+                  Select none
                 </button>
               </div>
             </div>
 
             {/* Sections */}
-            <div className="space-y-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               {visibleKeys.map((key) => {
                 const { label, description } = sectionLabels[key];
                 const checked = sections[key];
@@ -214,17 +259,24 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
                 return (
                   <label
                     key={key}
-                    className={`flex cursor-pointer items-start gap-3 rounded-lg border-2 p-3 transition-colors ${checked ? "border-orange-500 bg-orange-50" : "border-gray-300 bg-white"}`}
+                    className="flex cursor-pointer items-start gap-3 p-3.5 transition-colors"
+                    style={{
+                      background: checked ? C.coralTint : C.card,
+                      border: `1px solid ${checked ? C.coralBrd : C.hairline}`,
+                      borderLeft: `3px solid ${checked ? C.lava : C.hairline}`,
+                      borderRadius: 8,
+                    }}
                   >
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => toggleSection(key)}
-                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded-[3px] focus-visible:outline-none focus-visible:shadow-(--focus)"
+                      style={{ accentColor: C.lava }}
                     />
                     <div className="flex-1">
-                      <div className="font-medium text-gray-900">{label}</div>
-                      <div className="text-sm text-gray-500">{description}</div>
+                      <div className="text-sm font-semibold leading-5" style={{ color: C.navy }}>{label}</div>
+                      <div className="mt-0.5 text-xs leading-[1.45]" style={{ color: C.slate }}>{description}</div>
                     </div>
                   </label>
                 );
@@ -233,36 +285,34 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4">
+          <div
+            className="flex flex-wrap items-center justify-between gap-3 px-6 py-4"
+            style={{ background: C.oatPage, borderTop: `1px solid ${C.hairline}` }}
+          >
+            <span className="text-xs" style={{ color: C.slate }}>
+              Active workspace and date filters are applied.
+            </span>
+            <div className="flex items-center gap-3">
             <button
+              type="button"
               onClick={onClose}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="px-4 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:shadow-(--focus)"
+              style={{ color: C.navy, background: C.card, border: `1px solid ${C.hairline}`, borderRadius: 8 }}
             >
               Cancel
             </button>
             <button
+              type="button"
               onClick={handleExport}
               disabled={selectedCount === 0}
-              className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-              style={{
-                backgroundColor: selectedCount === 0 ? C.busy : C.lava
-              }}
-              onMouseEnter={(e) => {
-                if (selectedCount > 0) {
-                  e.currentTarget.style.backgroundColor = C.lavaHover;
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (selectedCount > 0) {
-                  e.currentTarget.style.backgroundColor = C.lava;
-                }
-              }}
+              className="btn-brand inline-flex items-center gap-2 px-4 py-2 text-sm focus-visible:outline-none"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              Export {selectedCount} Section{selectedCount !== 1 ? "s" : ""} as {format.toUpperCase()}
+              Export {selectedCount} section{selectedCount !== 1 ? "s" : ""} as {format.toUpperCase()}
             </button>
+            </div>
           </div>
         </div>
       </div>

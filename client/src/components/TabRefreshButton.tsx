@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Spinner } from "./Spinner";
 
 interface TabRefreshButtonProps {
   onRefresh: () => Promise<void>;
@@ -28,15 +29,13 @@ export function TabRefreshButton({ onRefresh }: TabRefreshButtonProps) {
         className="inline-flex h-[38px] w-[38px] items-center justify-center rounded-[var(--r-ctl)] border bg-white text-slate transition-colors hover:bg-oat-page disabled:cursor-not-allowed"
         style={{ borderColor: "var(--hairline)" }}
       >
-        <svg
-          className={`h-4 w-4 ${spinning ? "animate-spin" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
+        {spinning ? (
+          <Spinner size="sm" />
+        ) : (
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        )}
       </button>
 
       {showTooltip && !spinning && (

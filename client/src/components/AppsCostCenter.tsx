@@ -16,6 +16,7 @@ import type { AppsDashboardBundle, AppsApp, AppsConnectedArtifact, DateRange } f
 import { useAppsDashboardBundle } from "@/hooks/useBillingData";
 import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
+import { Spinner } from "./Spinner";
 import { formatIdentity } from "@/utils/identity";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
@@ -578,7 +579,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
   if (isLoading) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+        <Spinner size="lg" />
         <p className="text-sm text-gray-500">Loading Apps data...</p>
       </div>
     );
@@ -1157,10 +1158,10 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
               const color = appColorMap[app.app_name] || seriesColor(idx);
               const isResolved = app.app_name !== app.app_id;
 
-              // Scale icon size linearly based on spend (min 32px, max 56px)
+              // Scale icon size linearly based on spend without overpowering the tile.
               const maxSpend = filteredApps[0]?.total_spend || 1;
-              const minSize = 32;
-              const maxSize = 56;
+              const minSize = 28;
+              const maxSize = 48;
               const ratio = maxSpend > 0 ? app.total_spend / maxSpend : 0;
               const iconSize = Math.round(minSize + ratio * (maxSize - minSize));
 
@@ -1168,7 +1169,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                 <button
                   key={app.app_id}
                   onClick={() => setSelectedApp(isSelected ? null : app)}
-                  className={`group relative flex flex-col items-center justify-center rounded-lg border-2 p-3 transition-all hover:shadow-md ${
+                  className={`group relative flex flex-col items-center justify-center rounded-lg border-2 p-2.5 transition-all hover:shadow-md ${
                     isSelected
                       ? "border-lava shadow-md scale-105"
                       : "border-gray-200 hover:border-gray-300"
@@ -1206,7 +1207,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
           // definitive "No apps found" so the UI doesn't imply confirmed
           // empty when we haven't finished loading.
           <div className="flex h-32 flex-col items-center justify-center gap-3">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+            <Spinner size="lg" className="h-10! w-10!" />
             <p className="text-sm text-gray-500">Loading apps…</p>
           </div>
         )}
@@ -1279,13 +1280,7 @@ export function AppsCostCenter({ data: initialData, isLoading: initialLoading, h
                   onClick={() => { setArtifactAppFilterOpen(v => !v); setArtifactAppFilterSearch(""); }}
                   className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${artifactAppFilter.length > 0 && artifactAppFilter.length < allAppNames.length ? "border-lava text-lava" : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"}`}
                 >
-                  {artifactAppFilter.length === 0
-                    ? 'Filter by app'
-                    : artifactAppFilter.length === 1
-                    ? artifactAppFilter[0]
-                    : artifactAppFilter.length === allAppNames.length
-                    ? 'Filter by app'
-                    : `${artifactAppFilter.length} apps`}
+                  App
                   <svg className={`h-3 w-3 transition-transform ${artifactAppFilterOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>

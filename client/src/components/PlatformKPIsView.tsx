@@ -8,6 +8,7 @@ import { formatNumber, formatBytesNoDecimal, formatRowCount, formatDurationSecon
 import { useFeatureAvailability } from "@/hooks/useFeatureAvailability";
 import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { Spinner } from "@/components/Spinner";
 
 interface PlatformKPIsViewProps {
   data: PlatformKPIsResponse | undefined;
@@ -99,7 +100,7 @@ const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, ico
           </p>
           {isLoading ? (
             <div className="mt-2 h-6 w-6">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-200" style={{ borderTopColor: C.lava }} />
+              <Spinner size="sm" className="h-6! w-6!" />
             </div>
           ) : (
             <p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p>
@@ -185,7 +186,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
   if (isLoading) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+        <Spinner size="lg" />
         <p className="text-sm text-gray-500">Loading platform KPIs...</p>
       </div>
     );

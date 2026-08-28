@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useUpdatingIndicator, UPDATING_SPINNER_PATH } from "@/hooks/useUpdatingIndicator";
+import { useUpdatingIndicator } from "@/hooks/useUpdatingIndicator";
 import { format, parseISO, subDays, subMonths, startOfMonth } from "date-fns";
 import type { DateRange } from "@/types/billing";
+import { Spinner } from "./Spinner";
 
 interface DateRangePickerProps {
   value: DateRange;
@@ -57,10 +58,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
         className="co-filter flex w-80 items-center gap-2 px-4"
       >
         {updating ? (
-          <svg className="h-4 w-4 shrink-0 animate-spin text-lava" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d={UPDATING_SPINNER_PATH} />
-          </svg>
+          <Spinner size="sm" />
         ) : (
           <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />

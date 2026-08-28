@@ -10,6 +10,7 @@ import {
   LabelList,
 } from "recharts";
 import { formatCurrency } from "@/utils/formatters";
+import { Spinner } from "./Spinner";
 import { formatIdentity } from "@/utils/identity";
 import { C, seriesColor } from "@/theme";
 
@@ -45,7 +46,9 @@ export function UserGroupBreakdown({ data, isLoading }: UserGroupBreakdownProps)
     return (
       <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         <h3 className="mb-4 text-lg font-medium text-gray-900">Spend by User</h3>
-        <div className="h-80 animate-pulse rounded" style={{ backgroundColor: C.hairline }} />
+        <div className="flex h-80 items-center justify-center">
+          <Spinner size="md" />
+        </div>
       </div>
     );
   }

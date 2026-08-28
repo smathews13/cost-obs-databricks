@@ -5,6 +5,7 @@ import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure.png";
 import gcpLogo from "@/assets/gcp.svg";
 import { KPITrendModal } from "./KPITrendModal";
+import { Spinner } from "./Spinner";
 import {
   BarChart,
   Bar,
@@ -370,7 +371,7 @@ export function CloudCostsView({
   if (showLoading) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+        <Spinner size="lg" />
         <p className="text-sm text-gray-500">Loading cloud costs...</p>
       </div>
     );
@@ -906,7 +907,7 @@ export function CloudCostsView({
         {(infraTimeseriesLoading || timeseriesLoading) ? (
           <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
             <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Cluster Costs{daysCount ? ` over ${daysCount} Days` : ""} <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide align-middle ml-1" style={{ backgroundColor: C.amber, color: C.white }}>est.</span></h3>
-            <div className="h-80 animate-pulse rounded bg-gray-200" />
+            <div className="flex h-80 items-center justify-center"><Spinner size="md" /></div>
           </div>
         ) : (infraTimeseriesData?.timeseries && infraTimeseriesData.timeseries.length > 0) ? (
           <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>

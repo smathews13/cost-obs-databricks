@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Spinner } from "@/components/Spinner";
 
 interface InstallReport {
   version?: { commit_sha: string; branch?: string; repo?: string; commit_date?: string };
@@ -330,13 +331,8 @@ export function SettingsDebugger({ onGoToConfig }: SettingsDebuggerProps) {
       <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Deployment Info</p>
         {(configLoading || authLoading) ? (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="grid grid-cols-2 gap-x-3">
-                <div className="h-3 w-16 animate-pulse rounded bg-gray-200" />
-                <div className="h-3 w-24 animate-pulse rounded bg-gray-200" />
-              </div>
-            ))}
+          <div className="flex h-10.5 items-center justify-center">
+            <Spinner size="sm" />
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-x-6 text-[11px]">
@@ -430,10 +426,7 @@ export function SettingsDebugger({ onGoToConfig }: SettingsDebuggerProps) {
         >
           {isFetching ? (
             <>
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z" />
-              </svg>
+              <Spinner size="sm" />
               Running checks…
             </>
           ) : hasRun ? (

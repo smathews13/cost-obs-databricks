@@ -20,6 +20,7 @@ import { format, parseISO } from "date-fns";
 import type { GranularBreakdownResponse, DBSQLDashboardBundle, QueryCostByWarehouse } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
+import { Spinner } from "./Spinner";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
@@ -413,21 +414,17 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
     setQueriesPage(1);
   };
 
-  if (isLoading) {
+  if (isLoading || queryData == null || queryData.available === false) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+        <Spinner size="lg" />
         <p className="text-sm text-gray-500">Loading query analytics...</p>
       </div>
     );
   }
 
-  const summary = queryData?.summary;
-  const sourceTypes = queryData?.timeseries?.source_types || [];
-  // Only treat query data as unavailable once a response has actually arrived.
-  // While queryData is undefined the tab is still loading: don't flash the
-  // "not available" banner prematurely.
-  const hasQueryData = queryData != null ? queryData.available : undefined;
+  const summary = queryData.summary;
+  const sourceTypes = queryData.timeseries?.source_types || [];
 
   // Detection logic (queryData.region_scope) is retained server-side and above; the
   // banner itself is suppressed for now. Flip to true to re-enable the UI callout.
@@ -460,24 +457,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
       )}
 
       {/* Query-level Cost Attribution */}
-      {hasQueryData === false ? (
-        <div className="rounded-lg border border-gray-200 bg-gray-50 p-6">
-          <div className="flex items-start gap-3">
-            <svg className="mt-0.5 h-5 w-5 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div>
-              <p className="text-sm font-medium text-gray-700">Query-level cost attribution is not available</p>
-              <p className="mt-1 text-sm text-gray-500">
-                This tab requires <code className="rounded bg-gray-200 px-1 text-xs">system.query.history</code> access for the app's service principal.
-                Copy the GRANT SQL from <strong>Settings → Permissions</strong> and run it as a metastore admin, then rebuild tables from <strong>Settings → Config</strong>.
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <>
-          <InfoPanel
+      <InfoPanel
             title="SQL Warehousing: What's on this tab"
             minimized={infoMinimized}
             onToggle={handleMinimizeToggle}
@@ -542,7 +522,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
             // or when summary data is null (no data returned despite query succeeding).
             const summaryUnavailable = queryHistoryGranted === false
               ? "query.history grant required: run SP grants to fix"
-              : (summary == null && hasQueryData ? "No summary data returned" : undefined);
+              : (summary == null ? "No summary data returned" : undefined);
 
             if (summaryUnavailable) {
               return (
@@ -1084,7 +1064,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
             </div>
             {topQueriesLoading && sortedQueries.length === 0 ? (
               <div className="flex h-32 items-center justify-center gap-3">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-200" style={{ borderTopColor: C.lava }} />
+                <Spinner size="sm" className="h-6! w-6!" />
                 <span className="text-sm text-gray-500">Loading top queries...</span>
               </div>
             ) : sortedQueries.length > 0 ? (
@@ -1185,9 +1165,6 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
             )}
           </div>
 
-        </>
-      )}
-
       {/* Source Drilldown Modal: rendered via portal to avoid stacking context issues */}
       {selectedSource && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" onClick={() => setSelectedSource(null)}>
@@ -1211,7 +1188,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
 
             {sourceQueriesLoading ? (
               <div className="flex h-40 items-center justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+                <Spinner size="md" />
               </div>
             ) : sourceQueries.length > 0 ? (
               <div className="overflow-x-auto">
@@ -1294,7 +1271,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
 
             {userQueriesLoading ? (
               <div className="flex h-48 items-center justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+                <Spinner size="md" />
               </div>
             ) : (userQueriesData?.queries?.length ?? 0) > 0 ? (
               <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
@@ -1523,7 +1500,7 @@ export function WarehouseRightsizingView({ host }: { host?: string | null }) {
 
       {healthLoading ? (
         <div className="flex h-24 items-center justify-center">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-200" style={{ borderTopColor: C.lava }} />
+          <Spinner size="sm" className="h-6! w-6!" />
         </div>
       ) : !warehouseHealth?.available || !warehouseHealth.recommendations.length ? (
         <div className="rounded-lg p-4 text-sm" style={{ background: C.oatPage, color: warehouseHealth?.available === false ? C.slate : C.greenInk }}>
@@ -1849,7 +1826,7 @@ export function WarehouseIdleTimeView({
 
       {isLoading ? (
         <div className="flex h-24 items-center justify-center">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-200" style={{ borderTopColor: C.lava }} />
+          <Spinner size="sm" className="h-6! w-6!" />
         </div>
       ) : !data?.available || !data.warehouses.length ? (
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500">

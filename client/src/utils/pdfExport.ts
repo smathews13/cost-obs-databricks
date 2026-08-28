@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import autoTablePlugin from "jspdf-autotable";
 import { format, parseISO, eachMonthOfInterval, startOfMonth, endOfMonth, eachDayOfInterval, getDay, isWithinInterval } from "date-fns";
 import type {
   BillingSummary,
@@ -57,12 +57,85 @@ export interface OptimizeExport {
   };
 }
 
-// Databricks navy: unified header color for all PDF tables
+// PDF equivalents of the v1.2 CSS tokens. jsPDF requires opaque RGB values.
 const DB_HEADER: [number, number, number] = [27, 49, 57];
-// Databricks brand orange: section titles and accent elements
 const DB_ORANGE: [number, number, number] = [255, 54, 33];
-// Subtle warm alternating row tint for striped tables
-const DB_ALT_ROW: [number, number, number] = [248, 249, 250];
+const DB_ALT_ROW: [number, number, number] = [249, 247, 244];
+const PDF_HAIRLINE: [number, number, number] = [228, 226, 221];
+const PDF_BODY: [number, number, number] = [58, 56, 56];
+const PDF_SLATE: [number, number, number] = [97, 135, 148];
+const PDF_WHITE: [number, number, number] = [255, 255, 255];
+
+type AutoTableOptions = Parameters<typeof autoTablePlugin>[1];
+
+function autoTable(doc: jsPDF, options: AutoTableOptions): void {
+  autoTablePlugin(doc, {
+    ...options,
+    styles: {
+      font: "helvetica",
+      fontSize: 9,
+      textColor: PDF_BODY,
+      lineColor: PDF_HAIRLINE,
+      lineWidth: 0.1,
+      cellPadding: 2.5,
+      ...options.styles,
+    },
+    headStyles: {
+      fillColor: DB_HEADER,
+      textColor: PDF_WHITE,
+      fontStyle: "bold",
+      ...options.headStyles,
+    },
+    alternateRowStyles: {
+      fillColor: DB_ALT_ROW,
+      ...options.alternateRowStyles,
+    },
+  });
+}
+
+interface PdfBrandAssets {
+  costObsLockup: string;
+  databricksMark: string;
+}
+
+/**
+ * Rasterize a checked-in SVG without changing its geometry. jsPDF does not
+ * natively embed SVG, so the browser converts the official asset to PNG.
+ */
+async function svgAssetToPng(path: string, width: number, height: number): Promise<string> {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`Unable to load PDF brand asset: ${path}`);
+  const svg = await response.text();
+  const blobUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+
+  try {
+    const image = new Image();
+    image.decoding = "async";
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error(`Unable to render PDF brand asset: ${path}`));
+      image.src = blobUrl;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Unable to initialize PDF brand rendering");
+    context.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/png");
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
+async function loadPdfBrandAssets(): Promise<PdfBrandAssets> {
+  const [costObsLockup, databricksMark] = await Promise.all([
+    svgAssetToPng("/brand/costobs-lockup-white.svg", 880, 192),
+    svgAssetToPng("/databricks.svg", 192, 192),
+  ]);
+  return { costObsLockup, databricksMark };
+}
 
 // jspdf-autotable extends jsPDF with lastAutoTable. This helper avoids
 // scattering `(doc as any)` casts throughout the file.
@@ -215,7 +288,8 @@ export interface ExportData {
   workspaceFilter?: { ids: string[]; names?: string[] };
 }
 
-export function generateCostReport(data: ExportData, sections?: ExportSections) {
+export async function generateCostReport(data: ExportData, sections?: ExportSections): Promise<void> {
+  const brandAssets = await loadPdfBrandAssets();
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.width;
   let yPos = 20;
@@ -251,40 +325,46 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
     // ignore
   }
 
-  // Brand header bar: Databricks orange across top of page 1
+  // Branded masthead uses the checked-in cost-obs lockup and official
+  // Databricks logomark geometry.
+  doc.setFillColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
+  doc.rect(0, 0, pageWidth, 22, "F");
+  doc.addImage(brandAssets.costObsLockup, "PNG", 14, 5.7, 43, 9.4);
+  doc.addImage(brandAssets.databricksMark, "PNG", pageWidth - 22, 6, 10, 10);
   doc.setFillColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
-  doc.rect(0, 0, pageWidth, 18, "F");
+  doc.rect(0, 22, pageWidth, 1.2, "F");
 
-  // Title in white on the orange bar
-  doc.setFontSize(18);
+  doc.setFontSize(20);
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(255, 255, 255);
+  doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
   const title = companyName ? `${companyName}: cost-obs Report` : "cost-obs Report";
-  doc.text(title, pageWidth / 2, 12, { align: "center" });
-  doc.setTextColor(0, 0, 0);
-  yPos = 28;
+  doc.text(title, 14, 35);
+  doc.setDrawColor(PDF_HAIRLINE[0], PDF_HAIRLINE[1], PDF_HAIRLINE[2]);
+  doc.setLineWidth(0.3);
+  doc.line(14, 39, pageWidth - 14, 39);
+  yPos = 47;
 
-  doc.setFontSize(10);
+  doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
+  doc.setTextColor(PDF_SLATE[0], PDF_SLATE[1], PDF_SLATE[2]);
   doc.text(
     `Report generated on ${format(new Date(), "MMM d, yyyy 'at' h:mm a")}`,
-    pageWidth / 2,
+    14,
     yPos,
-    { align: "center" }
   );
   yPos += 5;
   doc.text(
     `Date range: ${data.dateRange?.start || "N/A"} to ${data.dateRange?.end || "N/A"}`,
-    pageWidth / 2,
+    14,
     yPos,
-    { align: "center" }
   );
   yPos += 5;
   const wfLabel = data.workspaceFilter?.ids?.length
     ? `Workspace filter: ${data.workspaceFilter.names?.length ? data.workspaceFilter.names.join(", ") : data.workspaceFilter.ids.join(", ")}`
     : "Workspace filter: All workspaces (account-wide)";
-  doc.text(wfLabel, pageWidth / 2, yPos, { align: "center" });
-  yPos += 10;
+  doc.text(wfLabel, 14, yPos);
+  doc.setTextColor(PDF_BODY[0], PDF_BODY[1], PDF_BODY[2]);
+  yPos += 12;
 
   // Executive Summary
   if (includeSections.summary && data.summary) {
@@ -1611,14 +1691,16 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
-    // Thin brand-orange rule above the footer
-    doc.setDrawColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
+    // Hairline footer with a compact lava accent.
+    doc.setDrawColor(PDF_HAIRLINE[0], PDF_HAIRLINE[1], PDF_HAIRLINE[2]);
     doc.setLineWidth(0.3);
     doc.line(14, doc.internal.pageSize.height - 14, pageWidth - 14, doc.internal.pageSize.height - 14);
-    doc.setDrawColor(0);
+    doc.setFillColor(DB_ORANGE[0], DB_ORANGE[1], DB_ORANGE[2]);
+    doc.rect(14, doc.internal.pageSize.height - 14.4, 12, 0.8, "F");
+    doc.setDrawColor(PDF_HAIRLINE[0], PDF_HAIRLINE[1], PDF_HAIRLINE[2]);
     doc.setLineWidth(0.2);
     doc.setFontSize(8);
-    doc.setTextColor(150, 150, 150);
+    doc.setTextColor(PDF_SLATE[0], PDF_SLATE[1], PDF_SLATE[2]);
     doc.text(
       `Page ${i} of ${pageCount}`,
       pageWidth / 2,
@@ -1626,7 +1708,7 @@ export function generateCostReport(data: ExportData, sections?: ExportSections) 
       { align: "center" }
     );
     doc.text(
-      "Generated by cost-obs",
+      "cost-obs",
       pageWidth - 14,
       doc.internal.pageSize.height - 10,
       { align: "right" }

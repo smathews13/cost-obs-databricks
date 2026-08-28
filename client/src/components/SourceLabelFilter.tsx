@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { setActiveSourceLabels } from "@/hooks/useBillingData";
 import { C } from "@/theme";
+import { Spinner } from "@/components/Spinner";
 
 interface MvSource {
   label: string;
@@ -97,10 +98,7 @@ export function SourceLabelFilter() {
         title="Filter by data source"
       >
         {applying ? (
-          <svg className="h-4 w-4 shrink-0 animate-spin text-lava" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
+          <Spinner size="sm" />
         ) : (
           <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M6 12h12M9 17h6" />
@@ -141,12 +139,7 @@ export function SourceLabelFilter() {
               className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-white transition-colors disabled:cursor-not-allowed"
               style={{ backgroundColor: applying ? C.busy : C.lava }}
             >
-              {applying && (
-                <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              )}
+              {applying && <Spinner size="xs" />}
               {applying ? "Applying…" : "Apply"}
             </button>
           </div>

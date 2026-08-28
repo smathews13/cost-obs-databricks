@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { VirtualizedList } from "./VirtualizedList";
+import { Spinner } from "./Spinner";
 
 function InfoTooltip({ text }: { text: string }) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -388,7 +389,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
   if (isLoading) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+        <Spinner size="lg" />
         <p className="text-sm text-gray-500">Loading AI/ML data...</p>
       </div>
     );

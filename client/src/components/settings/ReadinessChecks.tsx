@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Spinner } from "@/components/Spinner";
 
 export type ReadinessStatus =
   | "healthy"
@@ -176,10 +177,8 @@ export function ReadinessChecks({
 }: ReadinessChecksProps) {
   if (loading) {
     return (
-      <div className="space-y-2 animate-pulse">
-        {[...Array(5)].map((_, i) => (
-          <div key={i} className="h-12 rounded-lg bg-gray-100" />
-        ))}
+      <div className="flex h-64 items-center justify-center">
+        <Spinner size="md" />
       </div>
     );
   }

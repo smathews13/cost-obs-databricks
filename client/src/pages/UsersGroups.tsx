@@ -7,6 +7,7 @@ import {
 import { useUsersGroupsBundle } from "@/hooks/useBillingData";
 import { KPITrendModal } from "@/components/KPITrendModal";
 import { Bot } from "lucide-react";
+import { Spinner } from "@/components/Spinner";
 
 function InfoTooltip({ text }: { text: string }) {
   const [show, setShow] = useState(false);
@@ -326,7 +327,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
   if (isLoading) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+        <Spinner size="lg" />
         <p className="text-sm text-gray-500">Loading user spend data…</p>
       </div>
     );

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { UntaggedResourcesTable } from "./UntaggedResourcesTable";
 import type { UntaggedTab } from "./UntaggedResourcesTable";
+import { Spinner } from "./Spinner";
 import {
   AreaChart,
   Area,
@@ -362,7 +363,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
   if (isLoading) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+        <Spinner size="lg" />
         <p className="text-sm text-gray-500">Loading tagging data...</p>
       </div>
     );
@@ -944,7 +945,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
 
             {tagObjectsLoading ? (
               <div className="flex h-40 items-center justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+                <Spinner size="md" />
               </div>
             ) : tagObjects.length > 0 ? (
               <div className="overflow-x-auto">

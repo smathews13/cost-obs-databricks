@@ -6,6 +6,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis
 import { formatCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
 import { PageHero } from "@/components/brand";
+import { Spinner } from "@/components/Spinner";
 
 type UseCaseStage = 'Live' | 'Development' | 'Planned' | 'Inactive';
 
@@ -551,7 +552,7 @@ function CreateUseCaseModal({ isOpen, onClose, existingTags }: CreateUseCaseModa
 
                 {objectsLoading ? (
                   <div className="flex justify-center py-4">
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-orange-600" />
+                    <Spinner size="sm" className="h-5! w-5!" />
                   </div>
                 ) : (
                   <div className="max-h-48 overflow-y-auto space-y-1">
@@ -1185,7 +1186,7 @@ function EditUseCaseModal({ useCase, isOpen, onClose, existingTags }: EditUseCas
 
                 {objectsLoading ? (
                   <div className="flex justify-center py-4">
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-orange-600" />
+                    <Spinner size="sm" className="h-5! w-5!" />
                   </div>
                 ) : (
                   <div className="max-h-48 overflow-y-auto space-y-1">
@@ -1209,7 +1210,7 @@ function EditUseCaseModal({ useCase, isOpen, onClose, existingTags }: EditUseCas
                               <span className="text-xs text-green-600 font-medium">Added</span>
                             ) : addingObjectId === obj.object_id ? (
                               <div className="flex items-center gap-1 px-2 py-1">
-                                <div className="h-3 w-3 animate-spin rounded-full border-2 border-orange-300 border-t-orange-600" />
+                                <Spinner size="xs" />
                                 <span className="text-xs text-orange-600">Adding...</span>
                               </div>
                             ) : (
@@ -1472,7 +1473,7 @@ export default function UseCases() {
   if (isLoading || summaryLoading) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+        <Spinner size="lg" />
         <p className="text-sm text-gray-500">Loading use cases...</p>
       </div>
     );
@@ -1547,7 +1548,7 @@ export default function UseCases() {
 
         {isLoading || summaryLoading ? (
           <div className="flex h-64 items-center justify-center">
-            <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+            <Spinner size="lg" />
           </div>
         ) : summary && summary.use_cases.length > 0 ? (
           <div className="overflow-x-auto">

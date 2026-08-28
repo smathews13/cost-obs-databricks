@@ -5,6 +5,7 @@ import type { BillingSummary } from "@/types/billing";
 import { formatCurrency, formatNumber } from "@/utils/formatters";
 import { KPITrendModal } from "./KPITrendModal";
 import { C, FONT_MONO } from "@/theme";
+import { Spinner } from "./Spinner";
 
 function InfoTooltip({ text }: { text: string }) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -69,7 +70,9 @@ function Card({ title, value, subtitle, infoTooltip, icon, isLoading, onClick }:
         <div className="ml-4 flex-1 min-w-0">
           <p className="flex items-center text-[13px] font-medium" style={{ color: C.slate }}>{title}{infoTooltip && <InfoTooltip text={infoTooltip} />}</p>
           {isLoading ? (
-            <div className="mt-1 h-7 w-20 animate-pulse rounded" style={{ background: C.hairline }} />
+            <div className="mt-1 flex h-7 w-20 items-center">
+              <Spinner size="sm" />
+            </div>
           ) : (
             <p
               className="mt-1 text-[28px] font-medium tracking-tight"

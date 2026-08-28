@@ -793,10 +793,8 @@ function Dashboard() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-6" style={{ backgroundColor: C.oatPage }}>
         <div className="flex flex-col items-center gap-4 text-center">
-          <div className="flex items-center gap-2">
-            <div className="h-3 w-3 animate-pulse rounded-full bg-blue-400" style={{ animationDelay: '0ms' }} />
-            <div className="h-3 w-3 animate-pulse rounded-full bg-blue-400" style={{ animationDelay: '200ms' }} />
-            <div className="h-3 w-3 animate-pulse rounded-full bg-blue-400" style={{ animationDelay: '400ms' }} />
+          <div className="flex h-3 w-13 items-center justify-center">
+            <Spinner size="xs" />
           </div>
           <h2 className="text-xl font-semibold" style={{ color: C.navy }}>SQL Warehouse is starting up</h2>
           <p className="text-sm" style={{ color: C.slate }}>Dashboard data will load automatically once the warehouse is ready.</p>
@@ -878,7 +876,9 @@ function Dashboard() {
                     {wsListLoading ? (
                       <div className="flex flex-col leading-none">
                         <span className="text-[9px] font-medium uppercase tracking-wide opacity-50">Workspace</span>
-                        <div className="mt-0.5 h-5 w-24 animate-pulse rounded" style={{ backgroundColor: "rgba(255,255,255,0.15)" }} />
+                        <div className="mt-0.5 flex h-5 w-24 items-center justify-center">
+                          <Spinner size="xs" />
+                        </div>
                       </div>
                     ) : wsFilterList.length > 0 ? (
                       <div className="flex flex-col leading-none">
@@ -944,7 +944,7 @@ function Dashboard() {
               </div>
             </div>
             {user && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 {authStatus && authStatus.identity !== "user_oauth" && (
                   <>
                     {authStatus.sp_display_name && (
@@ -997,10 +997,10 @@ function Dashboard() {
                 </button>
                 <button
                   onClick={() => setShowSettings(true)}
-                  className="rounded-md p-1.5 text-white opacity-75 transition-opacity hover:opacity-100 hover:bg-white/10"
+                  className="rounded-md p-2 text-white opacity-75 transition-opacity hover:opacity-100 hover:bg-white/10"
                   title="App Settings"
                 >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>

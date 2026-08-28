@@ -10,6 +10,7 @@ import {
   LabelList,
 } from "recharts";
 import type { ProductBreakdownResponse, WorkspaceBreakdown } from "@/types/billing";
+import { Spinner } from "./Spinner";
 import { formatCurrencyCompact as formatCurrency } from "@/utils/formatters";
 import { VirtualizedList } from "./VirtualizedList";
 import { C, seriesColor } from "@/theme";
@@ -281,7 +282,7 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
           {workspaceSelector}
         </div>
         <div className="flex h-48 flex-col items-center justify-center gap-3">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
+          <Spinner size="lg" />
           <p className="text-sm text-gray-500">Loading product breakdown...</p>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
-import { useUpdatingIndicator, UPDATING_SPINNER_PATH } from "@/hooks/useUpdatingIndicator";
+import { useUpdatingIndicator } from "@/hooks/useUpdatingIndicator";
 import { C } from "@/theme";
+import { Spinner } from "./Spinner";
 
 interface Workspace {
   workspace_id: string | null;
@@ -49,10 +50,8 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading }
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 whitespace-nowrap rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-500">
-        <svg className="h-4 w-4 shrink-0 animate-pulse text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-        </svg>
-        <span className="animate-pulse">Loading workspaces…</span>
+        <Spinner size="sm" />
+        <span>Loading workspaces…</span>
       </div>
     );
   }
@@ -113,10 +112,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading }
         className="co-filter flex items-center gap-2 whitespace-nowrap px-3"
       >
         {updating ? (
-          <svg className="h-4 w-4 shrink-0 animate-spin text-lava" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d={UPDATING_SPINNER_PATH} />
-          </svg>
+          <Spinner size="sm" />
         ) : (
           <svg className="h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
