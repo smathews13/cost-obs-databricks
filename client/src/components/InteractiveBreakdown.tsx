@@ -3,6 +3,7 @@ import type { InteractiveBreakdownResponse } from "@/types/billing";
 import { formatCurrency, workspaceUrl } from "@/utils/formatters";
 import { StatusIndicator } from "./StatusIndicator";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
+import { C } from "@/theme";
 
 interface InteractiveBreakdownProps {
   data: InteractiveBreakdownResponse | undefined;
@@ -75,9 +76,9 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
 
   if (isLoading) {
     return (
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         <div className="flex h-48 flex-col items-center justify-center gap-3">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: '#FF3621' }} />
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
           <p className="text-sm text-gray-500">Loading interactive compute...</p>
         </div>
       </div>
@@ -86,7 +87,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
 
   if (data?.error) {
     return (
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         <h3 className="mb-4 text-lg font-semibold text-gray-900">Interactive Compute Leaderboard</h3>
         <p className="text-sm text-amber-600">{data.error}</p>
       </div>
@@ -95,7 +96,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
 
   if (!data || data.items.length === 0) {
     return (
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         <h3 className="mb-4 text-lg font-semibold text-gray-900">Interactive Compute Leaderboard</h3>
         <div className="flex h-32 flex-col items-center justify-center gap-2 text-gray-500">
           <p className="text-base font-medium">No interactive compute usage found</p>
@@ -208,7 +209,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
   const uniqueNotebooks = new Set(data.items.map((i) => i.notebook_path).filter(Boolean)).size;
 
   return (
-    <div className="animate-fade-in rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+    <div className="animate-fade-in rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
       <div className="mb-4">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-lg font-semibold text-gray-900 shrink-0 flex items-center gap-1.5">
@@ -227,7 +228,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
             <div ref={viewDropdownRef} className="relative">
               <button
                 onClick={() => setViewDropdownOpen(o => !o)}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${viewMode !== "by-user" ? "border-[#FF3621] text-[#FF3621]" : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"}`}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${viewMode !== "by-user" ? "border-lava text-lava" : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"}`}
               >
                 {viewMode === "by-user" ? "By User" : viewMode === "by-cluster" ? "By Cluster" : "By Notebook"}
                 <svg className={`h-3 w-3 transition-transform ${viewDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -281,7 +282,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
                 placeholder={viewMode === "by-user" ? "Search users..." : viewMode === "by-notebook" ? "Search notebooks..." : "Search clusters..."}
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-                className="w-full rounded-full border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400 focus:border-[#FF3621] focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
+                className="w-full rounded-full border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400 focus:border-lava focus:outline-none focus:ring-1 focus:ring-lava"
               />
             </div>
           </div>
@@ -356,7 +357,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
                           href={url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="group flex max-w-md items-center gap-1 truncate text-sm font-medium text-[#FF3621] hover:text-[#E02F1C]"
+                          className="group flex max-w-md items-center gap-1 truncate text-sm font-medium text-lava hover:text-lava-hover"
                           title={item.key}
                         >
                           <span className="truncate">{displayName}</span>
@@ -467,7 +468,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
                             ? "text-white"
                             : "border border-gray-300 text-gray-700 hover:bg-gray-50"
                         }`}
-                        style={currentPage === page ? { backgroundColor: '#FF3621' } : undefined}
+                        style={currentPage === page ? { backgroundColor: C.lava } : undefined}
                       >
                         {page}
                       </button>

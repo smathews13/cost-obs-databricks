@@ -41,6 +41,8 @@ import type { PieLabelRenderProps, LegendPayload } from "recharts";
 import type { AIMLDashboardBundle } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
+import { C } from "@/theme";
+import { PageHero, Chip } from "@/components/brand";
 
 interface AIMLCostCenterProps {
   data: AIMLDashboardBundle | undefined;
@@ -54,19 +56,19 @@ interface AIMLCostCenterProps {
 
 // Stable category-to-color mapping for consistent colors across pie + timeseries
 const CATEGORY_COLORS: Record<string, string> = {
-  "Serverless Inference": "#06B6D4",
-  "Model Training": "#1B5162",
-  "Feature Engineering": "#14B8A6",
-  "GPU Clusters": "#EF4444",
-  "Model Serving": "#EC4899",
-  "MLflow": "#06B6D4",
-  "OpenAI": "#10B981",
-  "Anthropic": "#F59E0B",
-  "Gemini": "#6B7280",
-  "AI Search": "#3B82F6",
-  "Fine Tuning": "#F97316",
+  "Serverless Inference": C.s5,
+  "Model Training": C.s2,
+  "Feature Engineering": C.s3,
+  "GPU Clusters": C.lava,
+  "Model Serving": C.s1,
+  "MLflow": C.s5,
+  "OpenAI": C.s3,
+  "Anthropic": C.s4,
+  "Gemini": C.slate,
+  "AI Search": C.s5,
+  "Fine Tuning": C.s1,
 };
-const FALLBACK_COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#3B82F6", "#EC4899", "#EF4444", "#6B7280"];
+const FALLBACK_COLORS = [C.s2, C.s5, C.s3, C.s3, C.s4, C.s5, C.s1, C.lava, C.slate];
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -387,7 +389,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
   if (isLoading) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: '#FF3621' }} />
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
         <p className="text-sm text-gray-500">Loading AI/ML data...</p>
       </div>
     );
@@ -409,24 +411,24 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
   return (
     <div className="animate-fade-in space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="rounded-lg p-2" style={{ backgroundColor: '#FF3621' }}>
-          <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <PageHero
+        icon={
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
           </svg>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">AI/ML</h1>
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm text-gray-500">AI and machine learning cost attribution and trends</p>
+        }
+        title="AI/ML"
+        subtitle={
+          <>
+            AI and machine learning cost attribution and trends
             {workspaceIds && workspaceIds.length > 0 && (
-              <span className="rounded bg-[#1B3139]/10 px-2 py-0.5 text-[10px] font-medium text-[#1B3139]">
+              <Chip kind="workspace">
                 {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
-              </span>
+              </Chip>
             )}
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Info Banner */}
       <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
@@ -476,12 +478,12 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div
           className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: '#E5E5E5' }}
+          style={{ borderColor: C.hairline }}
           onClick={() => startDate && endDate && setSelectedKPI({kpi: "aiml_spend", label: "Daily AI/ML Spend"})}
         >
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-[#FF3621]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -489,19 +491,19 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
               <p className="text-sm font-medium text-gray-500">Total AI/ML Spend</p>
               <p className="text-2xl font-semibold text-gray-900">{formatCurrency(summary.total_spend)}</p>
               <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
-              <p className="mt-0.5 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
+              <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
         </div>
 
         <div
           className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: '#E5E5E5' }}
+          style={{ borderColor: C.hairline }}
           onClick={() => startDate && endDate && setSelectedKPI({kpi: "aiml_dbus", label: "Daily AI/ML DBUs"})}
         >
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-[#FF3621]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
               </svg>
             </div>
@@ -509,19 +511,19 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
               <p className="text-sm font-medium text-gray-500">Total DBUs</p>
               <p className="text-2xl font-semibold text-gray-900">{formatNumber(summary.total_dbus)}</p>
               <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
-              <p className="mt-0.5 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
+              <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
         </div>
 
         <div
           className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: '#E5E5E5' }}
+          style={{ borderColor: C.hairline }}
           onClick={() => startDate && endDate && setSelectedKPI({kpi: "aiml_endpoints", label: "Daily Active Endpoints"})}
         >
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-[#FF3621]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
               </svg>
             </div>
@@ -529,19 +531,19 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
               <p className="flex items-center text-sm font-medium text-gray-500">Active Endpoints<InfoTooltip text="Count of distinct model serving or inference endpoints that had billable usage on each day. An endpoint counts as active on any day it consumed DBUs." /></p>
               <p className="text-2xl font-semibold text-gray-900">{formatNumber(summary.endpoint_count || 0)}</p>
               <p className="mt-1 text-xs text-gray-500">avg. across {summary.workspace_count || 0} workspaces</p>
-              <p className="mt-0.5 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
+              <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
         </div>
 
         <div
           className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: '#E5E5E5' }}
+          style={{ borderColor: C.hairline }}
           onClick={() => startDate && endDate && setSelectedKPI({kpi: "aiml_avg_endpoint_cost", label: "Average Daily Endpoint Cost"})}
         >
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-[#FF3621]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
               </svg>
             </div>
@@ -549,7 +551,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
               <p className="text-sm font-medium text-gray-500">Endpoint Cost</p>
               <p className="text-2xl font-semibold text-gray-900">{formatCurrency(summary.avg_cost_per_endpoint || 0)}</p>
               <p className="mt-1 text-xs text-gray-500">daily per-endpoint</p>
-              <p className="mt-0.5 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
+              <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
         </div>
@@ -570,7 +572,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
       {/* Charts Row */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Spend Over Time */}
-        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">AI/ML Spend Over Time</h3>
           {data.timeseries?.timeseries?.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -604,7 +606,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
         </div>
 
         {/* Category Breakdown Pie Chart */}
-        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by AI Spend Category</h3>
           {pieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -640,7 +642,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
       {/* Top Endpoints & Top Models Side-by-Side */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Top Endpoints Table */}
-        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <div className="mb-4 flex items-center gap-2">
             <h3 className="text-lg font-semibold text-gray-900">Top Model Serving Endpoints</h3>
             <div className="group relative">
@@ -660,7 +662,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                 <div className="relative" ref={endpointsWorkspaceFilterRef}>
                   <button
                     onClick={() => setEndpointsWorkspaceDropdownOpen(o => !o)}
-                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isPartialWs ? "border-[#FF3621] text-[#FF3621]" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isPartialWs ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
                   >
                     {singleName
                       ? (singleName.length > 20 ? singleName.slice(0, 20) + "…" : singleName)
@@ -690,7 +692,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                           value={endpointsWorkspaceSearch}
                           onChange={(e) => setEndpointsWorkspaceSearch(e.target.value)}
                           placeholder="Search workspaces..."
-                          className="w-full rounded border border-gray-200 px-2 py-1 text-xs focus:border-[#FF3621] focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
+                          className="w-full rounded border border-gray-200 px-2 py-1 text-xs focus:border-lava focus:outline-none focus:ring-1 focus:ring-lava"
                           autoFocus
                         />
                       </div>
@@ -725,7 +727,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                 <div className="relative" ref={endpointsCostTypeFilterRef}>
                   <button
                     onClick={() => setEndpointsCostTypeDropdownOpen(o => !o)}
-                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${endpointsCostTypeFilter ? "border-[#FF3621] text-[#FF3621]" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${endpointsCostTypeFilter ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
                   >
                     {endpointsCostTypeFilter || "Cost type"}
                     {endpointsCostTypeFilter && (
@@ -785,7 +787,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                           <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
                             <td className="px-3 py-2 text-sm font-medium truncate max-w-[200px]" title={endpoint.endpoint_name}>
                               {epUrl ? (
-                                <a href={epUrl} target="_blank" rel="noopener noreferrer" className="text-[#FF3621] hover:underline">
+                                <a href={epUrl} target="_blank" rel="noopener noreferrer" className="text-lava hover:underline">
                                   {endpoint.endpoint_name}
                                 </a>
                               ) : endpoint.endpoint_name}
@@ -821,7 +823,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
         </div>
 
         {/* Top Models Table */}
-        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           {(() => {
             const TYPE_LABELS: Record<string, string> = { "Foundation Model API": "FMAPI Call" };
             const typeColors: Record<string, string> = {
@@ -855,7 +857,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                 <button
                   type="button"
                   onClick={() => setModelsTypeDropdownOpen((o) => !o)}
-                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isPartialTypes ? "border-[#FF3621] text-[#FF3621]" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isPartialTypes ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
                 >
                   <span className="max-w-[140px] truncate">
                     {modelsTypeFilters.length === 1
@@ -919,7 +921,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                             return (
                               <tr key={idx} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
                                 <td className="px-3 py-2 text-sm font-medium truncate max-w-45" title={model.model_name}>
-                                  {(() => { const modelUrl = getModelUrl(host, workspaceIds?.[0]); return modelUrl ? <a href={modelUrl} target="_blank" rel="noopener noreferrer" className="text-[#FF3621] hover:underline">{model.model_name}</a> : <span className="text-gray-900">{model.model_name}</span>; })()}
+                                  {(() => { const modelUrl = getModelUrl(host, workspaceIds?.[0]); return modelUrl ? <a href={modelUrl} target="_blank" rel="noopener noreferrer" className="text-lava hover:underline">{model.model_name}</a> : <span className="text-gray-900">{model.model_name}</span>; })()}
                                 </td>
                                 <td className="whitespace-nowrap px-3 py-2 text-sm">
                                   <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${colorClass}`}>{typeLabel}</span>
@@ -953,7 +955,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
       </div>
 
       {/* ML Runtime Clusters Table */}
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         {(() => {
           const allMlClusters = data.ml_clusters?.clusters || [];
           const isHistoricalMlCluster = (c: typeof allMlClusters[0]) => !c.cluster_name || c.cluster_name === c.cluster_id || c.cluster_name === "Unknown";
@@ -996,7 +998,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                     <div className="relative flex items-center gap-1.5" ref={mlRuntimeFilterRef}>
                       <button
                         onClick={() => setMlRuntimeFilterOpen(o => !o)}
-                        className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${mlRuntimeFilter.length > 0 && mlRuntimeFilter.length < availableRuntimes.length ? "border-[#FF3621] text-[#FF3621]" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                        className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${mlRuntimeFilter.length > 0 && mlRuntimeFilter.length < availableRuntimes.length ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
                       >
                         {mlRuntimeFilter.length === 0
                           ? "Runtime"
@@ -1042,7 +1044,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                       placeholder="Search clusters..."
                       value={mlClusterSearch}
                       onChange={(e) => { setMlClusterSearch(e.target.value); setMlClustersPage(1); }}
-                      className="w-44 rounded-full border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400 focus:border-[#FF3621] focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
+                      className="w-44 rounded-full border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400 focus:border-lava focus:outline-none focus:ring-1 focus:ring-lava"
                     />
                   </div>
                 </div>
@@ -1069,7 +1071,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                               <div className="flex flex-col gap-0.5">
                                 {clusterUrl ? (
                                   <a href={clusterUrl} target="_blank" rel="noopener noreferrer"
-                                    className="group flex items-center gap-1 font-medium text-[#FF3621] hover:text-[#E02F1C]">
+                                    className="group flex items-center gap-1 font-medium text-lava hover:text-lava-hover">
                                     <span className="truncate max-w-[250px]">{cluster.cluster_name}</span>
                                     <svg className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -1123,7 +1125,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
       </div>
 
       {/* Agent Bricks Table */}
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         {(() => {
           const allAgents = data.agent_bricks?.agents || [];
           const isHistoricalAgent = (a: typeof allAgents[0]) => a.agent_name === "Unknown" || a.agent_name === a.endpoint_id;
@@ -1167,7 +1169,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                       <button
                         type="button"
                         onClick={() => setAgentTypeDropdownOpen((o) => !o)}
-                        className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isPartialAgentTypes ? "border-[#FF3621] text-[#FF3621]" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                        className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isPartialAgentTypes ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
                       >
                         <span>{agentTypeFilter.length === 1
                           ? agentTypeFilter[0]
@@ -1215,7 +1217,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                       placeholder="Search agents..."
                       value={agentSearch}
                       onChange={(e) => { setAgentSearch(e.target.value); setAgentsPage(1); }}
-                      className="w-44 rounded-full border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400 focus:border-[#FF3621] focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
+                      className="w-44 rounded-full border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400 focus:border-lava focus:outline-none focus:ring-1 focus:ring-lava"
                     />
                   </div>
                 </div>
@@ -1246,7 +1248,7 @@ export function AIMLCostCenter({ data, isLoading, startDate, endDate, host, work
                             >
                               <td className="px-4 py-4 text-sm">
                                 <div className="flex flex-col gap-0.5">
-                                  <span className="font-medium text-[#FF3621] max-w-[250px] truncate" title={agent.agent_name}>
+                                  <span className="font-medium text-lava max-w-[250px] truncate" title={agent.agent_name}>
                                     {agent.agent_name}
                                   </span>
                                   <div className="flex items-center gap-2">

@@ -3,6 +3,7 @@ import type { PipelineObjectsResponse } from "@/types/billing";
 import { formatCurrency, workspaceUrl } from "@/utils/formatters";
 import { StatusIndicator } from "./StatusIndicator";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
+import { C } from "@/theme";
 
 interface PipelineObjectsTableProps {
   data: PipelineObjectsResponse | undefined;
@@ -72,9 +73,9 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
 
   if (isLoading) {
     return (
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         <div className="flex h-48 flex-col items-center justify-center gap-3">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: '#FF3621' }} />
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
           <p className="text-sm text-gray-500">Loading pipelines...</p>
         </div>
       </div>
@@ -83,7 +84,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
 
   if (data?.error) {
     return (
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         <h3 className="mb-4 text-lg font-semibold text-gray-900">ETL Leaderboard</h3>
         <p className="text-sm text-amber-600">{data.error}</p>
       </div>
@@ -130,7 +131,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
   const historicalCount = data.objects.filter((o) => isHistorical(o)).length;
 
   return (
-    <div className="animate-fade-in rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+    <div className="animate-fade-in rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <h3 className="text-lg font-semibold text-gray-900 shrink-0 flex items-center gap-1.5">
           ETL Leaderboard
@@ -158,7 +159,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
           <div ref={filterDropdownRef} className="relative">
             <button
               onClick={() => setFilterDropdownOpen(o => !o)}
-              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${filter.length > 0 && filter.length < 2 ? "border-[#FF3621] text-[#FF3621]" : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"}`}
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${filter.length > 0 && filter.length < 2 ? "border-lava text-lava" : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"}`}
             >
               {filter.length === 0
                 ? "Type"
@@ -203,7 +204,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
             <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
-            <input type="text" placeholder="Search ETLs..." value={search} onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }} className="w-44 rounded-full border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400 focus:border-[#FF3621] focus:outline-none focus:ring-1 focus:ring-[#FF3621]" />
+            <input type="text" placeholder="Search ETLs..." value={search} onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }} className="w-44 rounded-full border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400 focus:border-lava focus:outline-none focus:ring-1 focus:ring-lava" />
           </div>
         </div>
       </div>
@@ -274,7 +275,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
                           href={url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="group flex max-w-xs items-center gap-1 truncate text-sm font-medium text-[#FF3621] hover:text-[#E02F1C]"
+                          className="group flex max-w-xs items-center gap-1 truncate text-sm font-medium text-lava hover:text-lava-hover"
                         >
                           <span className="truncate">{obj.object_name || obj.object_id}</span>
                           <svg className="h-3 w-3 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -401,7 +402,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
                             ? "text-white"
                             : "border border-gray-300 text-gray-700 hover:bg-gray-50"
                         }`}
-                        style={currentPage === page ? { backgroundColor: '#FF3621' } : undefined}
+                        style={currentPage === page ? { backgroundColor: C.lava } : undefined}
                       >
                         {page}
                       </button>

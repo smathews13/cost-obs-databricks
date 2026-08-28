@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { TabVisibility } from "@/components/SettingsDialog";
+import { C } from "@/theme";
 
 export interface ExportSections {
   summary: boolean;
@@ -188,16 +189,16 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
               <div className="flex gap-2">
                 <button
                   onClick={selectAll}
-                  className="text-sm font-medium hover:text-[#E02F1C]"
-                  style={{ color: '#FF3621' }}
+                  className="text-sm font-medium hover:text-lava-hover"
+                  style={{ color: C.lava }}
                 >
                   Select All
                 </button>
                 <span className="text-gray-300">|</span>
                 <button
                   onClick={selectNone}
-                  className="text-sm font-medium hover:text-[#E02F1C]"
-                  style={{ color: '#FF3621' }}
+                  className="text-sm font-medium hover:text-lava-hover"
+                  style={{ color: C.lava }}
                 >
                   Select None
                 </button>
@@ -244,16 +245,16 @@ export function ExportDialog({ isOpen, onClose, onExport, tabVisibility }: Expor
               disabled={selectedCount === 0}
               className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
               style={{
-                backgroundColor: selectedCount === 0 ? '#FFA390' : '#FF3621'
+                backgroundColor: selectedCount === 0 ? C.busy : C.lava
               }}
               onMouseEnter={(e) => {
                 if (selectedCount > 0) {
-                  e.currentTarget.style.backgroundColor = '#E02F1C';
+                  e.currentTarget.style.backgroundColor = C.lavaHover;
                 }
               }}
               onMouseLeave={(e) => {
                 if (selectedCount > 0) {
-                  e.currentTarget.style.backgroundColor = '#FF3621';
+                  e.currentTarget.style.backgroundColor = C.lava;
                 }
               }}
             >

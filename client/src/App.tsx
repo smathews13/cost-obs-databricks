@@ -90,6 +90,9 @@ import {
 import type { DateRange, WorkspaceBreakdown } from "@/types/billing";
 import { generateCostReport } from "@/utils/pdfExport";
 import { generateCostCSV } from "@/utils/csvExport";
+import { C } from "@/theme";
+import { CostObsLockup, VersionPill, PageHero, Chip } from "@/components/brand";
+import { Spinner } from "@/components/Spinner";
 
 // Keep the Databricks Apps pod warm while the tab is open.
 // Cold starts take 30s–1min; a lightweight ping every 4 min prevents idle suspension.
@@ -130,7 +133,7 @@ function AccountPricingBanner() {
   const { useAccountPrices, discountPercent, skuCount, available } = usePricing();
   if (!useAccountPrices) return null;
   return (
-    <div className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs font-medium text-white" style={{ backgroundColor: '#10B981' }}>
+    <div className="flex items-center justify-center gap-2 px-4 py-1.5 text-xs font-medium text-white" style={{ backgroundColor: C.s3 }}>
       <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
@@ -189,7 +192,7 @@ function SpGrantsBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
         <button
           onClick={() => { onOpenSettings(); }}
           className="text-xs font-medium px-3 py-1.5 rounded"
-          style={{ background: "#FF3621", color: "#fff" }}
+          style={{ background: C.lava, color: "#fff" }}
         >
           {isWarehouseIssue ? "Open Settings → Permissions" : "Re-run Permissions"}
         </button>
@@ -753,7 +756,7 @@ function Dashboard() {
 
   if (showSetupWizard) {
     return (
-      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: '#F9F7F4' }}>
+      <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: C.oatPage }}>
         <SetupWizard
           onComplete={handleSetupComplete}
           onClose={() => { setShowSetupWizard(false); setSetupIncomplete(true); }}
@@ -764,22 +767,22 @@ function Dashboard() {
 
   if (setupCheckPending) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4" style={{ backgroundColor: '#F9F7F4' }}>
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: '#FF3621' }} />
-        <p className="text-sm font-medium" style={{ color: '#1B3139' }}>Checking setup status…</p>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4" style={{ backgroundColor: C.oatPage }}>
+        <Spinner size="md" />
+        <p className="text-sm font-medium" style={{ color: C.navy }}>Checking setup status…</p>
       </div>
     );
   }
 
   if (warehouseStatus?.status === "unavailable") {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-6" style={{ backgroundColor: '#F9F7F4' }}>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-6" style={{ backgroundColor: C.oatPage }}>
         <div className="flex flex-col items-center gap-4 text-center">
           <svg className="h-10 w-10 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
           </svg>
-          <h2 className="text-xl font-semibold" style={{ color: '#1B3139' }}>SQL Warehouse unavailable</h2>
-          <p className="text-sm" style={{ color: '#6B7280' }}>The warehouse could not be reached. Check that your warehouse is running in the Databricks console.</p>
+          <h2 className="text-xl font-semibold" style={{ color: C.navy }}>SQL Warehouse unavailable</h2>
+          <p className="text-sm" style={{ color: C.slate }}>The warehouse could not be reached. Check that your warehouse is running in the Databricks console.</p>
         </div>
       </div>
     );
@@ -787,15 +790,15 @@ function Dashboard() {
 
   if (warehouseWarming && !rebuildInProgress) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-6" style={{ backgroundColor: '#F9F7F4' }}>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-6" style={{ backgroundColor: C.oatPage }}>
         <div className="flex flex-col items-center gap-4 text-center">
           <div className="flex items-center gap-2">
             <div className="h-3 w-3 animate-pulse rounded-full bg-blue-400" style={{ animationDelay: '0ms' }} />
             <div className="h-3 w-3 animate-pulse rounded-full bg-blue-400" style={{ animationDelay: '200ms' }} />
             <div className="h-3 w-3 animate-pulse rounded-full bg-blue-400" style={{ animationDelay: '400ms' }} />
           </div>
-          <h2 className="text-xl font-semibold" style={{ color: '#1B3139' }}>SQL Warehouse is starting up</h2>
-          <p className="text-sm" style={{ color: '#6B7280' }}>Dashboard data will load automatically once the warehouse is ready.</p>
+          <h2 className="text-xl font-semibold" style={{ color: C.navy }}>SQL Warehouse is starting up</h2>
+          <p className="text-sm" style={{ color: C.slate }}>Dashboard data will load automatically once the warehouse is ready.</p>
         </div>
       </div>
     );
@@ -803,11 +806,11 @@ function Dashboard() {
 
   return (
     <SpNameMapContext.Provider value={spNameMap}>
-    <div className="min-h-screen" style={{ backgroundColor: (appSettings.theme === "dark" || (appSettings.theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches)) ? '#1B1F23' : '#F9F7F4' }}>
+    <div className="min-h-screen" style={{ backgroundColor: (appSettings.theme === "dark" || (appSettings.theme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches)) ? '#1B1F23' : C.oatPage }}>
       <TopProgressBar />
       {/* Setup incomplete banner — non-dismissable, shown when wizard was closed without finishing */}
       {setupIncomplete && (
-        <div className="flex items-center justify-between gap-4 px-4 py-2.5 border-b" style={{ backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }}>
+        <div className="flex items-center justify-between gap-4 px-4 py-2.5 border-b" style={{ backgroundColor: C.coralTint, borderColor: C.coralBrd }}>
           <div className="flex items-center gap-2 min-w-0">
             <svg className="h-4 w-4 shrink-0 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
@@ -836,7 +839,7 @@ function Dashboard() {
                 setShowSetupWizard(true);
               }}
               className="rounded-md px-3 py-1.5 text-xs font-semibold text-white transition-colors"
-              style={{ backgroundColor: '#FF3621' }}
+              style={{ backgroundColor: C.lava }}
             >
               Resume Setup
             </button>
@@ -847,8 +850,8 @@ function Dashboard() {
       {/* Sticky top chrome: navy account bar + white title/tabs */}
       <div className="sticky top-0 z-30 shadow">
       {/* Account Info Banner */}
-      <div className="text-white" style={{ backgroundColor: '#1B3139' }}>
-        <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
+      <div className="text-white" style={{ backgroundColor: C.navy, height: 46 }}>
+        <div className="mx-auto flex h-full max-w-7xl items-center px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -870,7 +873,7 @@ function Dashboard() {
                     {accountInfo.account_name && (
                       <div className="flex flex-col leading-none">
                         <span className="text-[9px] font-medium uppercase tracking-wide opacity-50">Account</span>
-                        <span className="mt-0.5 max-w-[120px] truncate rounded px-2 py-0.5 text-[10px] font-medium text-white/90" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }}>
+                        <span className="mt-0.5 max-w-[120px] truncate rounded px-2 py-0.5 text-[10px] font-medium text-white/90" style={{ backgroundColor: "rgba(255,255,255,0.09)", fontFamily: "var(--mono)" }}>
                           {accountInfo.account_name}
                         </span>
                       </div>
@@ -965,23 +968,13 @@ function Dashboard() {
                 )}
                 {warehouseStatus && (
                   <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                      warehouseStatus.status === "warm"
-                        ? "bg-green-500/20 text-green-200"
-                        : warehouseStatus.status === "warming_up"
-                        ? "bg-amber-500/20 text-amber-200"
-                        : "bg-red-500/20 text-red-200"
-                    }`}
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                    style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.13)", color: "rgba(255,255,255,0.9)" }}
                     title={`SQL Warehouse: ${warehouseStatus.state ?? warehouseStatus.status}`}
                   >
                     <span
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        warehouseStatus.status === "warm"
-                          ? "bg-green-400"
-                          : warehouseStatus.status === "warming_up"
-                          ? "bg-amber-400 animate-pulse"
-                          : "bg-red-400"
-                      }`}
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ background: warehouseStatus.status === "warm" ? "var(--status-dot)" : warehouseStatus.status === "warming_up" ? "var(--amber)" : "var(--maroon)" }}
                     />
                     {warehouseStatus.status === "warm" ? "Active" : warehouseStatus.status === "warming_up" ? "Starting" : "Offline"}
                     <span className="opacity-60">SQL</span>
@@ -997,7 +990,7 @@ function Dashboard() {
                 )}
                 <button
                   onClick={() => setShowExportDialog(true)}
-                  className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-white opacity-75 transition-opacity hover:opacity-100 hover:bg-white/10 border border-white/20"
+                  className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-100 border border-white/40"
                   title="Export"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1028,22 +1021,11 @@ function Dashboard() {
         <div className="mx-auto max-w-7xl px-4 pt-8 pb-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-3 items-center gap-4">
             <div>
-              <div className="flex items-baseline gap-2">
-                <h1
-                  className="text-3xl font-black tracking-wide text-gray-900 cursor-pointer hover:opacity-75 transition-opacity"
-                  style={{ fontFamily: "'Orbitron', sans-serif" }}
-                  onClick={() => setActiveTab("dbu")}
-                  title="Back to $DBU Spend"
-                >
-                  COST-OBS
-                </h1>
-                <span
-                  className="text-sm font-semibold tracking-wide"
-                  style={{ color: "#FF3621", fontFamily: "'Orbitron', sans-serif" }}
-                  title="cost-obs release tag on the deployed repo"
-                >
-                  v1.1
-                </span>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setActiveTab("dbu")} title="Back to $DBU Spend" className="cursor-pointer hover:opacity-80 transition-opacity">
+                  <CostObsLockup />
+                </button>
+                <VersionPill />
               </div>
             </div>
             <div className="flex justify-center items-center gap-3">
@@ -1059,15 +1041,15 @@ function Dashboard() {
             <div />
           </div>
           {/* Tab Navigation */}
-          <div className="mt-4 border-b border-gray-200 overflow-x-auto overflow-y-hidden">
+          <div className="mt-4 overflow-x-auto overflow-y-hidden" style={{ borderBottom: "1px solid var(--hairline)" }}>
             <nav className="-mb-px flex justify-center space-x-4 min-w-max">
               {tabVisibility.dbu && (
               <button
                 onClick={() => setActiveTab("dbu")}
                 className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
                   activeTab === "dbu"
-                    ? "border-[#FF3621] text-[#FF3621]"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                    ? "border-lava text-lava"
+                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
                 }`}
               >
                 <svg className="mr-2 -mt-0.5 inline h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
@@ -1083,8 +1065,8 @@ function Dashboard() {
                 onClick={() => setActiveTab("sql")}
                 className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
                   activeTab === "sql"
-                    ? "border-[#FF3621] text-[#FF3621]"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                    ? "border-lava text-lava"
+                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
                 }`}
               >
                 <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1098,8 +1080,8 @@ function Dashboard() {
                 onClick={() => setActiveTab("aiml")}
                 className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
                   activeTab === "aiml"
-                    ? "border-[#FF3621] text-[#FF3621]"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                    ? "border-lava text-lava"
+                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
                 }`}
               >
                 <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1113,8 +1095,8 @@ function Dashboard() {
                 onClick={() => setActiveTab("apps")}
                 className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
                   activeTab === "apps"
-                    ? "border-[#FF3621] text-[#FF3621]"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                    ? "border-lava text-lava"
+                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
                 }`}
               >
                 <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1128,8 +1110,8 @@ function Dashboard() {
                 onClick={() => setActiveTab("tagging")}
                 className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
                   activeTab === "tagging"
-                    ? "border-[#FF3621] text-[#FF3621]"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                    ? "border-lava text-lava"
+                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
                 }`}
               >
                 <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1143,8 +1125,8 @@ function Dashboard() {
                 onClick={() => setActiveTab("users-groups")}
                 className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
                   activeTab === "users-groups"
-                    ? "border-[#FF3621] text-[#FF3621]"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                    ? "border-lava text-lava"
+                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
                 }`}
               >
                 <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1158,8 +1140,8 @@ function Dashboard() {
                 onClick={() => setActiveTab("kpis")}
                 className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
                   activeTab === "kpis"
-                    ? "border-[#FF3621] text-[#FF3621]"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                    ? "border-lava text-lava"
+                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
                 }`}
               >
                 <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1173,8 +1155,8 @@ function Dashboard() {
                 onClick={() => setActiveTab("infra")}
                 className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
                   activeTab === "infra"
-                    ? "border-[#FF3621] text-[#FF3621]"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                    ? "border-lava text-lava"
+                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
                 }`}
               >
                 <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1188,8 +1170,8 @@ function Dashboard() {
                 onClick={() => setActiveTab("optimizer")}
                 className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
                   activeTab === "optimizer"
-                    ? "border-[#FF3621] text-[#FF3621]"
-                    : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                    ? "border-lava text-lava"
+                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
                 }`}
               >
                 <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1215,40 +1197,40 @@ function Dashboard() {
           )}
         <Suspense fallback={
           <div className="flex h-64 flex-col items-center justify-center gap-3">
-            <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: '#FF3621' }} />
+            <Spinner size="md" />
             <p className="text-sm text-gray-500">Loading...</p>
           </div>
         }>
         {activeTab === "dbu" ? (
           (!warehouseStatus || bundleLoading) ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: '#FF3621' }} />
+              <Spinner size="lg" />
               <p className="text-sm text-gray-500">Loading DBU spend data...</p>
             </div>
           ) : (
           <TabErrorBoundary tabName="$DBU Spend">
           <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg p-2" style={{ backgroundColor: '#FF3621' }}>
-                <svg className="h-6 w-6 text-white" viewBox="0 0 24 24" fill="currentColor">
+            <PageHero
+              icon={
+                <svg viewBox="0 0 24 24" fill="currentColor">
                   <path d="M20 4H4L7 8L4 12H20L17 8L20 4Z" opacity="0.9"/>
                   <path d="M20 8H4L7 12L4 16H20L17 12L20 8Z" opacity="0.7"/>
                   <path d="M20 12H4L7 16L4 20H20L17 16L20 12Z" opacity="0.5"/>
                 </svg>
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">$DBU Spend</h1>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm text-gray-500">Databricks Unit consumption and cost breakdown</p>
+              }
+              title="$DBU Spend"
+              subtitle={
+                <>
+                  Databricks Unit consumption and cost breakdown
                   {_wsIds && _wsIds.length > 0 && (
-                    <span className="rounded bg-[#1B3139]/10 px-2 py-0.5 text-[10px] font-medium text-[#1B3139]">
+                    <Chip kind="workspace">
                       {_wsIds.length === 1 ? (workspaceNameMap[_wsIds[0]] || _wsIds[0]) : `${_wsIds.length} workspaces`}
-                    </span>
+                    </Chip>
                   )}
-                </div>
-              </div>
-            </div>
+                </>
+              }
+            />
 
 
             <SummaryCards
@@ -1302,17 +1284,15 @@ function Dashboard() {
         ) : activeTab === "optimizer" ? (
           <TabErrorBoundary tabName="Optimize">
           <div className="space-y-6">
-            <div className="flex items-center gap-3">
-              <div className="rounded-lg p-2" style={{ backgroundColor: '#FF3621' }}>
-                <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <PageHero
+              icon={
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
                 </svg>
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">Optimize</h1>
-                <p className="text-sm text-gray-500">Rightsizing recommendations and cost optimization insights</p>
-              </div>
-            </div>
+              }
+              title="Optimize"
+              subtitle="Rightsizing recommendations and cost optimization insights"
+            />
             <OptimizeMethodologyPanel />
             <WarehouseIdleTimeView host={accountInfo?.host} startDate={dateRange.startDate} endDate={dateRange.endDate} workspaceIds={_wsIds} />
             <WarehouseRightsizingView host={accountInfo?.host} />
@@ -1444,7 +1424,7 @@ class TabErrorBoundary extends React.Component<
   render() {
     if (this.state.error) {
       return (
-        <div className="flex flex-col items-center justify-center py-16 px-8 rounded-lg bg-white border " style={{ borderColor: '#E5E5E5' }}>
+        <div className="flex flex-col items-center justify-center py-16 px-8 rounded-lg bg-white border " style={{ borderColor: C.hairline }}>
           <div className="text-3xl mb-3">⚠️</div>
           <h3 className="text-lg font-semibold text-gray-900 mb-1">
             {this.props.tabName ? `${this.props.tabName} encountered an error` : "Something went wrong"}
@@ -1455,7 +1435,7 @@ class TabErrorBoundary extends React.Component<
           <button
             onClick={() => this.setState({ error: null })}
             className="px-4 py-2 rounded-lg text-sm font-medium text-white"
-            style={{ backgroundColor: '#FF3621' }}
+            style={{ backgroundColor: C.lava }}
           >
             Try Again
           </button>

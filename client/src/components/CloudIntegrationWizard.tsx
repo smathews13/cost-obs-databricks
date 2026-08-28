@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure.png";
 import gcpLogo from "@/assets/gcp.svg";
+import { C } from "@/theme";
 
 export type CloudIntegration = { id: string; cloud: "azure" | "aws" | "gcp"; label: string };
 
@@ -173,7 +174,7 @@ export function CloudIntegrationWizard({
                       >
                         <span
                           className={`flex-shrink-0 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isChecked ? "bg-green-100 text-green-700" : isLast ? "text-white" : "bg-orange-100 text-orange-700"}`}
-                          style={!isChecked && isLast ? { backgroundColor: '#FF3621' } : {}}
+                          style={!isChecked && isLast ? { backgroundColor: C.lava } : {}}
                         >
                           {isChecked ? (
                             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -439,7 +440,7 @@ export function CloudIntegrationWizard({
                     onClose();
                   }}
                   className="rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors"
-                  style={{ backgroundColor: '#FF3621' }}
+                  style={{ backgroundColor: C.lava }}
                 >
                   Mark as configured
                 </button>

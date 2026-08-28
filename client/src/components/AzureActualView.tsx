@@ -6,12 +6,13 @@ import {
 import { format, parseISO } from "date-fns";
 import type { AzureActualDashboardBundle } from "@/types/billing";
 import { formatCurrency } from "@/utils/formatters";
+import { C } from "@/theme";
 
 const CHARGE_TYPE_COLORS: Record<string, string> = {
-  Compute: "#1B5162",
-  Storage: "#06B6D4",
-  Networking: "#10B981",
-  Other: "#6B7280",
+  Compute: C.s2,
+  Storage: C.s5,
+  Networking: C.s3,
+  Other: C.slate,
 };
 
 interface AzureActualViewProps {
@@ -83,7 +84,7 @@ export function AzureActualView({ azureActualData, cloudTabSwitcher, onSwitchToE
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by Charge Type</h3>
           {chargeTypePieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -109,7 +110,7 @@ export function AzureActualView({ azureActualData, cloudTabSwitcher, onSwitchToE
           )}
         </div>
 
-        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Actual Azure Cost Over Time</h3>
           {timeseries?.timeseries && timeseries.timeseries.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -133,7 +134,7 @@ export function AzureActualView({ azureActualData, cloudTabSwitcher, onSwitchToE
       </div>
 
       {byCluster?.clusters && byCluster.clusters.length > 0 && (
-        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Actual Azure Costs by Cluster</h3>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">

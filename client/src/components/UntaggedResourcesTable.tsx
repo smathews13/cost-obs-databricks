@@ -2,6 +2,7 @@ import { useCallback, useState, useRef, useEffect } from "react";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { workspaceUrl } from "@/utils/formatters";
 import type { TaggingDashboardBundle } from "@/types/billing";
+import { C } from "@/theme";
 
 type UntaggedItem = {
   workspace_id: string;
@@ -212,7 +213,7 @@ export function UntaggedResourcesTable({
   };
 
   return (
-    <div className="rounded-lg bg-white p-6 border" style={{ borderColor: '#E5E5E5' }}>
+    <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">Untagged Resources</h3>
         <span className="text-sm text-red-600">{formatCurrency(data.summary.untagged_spend)} untagged spend</span>
@@ -279,7 +280,7 @@ export function UntaggedResourcesTable({
           <button
             type="button"
             onClick={() => setTabDropdownOpen((o) => !o)}
-            className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${!isAllTypesSelected ? "border-[#FF3621] text-[#FF3621]" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+            className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${!isAllTypesSelected ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
           >
             {singleTypeSelected
               ? (resourceTabs.find((t) => t.key === singleTypeSelected)?.label ?? "Resources")
@@ -332,7 +333,7 @@ export function UntaggedResourcesTable({
             placeholder="Search resources..."
             value={searchQuery}
             onChange={(e) => { onSearchChange(e.target.value); onPageChange(1); }}
-            className="w-44 rounded-full border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400 focus:border-[#FF3621] focus:outline-none focus:ring-1 focus:ring-[#FF3621]"
+            className="w-44 rounded-full border border-gray-200 bg-white py-1.5 pl-9 pr-4 text-xs placeholder:text-gray-400 focus:border-lava focus:outline-none focus:ring-1 focus:ring-lava"
           />
           {searchQuery && (
             <button onClick={() => { onSearchChange(""); onPageChange(1); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-600">
@@ -397,7 +398,7 @@ export function UntaggedResourcesTable({
                     <td className="px-6 py-4 text-sm">
                       {resourceUrl ? (
                         <div className="flex flex-col gap-0.5">
-                          <a href={resourceUrl} target="_blank" rel="noopener noreferrer" className="group flex max-w-xs items-center gap-1 truncate font-medium text-[#FF3621] hover:text-[#E02F1C]">
+                          <a href={resourceUrl} target="_blank" rel="noopener noreferrer" className="group flex max-w-xs items-center gap-1 truncate font-medium text-lava hover:text-lava-hover">
                             <span className="truncate">{displayName}</span>
                             <svg className="h-3 w-3 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -492,7 +493,7 @@ export function UntaggedResourcesTable({
                         <button
                           onClick={() => onPageChange(page)}
                           className={`rounded px-3 py-1 text-sm font-medium ${currentPage === page ? "text-white" : "border border-gray-300 text-gray-700 hover:bg-gray-50"}`}
-                          style={currentPage === page ? { backgroundColor: '#FF3621' } : undefined}
+                          style={currentPage === page ? { backgroundColor: C.lava } : undefined}
                         >
                           {page}
                         </button>

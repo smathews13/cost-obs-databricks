@@ -1,6 +1,89 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/dm-sans-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/dm-sans-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/dm-sans-latin-700-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/dm-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/dm-mono-latin-500-normal.woff2") format("woff2");
+}
+
 :root {
+  --oat-page: #F9F7F4;
+  --card-surface: #FFFFFF;
+  --paper-white: #FFFFFF;
+  --oat-med: #EEEDE9;
+  --hairline: #E4E2DD;
+  --row-hover: #FBF9F6;
+  --grid-line: #ECE8E1;
+  --navy: #1B3139;
+  --ink-deep: #0B2026;
+  --ink: #1B3139;
+  --body: #3A3838;
+  --slate: #618794;
+  --muted: #93A6AE;
+  --lava: #FF3621;
+  --lava-hover: #D82A18;
+  --coral: #FF5F46;
+  --coral-tint: #FFEDE8;
+  --coral-brd: #FFD9CE;
+  --green: #00A972;
+  --green-ink: #00754F;
+  --green-tint: #DDF3E8;
+  --amber: #FFAB00;
+  --amber-ink: #7A5200;
+  --amber-tint: #FFF3D6;
+  --maroon: #98102A;
+  --maroon-tint: #FBE7EB;
+  --s1: #FF5F46;
+  --s2: #1B5162;
+  --s3: #00A972;
+  --s4: #FFAB00;
+  --s5: #618794;
+  --status-dot: #3CD68F;
+  --baseline: #D9D4CB;
+  --busy: #FFB3A6;
+  --cal-mid: #D2F0E1;
+  --cal-oor: #C9C4BB;
+  --r-chip: 4px;
+  --r-ctl: 8px;
+  --r-card: 12px;
+  --sh-card: 0 1px 2px rgba(11, 32, 38, 0.06);
+  --sh-hover: 0 4px 14px rgba(11, 32, 38, 0.10);
+  --sh-menu: 0 8px 28px rgba(11, 32, 38, 0.16);
+  --sh-modal: 0 24px 64px rgba(11, 32, 38, 0.30);
+  --focus: 0 0 0 2px rgba(255, 54, 33, 0.35);
+  --sans: "DM Sans", -apple-system, sans-serif;
+  --mono: "DM Mono", ui-monospace, monospace;
+
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
   --card: 0 0% 100%;
@@ -11,7 +94,6 @@
   --primary-foreground: 210 40% 98%;
   --secondary: 210 40% 96.1%;
   --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
   --muted-foreground: 215.4 16.3% 46.9%;
   --accent: 210 40% 96.1%;
   --accent-foreground: 222.2 47.4% 11.2%;
@@ -21,6 +103,40 @@
   --input: 214.3 31.8% 91.4%;
   --ring: 222.2 84% 4.9%;
   --radius: 0.5rem;
+}
+
+@theme {
+  --color-oat-page: var(--oat-page);
+  --color-card-surface: var(--card-surface);
+  --color-oat-med: var(--oat-med);
+  --color-hairline: var(--hairline);
+  --color-row-hover: var(--row-hover);
+  --color-navy: var(--navy);
+  --color-ink: var(--ink);
+  --color-body: var(--body);
+  --color-slate: var(--slate);
+  --color-muted-fg: var(--muted);
+  --color-lava: var(--lava);
+  --color-lava-hover: var(--lava-hover);
+  --color-coral: var(--coral);
+  --color-coral-tint: var(--coral-tint);
+  --color-coral-brd: var(--coral-brd);
+  --color-green-ink: var(--green-ink);
+  --color-green-tint: var(--green-tint);
+  --color-amber-ink: var(--amber-ink);
+  --color-amber-tint: var(--amber-tint);
+  --color-maroon: var(--maroon);
+  --color-maroon-tint: var(--maroon-tint);
+  --color-s1: var(--s1);
+  --color-s2: var(--s2);
+  --color-s3: var(--s3);
+  --color-s4: var(--s4);
+  --color-s5: var(--s5);
+  --color-status-dot: var(--status-dot);
+  --color-baseline: var(--baseline);
+  --color-busy: var(--busy);
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
 }
 
 .dark {
@@ -34,7 +150,6 @@
   --primary-foreground: 222.2 47.4% 11.2%;
   --secondary: 217.2 32.6% 17.5%;
   --secondary-foreground: 210 40% 98%;
-  --muted: 217.2 32.6% 17.5%;
   --muted-foreground: 215 20.2% 65.1%;
   --accent: 217.2 32.6% 17.5%;
   --accent-foreground: 210 40% 98%;
@@ -55,10 +170,11 @@ html {
 
 body {
   margin: 0;
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    sans-serif;
+  background-color: var(--oat-page);
+  color: var(--body);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 /* ── Animations ────────────────────────────────────────── */
@@ -107,20 +223,75 @@ body {
 
 /* Brand-colored button with hover */
 .btn-brand {
-  background-color: #FF3621;
+  background-color: var(--lava);
   color: white;
-  transition: background-color 0.15s ease;
+  font-weight: 600;
+  border-radius: var(--r-ctl);
+  transition: background-color 0.15s ease-out;
 }
 .btn-brand:hover {
-  background-color: #E02F1C;
+  background-color: var(--lava-hover);
 }
 .btn-brand:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px white, 0 0 0 4px #FF3621;
+  box-shadow: var(--focus);
 }
 .btn-brand:disabled {
-  background-color: #FFA390;
+  background-color: var(--busy);
   cursor: not-allowed;
+}
+
+.co-card {
+  background-color: var(--card-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-card);
+  box-shadow: var(--sh-card);
+}
+.co-card:hover {
+  box-shadow: var(--sh-hover);
+}
+
+.co-version-pill {
+  display: inline-flex;
+  align-items: center;
+  background: var(--coral-tint);
+  color: var(--lava-hover);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.co-filter {
+  height: 40px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--hairline);
+  background: var(--card-surface);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 500;
+  transition: box-shadow 150ms ease-out, background-color 150ms ease-out;
+}
+.co-filter:hover {
+  background: var(--row-hover);
+}
+.co-filter:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.co-filter-menu {
+  border-radius: var(--r-card);
+  border: 1px solid var(--hairline);
+  background: var(--card-surface);
+  box-shadow: var(--sh-menu);
+}
+
+@keyframes co-arc {
+  to { transform: rotate(360deg); }
+}
+.co-arc-spin {
+  animation: co-arc 900ms linear infinite;
 }
 
 /* Hidden scrollbar for horizontal tab overflow */

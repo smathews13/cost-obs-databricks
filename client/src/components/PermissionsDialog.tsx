@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle, XCircle, AlertTriangle, Shield, ExternalLink, Copy, Check, Eye, X } from "lucide-react";
+import { C } from "@/theme";
 
 interface Permission {
   table: string;
@@ -101,7 +102,7 @@ export function PermissionsDialog() {
         style={{ backgroundColor: "rgba(0, 0, 0, 0.6)" }}
       >
         <div className="relative w-full max-w-md rounded-xl bg-white shadow-2xl">
-          <div className="flex items-center gap-4 rounded-t-xl px-6 py-5" style={{ backgroundColor: "#1B3139" }}>
+          <div className="flex items-center gap-4 rounded-t-xl px-6 py-5" style={{ backgroundColor: C.navy }}>
             <div className="rounded-full bg-white/10 p-3">
               <Shield className="h-6 w-6 text-white" />
             </div>
@@ -151,7 +152,7 @@ export function PermissionsDialog() {
                 }}
                 disabled={!acknowledged}
                 className={`rounded-lg px-5 py-2 text-sm font-medium text-white transition-colors ${!acknowledged ? "opacity-50 cursor-not-allowed" : ""}`}
-                style={{ backgroundColor: acknowledged ? "#10b981" : "#9ca3af" }}
+                style={{ backgroundColor: acknowledged ? "#10b981" : C.muted }}
               >
                 Continue to Dashboard
               </button>
@@ -193,7 +194,7 @@ export function PermissionsDialog() {
         {/* Header */}
         <div
           className="flex items-center gap-4 rounded-t-xl px-6 py-5"
-          style={{ backgroundColor: "#1B3139" }}
+          style={{ backgroundColor: C.navy }}
         >
           <div className="rounded-full bg-white/10 p-3">
             <Shield className="h-6 w-6 text-white" />
@@ -423,7 +424,7 @@ export function PermissionsDialog() {
                     setPreviewTable(null);
                   }}
                   className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white"
-                  style={{ backgroundColor: "#1B3139" }}
+                  style={{ backgroundColor: C.navy }}
                 >
                   <Copy className="h-4 w-4" />
                   Copy to Clipboard
@@ -497,15 +498,15 @@ export function PermissionsDialog() {
                 className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
                   !acknowledged ? "opacity-50 cursor-not-allowed" : ""
                 }`}
-                style={{ backgroundColor: !acknowledged ? "#9ca3af" : (data.summary.all_required_granted ? "#10b981" : "#FF3621") }}
+                style={{ backgroundColor: !acknowledged ? C.muted : (data.summary.all_required_granted ? "#10b981" : C.lava) }}
                 onMouseEnter={(e) => {
                   if (acknowledged) {
-                    e.currentTarget.style.backgroundColor = data.summary.all_required_granted ? "#059669" : "#E02F1C";
+                    e.currentTarget.style.backgroundColor = data.summary.all_required_granted ? "#059669" : C.lavaHover;
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (acknowledged) {
-                    e.currentTarget.style.backgroundColor = data.summary.all_required_granted ? "#10b981" : "#FF3621";
+                    e.currentTarget.style.backgroundColor = data.summary.all_required_granted ? "#10b981" : C.lava;
                   }
                 }}
               >

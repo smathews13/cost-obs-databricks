@@ -18,6 +18,8 @@ import {
 import type { TaggingDashboardBundle } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
+import { C } from "@/theme";
+import { PageHero, Chip } from "@/components/brand";
 
 interface TagObject {
   object_id?: string | null;
@@ -40,11 +42,11 @@ interface TaggingHubProps {
 
 
 const COLORS = {
-  tagged: "#10b981",
-  untagged: "#ef4444",
+  tagged: C.s3,
+  untagged: C.lava,
 };
 
-const TAG_COLORS = ["#1B5162", "#06B6D4", "#10B981", "#14B8A6", "#F59E0B", "#3B82F6", "#EC4899", "#EF4444", "#6B7280"];
+const TAG_COLORS = [C.s2, C.s5, C.s3, C.s3, C.s4, C.s5, C.s1, C.lava, C.slate];
 const TAG_PAGE_SIZE = 10;
 
 const formatCurrency = (value: number) =>
@@ -361,7 +363,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
   if (isLoading) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-3">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: '#FF3621' }} />
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
         <p className="text-sm text-gray-500">Loading tagging data...</p>
       </div>
     );
@@ -381,24 +383,24 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="rounded-lg p-2" style={{ backgroundColor: '#FF3621' }}>
-          <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <PageHero
+        icon={
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
           </svg>
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tagging</h1>
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm text-gray-500">Cost attribution through resource tagging coverage</p>
+        }
+        title="Tagging"
+        subtitle={
+          <>
+            Cost attribution through resource tagging coverage
             {workspaceIds && workspaceIds.length > 0 && (
-              <span className="rounded bg-[#1B3139]/10 px-2 py-0.5 text-[10px] font-medium text-[#1B3139]">
+              <Chip kind="workspace">
                 {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
-              </span>
+              </Chip>
             )}
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Info Banner */}
       <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
@@ -446,12 +448,12 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div
           className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: '#E5E5E5' }}
+          style={{ borderColor: C.hairline }}
           onClick={() => setSelectedKPI({ kpi: "tagged_spend", label: "Daily Tagged Spend" })}
         >
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-[#FF3621]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -459,19 +461,19 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               <p className="text-sm font-medium text-gray-500">Tagged Spend</p>
               <p className="text-2xl font-semibold text-gray-900">{formatCurrency(summary.tagged_spend)}</p>
               <p className="text-sm text-gray-500">{(summary.tagged_percentage ?? 0).toFixed(1)}% of {daysDiff}-day spend</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
+              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
         </div>
 
         <div
           className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: '#E5E5E5' }}
+          style={{ borderColor: C.hairline }}
           onClick={() => setSelectedKPI({ kpi: "untagged_spend", label: "Daily Untagged Spend" })}
         >
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-[#FF3621]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
@@ -479,19 +481,19 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               <p className="text-sm font-medium text-gray-500">Untagged Spend</p>
               <p className="text-2xl font-semibold text-gray-900">{formatCurrency(summary.untagged_spend)}</p>
               <p className="text-sm text-gray-500">{(summary.untagged_percentage ?? 0).toFixed(1)}% of {daysDiff}-day spend</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
+              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
         </div>
 
         <div
           className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: '#E5E5E5' }}
+          style={{ borderColor: C.hairline }}
           onClick={() => setSelectedKPI({ kpi: "cost_per_tag", label: "Daily Cost Per-Tag" })}
         >
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-[#FF3621]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
               </svg>
             </div>
@@ -501,19 +503,19 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                 {data?.avg_cost_per_tag != null ? formatCurrency(data.avg_cost_per_tag) : "—"}
               </p>
               <p className="text-sm text-gray-500">avg. over {daysDiff} days</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
+              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
         </div>
 
         <div
           className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: '#E5E5E5' }}
+          style={{ borderColor: C.hairline }}
           onClick={() => setSelectedKPI({ kpi: "total_tags", label: "Daily Total Tags" })}
         >
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-[#FF3621]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
               </svg>
             </div>
@@ -524,7 +526,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               </p>
               <p className="text-2xl font-semibold text-gray-900">{data?.total_tag_count?.toLocaleString() ?? "—"}</p>
               <p className="text-sm text-gray-500">unique key:value pairs</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: '#FF3621' }}>Click to see trend →</p>
+              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
         </div>
@@ -546,7 +548,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
       {/* Tag Coverage + Tag Coverage Over Time — side by side */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Tag Coverage Pie Chart */}
-        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Total Tag Coverage</h3>
           {coveragePieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -576,7 +578,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
         </div>
 
         {/* Tag Coverage Over Time */}
-        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Tag Coverage Over Time</h3>
           {data.timeseries?.timeseries?.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -584,11 +586,11 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                 <XAxis
                   dataKey="date"
                   tickFormatter={(date) => new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                  stroke="#9ca3af"
+                  stroke={C.muted}
                   fontSize={12}
                   tickMargin={8}
                 />
-                <YAxis tickFormatter={(value) => formatCurrency(value)} width={80} stroke="#9ca3af" fontSize={12} />
+                <YAxis tickFormatter={(value) => formatCurrency(value)} width={80} stroke={C.muted} fontSize={12} />
                 <Tooltip
                   formatter={(value) => formatCurrency(value as number)}
                   labelFormatter={(label) => new Date(label).toLocaleDateString()}
@@ -621,7 +623,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
       {/* Spend by Tag + Spend by Key — side by side */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Spend by Tag Table (left) */}
-        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">
               Spend by Tag
@@ -633,11 +635,11 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               <div className="relative" data-tag-value-filter-dropdown>
                 <button
                   onClick={() => { setTagValueFilterDropdownOpen(!tagValueFilterDropdownOpen); setTagValueFilterSearch(""); }}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isTagValueFilterActive ? "border-[#FF3621] text-[#FF3621]" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isTagValueFilterActive ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
                 >
                   Value
                   {isTagValueFilterActive && (
-                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: '#FF3621' }}>
+                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: C.lava }}>
                       {selectedTagValueFilters.length}
                     </span>
                   )}
@@ -710,7 +712,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                 const [key, ...rest] = kv.split(":");
                 const value = rest.join(":");
                 return (
-                  <span key={kv} className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium text-white" style={{ backgroundColor: '#FF3621' }}>
+                  <span key={kv} className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium text-white" style={{ backgroundColor: C.lava }}>
                     {key}: {value}
                     <button onClick={() => handleToggleTagValueFilter(kv)} className="ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full hover:bg-white/20">
                       <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -783,18 +785,18 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
         </div>
 
         {/* Spend by Key Bar Chart (right) */}
-        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">Spend by Key</h3>
             {availableTagKeys.length > 0 && (
               <div className="relative" data-tag-filter-dropdown>
                 <button
                   onClick={() => { setTagFilterDropdownOpen(!tagFilterDropdownOpen); setTagFilterSearch(""); }}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isTagFilterActive ? "border-[#FF3621] text-[#FF3621]" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isTagFilterActive ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
                 >
                   Tag
                   {isTagFilterActive && (
-                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: '#FF3621' }}>
+                    <span className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: C.lava }}>
                       {selectedTagFilters.length}
                     </span>
                   )}
@@ -859,7 +861,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           {isTagFilterActive && (
             <div className="mb-3 flex max-h-24 flex-wrap items-center gap-1.5 overflow-y-auto pr-1">
               {selectedTagFilters.map(key => (
-                <span key={key} className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium text-white" style={{ backgroundColor: '#FF3621' }}>
+                <span key={key} className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium text-white" style={{ backgroundColor: C.lava }}>
                   {key}
                   <button onClick={() => handleToggleTagFilter(key)} className="ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full hover:bg-white/20">
                     <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -973,7 +975,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
 
             {tagObjectsLoading ? (
               <div className="flex h-40 items-center justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: '#FF3621' }} />
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200" style={{ borderTopColor: C.lava }} />
               </div>
             ) : tagObjects.length > 0 ? (
               <div className="overflow-x-auto">

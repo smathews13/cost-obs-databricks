@@ -6,6 +6,7 @@ import {
 import { format, parseISO } from "date-fns";
 import type { GCPActualDashboardBundle } from "@/types/billing";
 import { formatCurrency } from "@/utils/formatters";
+import { C } from "@/theme";
 
 const GCP_COLORS = ["#4285F4", "#34A853", "#FBBC05", "#EA4335", "#8AB4F8", "#81C995", "#FDD663", "#F28B82", "#A8C7FA", "#CCFF90"];
 
@@ -68,7 +69,7 @@ export function GCPActualView({ gcpActualData, cloudTabSwitcher, onSwitchToEstim
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by GCP Service</h3>
           {servicePieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -84,7 +85,7 @@ export function GCPActualView({ gcpActualData, cloudTabSwitcher, onSwitchToEstim
           ) : <div className="flex h-64 items-center justify-center text-gray-500">No service data</div>}
         </div>
 
-        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">GCP Cost Over Time</h3>
           {timeseries?.timeseries && timeseries.timeseries.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -103,7 +104,7 @@ export function GCPActualView({ gcpActualData, cloudTabSwitcher, onSwitchToEstim
       </div>
 
       {byProject?.projects && byProject.projects.length > 0 && (
-        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by GCP Project</h3>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -133,7 +134,7 @@ export function GCPActualView({ gcpActualData, cloudTabSwitcher, onSwitchToEstim
       )}
 
       {byService?.services && byService.services.length > 0 && (
-        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: '#E5E5E5' }}>
+        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by GCP Service</h3>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">

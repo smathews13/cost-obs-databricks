@@ -8,14 +8,22 @@
 > **🔧 Customization Notice**
 > You are welcome to modify and customize this application's source code to fit your organization's requirements. However, be aware that local customizations may conflict with future upstream updates. We recommend tracking your changes in a fork and reviewing diffs carefully before pulling upstream updates.
 
-> **📌 Maintenance Mode — v1 series (currently `v1.1`)**
-> The v1 line is on **bug-fix-only maintenance**. New feature development is happening on the **v2** line: **[smathews13/cost-obs-databricks-v2.0](https://github.com/smathews13/cost-obs-databricks-v2.0)**. Fresh deployments should use v2 when it reaches general availability. Existing v1 customers can migrate via the documented 1.1 → 2.1 upgrade path (in the v2 repo's README). This repo will continue to receive **bug fixes and security patches only** — no new features.
+> **📌 v1 series (currently `v1.2`)**
+> Visual refresh and ongoing v1 features ship here. The **v2** line (**[smathews13/cost-obs-databricks-v2.0](https://github.com/smathews13/cost-obs-databricks-v2.0)**) is the Lakebase + DAB fork. Existing v1 customers can stay on this app; migrate to v2 when it reaches general availability via the documented 1.1 → 2.1 path in the v2 README.
 
 ---
 
 A full-stack Databricks App for account-level compute cost visibility, chargeback, and anomaly detection across your entire Databricks platform.
 
 Built on FastAPI + React, deployed as a [Databricks App](https://docs.databricks.com/en/dev-tools/databricks-apps/index.html) with service principal authentication and serverless compute built in. Supports **multi-cloud deployment** across AWS, Azure, and GCP with automatic cloud detection.
+
+---
+
+## What's new in 1.2 (2026-08-27)
+
+**App facelift.** New cost-obs brand (brick-in-orbit mark), self-hosted DM Sans / DM Mono, oat / navy / lava design tokens, and a consistent chrome (lockup + `v1.2` pill, tab underline, navy footer). Charts, KPI cards, filters, and trend modals follow one data-viz system: increase is lava, decrease is green, zeros/N-A are muted. Settings stays DuBois.
+
+**Copy.** User-facing `COST-OBS` / techno wordmark replaced with lowercase **cost-obs**. PDF exports and the document title match.
 
 ---
 

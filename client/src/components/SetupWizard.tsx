@@ -4,6 +4,7 @@ import { Spinner } from "./Spinner";
 import { ReadinessChecks, normalizeReadinessResult } from "./settings/ReadinessChecks";
 import type { ReadinessResult } from "./settings/ReadinessChecks";
 import { VirtualizedList } from "./VirtualizedList";
+import { C } from "@/theme";
 
 interface SetupWizardProps {
   onComplete: () => void;
@@ -122,7 +123,7 @@ function PermissionErrorBlock({ error, onGranted }: { error: string; onGranted: 
           onClick={handleGrant}
           disabled={grantStatus === "running" || grantStatus === "ok"}
           className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60 transition-colors"
-          style={{ backgroundColor: grantStatus === "ok" ? "#16a34a" : "#FF3621" }}
+          style={{ backgroundColor: grantStatus === "ok" ? "#16a34a" : C.lava }}
         >
           {grantStatus === "running" && <Spinner size="xs" />}
           {grantStatus === "ok" ? "Granted!" : grantStatus === "running" ? "Granting…" : "Try to grant access"}
@@ -401,7 +402,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
     <>
         {/* Header — hidden in embedded mode (already inside App Settings dialog) */}
         {!embedded && (
-        <div className="relative rounded-t-xl px-8 py-6" style={{ backgroundColor: '#1B3139' }}>
+        <div className="relative rounded-t-xl px-8 py-6" style={{ backgroundColor: C.navy }}>
           {onClose && (
             <button
               onClick={onClose}
@@ -418,7 +419,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
         )}
 
         {/* Step indicator */}
-        <div className="shrink-0 flex items-start border-b px-6 py-3" style={{ borderColor: '#E5E5E5' }}>
+        <div className="shrink-0 flex items-start border-b px-6 py-3" style={{ borderColor: C.hairline }}>
           {STEPS.map((s, i) => (
             <Fragment key={s}>
               {i > 0 && <div className="mt-3 h-px flex-1 self-start bg-gray-200" />}
@@ -426,7 +427,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
                 <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
                   i < currentIdx ? "bg-green-500 text-white" :
                   i === currentIdx ? "text-white" : "bg-gray-200 text-gray-500"
-                }`} style={i === currentIdx ? { backgroundColor: '#FF3621' } : undefined}>
+                }`} style={i === currentIdx ? { backgroundColor: C.lava } : undefined}>
                   {i < currentIdx ? (
                     <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
                   ) : i + 1}
@@ -512,7 +513,7 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
         </div>
 
         {/* Footer */}
-        <div className="shrink-0 flex items-center justify-between rounded-b-xl border-t px-8 py-4" style={{ borderColor: '#E5E5E5' }}>
+        <div className="shrink-0 flex items-center justify-between rounded-b-xl border-t px-8 py-4" style={{ borderColor: C.hairline }}>
           <div>
             {currentIdx > 0 && (
               <button
@@ -880,7 +881,7 @@ function BrowseField({
           onClick={toggle}
           disabled={!canBrowse}
           title={browseHint}
-          className="text-xs font-medium text-[#FF3621] hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
+          className="text-xs font-medium text-lava hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
         >
           {open ? "Close" : "Browse"}
         </button>
@@ -891,7 +892,7 @@ function BrowseField({
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         placeholder={placeholder}
-        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono text-gray-900 placeholder-gray-400 focus:border-[#FF3621] focus:outline-none focus:ring-1 focus:ring-[#FF3621] disabled:bg-gray-100 disabled:text-gray-500"
+        className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono text-gray-900 placeholder-gray-400 focus:border-lava focus:outline-none focus:ring-1 focus:ring-lava disabled:bg-gray-100 disabled:text-gray-500"
       />
       {open && (
         <div className="max-h-44 overflow-y-auto rounded-md border border-gray-200 bg-white">
@@ -909,7 +910,7 @@ function BrowseField({
                 key={o}
                 type="button"
                 onClick={() => { onChange(o); setOpen(false); }}
-                className={`block w-full truncate px-3 py-1.5 text-left text-sm font-mono hover:bg-gray-50 ${o === value ? "bg-orange-50 text-[#FF3621]" : "text-gray-700"}`}
+                className={`block w-full truncate px-3 py-1.5 text-left text-sm font-mono hover:bg-gray-50 ${o === value ? "bg-orange-50 text-lava" : "text-gray-700"}`}
               >
                 {o}
               </button>
@@ -1083,7 +1084,7 @@ function CreateTablesStep({ setupStatus, creating, tablesJustCreated, preflightR
         <button
           onClick={onRecheck}
           className="text-sm font-medium hover:underline"
-          style={{ color: '#FF3621' }}
+          style={{ color: C.lava }}
         >
           Re-check catalog
         </button>
@@ -1263,8 +1264,8 @@ function WorkspaceFilterStep({
               {selectedIds.size === 0 ? "All workspaces will be shown" : `${selectedIds.size} of ${workspaces.length} selected`}
             </span>
             <div className="flex gap-3">
-              <button onClick={onSelectAll} className="text-xs font-medium hover:underline" style={{ color: '#FF3621' }}>Select All</button>
-              <button onClick={onClearAll} className="text-xs font-medium hover:underline" style={{ color: '#FF3621' }}>Clear All</button>
+              <button onClick={onSelectAll} className="text-xs font-medium hover:underline" style={{ color: C.lava }}>Select All</button>
+              <button onClick={onClearAll} className="text-xs font-medium hover:underline" style={{ color: C.lava }}>Clear All</button>
             </div>
           </div>
 
@@ -1274,7 +1275,7 @@ function WorkspaceFilterStep({
               placeholder="Search by name or ID…"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:border-[#FF3621] focus:ring-1 focus:ring-[#FF3621]"
+              className="w-full rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-800 placeholder-gray-400 outline-none focus:border-lava focus:ring-1 focus:ring-lava"
             />
           )}
 
