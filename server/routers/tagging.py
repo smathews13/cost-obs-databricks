@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, execute_queries_parallel, bundle_cache_key, delta_cache_get, delta_cache_put, get_workspace_client, apply_mv_overrides, get_catalog_schema
+from server.db import execute_query, execute_queries_parallel, bundle_cache_key, delta_cache_get, delta_cache_put, get_workspace_client, apply_mv_overrides, get_catalog_schema, selected_source_labels, source_label_filter_clause
 from server import workspace_filter as wf
 from server import cache_ttls
 from server.materialized_views import MV_TAG_STATS, MV_TAGGING_SUMMARY
@@ -1156,12 +1156,14 @@ async def get_tagging_dashboard_bundle(
                 mv_sql = MV_TAGGING_SUMMARY.format(
                     catalog=catalog,
                     schema=schema,
-                    ws_filter=mv_ws_filter,
+                    ws_filter=mv_ws_filter + source_label_filter_clause(MV_TAGGING_SUMMARY),
                     ws_clause_billing=mv_ws_clause_billing,
                 )
                 mv_sql = apply_mv_overrides(mv_sql, catalog, schema)
                 return execute_query(mv_sql, query_params)
             except Exception as e:
+                if selected_source_labels():
+                    raise
                 logger.warning("tagging_summary MV path failed (%s); falling back to raw scan", type(e).__name__)
         return execute_query(_ws(TAGGING_SUMMARY), query_params)
 
@@ -1177,10 +1179,16 @@ async def get_tagging_dashboard_bundle(
             try:
                 catalog, schema = get_catalog_schema()
                 mv_ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
-                mv_sql = MV_TAG_STATS.format(catalog=catalog, schema=schema, ws_filter=mv_ws_clause)
+                mv_sql = MV_TAG_STATS.format(
+                    catalog=catalog,
+                    schema=schema,
+                    ws_filter=mv_ws_clause + source_label_filter_clause(MV_TAG_STATS),
+                )
                 mv_sql = apply_mv_overrides(mv_sql, catalog, schema)
                 return execute_query(mv_sql, query_params)
             except Exception as e:
+                if selected_source_labels():
+                    raise
                 logger.warning("tag_stats MV path failed (%s); falling back to raw scan", type(e).__name__)
         return execute_query(_ws(TAG_STATS), query_params)
 

@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 from concurrent.futures import as_completed
@@ -627,6 +628,16 @@ _MV_SOURCES_FILE = os.path.join(
 
 # Suffix of the per-table union view. Public so the router/view-builder agree.
 MV_UNIFIED_SUFFIX = "__unified"
+MV_UNIFIED_TABLE_NAMES = (
+    "daily_usage_summary",
+    "daily_product_breakdown",
+    "daily_workspace_breakdown",
+    "sql_tool_attribution",
+    "daily_query_stats",
+    "dbsql_cost_per_query",
+    "daily_tag_summary",
+    "daily_apps_summary",
+)
 
 # Which MV tables currently have a built `<name>__unified` view. Written by
 # rebuild_unified_views; read by apply_mv_overrides so it only ever remaps a table
@@ -643,7 +654,7 @@ _unified_views_live: dict[str, Any] = {"tables": None, "checked_at": 0.0}
 _UNIFIED_VIEWS_LIVE_TTL = 300  # 5 minutes
 
 
-def _list_existing_unified_views() -> list[str] | None:
+def _list_existing_unified_views(*, force_refresh: bool = False) -> list[str] | None:
     """The MV tables that ACTUALLY have a `<name>__unified` view in the app schema.
 
     This is the authoritative routing source: a view that exists is routable. It
@@ -653,14 +664,18 @@ def _list_existing_unified_views() -> list[str] | None:
     kills the MV source-label filter for that table). Cached ~5min. None on error.
     """
     now = time.time()
-    if _unified_views_live["tables"] is not None and (now - _unified_views_live["checked_at"]) < _UNIFIED_VIEWS_LIVE_TTL:
+    if (
+        not force_refresh
+        and _unified_views_live["tables"] is not None
+        and (now - _unified_views_live["checked_at"]) < _UNIFIED_VIEWS_LIVE_TTL
+    ):
         return _unified_views_live["tables"]
     try:
         catalog, schema = get_catalog_schema()
         if not catalog or not schema:
             return None
         rows = execute_query(
-            "SELECT table_name FROM system.information_schema.tables "
+            "SELECT table_name FROM system.information_schema.views "
             "WHERE table_catalog = :c AND table_schema = :s AND table_name LIKE :p",
             {"c": catalog, "s": schema, "p": f"%{MV_UNIFIED_SUFFIX}"},
             no_cache=True,
@@ -710,8 +725,10 @@ def save_unified_view_tables(tables: list[str]) -> None:
     _unified_views_live["checked_at"] = 0.0
     try:
         os.makedirs(os.path.dirname(_MV_UNIFIED_TABLES_FILE), exist_ok=True)
-        with open(_MV_UNIFIED_TABLES_FILE, "w") as f:
+        tmp_path = f"{_MV_UNIFIED_TABLES_FILE}.{os.getpid()}.tmp"
+        with open(tmp_path, "w") as f:
             json.dump(clean, f)
+        os.replace(tmp_path, _MV_UNIFIED_TABLES_FILE)
     except OSError as e:
         logger.debug("Could not persist unified-view table list to file: %s", e)
     write_delta_unified_view_tables(clean)
@@ -985,15 +1002,42 @@ def reset_source_labels(token: object) -> None:
         pass
 
 
-def source_label_filter_clause() -> str:
+def selected_source_labels() -> list[str]:
+    """Non-blank source labels selected for the current request."""
+    return [str(x) for x in _source_labels.get() if str(x).strip()]
+
+
+def _mv_tables_referenced_by_template(mv_query: str) -> set[str]:
+    """Managed-table names referenced by an unformatted MV SQL template."""
+    placeholder_pattern = r"`\{catalog\}`\.`\{schema\}`\.`([^`]+)`"
+    names = set(re.findall(placeholder_pattern, mv_query))
+    return names.intersection(MV_UNIFIED_TABLE_NAMES)
+
+
+def source_label_filter_clause(mv_query: str | None = None) -> str:
     """`` AND source_label IN ('a','b') `` for the current selection, else ''.
 
     Single-quote-escaped. Appended into the MV templates' existing `{ws_filter}`
-    slot by _get_mv_query, so it filters the unified views' rows by their source.
+    slot by the MV query builders, so it filters unified-view rows by source.
+    When a template is supplied, the clause is emitted only if every referenced
+    managed table has a physically verified unified view. ``apply_mv_overrides``
+    then raises instead of executing an unfiltered base-table query when one is
+    unavailable.
     """
-    labels = [str(x) for x in _source_labels.get() if str(x).strip()]
+    labels = selected_source_labels()
     if not labels:
         return ""
+    if mv_query is not None:
+        referenced = _mv_tables_referenced_by_template(mv_query)
+        live = _list_existing_unified_views()
+        explicit = get_mv_table_overrides()
+        if (
+            not referenced
+            or live is None
+            or not referenced.issubset(set(live))
+            or any(table in explicit for table in referenced)
+        ):
+            return ""
     quoted = ", ".join("'" + x.replace("'", "''") + "'" for x in labels)
     return f" AND source_label IN ({quoted})"
 
@@ -1012,11 +1056,43 @@ def apply_mv_overrides(sql: str, catalog: str, schema: str) -> str:
     without going through this function, so there is no recursion).
     """
     overrides = dict(get_mv_table_overrides())
+    selected = selected_source_labels()
+    # Selected-source routing is strict: verify physical views now rather than
+    # trusting the normal five-minute discovery cache.
+    live = _list_existing_unified_views(force_refresh=True) if selected else None
+    if selected and live is None:
+        raise RuntimeError(
+            "Selected shared sources cannot be queried because unified-view "
+            "existence could not be verified."
+        )
+    routable = live if selected else get_unified_view_tables()
     # Route reads only through unified views that were actually built (never to a
     # missing __unified view). Empty when no sources are configured.
-    for t in get_unified_view_tables():
+    for t in routable:
         # Don't override a table the user already remapped explicitly.
         overrides.setdefault(t, f"`{catalog}`.`{schema}`.`{t}{MV_UNIFIED_SUFFIX}`")
+    if selected:
+        live_set = set(live or [])
+        for table in MV_UNIFIED_TABLE_NAMES:
+            quoted_base = f"`{catalog}`.`{schema}`.`{table}`"
+            plain_base = f"{catalog}.{schema}.{table}"
+            if quoted_base not in sql and plain_base not in sql:
+                continue
+            if table in get_mv_table_overrides():
+                raise RuntimeError(
+                    f"Selected shared sources cannot be applied to explicitly "
+                    f"overridden managed table {table}."
+                )
+            if table not in live_set:
+                raise RuntimeError(
+                    f"Selected shared sources cannot be queried because unified "
+                    f"view {table}{MV_UNIFIED_SUFFIX} does not physically exist."
+                )
+            if "source_label" not in sql.lower():
+                raise RuntimeError(
+                    f"Selected shared sources cannot be queried because the "
+                    f"{table} query has no source-label filter."
+                )
     if not overrides:
         return sql
     for logical_name, full_path in overrides.items():

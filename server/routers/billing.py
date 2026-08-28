@@ -11,7 +11,7 @@ from cachetools import TTLCache
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, execute_queries_parallel, get_catalog_schema, get_host_url, get_workspace_client, bundle_cache_key, delta_cache_get, delta_cache_put, apply_mv_overrides
+from server.db import execute_query, execute_queries_parallel, get_catalog_schema, get_host_url, get_workspace_client, bundle_cache_key, delta_cache_get, delta_cache_put, apply_mv_overrides, selected_source_labels, source_label_filter_clause
 from server import cache_ttls
 from server.queries import (
     ACCOUNT_INFO,
@@ -109,9 +109,16 @@ def _check_mv_available() -> bool:
     Runs the SQL check in a thread with a 30-second timeout so a slow or
     starting warehouse never blocks a bundle endpoint indefinitely.
     """
+    def _result(available: bool) -> bool:
+        if selected_source_labels() and not available:
+            raise RuntimeError(
+                "Selected shared sources require managed tables and verified unified views."
+            )
+        return available
+
     now = time.time()
     if _mv_cache["available"] is not None and (now - _mv_cache["checked_at"]) < _MV_CHECK_INTERVAL:
-        return _mv_cache["available"]
+        return _result(_mv_cache["available"])
 
     import threading
     from concurrent.futures import Future, wait as _cfwait
@@ -138,21 +145,21 @@ def _check_mv_available() -> bool:
         logger.debug("MV availability check timed out after 30s — retrying in 15s")
         _mv_cache["available"] = False
         _mv_cache["checked_at"] = now - (_MV_CHECK_INTERVAL - 15)
-        return False
+        return _result(False)
     try:
         available = future.result()
         _mv_cache["available"] = available
         _mv_cache["checked_at"] = now
         if available:
             logger.info("Materialized views available - using optimized queries")
-        return available
+        return _result(available)
     except Exception as e:
         # Treat exceptions the same as timeouts: retry in 15s, not 30 min.
         # A transient SDK error on startup should not lock out MVs for half an hour.
         logger.debug("MV check failed (retrying in 15s): %s", e)
         _mv_cache["available"] = False
         _mv_cache["checked_at"] = now - (_MV_CHECK_INTERVAL - 15)
-        return False
+        return _result(False)
 
 
 def _get_mv_query(mv_query: str, ws_filter: str = "") -> str:
@@ -165,7 +172,11 @@ def _get_mv_query(mv_query: str, ws_filter: str = "") -> str:
     """
     from server.db import apply_mv_overrides, source_label_filter_clause
     catalog, schema = get_catalog_schema()
-    sql = mv_query.format(catalog=catalog, schema=schema, ws_filter=ws_filter + source_label_filter_clause())
+    sql = mv_query.format(
+        catalog=catalog,
+        schema=schema,
+        ws_filter=ws_filter + source_label_filter_clause(mv_query),
+    )
     return apply_mv_overrides(sql, catalog, schema)
 
 
@@ -273,7 +284,7 @@ async def get_billing_summary(
 
     if use_mv:
         results = await asyncio.to_thread(_exec_mv, MV_BILLING_SUMMARY, params, _mv_ws_clause(id_list))
-        if not results:
+        if not results and not selected_source_labels():
             results = await asyncio.to_thread(execute_query, _inject_ws_filter(BILLING_SUMMARY, ws_clause), params)
     else:
         results = await asyncio.to_thread(execute_query, _inject_ws_filter(BILLING_SUMMARY, ws_clause), params)
@@ -1794,17 +1805,27 @@ async def get_dashboard_bundle_fast(
         def _mv_summary():
             r = _exec_mv(MV_BILLING_SUMMARY, params, mv_ws)
             # Fall back if empty or if MV returned zero spend (table exists but not yet populated)
-            if r and float((r[0] if r else {}).get("total_spend") or 0) > 0:
+            if selected_source_labels() or (
+                r and float((r[0] if r else {}).get("total_spend") or 0) > 0
+            ):
                 return r
             return execute_query(_inject_ws_filter(BILLING_SUMMARY, ws_clause), params)
 
         def _mv_timeseries():
             r = _exec_mv(MV_BILLING_TIMESERIES, params, mv_ws)
-            return r if r else execute_query(_inject_ws_filter(BILLING_TIMESERIES_FAST, ws_clause), params)
+            return (
+                r
+                if r or selected_source_labels()
+                else execute_query(_inject_ws_filter(BILLING_TIMESERIES_FAST, ws_clause), params)
+            )
 
         def _mv_products():
             r = _exec_mv(MV_BILLING_BY_PRODUCT, params, mv_ws)
-            return r if r else execute_query(_inject_ws_filter(BILLING_BY_PRODUCT_FAST, ws_clause), params)
+            return (
+                r
+                if r or selected_source_labels()
+                else execute_query(_inject_ws_filter(BILLING_BY_PRODUCT_FAST, ws_clause), params)
+            )
 
         def _mv_workspaces():
             return execute_query(_inject_ws_filter(BILLING_BY_WORKSPACE, ws_clause), params)
@@ -2849,7 +2870,7 @@ async def get_kpi_trend(
     if kpi == "total_spend" or kpi == "avg_daily_spend":
         if use_mv:
             catalog, schema = get_catalog_schema()
-            query = f"SELECT usage_date as date, SUM(total_spend) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date GROUP BY usage_date ORDER BY usage_date"
+            query = f"SELECT usage_date as date, SUM(total_spend) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
             mv_fallback_query = """
         WITH usage_with_price AS (
           SELECT
@@ -2896,7 +2917,7 @@ async def get_kpi_trend(
     elif kpi == "total_dbus":
         if use_mv:
             catalog, schema = get_catalog_schema()
-            query = f"SELECT usage_date as date, SUM(total_dbus) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date GROUP BY usage_date ORDER BY usage_date"
+            query = f"SELECT usage_date as date, SUM(total_dbus) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
             mv_fallback_query = """
         SELECT
           usage_date as date,
@@ -2921,7 +2942,7 @@ async def get_kpi_trend(
     elif kpi == "workspace_count":
         if use_mv:
             catalog, schema = get_catalog_schema()
-            query = f"SELECT usage_date as date, COUNT(DISTINCT workspace_id) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date GROUP BY usage_date ORDER BY usage_date"
+            query = f"SELECT usage_date as date, COUNT(DISTINCT workspace_id) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
             mv_fallback_query = """
         SELECT
           usage_date as date,
@@ -3265,13 +3286,14 @@ async def get_kpi_trend(
         FROM `{_cat}`.`{_sch}`.`dbsql_cost_per_query`
         WHERE DATE(start_time) >= :start_date
           AND DATE(start_time) <= :end_date
+          {source_label_filter_clause()}
         GROUP BY DATE(start_time)
         ORDER BY date
         """
     elif kpi == "user_spend":
         if use_mv:
             catalog, schema = get_catalog_schema()
-            query = f"SELECT usage_date as date, SUM(user_attributed_spend) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date GROUP BY usage_date ORDER BY usage_date"
+            query = f"SELECT usage_date as date, SUM(user_attributed_spend) as value FROM `{catalog}`.`{schema}`.`daily_usage_summary` WHERE usage_date BETWEEN :start_date AND :end_date {source_label_filter_clause()} GROUP BY usage_date ORDER BY usage_date"
             mv_fallback_query = """
         SELECT
           u.usage_date as date,
@@ -3386,18 +3408,19 @@ async def get_kpi_trend(
     else:
         return {"error": f"Unknown KPI: {kpi}"}
 
+    results = []
     try:
         # Route the MV read through the source-union views (no-op for the live
         # fallback query, which references no MV table) so KPI trends include
         # Delta-shared sources when configured.
         _kpi_cat, _kpi_sch = get_catalog_schema()
         results = await asyncio.to_thread(execute_query, apply_mv_overrides(_inject_ws_filter(query, ws_clause), _kpi_cat, _kpi_sch), params)
-        if not results and mv_fallback_query:
+        if not results and mv_fallback_query and not selected_source_labels():
             logger.info(f"KPI trend MV returned empty for {kpi}, falling back to live query")
             results = await asyncio.to_thread(execute_query, _inject_ws_filter(mv_fallback_query, ws_clause), params)
     except Exception as e:
         logger.error(f"KPI trend query failed for {kpi}: {e}")
-        if mv_fallback_query:
+        if mv_fallback_query and not selected_source_labels():
             try:
                 results = await asyncio.to_thread(execute_query, _inject_ws_filter(mv_fallback_query, ws_clause), params)
             except Exception as fallback_e:

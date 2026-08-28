@@ -13,11 +13,18 @@ Tables created:
 These tables should be refreshed daily via a scheduled job.
 """
 
+import fcntl
 import logging
 from collections.abc import Callable
-from datetime import date, timedelta
+from contextlib import contextmanager
+from datetime import date
+from typing import IO, Iterator
 
-from server.db import execute_query, get_catalog_schema, get_connection
+from server.db import (
+    MV_UNIFIED_TABLE_NAMES,
+    execute_query,
+    get_catalog_schema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1750,6 +1757,18 @@ def create_materialized_views(catalog: str | None = None, schema: str | None = N
 
     results["__mv_timings__"] = mv_timings  # type: ignore[assignment]
 
+    # A full CREATE OR REPLACE can swap the base Delta table object underneath an
+    # existing view. Rebuild the shared-source views only after every base-table
+    # worker has finished, never concurrently with the replacements above.
+    try:
+        from server.db import get_mv_sources
+
+        if get_mv_sources():
+            rebuild_unified_views(catalog, schema)
+    except Exception as e:
+        # Base tables are still usable when shared-source view maintenance fails.
+        logger.warning("Post-refresh unified-view rebuild failed (non-fatal): %s", e)
+
     return results
 
 
@@ -1789,16 +1808,29 @@ def drop_materialized_views(catalog: str | None = None, schema: str | None = Non
     return results
 
 
-_MV_TABLES = [
-    "daily_usage_summary",
-    "daily_product_breakdown",
-    "daily_workspace_breakdown",
-    "sql_tool_attribution",
-    "daily_query_stats",
-    "dbsql_cost_per_query",
-    "daily_tag_summary",
-    "daily_apps_summary",
-]
+_MV_TABLES = list(MV_UNIFIED_TABLE_NAMES)
+
+_UNIFIED_VIEWS_LOCK_PATH = "/tmp/cost-obs-unified-views.lock"
+
+
+@contextmanager
+def unified_views_rebuild_lock(
+    *, blocking: bool = True, lock_path: str = _UNIFIED_VIEWS_LOCK_PATH
+) -> Iterator[IO[str]]:
+    """Cross-process mutex for every unified-view DDL pass.
+
+    Uvicorn workers are separate processes, so a threading lock cannot protect
+    Databricks from overlapping ALTER/CREATE/DROP statements. Callers normally
+    block so an explicit source add/remove is never lost; startup de-duplication
+    is handled separately in ``server.app``.
+    """
+    with open(lock_path, "a+") as lock_file:
+        flags = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
+        fcntl.flock(lock_file, flags)
+        try:
+            yield lock_file
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def _table_columns(full_table: str) -> list[str] | None:
@@ -1823,6 +1855,81 @@ def _table_columns(full_table: str) -> list[str] | None:
     return cols or None
 
 
+def _unified_view_exists(catalog: str, schema: str, view_name: str) -> bool | None:
+    """Return physical view existence, or None when it cannot be verified safely."""
+    from server.db import execute_query
+
+    try:
+        rows = execute_query(
+            "SELECT 1 AS present FROM system.information_schema.views "
+            "WHERE table_catalog = :catalog AND table_schema = :schema "
+            "AND table_name = :view_name LIMIT 1",
+            {"catalog": catalog, "schema": schema, "view_name": view_name},
+            no_cache=True,
+        )
+        return bool(rows)
+    except Exception as e:
+        logger.warning(
+            "Could not verify unified view %s.%s.%s: %s",
+            catalog,
+            schema,
+            view_name,
+            e,
+        )
+        return None
+
+
+def _alter_view_is_unsupported(exc: Exception) -> bool:
+    """Whether an ALTER VIEW failure indicates syntax/feature incompatibility."""
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "parse_syntax_error",
+            "syntax error",
+            "unsupported_feature",
+            "not supported",
+        )
+    )
+
+
+def _replace_unified_view(
+    catalog: str,
+    schema: str,
+    table_name: str,
+    body: str,
+    *,
+    existed: bool,
+) -> str:
+    """Create or alter one unified view without CREATE OR REPLACE races."""
+    from server.db import MV_UNIFIED_SUFFIX, execute_query
+
+    view_name = f"{table_name}{MV_UNIFIED_SUFFIX}"
+    target = f"`{catalog}`.`{schema}`.`{view_name}`"
+    normalized_target = f"{catalog}.{schema}.{view_name}".lower()
+    if normalized_target in body.replace("`", "").lower():
+        raise ValueError(f"Unified view body must not reference its target: {target}")
+
+    if not existed:
+        execute_query(f"CREATE VIEW {target} AS\n{body}", no_cache=True)
+        return "created"
+
+    try:
+        # Databricks SQL supports replacing a view query with ALTER VIEW ... AS.
+        # Unlike CREATE OR REPLACE, this does not delete/recreate the object.
+        execute_query(f"ALTER VIEW {target} AS\n{body}", no_cache=True)
+        return "altered"
+    except Exception as e:
+        if not _alter_view_is_unsupported(e):
+            raise
+        # Compatibility fallback for runtimes that do not support ALTER VIEW AS.
+        # The caller holds the cross-process DDL lock throughout both statements.
+        logger.warning("ALTER VIEW AS unsupported for %s; using locked DROP/CREATE", target)
+        execute_query(f"DROP VIEW IF EXISTS {target}", no_cache=True)
+        execute_query(f"CREATE VIEW {target} AS\n{body}", no_cache=True)
+        return "recreated"
+
+
 def rebuild_unified_views(catalog: str | None = None, schema: str | None = None) -> dict:
     """(Re)create per-table `<name>__unified` views: local MV UNION ALL each source.
 
@@ -1833,10 +1940,23 @@ def rebuild_unified_views(catalog: str | None = None, schema: str | None = None)
     sources are configured, unified views are dropped so reads fall back to base
     tables. Returns a per-table build summary (used by the Settings UI).
     """
+    with unified_views_rebuild_lock():
+        return _rebuild_unified_views_locked(catalog, schema)
+
+
+def _rebuild_unified_views_locked(
+    catalog: str | None = None, schema: str | None = None
+) -> dict:
+    """Implementation of ``rebuild_unified_views`` with the DDL lock held."""
     from server.db import (
-        execute_query, get_catalog_schema, get_mv_sources,
-        get_local_source_label, save_unified_view_tables, MV_UNIFIED_SUFFIX,
+        MV_UNIFIED_SUFFIX,
+        get_catalog_schema,
+        get_local_source_label,
+        get_mv_sources,
+        get_unified_view_tables,
+        save_unified_view_tables,
     )
+
     if catalog is None or schema is None:
         c, s = get_catalog_schema()
         catalog = catalog or c
@@ -1846,12 +1966,26 @@ def rebuild_unified_views(catalog: str | None = None, schema: str | None = None)
 
     sources = get_mv_sources()
     if not sources:
-        drop_unified_views(catalog, schema)
+        _drop_unified_views_locked(catalog, schema)
         return {"ok": True, "sources": 0, "views": {}}
 
     local_label = get_local_source_label().replace("'", "''")
     summary: dict = {}
+    # This includes physically-listed views when information_schema is healthy
+    # and the durable registry as a fallback. Per-view probes below remove only
+    # entries that are definitively absent.
+    known_existing = set(get_unified_view_tables())
     for t in _MV_TABLES:
+        view_name = f"{t}{MV_UNIFIED_SUFFIX}"
+        existed = _unified_view_exists(catalog, schema, view_name)
+        if existed is True:
+            known_existing.add(t)
+        elif existed is False:
+            known_existing.discard(t)
+        else:
+            summary[t] = {"built": False, "reason": "view existence check failed"}
+            continue
+
         local_full = f"`{catalog}`.`{schema}`.`{t}`"
         local_cols = _table_columns(local_full)
         if not local_cols:
@@ -1876,25 +2010,49 @@ def rebuild_unified_views(catalog: str | None = None, schema: str | None = None)
                 slabel = src["label"].replace("'", "''")
                 selects.append(f"SELECT *, '{slabel}' AS source_label FROM {full}")
                 included.append(src["label"])
-        view = f"`{catalog}`.`{schema}`.`{t}{MV_UNIFIED_SUFFIX}`"
         union_sql = "\nUNION ALL\n".join(selects)
         try:
-            execute_query(f"CREATE OR REPLACE VIEW {view} AS\n{union_sql}", no_cache=True)
-            summary[t] = {"built": True, "included": included, "skipped": skipped}
+            action = _replace_unified_view(
+                catalog, schema, t, union_sql, existed=existed
+            )
+            known_existing.add(t)
+            summary[t] = {
+                "built": True,
+                "action": action,
+                "included": included,
+                "skipped": skipped,
+            }
         except Exception as e:
             summary[t] = {"built": False, "reason": str(e), "skipped": skipped}
-            logger.warning("Failed to build unified view %s: %s", view, e)
-    # Record which unified views exist so apply_mv_overrides only remaps those.
-    save_unified_view_tables([t for t, info in summary.items() if info.get("built")])
+            logger.warning("Failed to build unified view %s: %s", view_name, e)
+            # ALTER failures leave the previous view intact. A DROP/CREATE
+            # fallback can fail after DROP, so re-check before preserving it.
+            still_exists = _unified_view_exists(catalog, schema, view_name)
+            if still_exists is True:
+                known_existing.add(t)
+            elif still_exists is False:
+                known_existing.discard(t)
+
+    # Preserve prior live entries on partial failures; remove only views that
+    # were definitively observed absent. This prevents a transient failure for
+    # one table from truncating routing for every other still-live view.
+    save_unified_view_tables([t for t in _MV_TABLES if t in known_existing])
     logger.info("Unified MV views rebuilt (%d source(s) configured)", len(sources))
     return {"ok": True, "sources": len(sources), "views": summary}
 
 
 def drop_unified_views(catalog: str | None = None, schema: str | None = None) -> None:
     """Drop every `<name>__unified` view so reads fall back to base tables."""
+    with unified_views_rebuild_lock():
+        _drop_unified_views_locked(catalog, schema)
+
+
+def _drop_unified_views_locked(
+    catalog: str | None = None, schema: str | None = None
+) -> None:
+    """Drop unified views while the caller holds ``unified_views_rebuild_lock``."""
     from server.db import execute_query, get_catalog_schema, save_unified_view_tables, MV_UNIFIED_SUFFIX
-    # No unified views remain — stop apply_mv_overrides from remapping to them.
-    save_unified_view_tables([])
+
     if catalog is None or schema is None:
         c, s = get_catalog_schema()
         catalog = catalog or c
@@ -1906,6 +2064,14 @@ def drop_unified_views(catalog: str | None = None, schema: str | None = None) ->
             execute_query(f"DROP VIEW IF EXISTS `{catalog}`.`{schema}`.`{t}{MV_UNIFIED_SUFFIX}`", no_cache=True)
         except Exception as e:
             logger.debug("drop unified view %s failed (non-fatal): %s", t, e)
+    # Update routing only after the DDL pass, so readers never drop all registry
+    # entries before the physical views are actually removed.
+    remaining = [
+        t
+        for t in _MV_TABLES
+        if _unified_view_exists(catalog, schema, f"{t}{MV_UNIFIED_SUFFIX}") is True
+    ]
+    save_unified_view_tables(remaining)
 
 
 def check_materialized_views_exist(catalog: str | None = None, schema: str | None = None) -> dict:

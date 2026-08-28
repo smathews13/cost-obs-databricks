@@ -428,6 +428,47 @@ def _record_startup_skip_once(reason: str, *, blocked: bool = False) -> None:
         logger.debug("Could not record startup skip history: %s", e)
 
 
+_STARTUP_UNIFIED_VIEWS_LOCK_PATH = "/tmp/cost-obs-unified-views-startup.lock"
+_startup_unified_views_claim_file = None
+_startup_unified_views_claim_pid: int | None = None
+
+
+def _claim_startup_unified_views_worker(
+    lock_path: str = _STARTUP_UNIFIED_VIEWS_LOCK_PATH,
+) -> bool:
+    """Elect one uvicorn worker for startup MV/unified-view maintenance.
+
+    The winning worker retains the flock for its lifetime. Retaining it prevents
+    a slower second worker from starting a duplicate rebuild after the first one
+    has already completed and released the per-operation DDL lock.
+    """
+    global _startup_unified_views_claim_file, _startup_unified_views_claim_pid
+    current_pid = os.getpid()
+    if (
+        _startup_unified_views_claim_file is not None
+        and _startup_unified_views_claim_pid == current_pid
+    ):
+        return True
+    if _startup_unified_views_claim_file is not None:
+        # A pre-fork import can leave the parent's descriptor in every child.
+        # Close the inherited copy and compete using a fresh open description.
+        _startup_unified_views_claim_file.close()
+        _startup_unified_views_claim_file = None
+        _startup_unified_views_claim_pid = None
+
+    import fcntl
+
+    claim_file = open(lock_path, "a+")
+    try:
+        fcntl.flock(claim_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        claim_file.close()
+        return False
+    _startup_unified_views_claim_file = claim_file
+    _startup_unified_views_claim_pid = current_pid
+    return True
+
+
 def setup_materialized_views():
     """Refresh materialized views post-deploy — only if setup is durably complete.
 
@@ -494,21 +535,14 @@ def setup_materialized_views():
             )
             return
 
-        # Rebuild the additional-MV-source union views if any are configured. Their
-        # definitions persist in UC across redeploys, but mv_sources is restored from
-        # DBFS (the local .settings copy is wiped on redeploy) and MV reads remap to the
-        # `<name>__unified` views — so rebuild is cheap insurance that they always exist.
-        try:
-            from server.db import get_mv_sources
-            if get_mv_sources():
-                import threading as _uth
-                from server.materialized_views import rebuild_unified_views
-                _uth.Thread(
-                    target=lambda: rebuild_unified_views(catalog, schema), daemon=True
-                ).start()
-                logger.info("Rebuilding additional-MV-source union views in background")
-        except Exception as _uerr:
-            logger.warning("Could not rebuild unified MV views on startup (non-fatal): %s", _uerr)
+        # Only one uvicorn worker may perform startup refresh/view maintenance.
+        # This lifetime-held election lock also prevents a late-starting worker
+        # from repeating a rebuild after the first worker has already finished.
+        if not _claim_startup_unified_views_worker():
+            logger.info(
+                "Startup MV/unified-view maintenance SKIPPED — another worker owns it"
+            )
+            return
 
         # Tables durably exist — background refresh is safe, but skip if recently refreshed.
         # Refreshing on every restart hammers the warehouse during cold start. The nightly
@@ -535,6 +569,28 @@ def setup_materialized_views():
             _record_startup_skip_once(
                 f"Managed data is {_hours_since:.1f}h old and does not need a startup rebuild."
             )
+            # No base-table replacement is needed, so it is now safe to refresh
+            # the persisted shared-source view definitions. The rebuild function
+            # takes its own cross-process operation lock.
+            try:
+                from server.db import get_mv_sources
+
+                if get_mv_sources():
+                    from server.materialized_views import rebuild_unified_views
+
+                    threading.Thread(
+                        target=lambda: rebuild_unified_views(catalog, schema),
+                        daemon=True,
+                        name="startup-unified-views",
+                    ).start()
+                    logger.info(
+                        "Rebuilding additional-MV-source union views after freshness check"
+                    )
+            except Exception as _uerr:
+                logger.warning(
+                    "Could not rebuild unified MV views on startup (non-fatal): %s",
+                    _uerr,
+                )
             return
 
         # Guard: only one process (worker or scheduler) may run a full MV rebuild
