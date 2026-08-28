@@ -172,7 +172,15 @@ export function SpendAnomalies({ data, isLoading }: SpendAnomaliesProps) {
   }
 
   if (!data || data.anomalies.length === 0) {
-    return null;
+    return (
+      <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+        <h3 className="mb-4 text-lg font-semibold text-gray-900">Largest Spend Changes</h3>
+        <div className="flex h-40 flex-col items-center justify-center gap-2 text-gray-500">
+          <p className="text-base font-medium">No significant spend changes detected</p>
+          <p className="text-sm">This is good news: spending has been stable over the selected period</p>
+        </div>
+      </div>
+    );
   }
 
   const anomalyMap = new Map(data.anomalies.map((a) => [a.usage_date, a]));

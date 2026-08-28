@@ -308,8 +308,22 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
     );
   }
 
-  if (!displayData || displayData.products.length === 0) {
+  if (!data?.products?.length) {
     return null;
+  }
+
+  if (!displayData || displayData.products.length === 0) {
+    return (
+      <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900">Spend by Product</h3>
+          {workspaceSelector}
+        </div>
+        <div className="flex h-48 items-center justify-center text-sm text-gray-500">
+          No product spend matches the selected workspace filters.
+        </div>
+      </div>
+    );
   }
 
   return (

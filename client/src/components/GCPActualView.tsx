@@ -21,6 +21,8 @@ export function GCPActualView({ gcpActualData, cloudTabSwitcher, onSwitchToEstim
   const byService = gcpActualData.by_service;
   const byProject = gcpActualData.by_project;
   const timeseries = gcpActualData.timeseries;
+  const timeseriesRows = timeseries?.timeseries ?? [];
+  const timeseriesServices = timeseries?.services ?? [];
 
   const servicePieData = byService?.services?.map((s, i) => ({
     name: s.service,
@@ -68,11 +70,12 @@ export function GCPActualView({ gcpActualData, cloudTabSwitcher, onSwitchToEstim
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {(servicePieData.length > 0 || timeseriesRows.length > 0) && (
+      <div className={`grid grid-cols-1 gap-6 ${servicePieData.length > 0 && timeseriesRows.length > 0 ? "lg:grid-cols-2" : ""}`}>
+        {servicePieData.length > 0 && (
         <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by GCP Service</h3>
-          {servicePieData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie isAnimationActive={false} data={servicePieData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={2} dataKey="value"
                   label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(1)}%`} labelLine={false}>
@@ -81,27 +84,28 @@ export function GCPActualView({ gcpActualData, cloudTabSwitcher, onSwitchToEstim
                 <Tooltip formatter={(v) => formatCurrency(v as number)} />
                 <Legend />
               </PieChart>
-            </ResponsiveContainer>
-          ) : <div className="flex h-64 items-center justify-center text-gray-500">No service data</div>}
+          </ResponsiveContainer>
         </div>
+        )}
 
+        {timeseriesRows.length > 0 && (
         <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">GCP Cost Over Time</h3>
-          {timeseries?.timeseries && timeseries.timeseries.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={timeseries.timeseries}>
+          <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={timeseriesRows}>
                 <XAxis dataKey="date" tickFormatter={(d) => format(parseISO(d), "MMM d")} />
                 <YAxis tickFormatter={(v) => formatCurrency(v)} />
                 <Tooltip formatter={(v) => formatCurrency(v as number)} labelFormatter={(l) => format(parseISO(l as string), "MMM d, yyyy")} />
                 <Legend />
-                {(timeseries.services || []).slice(0, 8).map((svc, i) => (
+                {timeseriesServices.slice(0, 8).map((svc, i) => (
                   <Bar isAnimationActive={false} key={svc} dataKey={svc} stackId="1" fill={GCP_COLORS[i % GCP_COLORS.length]} radius={[0, 0, 0, 0]} />
                 ))}
               </BarChart>
-            </ResponsiveContainer>
-          ) : <div className="flex h-64 items-center justify-center text-gray-500">No timeseries data</div>}
+          </ResponsiveContainer>
         </div>
+        )}
       </div>
+      )}
 
       {byProject?.projects && byProject.projects.length > 0 && (
         <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>

@@ -26,6 +26,8 @@ export function AzureActualView({ azureActualData, cloudTabSwitcher, onSwitchToE
   const byChargeType = azureActualData.by_charge_type;
   const byCluster = azureActualData.by_cluster;
   const timeseries = azureActualData.timeseries;
+  const timeseriesRows = timeseries?.timeseries ?? [];
+  const timeseriesChargeTypes = timeseries?.charge_types ?? [];
 
   const chargeTypePieData = byChargeType?.charge_types?.map((ct) => ({
     name: ct.charge_type,
@@ -83,11 +85,12 @@ export function AzureActualView({ azureActualData, cloudTabSwitcher, onSwitchToE
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {(chargeTypePieData.length > 0 || timeseriesRows.length > 0) && (
+      <div className={`grid grid-cols-1 gap-6 ${chargeTypePieData.length > 0 && timeseriesRows.length > 0 ? "lg:grid-cols-2" : ""}`}>
+        {chargeTypePieData.length > 0 && (
         <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Cost by Charge Type</h3>
-          {chargeTypePieData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie isAnimationActive={false}
                   data={chargeTypePieData}
@@ -104,17 +107,15 @@ export function AzureActualView({ azureActualData, cloudTabSwitcher, onSwitchToE
                 <Tooltip formatter={(value) => formatCurrency(value as number)} />
                 <Legend />
               </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex h-64 items-center justify-center text-gray-500">No charge type data</div>
-          )}
+          </ResponsiveContainer>
         </div>
+        )}
 
+        {timeseriesRows.length > 0 && (
         <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
           <h3 className="mb-4 text-lg font-semibold text-gray-900">Actual Azure Cost Over Time</h3>
-          {timeseries?.timeseries && timeseries.timeseries.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={timeseries.timeseries}>
+          <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={timeseriesRows}>
                 <XAxis dataKey="date" tickFormatter={(d) => format(parseISO(d), "MMM d")} />
                 <YAxis tickFormatter={(v) => formatCurrency(v)} />
                 <Tooltip
@@ -122,16 +123,15 @@ export function AzureActualView({ azureActualData, cloudTabSwitcher, onSwitchToE
                   labelFormatter={(label) => format(parseISO(label as string), "MMM d, yyyy")}
                 />
                 <Legend />
-                {timeseries.charge_types.map((ct) => (
+                {timeseriesChargeTypes.map((ct) => (
                   <Bar isAnimationActive={false} key={ct} dataKey={ct} stackId="1" fill={CHARGE_TYPE_COLORS[ct] || CHARGE_TYPE_COLORS.Other} radius={[0, 0, 0, 0]} />
                 ))}
               </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex h-64 items-center justify-center text-gray-500">No timeseries data</div>
-          )}
+          </ResponsiveContainer>
         </div>
+        )}
       </div>
+      )}
 
       {byCluster?.clusters && byCluster.clusters.length > 0 && (
         <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
