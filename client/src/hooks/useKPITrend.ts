@@ -35,7 +35,8 @@ function useTrendQuery(
   startDate: string,
   endDate: string,
   granularity: string = "daily",
-  workspaceIds?: string[]
+  workspaceIds?: string[],
+  enabled: boolean = true,
 ) {
   const wsKey = getWorkspaceScopeKey(workspaceIds);
   const sourceKey = getActiveSourceScopeKey();
@@ -61,7 +62,7 @@ function useTrendQuery(
 
       return response.json();
     },
-    enabled: !!kpi && !!startDate && !!endDate,
+    enabled: enabled && !!kpi && !!startDate && !!endDate,
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -73,8 +74,9 @@ export function useKPITrend(
   granularity: string = "daily",
   workspaceIds?: string[],
   queryKeyPrefix: string = "kpi-trend",
+  enabled: boolean = true,
 ) {
-  return useTrendQuery(queryKeyPrefix, "kpi-trend", kpi, startDate, endDate, granularity, workspaceIds);
+  return useTrendQuery(queryKeyPrefix, "kpi-trend", kpi, startDate, endDate, granularity, workspaceIds, enabled);
 }
 
 export function usePlatformKPITrend(
@@ -84,8 +86,9 @@ export function usePlatformKPITrend(
   granularity: string = "daily",
   workspaceIds?: string[],
   queryKeyPrefix: string = "platform-kpi-trend",
+  enabled: boolean = true,
 ) {
-  return useTrendQuery(queryKeyPrefix, "platform-kpi-trend", kpi, startDate, endDate, granularity, workspaceIds);
+  return useTrendQuery(queryKeyPrefix, "platform-kpi-trend", kpi, startDate, endDate, granularity, workspaceIds, enabled);
 }
 
 function useAppsTrendQuery(
@@ -94,6 +97,7 @@ function useAppsTrendQuery(
   endDate: string,
   granularity: string = "daily",
   workspaceIds?: string[],
+  enabled: boolean = true,
 ) {
   const wsKey = getWorkspaceScopeKey(workspaceIds);
   const sourceKey = getActiveSourceScopeKey();
@@ -105,7 +109,7 @@ function useAppsTrendQuery(
       if (!response.ok) throw new Error(`Failed to fetch apps KPI trend: ${response.statusText}`);
       return response.json();
     },
-    enabled: !!kpi && !!startDate && !!endDate,
+    enabled: enabled && !!kpi && !!startDate && !!endDate,
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -116,6 +120,7 @@ export function useAppsKPITrend(
   endDate: string,
   granularity: string = "daily",
   workspaceIds?: string[],
+  enabled: boolean = true,
 ) {
-  return useAppsTrendQuery(kpi, startDate, endDate, granularity, workspaceIds);
+  return useAppsTrendQuery(kpi, startDate, endDate, granularity, workspaceIds, enabled);
 }

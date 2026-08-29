@@ -5,8 +5,12 @@ import type { ReadinessResult } from "./ReadinessChecks";
 import { READINESS_QUERY_KEY } from "@/hooks/useFeatureAvailability";
 import { Group, Row, Select, SecondaryButton, LinkButton, MonoChip, Callout, useToast, T, MONO } from "./dubois";
 import { Spinner } from "@/components/Spinner";
+import "./settings.css";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const USER_GRID_STYLE = {
+  "--settings-access-grid-columns": "minmax(220px, 0.5fr) 180px 96px",
+} as React.CSSProperties;
 
 interface UserPermissions {
   admins: string[];
@@ -249,7 +253,7 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
         <span>Users</span>
         <span style={{ fontSize: 12, fontWeight: 400, color: T.textSecondary }}>Anyone not listed is a Consumer (dashboards only)</span>
       </div>
-      <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflowX: "auto" }}>
         {allUsers.length === 0 ? (
           <div style={{ padding: "12px 16px", fontSize: 12, color: T.textSecondary, fontStyle: "italic" }}>
             {permissions?.current_user ? `${permissions.current_user} (you) is the implicit default admin. ` : ""}
@@ -257,7 +261,7 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           </div>
         ) : (
           allUsers.map(({ email, role }, i) => (
-            <div key={email} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 132px 64px", alignItems: "center", columnGap: 14, minHeight: 52, padding: "9px 16px", borderTop: i === 0 ? "none" : `1px solid ${T.borderRow}` }}>
+            <div data-testid="access-user-row" className="settings-access-user-grid" key={email} style={{ ...USER_GRID_STYLE, minHeight: 52, padding: "9px 16px", borderTop: i === 0 ? "none" : `1px solid ${T.borderRow}` }}>
               <span title={email} style={{ fontSize: 13, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email}</span>
               <Select value={role} onChange={(v) => changeRole(email, v as "admin" | "consumer")}
                 options={[{ value: "admin", label: "Admin" }, { value: "consumer", label: "Consumer" }]}
@@ -267,7 +271,7 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           ))
         )}
         {/* Add-user row */}
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 132px auto", alignItems: "center", columnGap: 10, padding: "12px 16px", borderTop: `1px solid ${T.borderRow}`, backgroundColor: T.navBg }}>
+        <div data-testid="access-add-user-row" className="settings-access-user-grid" style={{ ...USER_GRID_STYLE, padding: "12px 16px", borderTop: `1px solid ${T.borderRow}`, backgroundColor: T.navBg }}>
           <div style={{ minWidth: 0 }}>
             <input
               type="email" placeholder="user@example.com" aria-label="User email" value={newUserEmail}
@@ -279,9 +283,11 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           <Select value={newUserRole} onChange={(v) => setNewUserRole(v as "admin" | "consumer")}
             options={[{ value: "consumer", label: "Consumer" }, { value: "admin", label: "Admin" }]}
             ariaLabel="Role for new user" width="100%" />
-          <SecondaryButton onClick={addUser} disabled={!newUserEmail.trim() || saveMutation.isPending}>
-            {saveMutation.isPending ? "Saving…" : "Add user"}
-          </SecondaryButton>
+          <span style={{ display: "grid" }}>
+            <SecondaryButton onClick={addUser} disabled={!newUserEmail.trim() || saveMutation.isPending}>
+              {saveMutation.isPending ? "Saving…" : "Add user"}
+            </SecondaryButton>
+          </span>
         </div>
       </div>
       {permissions?.table_location && (
@@ -289,6 +295,49 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           Roles are stored in <MonoChip>{permissions.table_location}</MonoChip> and persist across deploys.
         </p>
       )}
+
+      {/* ── Future metastore browser ── */}
+      <fieldset
+        disabled
+        aria-disabled="true"
+        aria-describedby="metastore-coming-soon"
+        style={{
+          position: "relative",
+          margin: permissions?.table_location ? "0 0 20px" : "20px 0",
+          padding: 0,
+          border: `1px solid ${T.borderGroup}`,
+          borderRadius: 8,
+          backgroundColor: T.navBg,
+          color: T.textSecondary,
+          filter: "grayscale(1)",
+          opacity: 0.68,
+          overflow: "hidden",
+        }}
+      >
+        <legend className="sr-only">Add a metastore</legend>
+        <div style={{ padding: "12px 16px", paddingRight: 108 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Add a metastore</div>
+          <div id="metastore-coming-soon" style={{ marginTop: 2, fontSize: 12 }}>
+            Browse and connect another metastore.
+          </div>
+        </div>
+        <span
+          aria-hidden="true"
+          style={{ position: "absolute", top: 12, right: 14, borderRadius: 999, padding: "2px 8px", backgroundColor: T.borderGroup, color: T.textSecondary, fontSize: 10, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase" }}
+        >
+          Coming soon
+        </span>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 10, padding: "12px 16px", borderTop: `1px solid ${T.borderRow}` }}>
+          <input
+            type="text"
+            disabled
+            aria-label="Metastore"
+            placeholder="Select a metastore"
+            style={{ height: 32, minWidth: 0, borderRadius: 4, border: `1px solid ${T.borderControl}`, padding: "0 10px", fontSize: 13, color: T.textSecondary, backgroundColor: T.codeBg, cursor: "not-allowed" }}
+          />
+          <SecondaryButton disabled>Browse</SecondaryButton>
+        </div>
+      </fieldset>
 
       {/* ── Query authentication ── */}
       <div style={{ marginTop: 20 }}>

@@ -221,3 +221,34 @@ describe("SettingsConfig: rebuild history recovery state", () => {
     expect(screen.getByText(/warehouse returned 503/i)).toBeInTheDocument();
   });
 });
+
+describe("SettingsConfig: managed table layout", () => {
+  it("keeps headers and the Materialized View badge on one line in a scrollable wide table", async () => {
+    renderSettingsConfig({
+      tables: [{
+        name: "daily_usage_summary",
+        table_type: "Materialized View",
+        exists: true,
+        optional: false,
+        row_count: 1000,
+        min_date: "2026-01-01",
+        max_date: "2026-08-28",
+        days_behind: 0,
+      }],
+      refresh_status: HEALTHY_TABLES.refresh_status,
+      auth_error: null,
+    });
+
+    const badge = await screen.findByText("Materialized View");
+    expect(badge).toHaveStyle({ whiteSpace: "nowrap", display: "inline-block" });
+    expect(screen.getByTestId("managed-tables-scroll")).toHaveStyle({
+      width: "100%",
+      overflowX: "auto",
+    });
+    expect(screen.getByTestId("managed-tables-table")).toHaveStyle({ minWidth: "960px" });
+
+    for (const name of ["Table", "Type", "Rows", "Retention limit", "Latest date", "Freshness"]) {
+      expect(screen.getByRole("columnheader", { name })).toHaveStyle({ whiteSpace: "nowrap" });
+    }
+  });
+});

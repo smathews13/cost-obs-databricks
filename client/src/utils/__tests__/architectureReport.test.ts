@@ -6,11 +6,12 @@ const pdf = vi.hoisted(() => ({
   addPage: vi.fn(),
   text: vi.fn(),
   pageText: [] as number[],
+  textPositions: [] as Array<{ page: number; y: number }>,
 }));
 
 vi.mock("jspdf", () => ({
   jsPDF: class {
-    internal = { pageSize: { width: 210, height: 297 } };
+    internal = { pageSize: { width: 297, height: 210 } };
     private pages = 1;
     setFont = vi.fn();
     setFontSize = vi.fn();
@@ -27,6 +28,9 @@ vi.mock("jspdf", () => ({
     text = (...args: unknown[]) => {
       pdf.text(...args);
       pdf.pageText[this.pages] = (pdf.pageText[this.pages] ?? 0) + 1;
+      if (typeof args[2] === "number") {
+        pdf.textPositions.push({ page: this.pages, y: args[2] });
+      }
     };
     save = pdf.save;
     addPage = () => {
@@ -58,6 +62,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
   pdf.pageText.length = 0;
+  pdf.textPositions.length = 0;
 });
 
 describe("architecture report", () => {
@@ -69,9 +74,44 @@ describe("architecture report", () => {
       "Databricks SQL Warehouse",
       "App-managed Delta layer",
     ]));
+    expect(ARCHITECTURE_OVERVIEW.flowColumns.map((item) => item.title)).toEqual([
+      "Browser / React",
+      "FastAPI routes",
+      "SQL Warehouse",
+      "App-managed Delta",
+      "Governed sources",
+    ]);
     expect(ARCHITECTURE_OVERVIEW.dataFlow).not.toHaveLength(0);
     expect(ARCHITECTURE_OVERVIEW.securityGovernance).not.toHaveLength(0);
-    expect(ARCHITECTURE_OVERVIEW.refreshCacheBehavior).not.toHaveLength(0);
+    expect(ARCHITECTURE_OVERVIEW.refreshPaths.map((item) => item.label)).toEqual([
+      "Scheduled aggregate refresh",
+      "Administrator full rebuild",
+      "On-demand tab refresh",
+    ]);
+
+    const expectedTabs = [
+      "DBU Overview",
+      "SQL",
+      "AI/ML",
+      "Apps",
+      "Tagging",
+      "Users",
+      "KPIs & Trends",
+      "Cloud Costs",
+      "Optimize",
+    ];
+    expect(ARCHITECTURE_OVERVIEW.tabLineage.map((item) => item.tab)).toEqual(expectedTabs);
+    for (const lineage of ARCHITECTURE_OVERVIEW.tabLineage) {
+      expect(lineage.uiComponents, `${lineage.tab} UI mapping`).not.toHaveLength(0);
+      expect(lineage.apiRoutes, `${lineage.tab} API mapping`).not.toHaveLength(0);
+      expect(lineage.managedData, `${lineage.tab} managed-data mapping`).not.toHaveLength(0);
+      expect(lineage.sourceTables, `${lineage.tab} source mapping`).not.toHaveLength(0);
+      expect(lineage.apiRoutes.every((route) => route.includes("/api/"))).toBe(true);
+    }
+    expect(
+      ARCHITECTURE_OVERVIEW.tabLineage.find((item) => item.tab === "KPIs & Trends")
+        ?.managedData,
+    ).toEqual(expect.arrayContaining(["daily_usage_summary"]));
 
     const sourceGroups = Object.fromEntries(
       ARCHITECTURE_OVERVIEW.sourceTables.map((group) => [group.label, group]),
@@ -136,8 +176,19 @@ describe("architecture report", () => {
     expect(pdf.save).toHaveBeenCalledWith("cost-observability-architecture-2026-08-28.pdf");
     expect(pdf.text).toHaveBeenCalledWith("Cost Observability Architecture", 14, 34);
     expect(pdf.text.mock.calls.length).toBeGreaterThan(20);
+    const renderedText = JSON.stringify(pdf.text.mock.calls);
+    expect(renderedText).toContain("Architecture at a glance");
+    expect(renderedText).toContain("AUTHENTICATION + GOVERNANCE");
+    expect(renderedText).toContain("SCHEDULED REFRESH");
+    expect(renderedText).toContain("ON-DEMAND REFRESH");
+    expect(renderedText).toContain("Tab-by-tab data lineage");
+    for (const lineage of ARCHITECTURE_OVERVIEW.tabLineage) {
+      expect(renderedText).toContain(lineage.tab);
+    }
     const pageCount = pdf.addPage.mock.calls.length + 1;
+    expect(pageCount).toBeGreaterThanOrEqual(4);
     const textCounts = Array.from({ length: pageCount }, (_, index) => pdf.pageText[index + 1] ?? 0);
     expect(textCounts.every((count) => count > 0)).toBe(true);
+    expect(pdf.textPositions.every(({ y }) => y >= 0 && y <= 189)).toBe(true);
   });
 });

@@ -47,10 +47,27 @@ describe("chrome filter variants", () => {
       "max-w-[116px]",
       "min-[1280px]:max-w-[190px]",
       "bg-white/[.07]",
-      "border-white/[.12]",
+      "rail-control-border",
     );
+    expect(trigger.className).not.toContain("border-white");
     expect(screen.getByText("Workspaces")).toHaveClass("min-[1180px]:hidden");
     expect(trigger).not.toHaveClass("co-filter");
+  });
+
+  it("uses the shared dark rail border while workspaces load", () => {
+    renderWithQueryClient(
+      <WorkspaceFilter
+        workspaces={[]}
+        selectedIds={[]}
+        onChange={vi.fn()}
+        isLoading
+        variant="rail"
+      />,
+    );
+
+    const loading = screen.getByText("Workspaces…").closest(".rail-workspace-filter");
+    expect(loading).toHaveClass("rail-control-border");
+    expect(loading?.className).not.toContain("border-white");
   });
 
   it("renders the source trigger with the rail skin", async () => {
@@ -75,8 +92,9 @@ describe("chrome filter variants", () => {
       "max-w-[104px]",
       "min-[1280px]:max-w-[190px]",
       "bg-white/[.07]",
-      "border-white/[.12]",
+      "rail-control-border",
     );
+    expect(trigger.className).not.toContain("border-white");
     expect(screen.getByText("Sources")).toHaveClass("min-[1180px]:hidden");
     expect(trigger).not.toHaveClass("co-filter");
   });

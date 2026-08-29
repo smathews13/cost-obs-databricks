@@ -2,12 +2,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { loadAppSettings, loadTabVisibility } from "@/utils/settingsHydration";
 import { SettingsDialog } from "../SettingsDialog";
 
 afterEach(() => {
   localStorage.clear();
   vi.unstubAllGlobals();
+});
+
+it("animates the save spinner while respecting reduced motion", () => {
+  const css = readFileSync("src/components/settings/settings.css", "utf8");
+  expect(css).toMatch(/\.settings-save-spinner\s*\{[^}]*animation:\s*settings-save-spin/s);
+  expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.settings-save-spinner\s*\{[^}]*animation:\s*none/s);
 });
 
 it("discards saved settings for the removed Use Cases feature", () => {
@@ -301,9 +308,55 @@ it("prevents double submission while a save is in flight", async () => {
 
   expect(putCount).toBe(1);
   expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
-  expect(screen.getByRole("status")).toHaveTextContent("Saving 1 setting…");
+  const savingStatus = screen.getByRole("status");
+  expect(savingStatus).toHaveTextContent("Saving 1 setting…");
+  expect(savingStatus.querySelector(".settings-save-spinner")).toBeInTheDocument();
   resolvePut?.({ ok: true, status: 200, json: async () => ({}) });
   await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled());
+});
+
+it("uses the shared dirty and save status for Experimental draft controls", async () => {
+  let resolvePut: ((value: { ok: boolean; status: number; json: () => Promise<object> }) => void) | undefined;
+  const putBodies: Array<{
+    general: { anonymize_users: boolean };
+    experimental: { enable_architecture_view: boolean };
+  }> = [];
+  vi.stubGlobal("fetch", vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/api/settings") && init?.method === "PUT") {
+      putBodies.push(JSON.parse(String(init.body)));
+      return new Promise((resolve) => { resolvePut = resolve; });
+    }
+    return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  render(
+    <QueryClientProvider client={client}>
+      <SettingsDialog
+        isOpen
+        onClose={vi.fn()}
+        onTabVisibilityChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        tabVisibility={loadTabVisibility()}
+        appSettings={loadAppSettings()}
+      />
+    </QueryClientProvider>,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "Experimental" }));
+  await userEvent.click(screen.getByRole("switch", { name: "User anonymization" }));
+  await userEvent.click(screen.getByRole("switch", { name: "Architecture view" }));
+  expect(screen.getByRole("status")).toHaveTextContent("2 unsaved settings");
+
+  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(screen.getByRole("status")).toHaveTextContent("Saving 2 settings…");
+  expect(putBodies[0].experimental).toMatchObject({
+    enable_architecture_view: true,
+  });
+  expect(putBodies[0].general).toMatchObject({ anonymize_users: true });
+
+  resolvePut?.({ ok: true, status: 200, json: async () => ({ updated_count: 2 }) });
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2 settings updated"));
 });
 
 it("persists all toggles from the first Save click", async () => {

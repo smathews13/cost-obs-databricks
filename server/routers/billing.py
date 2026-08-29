@@ -11,7 +11,7 @@ from cachetools import TTLCache
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, execute_queries_parallel, get_catalog_schema, get_host_url, get_workspace_client, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation, apply_mv_overrides, selected_source_labels, source_label_filter_clause
+from server.db import execute_query, execute_queries_parallel, get_catalog_schema, get_host_url, get_workspace_client, get_local_source_label, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation, apply_mv_overrides, selected_source_labels, source_label_filter_clause
 from server import cache_ttls
 from server.queries import (
     ACCOUNT_INFO,
@@ -33,7 +33,6 @@ from server.queries import (
     BILLING_KPIS_FAST,
     AVG_DAILY_WORKSPACES,
     AVG_DAILY_QUERY_USERS_MV,
-    STICKINESS_PCT_QH,
     TOTAL_WORKSPACES_ALLTIME,
     AVG_DAILY_MODELS,
     LAKEFLOW_JOB_STATS,
@@ -63,9 +62,21 @@ from server.materialized_views import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Stale fallback: stores the last successful non-zero kpis_response per date-range key so
-# transient failures (warehouse cold-start, lakeflow replication gap) never show 0s.
+# Stale fallback: stores the last successful non-zero kpis_response per exact
+# date/workspace/source scope so one source selection can never leak into another.
 _kpis_stale: TTLCache = TTLCache(maxsize=500, ttl=cache_ttls.STALE_KPI)
+
+
+def _kpis_stale_key(
+    start_date: str,
+    end_date: str,
+    workspace_ids: list[str] | None,
+    source_labels: list[str],
+) -> str:
+    """Canonical key for last-known-good KPI fallbacks."""
+    workspace_scope = ",".join(sorted(workspace_ids or []))
+    source_scope = ",".join(sorted(set(source_labels)))
+    return f"{start_date}/{end_date}/{workspace_scope}/{source_scope}"
 
 
 def _ensure_list(val: Any) -> list:
@@ -189,6 +200,12 @@ def _mv_ws_clause(id_list: list[str] | None) -> str:
     """Build a workspace filter clause for MV queries (plain workspace_id column, no table alias)."""
     from server import workspace_filter as wf
     return wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
+
+
+def _local_source_selected() -> bool:
+    """Whether local-only system tables belong to the requested source scope."""
+    labels = selected_source_labels()
+    return not labels or get_local_source_label() in labels
 
 
 def get_workspace_name() -> str | None:
@@ -2652,17 +2669,68 @@ async def get_kpis_bundle(
 
     # Supplemental query for accurate user count (MV uses MAX of daily counts which under-counts)
     catalog, schema = get_catalog_schema()
-    USER_COUNT_QUERY = f"""
+    USER_COUNT_QUERY = """
     SELECT COUNT(DISTINCT executed_by) as unique_query_users
     FROM `{catalog}`.`{schema}`.`dbsql_cost_per_query`
     WHERE start_time >= :start_date AND start_time < DATE_ADD(CAST(:end_date AS DATE), 1)
+      AND executed_by IS NOT NULL
+      {ws_filter}
+    """
+    STICKINESS_PCT_QUERY = """
+    WITH total_users AS (
+      SELECT COUNT(DISTINCT executed_by) AS total
+      FROM `{catalog}`.`{schema}`.`dbsql_cost_per_query`
+      WHERE start_time >= :start_date
+        AND start_time < DATE_ADD(CAST(:end_date AS DATE), 1)
+        AND executed_by IS NOT NULL
+        {ws_filter}
+    ),
+    daily_users AS (
+      SELECT DATE(start_time) AS usage_date, COUNT(DISTINCT executed_by) AS dau
+      FROM `{catalog}`.`{schema}`.`dbsql_cost_per_query`
+      WHERE start_time >= :start_date
+        AND start_time < DATE_ADD(CAST(:end_date AS DATE), 1)
+        AND executed_by IS NOT NULL
+        {ws_filter}
+      GROUP BY DATE(start_time)
+    )
+    SELECT ROUND(AVG(100.0 * d.dau / NULLIF(t.total, 0)), 1) AS stickiness_pct
+    FROM daily_users d CROSS JOIN total_users t
+    """
+    ANOMALIES_MV_QUERY = """
+    WITH daily_stats AS (
+      SELECT usage_date, SUM(total_spend) AS daily_spend
+      FROM `{catalog}`.`{schema}`.`daily_usage_summary`
+      WHERE usage_date BETWEEN :start_date AND :end_date
+        {ws_filter}
+      GROUP BY usage_date
+    ),
+    with_lag AS (
+      SELECT
+        usage_date,
+        daily_spend,
+        LAG(daily_spend) OVER (ORDER BY usage_date) AS prev_day_spend
+      FROM daily_stats
+    )
+    SELECT
+      usage_date,
+      daily_spend,
+      prev_day_spend,
+      daily_spend - prev_day_spend AS change_amount,
+      ROUND(
+        100.0 * (daily_spend - prev_day_spend) / NULLIF(prev_day_spend, 0),
+        2
+      ) AS change_percent
+    FROM with_lag
+    WHERE prev_day_spend IS NOT NULL
+      AND prev_day_spend > 0
+    ORDER BY ABS(change_percent) DESC
+    LIMIT 20
     """
 
     # Direct Delta query for query stats — used as fallback if Lakebase daily_query_stats is empty
     mv_ws = _mv_ws_clause(id_list)
     delta_query_stats_sql = MV_PLATFORM_KPIS.format(catalog=catalog, schema=schema, ws_filter=mv_ws)
-
-    anomalies_sql = SPEND_ANOMALIES
 
     # BILLING_KPIS_FAST has no table alias — use unqualified column name for the workspace filter.
     # ws_clause uses "u.workspace_id" (for aliased queries); build a separate clause here.
@@ -2676,8 +2744,20 @@ async def get_kpis_bundle(
     parallel_queries: list[tuple[str, Any]] = [
         ("billing_kpis", lambda: execute_query(billing_kpis_sql, params)),
         ("lakeflow_kpis", lambda: execute_query(lakeflow_kpis_sql, params)),
-        ("anomalies", lambda: execute_query(_inject_ws_filter(anomalies_sql, ws_clause), params)),
     ]
+    source_labels = selected_source_labels()
+    anomaly_source_filter = source_label_filter_clause(ANOMALIES_MV_QUERY)
+    if use_mv and (not source_labels or anomaly_source_filter):
+        anomalies_sql = _get_mv_query(ANOMALIES_MV_QUERY, mv_ws)
+        parallel_queries.append(("anomalies", lambda: execute_query(anomalies_sql, params)))
+    elif (
+        not source_labels
+        or all(label == get_local_source_label() for label in source_labels)
+    ):
+        # A local-only selection can truthfully use the local system table. Never
+        # use it for shared or mixed selections: that would ignore the chosen scope.
+        anomalies_sql = _inject_ws_filter(SPEND_ANOMALIES, ws_clause)
+        parallel_queries.append(("anomalies", lambda: execute_query(anomalies_sql, params)))
     if use_mv:
         avg_daily_ws_sql = _get_mv_query(AVG_DAILY_WORKSPACES, mv_ws)
         parallel_queries.append(("avg_daily_ws", lambda: execute_query(avg_daily_ws_sql, params)))
@@ -2690,49 +2770,63 @@ async def get_kpis_bundle(
     else:
         parallel_queries.append(("delta_query_stats", lambda: execute_query(delta_query_stats_sql, params)))
 
-    # Supplemental user count from materialized table — failures handled inside execute_query
-    parallel_queries.append(("user_count", lambda: execute_query(USER_COUNT_QUERY, params)))
+    # Supplemental user count from the managed query-level table. Routing can be
+    # unavailable for a selected shared source; keep the rest of the bundle usable
+    # and expose this KPI as unavailable instead of failing or changing population.
+    try:
+        user_count_sql = _get_mv_query(USER_COUNT_QUERY, mv_ws)
+        parallel_queries.append(("user_count", lambda: execute_query(user_count_sql, params)))
+    except Exception as exc:
+        logger.warning("Managed query-user count is unavailable: %s", exc)
     # Workspace count (all-time) and avg daily model endpoints — fast billing scans
     parallel_queries.append(("total_workspaces", lambda: execute_query(TOTAL_WORKSPACES_ALLTIME, {})))
     avg_daily_models_sql = _inject_ws_filter(AVG_DAILY_MODELS, billing_ws_clause)
     parallel_queries.append(("avg_daily_models", lambda: execute_query(avg_daily_models_sql, params)))
-    # Stickiness from query.history (same source as trend) so KPI and trend show consistent numbers
-    _qh_ws = ws_clause if ws_clause else ""
-    stickiness_sql = STICKINESS_PCT_QH.format(ws_filter=_qh_ws)
-    parallel_queries.append(("stickiness_pct", lambda: execute_query(stickiness_sql, params)))
+    # Stickiness uses the same query-level MV as the unique-user card and trend.
+    # This keeps source-label, workspace, and date scope identical across both.
+    try:
+        stickiness_sql = _get_mv_query(STICKINESS_PCT_QUERY, mv_ws)
+        parallel_queries.append(("stickiness_pct", lambda: execute_query(stickiness_sql, params)))
+    except Exception as exc:
+        logger.warning("Managed query-user stickiness is unavailable: %s", exc)
 
     try:
         query_results = await asyncio.to_thread(execute_queries_parallel, parallel_queries, timeout=90.0)
     except Exception as e:
         logger.error("kpis-bundle query execution failed: %s", e)
         return {"kpis": {
-            "total_queries": 0, "unique_query_users": 0,
+            "total_queries": 0, "unique_query_users": 0, "query_users_available": False,
             "total_rows_read": 0, "total_bytes_read": 0, "total_compute_seconds": 0,
             "total_jobs": 0, "total_job_runs": 0, "successful_runs": 0, "successful_runs_available": False, "total_job_run_hours": 0,
             "unique_job_owners": 0, "active_workspaces": 0, "avg_daily_workspaces": 0,
             "active_notebooks": 0, "total_clusters": 0, "sql_warehouses": 0,
             "models_served": 0, "total_serving_dbus": 0, "avg_daily_models": 0,
-            "avg_daily_query_users": 0, "total_workspace_count": 0, "stickiness_pct": 0,
+            "avg_daily_query_users": 0, "total_workspace_count": 0,
+            "stickiness_pct": None, "stickiness_available": False,
             "start_date": params["start_date"], "end_date": params["end_date"],
             "error": str(e),
-        }, "anomalies": {"anomalies": [], "start_date": params["start_date"], "end_date": params["end_date"]}}
+        }, "anomalies": {
+            "anomalies": [], "available": False,
+            "unavailable_reason": "Spend anomaly data could not be loaded",
+            "start_date": params["start_date"], "end_date": params["end_date"],
+        }}
 
     # --- Build KPIs response ---
     kpis_response = {
-        "total_queries": 0, "unique_query_users": 0,
+        "total_queries": 0, "unique_query_users": 0, "query_users_available": False,
         "total_rows_read": 0, "total_bytes_read": 0, "total_compute_seconds": 0,
         "total_jobs": 0, "total_job_runs": 0, "successful_runs": 0, "successful_runs_available": False, "total_job_run_hours": 0,
         "unique_job_owners": 0, "active_workspaces": 0, "avg_daily_workspaces": 0,
         "active_notebooks": 0, "total_clusters": 0, "sql_warehouses": 0,
         "models_served": 0, "total_serving_dbus": 0, "avg_daily_models": 0,
-        "avg_daily_query_users": 0, "total_workspace_count": 0, "stickiness_pct": 0,
+        "avg_daily_query_users": 0, "total_workspace_count": 0,
+        "stickiness_pct": None, "stickiness_available": False,
         "start_date": params["start_date"], "end_date": params["end_date"],
     }
 
     # Apply query stats: MV (Lakebase) first, fall back to Delta if result is empty/zero
     def _apply_query_stats(row: dict) -> None:
         kpis_response["total_queries"] = int(row.get("total_queries") or 0)
-        kpis_response["unique_query_users"] = int(row.get("unique_query_users") or 0)
         kpis_response["total_rows_read"] = int(row.get("total_rows_read") or 0)
         kpis_response["total_bytes_read"] = int(row.get("total_bytes_read") or 0)
         kpis_response["total_compute_seconds"] = float(row.get("total_compute_seconds") or 0)
@@ -2748,7 +2842,7 @@ async def get_kpis_bundle(
             _apply_query_stats(delta_qs[0])
 
     # Billing-backed KPIs: total_jobs, total_job_runs, active_workspaces, clusters, models
-    billing_results = query_results.get("billing_kpis")
+    billing_results = query_results.get("billing_kpis") if _local_source_selected() else None
     if billing_results and len(billing_results) > 0:
         row = billing_results[0]
         kpis_response["total_jobs"] = int(row.get("total_jobs") or 0)
@@ -2772,7 +2866,7 @@ async def get_kpis_bundle(
             kpis_response["avg_daily_workspaces"] = int(val)
 
     # Lakeflow-backed KPIs: successful_runs, total_job_run_hours (may be missing if lakeflow is inaccessible)
-    lakeflow_results = query_results.get("lakeflow_kpis")
+    lakeflow_results = query_results.get("lakeflow_kpis") if _local_source_selected() else None
     if lakeflow_results and len(lakeflow_results) > 0:
         kpis_response["successful_runs"] = int(lakeflow_results[0].get("successful_runs") or 0)
         kpis_response["successful_runs_available"] = bool(lakeflow_results[0].get("result_state_available"))
@@ -2784,44 +2878,61 @@ async def get_kpis_bundle(
         if val is not None:
             kpis_response["avg_daily_query_users"] = int(val)
 
-    total_ws_results = query_results.get("total_workspaces")
+    total_ws_results = query_results.get("total_workspaces") if _local_source_selected() else None
     if total_ws_results and len(total_ws_results) > 0:
         kpis_response["total_workspace_count"] = int(total_ws_results[0].get("total_workspaces") or 0)
 
-    avg_daily_models_results = query_results.get("avg_daily_models")
+    avg_daily_models_results = query_results.get("avg_daily_models") if _local_source_selected() else None
     if avg_daily_models_results and len(avg_daily_models_results) > 0:
         kpis_response["avg_daily_models"] = int(avg_daily_models_results[0].get("avg_daily_models") or 0)
 
     stickiness_results = query_results.get("stickiness_pct")
-    if stickiness_results and len(stickiness_results) > 0:
+    if stickiness_results is not None and len(stickiness_results) > 0:
+        kpis_response["stickiness_available"] = True
         val = stickiness_results[0].get("stickiness_pct")
         if val is not None:
             kpis_response["stickiness_pct"] = float(val)
 
-    # Override unique_query_users with accurate cross-range distinct count from prpr table
+    # Query-user KPIs use only dbsql_cost_per_query. Do not fall back to
+    # daily_query_stats/system.query.history because those populations differ.
     uc_results = query_results.get("user_count")
-    if uc_results and len(uc_results) > 0:
+    if uc_results is not None and len(uc_results) > 0:
+        kpis_response["query_users_available"] = True
         accurate_users = int(uc_results[0].get("unique_query_users") or 0)
-        if accurate_users > 0:
-            kpis_response["unique_query_users"] = accurate_users
+        kpis_response["unique_query_users"] = accurate_users
 
-    # Stale-fallback: if billing-backed KPIs are all zero (query failed or warehouse cold),
-    # serve the last known-good result so the UI never shows 0s for a healthy account.
-    stale_key = f"{params['start_date']}/{params['end_date']}/{workspace_ids or ''}"
+    # Stale-fallback: if local billing-backed KPIs are all zero (query failed or
+    # warehouse cold), serve only a result from the exact date/workspace/source
+    # scope. Shared-only scopes deliberately skip this fallback: local system
+    # tables cannot validate that population, and an unfiltered stale response
+    # would silently replace correctly scoped managed-table KPIs.
+    stale_key = _kpis_stale_key(
+        params["start_date"],
+        params["end_date"],
+        id_list,
+        source_labels,
+    )
+    stale_fallback_allowed = not source_labels or get_local_source_label() in source_labels
     billing_has_data = (
         kpis_response.get("total_jobs", 0) > 0
         or kpis_response.get("active_workspaces", 0) > 0
         or kpis_response.get("total_job_runs", 0) > 0
     )
-    if billing_has_data:
+    if billing_has_data and stale_fallback_allowed:
         _kpis_stale[stale_key] = {k: v for k, v in kpis_response.items()}
-    elif stale_key in _kpis_stale:
-        logger.warning("Billing KPIs are all zero; serving stale cached response to prevent zero-flash")
+    elif stale_fallback_allowed and stale_key in _kpis_stale:
+        logger.warning(
+            "Billing KPIs are all zero; serving exact-scope stale response to prevent zero-flash"
+        )
         kpis_response = dict(_kpis_stale[stale_key])
         kpis_response["data_stale"] = True
 
     # --- Build anomalies response ---
     anomaly_results = query_results.get("anomalies") or []
+    anomalies_available = (
+        "anomalies" in query_results
+        and query_results.get("anomalies") is not None
+    )
     anomalies = []
     for row in anomaly_results:
         anomalies.append({
@@ -2836,6 +2947,10 @@ async def get_kpis_bundle(
         "kpis": kpis_response,
         "anomalies": {
             "anomalies": anomalies,
+            "available": anomalies_available,
+            **({} if anomalies_available else {
+                "unavailable_reason": "Spend anomalies are unavailable for the selected data sources",
+            }),
             "start_date": params["start_date"],
             "end_date": params["end_date"],
         },
@@ -3612,8 +3727,128 @@ async def get_platform_kpi_trend(
     ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
     # KPIs sourced from system.query.history (workspace_id filter via _inject_qh_ws_filter)
     _QH_KPIS = frozenset({"total_queries", "total_rows_read", "total_bytes_read",
-                           "total_compute_seconds", "total_users", "avg_query_duration",
+                           "total_compute_seconds", "avg_query_duration",
                            "unique_warehouses"})
+
+    # User count and stickiness must always use the same managed query-level
+    # population as their KPI cards. If that source is unavailable, return an
+    # empty trend rather than silently switching to system.query.history.
+    if kpi in {"total_users", "stickiness"}:
+        period_expr = {
+            "daily": "DATE(start_time)",
+            "weekly": "DATE_TRUNC('WEEK', DATE(start_time))",
+            "monthly": "DATE_TRUNC('MONTH', DATE(start_time))",
+        }.get(granularity)
+        if period_expr is None:
+            return {"error": f"Unsupported granularity: {granularity}"}
+
+        if kpi == "total_users":
+            managed_user_template = f"""
+            SELECT {period_expr} AS date, COUNT(DISTINCT executed_by) AS value
+            FROM `{{catalog}}`.`{{schema}}`.`dbsql_cost_per_query`
+            WHERE start_time >= :start_date
+              AND start_time < DATE_ADD(CAST(:end_date AS DATE), 1)
+              AND executed_by IS NOT NULL
+              {{ws_filter}}
+            GROUP BY {period_expr}
+            ORDER BY {period_expr}
+            """
+        else:
+            managed_user_template = f"""
+            WITH total_users AS (
+              SELECT COUNT(DISTINCT executed_by) AS total
+              FROM `{{catalog}}`.`{{schema}}`.`dbsql_cost_per_query`
+              WHERE start_time >= :start_date
+                AND start_time < DATE_ADD(CAST(:end_date AS DATE), 1)
+                AND executed_by IS NOT NULL
+                {{ws_filter}}
+            ),
+            period_users AS (
+              SELECT {period_expr} AS date, COUNT(DISTINCT executed_by) AS active_users
+              FROM `{{catalog}}`.`{{schema}}`.`dbsql_cost_per_query`
+              WHERE start_time >= :start_date
+                AND start_time < DATE_ADD(CAST(:end_date AS DATE), 1)
+                AND executed_by IS NOT NULL
+                {{ws_filter}}
+              GROUP BY {period_expr}
+            )
+            SELECT p.date, 100.0 * p.active_users / NULLIF(t.total, 0) AS value
+            FROM period_users p CROSS JOIN total_users t
+            ORDER BY p.date
+            """
+        try:
+            managed_results = await asyncio.to_thread(
+                execute_query,
+                _get_mv_query(managed_user_template, _mv_ws_clause(id_list)),
+                params,
+            )
+        except Exception as exc:
+            logger.warning("Managed platform KPI trend failed for %s: %s", kpi, exc)
+            return _resp(_build_platform_kpi_response(kpi, granularity, []))
+        managed_points = [
+            {"date": str(row["date"])[:10], "value": float(row["value"] or 0)}
+            for row in managed_results
+        ]
+        return _resp(_build_platform_kpi_response(kpi, granularity, managed_points))
+
+    use_mv = await asyncio.to_thread(_check_mv_available)
+
+    # The KPI cards read these metrics from source-union-capable managed tables.
+    # Their daily drilldowns must use the same tables; querying the local system
+    # tables here makes a populated card open an unrelated or empty trend.
+    if granularity == "daily" and use_mv:
+        metric_column = {
+            "total_queries": "total_queries",
+            "total_rows_read": "total_rows_read",
+            "total_bytes_read": "total_bytes_read",
+            "total_compute_seconds": "total_compute_seconds",
+        }.get(kpi)
+        mv_template = None
+        if metric_column:
+            mv_template = f"""
+            SELECT usage_date AS date, SUM({metric_column}) AS value
+            FROM `{{catalog}}`.`{{schema}}`.`daily_query_stats`
+            WHERE usage_date BETWEEN :start_date AND :end_date
+              {{ws_filter}}
+            GROUP BY usage_date
+            ORDER BY usage_date
+            """
+        elif kpi == "active_workspaces":
+            mv_template = """
+            SELECT usage_date AS date, COUNT(DISTINCT workspace_id) AS value
+            FROM `{catalog}`.`{schema}`.`daily_workspace_breakdown`
+            WHERE usage_date BETWEEN :start_date AND :end_date
+              {ws_filter}
+            GROUP BY usage_date
+            ORDER BY usage_date
+            """
+        if mv_template:
+            try:
+                mv_results = await asyncio.to_thread(
+                    execute_query,
+                    _get_mv_query(mv_template, _mv_ws_clause(id_list)),
+                    params,
+                )
+                mv_points = [
+                    {"date": str(row["date"])[:10], "value": float(row["value"] or 0)}
+                    for row in mv_results
+                ]
+                if mv_points or selected_source_labels():
+                    return _resp(_build_platform_kpi_response(kpi, granularity, mv_points))
+            except Exception as exc:
+                logger.warning("Managed platform KPI trend failed for %s: %s", kpi, exc)
+                if selected_source_labels():
+                    return _resp(_build_platform_kpi_response(kpi, granularity, []))
+
+    # These card metrics come from local-only system tables; shared MV sources do
+    # not publish their job/compute/model dimensions. Excluding the local source
+    # therefore means the correctly scoped result is empty, not local account data.
+    local_only_kpis = {
+        "total_jobs", "total_job_runs", "successful_runs",
+        "active_notebooks", "models_served",
+    }
+    if kpi in local_only_kpis and not _local_source_selected():
+        return _resp(_build_platform_kpi_response(kpi, granularity, []))
 
     # For DISTINCT COUNT KPIs, monthly/weekly rollup must be done in SQL — summing
     # daily distinct counts in Python overcounts (user active 30 days = 30x, not 1x).
@@ -3621,22 +3856,7 @@ async def get_platform_kpi_trend(
     DATE_TRUNC_MAP = {"weekly": "WEEK", "monthly": "MONTH"}
     if granularity in DATE_TRUNC_MAP:
         trunc = DATE_TRUNC_MAP[granularity]
-        if kpi == "total_users":
-            query = f"""
-            SELECT
-              DATE_TRUNC('{trunc}', DATE(start_time)) as date,
-              COUNT(DISTINCT COALESCE(executed_by, executed_as_user_id)) as value
-            FROM system.query.history
-            WHERE start_time >= CAST(:start_date AS TIMESTAMP)
-              AND start_time < CAST(DATE_ADD(CAST(:end_date AS DATE), 1) AS TIMESTAMP)
-              AND (executed_by IS NOT NULL OR executed_as_user_id IS NOT NULL)
-            GROUP BY DATE_TRUNC('{trunc}', DATE(start_time))
-            ORDER BY date
-            """
-            results = await asyncio.to_thread(execute_query, _inject_qh_ws_filter(query, ws_clause), params)
-            daily_points = [{"date": str(r["date"])[:10], "value": float(r["value"] or 0)} for r in results]
-            return _resp(_build_platform_kpi_response(kpi, granularity, daily_points))
-        elif kpi == "active_workspaces":
+        if kpi == "active_workspaces":
             query = f"""
             SELECT
               DATE_TRUNC('{trunc}', usage_date) as date,
@@ -3846,18 +4066,6 @@ async def get_platform_kpi_trend(
         GROUP BY usage_date
         ORDER BY usage_date
         """
-    elif kpi == "total_users":
-        query = """
-        SELECT
-          DATE(start_time) as date,
-          COUNT(DISTINCT COALESCE(executed_by, executed_as_user_id)) as value
-        FROM system.query.history
-        WHERE start_time >= CAST(:start_date AS TIMESTAMP)
-          AND start_time < CAST(DATE_ADD(CAST(:end_date AS DATE), 1) AS TIMESTAMP)
-          AND (executed_by IS NOT NULL OR executed_as_user_id IS NOT NULL)
-        GROUP BY DATE(start_time)
-        ORDER BY DATE(start_time)
-        """
     elif kpi == "avg_query_duration":
         _cat, _sch = get_catalog_schema()
         query = f"""
@@ -3907,44 +4115,6 @@ async def get_platform_kpi_trend(
         GROUP BY DATE(start_time)
         ORDER BY date
         """
-    elif kpi == "stickiness":
-        # DAU / total period users * 100 — inject workspace filter into both CTEs inline
-        _qh_ws = ws_clause if ws_clause else ""
-        stickiness_query = f"""
-        WITH total_users AS (
-          SELECT COUNT(DISTINCT COALESCE(executed_by, executed_as_user_id)) AS total
-          FROM system.query.history
-          WHERE start_time >= CAST(:start_date AS TIMESTAMP)
-            AND start_time < CAST(DATE_ADD(CAST(:end_date AS DATE), 1) AS TIMESTAMP)
-            {_qh_ws}
-            AND (executed_by IS NOT NULL OR executed_as_user_id IS NOT NULL)
-        ),
-        daily_users AS (
-          SELECT
-            DATE(start_time) AS date,
-            COUNT(DISTINCT COALESCE(executed_by, executed_as_user_id)) AS dau
-          FROM system.query.history
-          WHERE start_time >= CAST(:start_date AS TIMESTAMP)
-            AND start_time < CAST(DATE_ADD(CAST(:end_date AS DATE), 1) AS TIMESTAMP)
-            {_qh_ws}
-            AND (executed_by IS NOT NULL OR executed_as_user_id IS NOT NULL)
-          GROUP BY DATE(start_time)
-        )
-        SELECT d.date, 100.0 * d.dau / NULLIF(t.total, 0) AS value
-        FROM daily_users d CROSS JOIN total_users t
-        ORDER BY d.date
-        """
-        try:
-            results = await asyncio.to_thread(execute_query, stickiness_query, params)
-        except Exception as e:
-            logger.error(f"Platform KPI trend query failed for {kpi}: {e}")
-            return {
-                "kpi": kpi, "granularity": granularity, "data_points": [],
-                "summary": {"period_start_value": 0, "period_end_value": 0, "change_amount": 0,
-                            "change_percent": 0, "min_value": 0, "max_value": 0, "avg_value": 0, "trend": "flat"}
-            }
-        s_points = [{"date": str(r["date"]), "value": float(r["value"] or 0)} for r in results]
-        return _resp(_build_platform_kpi_response(kpi, granularity, s_points))
     else:
         return {"error": f"Unknown platform KPI: {kpi}"}
 

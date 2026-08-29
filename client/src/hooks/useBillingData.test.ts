@@ -1,5 +1,13 @@
+import { createElement, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchSubmitAndPoll } from "./useBillingData";
+import {
+  fetchSubmitAndPoll,
+  setActiveSourceLabels,
+  useAppsDashboardBundle,
+  useDashboardBundleFast,
+} from "./useBillingData";
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -83,5 +91,57 @@ describe("fetchSubmitAndPoll", () => {
       "500: warehouse failed",
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("dashboard source scope", () => {
+  afterEach(() => {
+    setActiveSourceLabels([]);
+    vi.unstubAllGlobals();
+  });
+
+  it("includes source scope in active and on-demand tab query keys", async () => {
+    setActiveSourceLabels(["shared-west"]);
+    const fetchMock = vi.fn(async () => jsonResponse(200, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    const { result } = renderHook(() => {
+      const dbu = useDashboardBundleFast(
+        { startDate: "2026-08-01", endDate: "2026-08-28" },
+        ["2", "1"],
+        true,
+      );
+      useAppsDashboardBundle(
+        { startDate: "2026-08-01", endDate: "2026-08-28" },
+        ["2", "1"],
+        false,
+      );
+      return dbu;
+    }, { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const keys = client.getQueryCache().getAll().map((query) => query.queryKey);
+    expect(keys).toContainEqual([
+      "billing",
+      "dashboard-bundle-fast",
+      { startDate: "2026-08-01", endDate: "2026-08-28" },
+      "1,2",
+      "shared-west",
+    ]);
+    expect(keys).toContainEqual([
+      "apps",
+      "dashboard-bundle",
+      { startDate: "2026-08-01", endDate: "2026-08-28" },
+      "1,2",
+      "shared-west",
+    ]);
+    const url = new URL(String(fetchMock.mock.calls[0][0]), "https://example.test");
+    expect(url.searchParams.getAll("source_labels")).toEqual(["shared-west"]);
+    expect(url.searchParams.get("workspace_ids")).toBe("1,2");
   });
 });

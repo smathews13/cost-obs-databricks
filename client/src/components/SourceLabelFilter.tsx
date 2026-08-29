@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   getActiveSourceLabels,
   getActiveSourceScopeKey,
@@ -16,7 +16,7 @@ interface MvSource {
 
 interface SourceLabelFilterProps {
   variant?: "header" | "rail";
-  onApplied?: () => void;
+  onApplied?: () => void | Promise<void>;
 }
 
 function sameSet(left: Set<string>, right: Set<string>): boolean {
@@ -44,7 +44,6 @@ function reconcileSourceSelection(
 // local label and nothing to filter). Default is all sources (combined); the
 // selection is pushed to the data layer and queries are invalidated to refetch.
 export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabelFilterProps) {
-  const queryClient = useQueryClient();
   const { data } = useQuery<{ sources: MvSource[]; local_label: string }>({
     queryKey: ["mv-sources"],
     queryFn: () => fetch("/api/settings/mv-sources").then((r) => r.json()).catch(() => ({ sources: [], local_label: "" })),
@@ -80,22 +79,19 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
     const key = [...effective].sort().join("");
     if (key === lastAppliedRef.current) return;
     lastAppliedRef.current = key;
+    // The shared module scope must change before the App invalidates/refetches.
+    // Query functions read this value when they build their scoped API URL.
     setActiveSourceLabels(effective);
-    onApplied?.();
-    // Tactile "Applying…" feedback until the refetch settles: invalidateQueries
-    // resolves once the invalidated active queries have refetched.
     setApplying(true);
     setErr(null);
     try {
-      await queryClient.invalidateQueries();
-      const failed = queryClient.getQueryCache().getAll().some((q) => q.isActive() && q.state.status === "error");
-      setErr(failed ? "Some data failed to refresh: try again." : null);
+      await onApplied?.();
     } catch {
       setErr("Some data failed to refresh: try again.");
     } finally {
       setApplying(false);
     }
-  }, [allLabels, onApplied, queryClient]);
+  }, [allLabels, onApplied]);
 
   // Keep the visible selection and the module-level applied scope synchronized
   // when shared sources are added or removed while the dashboard is open.
@@ -144,7 +140,7 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
         onClick={() => setOpen((o) => !o)}
         aria-label={applying ? "Updating sources" : label()}
         className={variant === "rail"
-          ? "rail-source-filter flex h-[32px] max-w-[104px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border border-white/[.12] bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
+          ? "rail-source-filter rail-control-border flex h-[32px] max-w-[104px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
           : "co-filter flex items-center gap-2 whitespace-nowrap px-3"
         }
         title="Filter by data source"

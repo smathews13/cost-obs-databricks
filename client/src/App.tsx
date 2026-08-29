@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TabRefreshRegion } from "@/components/TabRefreshRegion";
 import { SetupWizard } from "@/components/SetupWizard";
@@ -17,6 +17,10 @@ import { PricingProvider, usePricing } from "@/context/PricingContext";
 import { SpNameMapContext } from "@/utils/identity";
 import { Footer } from "@/components/Footer";
 import { UserMenu } from "@/components/UserMenu";
+import {
+  WarehouseGuidanceBanner,
+  WarehouseHealthCheckBanner,
+} from "@/components/WarehouseGuidanceBanner";
 import { Bot, Settings } from "lucide-react";
 
 // Retry a dynamic import on failure. First retry handles transient network blips.
@@ -80,7 +84,16 @@ import {
   cancelRunningSubmitAndPollForTab,
   isTabDataRequested,
 } from "@/utils/tabDemand";
-import { refreshTabData, TAB_LOADING_SECTIONS } from "@/utils/tabRefresh";
+import { refreshSourceScopeData, refreshTabData, TAB_LOADING_SECTIONS } from "@/utils/tabRefresh";
+import {
+  WAREHOUSE_WARM_SESSION_KEY,
+  fetchWarehouseHealth,
+  nextWarehouseWarmState,
+  shouldGateDashboard,
+  shouldRequestWarehouseProbe,
+  warehouseHealthPollInterval,
+  type WarehouseHealth,
+} from "@/utils/warehouseGuidance";
 import {
   hydrateSettingsFromServer,
   loadAppSettings,
@@ -335,6 +348,20 @@ function Dashboard() {
     }
   };
 
+  const handleSourceApplied = useCallback(async () => {
+    const tab = activeTab;
+    setSourceScopeVersion((version) => version + 1);
+    setExplicitRefreshingTab(tab);
+    try {
+      await refreshSourceScopeData(rqClient, tab);
+    } catch (error) {
+      console.error(`Failed to apply source filter to ${tab} tab`, error);
+      throw error;
+    } finally {
+      setExplicitRefreshingTab(null);
+    }
+  }, [activeTab, rqClient]);
+
   // On every load, verify setup status with the server.
   // 60s timeout: allows for cold App pod start.
   useEffect(() => {
@@ -469,18 +496,72 @@ function Dashboard() {
   const { applyPricing, multiplier: pricingMultiplier } = usePricing();
 
   // Central warehouse warming poller: single source of truth for warehouse state.
-  // Polls every 5s while warming_up, 15s once warm (catches post-idle auto-stop within ~15s).
-  const { data: warehouseStatus } = useQuery<{ status: "warm" | "warming_up" | "unavailable"; state?: string }>({
+  // Normal checks are REST-only. If the initial cold gate remains after two polls,
+  // one throttled SQL probe wakes/verifies the warehouse without releasing every
+  // dashboard query at once. Missing bindings remain a definitive unavailable state.
+  const initialWarehouseEverWarm =
+    sessionStorage.getItem(WAREHOUSE_WARM_SESSION_KEY) === "1";
+  const warehouseEverWarmRef = useRef(initialWarehouseEverWarm);
+  const warehouseColdPollsRef = useRef(0);
+  const warehouseLastProbeAtRef = useRef<number | null>(null);
+  const [warehouseEverWarm, setWarehouseEverWarm] = useState(
+    initialWarehouseEverWarm,
+  );
+  const {
+    data: warehouseStatus,
+    isError: warehouseHealthCheckFailed,
+    isFetching: warehouseHealthChecking,
+    refetch: retryWarehouseHealthCheck,
+  } = useQuery<WarehouseHealth>({
     queryKey: ["health", "sql-warehouse"],
-    queryFn: () => fetch("/api/health/sql-warehouse").then(r => r.ok ? r.json().catch(() => ({ status: "warm" })) : { status: "warm" }).catch(() => ({ status: "warm" })),
-    refetchInterval: (query) => (query.state.data?.status === "warming_up") ? 5000 : 15000,
+    queryFn: async () => {
+      const now = Date.now();
+      const requestProbe = shouldRequestWarehouseProbe(
+        warehouseColdPollsRef.current,
+        warehouseEverWarmRef.current,
+        warehouseLastProbeAtRef.current,
+        now,
+      );
+      if (requestProbe) warehouseLastProbeAtRef.current = now;
+
+      const status = await fetchWarehouseHealth(requestProbe);
+      if (status.status === "warm") {
+        warehouseEverWarmRef.current = true;
+        warehouseColdPollsRef.current = 0;
+      } else if (status.status === "warming_up") {
+        warehouseColdPollsRef.current += 1;
+      } else {
+        warehouseColdPollsRef.current = 0;
+      }
+      return status;
+    },
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
+    // Keep retrying even if the endpoint itself transiently returns a network/5xx
+    // error. An error allows normal data queries, so it never creates a cold gate.
+    refetchInterval: (query) => warehouseHealthPollInterval(
+      query.state.data?.status,
+      query.state.status === "error",
+    ),
     staleTime: 0,
   });
   const warehouseWarming = warehouseStatus?.status === "warming_up";
   // True only when we've confirmed the warehouse is accepting queries.
   // Undefined (not yet fetched) is treated as NOT ready: prevents firing 15+ SQL
-  // queries against a cold warehouse before we know its state.
+  // queries against a cold warehouse before we know its state. Once bounded health
+  // retries fail, allow real app queries to prove connectivity instead of blocking
+  // an otherwise healthy app on a non-authoritative status endpoint.
   const warehouseReady = warehouseStatus?.status === "warm";
+  const warehouseQueriesAllowed = warehouseReady || warehouseHealthCheckFailed;
+
+  useEffect(() => {
+    setWarehouseEverWarm((current) => {
+      const next = nextWarehouseWarmState(current, warehouseStatus?.status);
+      warehouseEverWarmRef.current = next;
+      if (next && !current) sessionStorage.setItem(WAREHOUSE_WARM_SESSION_KEY, "1");
+      return next;
+    });
+  }, [warehouseStatus?.status]);
 
   // SettingsConfig writes true here when a rebuild starts, false when it finishes.
   // Suppresses the cold-start screen during rebuilds: the warehouse waking up
@@ -508,7 +589,7 @@ function Dashboard() {
   );
   const exportPreparationRequested = showExportDialog && exportPreparingScope === exportScopeKey;
   const requested = (tab: ViewTab) =>
-    Boolean(warehouseReady) && isTabDataRequested(tab, activeTab, exportPreparationRequested, tabVisibility);
+    warehouseQueriesAllowed && isTabDataRequested(tab, activeTab, exportPreparationRequested, tabVisibility);
   const dbuRequested = requested("dbu");
   const sqlRequested = requested("sql");
   const infraRequested = requested("infra");
@@ -685,7 +766,7 @@ function Dashboard() {
     tagging: taggingLoading,
     "users-groups": usersGroupsLoading,
   };
-  const activeTabInitialLoading = !warehouseReady || tabLoading[activeTab];
+  const activeTabInitialLoading = !warehouseQueriesAllowed || tabLoading[activeTab];
   const showActiveTabLoading = activeTabInitialLoading || explicitRefreshingTab === activeTab;
   const exportDataLoading = exportPreparationRequested &&
     (Object.keys(tabVisibility) as ViewTab[]).some((tab) => tabVisibility[tab] && tabLoading[tab]);
@@ -713,7 +794,7 @@ function Dashboard() {
     queryKey: ["billing", "workspaces"],
     queryFn: () => fetch("/api/billing/workspaces").then(r => r.json()),
     staleTime: Infinity,
-    enabled: warehouseReady,
+    enabled: warehouseQueriesAllowed,
   });
   const workspaceNameMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -915,7 +996,10 @@ function Dashboard() {
     );
   }
 
-  if (warehouseStatus?.status === "unavailable") {
+  if (
+    warehouseStatus?.status === "unavailable"
+    && shouldGateDashboard(warehouseStatus.status, warehouseEverWarm, rebuildInProgress)
+  ) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-6" style={{ backgroundColor: C.oatPage }}>
         <div className="flex flex-col items-center gap-4 text-center">
@@ -929,7 +1013,10 @@ function Dashboard() {
     );
   }
 
-  if (warehouseWarming && !rebuildInProgress) {
+  if (
+    warehouseWarming
+    && shouldGateDashboard(warehouseStatus?.status, warehouseEverWarm, rebuildInProgress)
+  ) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-6" style={{ backgroundColor: C.oatPage }}>
         <div className="flex flex-col items-center gap-4 text-center">
@@ -1023,7 +1110,7 @@ function Dashboard() {
             isLoading={wsListLoading}
             variant="rail"
           />
-              <SourceLabelFilter variant="rail" onApplied={() => setSourceScopeVersion((version) => version + 1)} />
+              <SourceLabelFilter variant="rail" onApplied={handleSourceApplied} />
 
           <div className="min-w-[2px] flex-1" />
 
@@ -1033,14 +1120,14 @@ function Dashboard() {
                 <>
                   {authStatus.sp_display_name && (
                     <span className="hidden h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold text-green-200 min-[1440px]:inline-flex" style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }} title={authStatus.sp_display_name}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                      <span className="healthy-status-dot h-1.5 w-1.5 rounded-full bg-green-400" />
                       <span className="font-mono">{authStatus.sp_display_name.slice(0, 8)}</span>
                       <span className="opacity-60">ID</span>
                     </span>
                   )}
                   {(authStatus.sp_user_name || authStatus.sp_client_id) && (
                     <span className="hidden h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold text-green-200 min-[1440px]:inline-flex" style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }} title={authStatus.sp_user_name || authStatus.sp_client_id}>
-                      <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                      <span className="healthy-status-dot h-1.5 w-1.5 rounded-full bg-green-400" />
                       <span className="font-mono">{(authStatus.sp_user_name || authStatus.sp_client_id || "").slice(0, 8)}</span>
                       <Bot className="h-3.5 w-3.5 opacity-70" aria-label="Service principal" />
                     </span>
@@ -1054,7 +1141,7 @@ function Dashboard() {
                   title={`SQL Warehouse: ${warehouseStatus.state ?? warehouseStatus.status}`}
                 >
                   <span
-                    className="h-1.5 w-1.5 rounded-full"
+                    className={`${warehouseStatus.status === "warm" ? "healthy-status-dot " : ""}h-1.5 w-1.5 rounded-full`}
                     style={{ background: warehouseStatus.status === "warm" ? "var(--status-dot)" : warehouseStatus.status === "warming_up" ? "var(--amber)" : "var(--maroon)" }}
                   />
                   <span className="hidden min-[1280px]:inline">
@@ -1078,7 +1165,7 @@ function Dashboard() {
                 type="button"
                 onClick={openExportDialog}
                 aria-label="Export"
-                className="inline-flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[8px] border border-[#4D98D0] bg-[#2272B4] px-0 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#1B5F96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4D98D0]/50 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1100px]:w-auto min-[1100px]:gap-1.5 min-[1100px]:px-[11px]"
+                className="rail-control-border inline-flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[8px] border bg-[#2272B4] px-0 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#1B5F96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4D98D0]/50 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1100px]:w-auto min-[1100px]:gap-1.5 min-[1100px]:px-[11px]"
                 title="Export"
               >
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1100,6 +1187,36 @@ function Dashboard() {
         </div>
       </div>
 
+      {warehouseEverWarm && warehouseStatus && !warehouseReady && (
+        <div
+          role="status"
+          className={`flex items-center justify-center gap-2 border-b px-4 py-1.5 text-xs font-medium ${
+            warehouseStatus.status === "warming_up"
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-red-200 bg-red-50 text-red-800"
+          }`}
+        >
+          {warehouseStatus.status === "warming_up" && <Spinner size="xs" />}
+          <span>
+            {warehouseStatus.status === "warming_up"
+              ? "SQL Warehouse is starting. Dashboard queries are paused; showing the last loaded data."
+              : "SQL Warehouse is temporarily unavailable. Dashboard queries are paused; showing the last loaded data."}
+          </span>
+        </div>
+      )}
+      {warehouseHealthCheckFailed && (
+        <WarehouseHealthCheckBanner
+          isRetrying={warehouseHealthChecking}
+          onRetry={() => { void retryWarehouseHealthCheck(); }}
+        />
+      )}
+      {warehouseStatus && (
+        <WarehouseGuidanceBanner
+          key={warehouseStatus.warehouse_id ?? "unbound"}
+          warehouse={warehouseStatus}
+          workspaceHost={accountInfo?.host}
+        />
+      )}
       <AccountPricingBanner />
       <SpGrantsBanner onOpenSettings={() => setShowSettings(true)} />
 

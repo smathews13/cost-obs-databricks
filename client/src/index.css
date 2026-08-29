@@ -71,6 +71,7 @@
   --s4: #FFAB00;
   --s5: #618794;
   --status-dot: #3CD68F;
+  --rail-control-border: #0F526F;
   --baseline: #D9D4CB;
   --busy: #FFB3A6;
   --cal-mid: #D2F0E1;
@@ -227,6 +228,24 @@ body {
   overflow: hidden;
 }
 
+.rail-control-border {
+  border-color: var(--rail-control-border);
+}
+
+@keyframes healthyStatusBlink {
+  0%, 2%, 7%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(60, 214, 143, 0);
+  }
+  4% {
+    opacity: 0.72;
+    box-shadow: 0 0 0 3px rgba(60, 214, 143, 0.2);
+  }
+}
+.healthy-status-dot {
+  animation: healthyStatusBlink 14s ease-out infinite;
+}
+
 /* Brand-colored button with hover */
 .btn-brand {
   background-color: var(--lava);
@@ -381,7 +400,8 @@ button.rounded-full[class*="px-"] {
   .animate-fade-in,
   .animate-backdrop,
   .animate-dialog,
-  .animate-slide-down {
+  .animate-slide-down,
+  .healthy-status-dot {
     animation: none !important;
   }
 }

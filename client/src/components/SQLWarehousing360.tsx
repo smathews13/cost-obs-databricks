@@ -278,13 +278,12 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
     total_spend: number;
     query_count: number;
   }>({
-    queryKey: ["dbsql", "queries-by-user", selectedUser?.raw, startDate, endDate, workspaceIds],
+    queryKey: ["dbsql", "queries-by-user", selectedUser?.raw, startDate, endDate, wsKey, sourceKey],
     queryFn: () => {
       const params = new URLSearchParams({ user: selectedUser!.raw });
       if (startDate) params.set("start_date", startDate);
       if (endDate) params.set("end_date", endDate);
-      if (workspaceIds?.length) params.set("workspace_ids", workspaceIds.join(","));
-      return fetch(`/api/dbsql/queries-by-user?${params}`).then(r => r.json());
+      return fetch(buildFilteredUrl("/api/dbsql/queries-by-user", params, workspaceIds)).then(r => r.json());
     },
     enabled: !!selectedUser,
     staleTime: 5 * 60 * 1000,

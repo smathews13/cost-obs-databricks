@@ -3,6 +3,9 @@
 import asyncio
 from unittest.mock import patch
 
+import pytest
+
+from server import db
 from server.queries import (
     BILLING_KPIS_FAST,
     INFRA_COST_ESTIMATE,
@@ -129,6 +132,545 @@ def test_kpis_bundle_marks_missing_result_state_data_unavailable():
         ))
 
     assert result["kpis"]["successful_runs_available"] is False
+
+
+def test_shared_only_kpis_never_reuse_unfiltered_stale_fallback():
+    """Regression: 100/9/10/50% unfiltered KPIs must not replace shared 3/0/2/25%."""
+    billing._kpis_stale.clear()
+
+    def scoped_results(query_funcs, timeout=None):
+        del query_funcs, timeout
+        if db.selected_source_labels():
+            return {
+                "billing_kpis": [],
+                "lakeflow_kpis": [],
+                "anomalies": [],
+                "mv_kpis": [{"total_queries": 3}],
+                "avg_daily_ws": [{"avg_daily_workspaces": 2}],
+                "avg_daily_query_users": [],
+                "user_count": [],
+                "total_workspaces": [],
+                "avg_daily_models": [],
+                "stickiness_pct": [{"stickiness_pct": 25.0}],
+            }
+        return {
+            "billing_kpis": [{
+                "total_jobs": 1,
+                "total_job_runs": 1,
+                "active_workspaces": 1,
+            }],
+            "lakeflow_kpis": [],
+            "anomalies": [],
+            "mv_kpis": [{"total_queries": 100}],
+            "avg_daily_ws": [{"avg_daily_workspaces": 10}],
+            "avg_daily_query_users": [],
+            "user_count": [{"unique_query_users": 9}],
+            "total_workspaces": [],
+            "avg_daily_models": [],
+            "stickiness_pct": [{"stickiness_pct": 50.0}],
+        }
+
+    common_patches = (
+        patch.object(billing, "delta_cache_get", return_value=None),
+        patch.object(billing, "delta_cache_put"),
+        patch.object(billing, "_check_mv_available", return_value=True),
+        patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+        patch.object(billing, "get_local_source_label", return_value="local"),
+        patch.object(
+            db,
+            "_list_existing_unified_views",
+            return_value=[
+                "daily_usage_summary",
+                "daily_query_stats",
+                "daily_workspace_breakdown",
+                "dbsql_cost_per_query",
+            ],
+        ),
+        patch.object(db, "get_mv_table_overrides", return_value={}),
+        patch.object(
+            billing,
+            "execute_queries_parallel",
+            side_effect=scoped_results,
+        ),
+    )
+
+    try:
+        with common_patches[0], common_patches[1], common_patches[2], common_patches[3], \
+                common_patches[4], common_patches[5], common_patches[6], common_patches[7]:
+            unfiltered = asyncio.run(billing.get_kpis_bundle(
+                start_date="2026-08-01",
+                end_date="2026-08-28",
+                workspace_ids="123",
+            ))
+
+            source_token = db.set_source_labels(["shared-west"])
+            try:
+                shared = asyncio.run(billing.get_kpis_bundle(
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    workspace_ids="123",
+                ))
+            finally:
+                db.reset_source_labels(source_token)
+    finally:
+        billing._kpis_stale.clear()
+
+    assert (
+        unfiltered["kpis"]["total_queries"],
+        unfiltered["kpis"]["unique_query_users"],
+        unfiltered["kpis"]["avg_daily_workspaces"],
+        unfiltered["kpis"]["stickiness_pct"],
+    ) == (100, 9, 10, 50.0)
+    assert (
+        shared["kpis"]["total_queries"],
+        shared["kpis"]["unique_query_users"],
+        shared["kpis"]["avg_daily_workspaces"],
+        shared["kpis"]["stickiness_pct"],
+    ) == (3, 0, 2, 25.0)
+    assert shared["kpis"].get("data_stale") is not True
+
+
+PLATFORM_CARD_TREND_KEYS = [
+    "total_queries",
+    "total_rows_read",
+    "total_bytes_read",
+    "total_compute_seconds",
+    "total_jobs",
+    "total_job_runs",
+    "successful_runs",
+    "active_notebooks",
+    "active_workspaces",
+    "models_served",
+    "total_users",
+    "stickiness",
+]
+
+
+@pytest.mark.parametrize("kpi", PLATFORM_CARD_TREND_KEYS)
+def test_every_clickable_platform_kpi_returns_daily_points(kpi):
+    with (
+        patch.object(billing, "delta_cache_get", return_value=None),
+        patch.object(billing, "delta_cache_put"),
+        patch.object(
+            billing,
+            "capture_cache_generation",
+            return_value=db.CacheGeneration("trend:kpis:platform-kpi", 0),
+        ),
+        patch.object(billing, "_check_mv_available", return_value=False),
+        patch.object(
+            billing,
+            "execute_query",
+            return_value=[{"date": "2026-08-01", "value": 3}],
+        ),
+    ):
+        result = asyncio.run(
+            billing.get_platform_kpi_trend(
+                kpi=kpi,
+                start_date="2026-08-01",
+                end_date="2026-08-28",
+                granularity="daily",
+                workspace_ids="123",
+                tab="kpis",
+            )
+        )
+
+    assert result["kpi"] == kpi
+    assert result["data_points"] == [{"date": "2026-08-01", "value": 3.0}]
+
+
+@pytest.mark.parametrize(
+    ("kpi", "table_name"),
+    [
+        ("total_queries", "daily_query_stats"),
+        ("total_rows_read", "daily_query_stats"),
+        ("total_bytes_read", "daily_query_stats"),
+        ("total_compute_seconds", "daily_query_stats"),
+        ("active_workspaces", "daily_workspace_breakdown"),
+        ("total_users", "dbsql_cost_per_query"),
+        ("stickiness", "dbsql_cost_per_query"),
+    ],
+)
+def test_source_capable_platform_trends_match_card_tables_and_scope(kpi, table_name):
+    token = db.set_source_labels(["shared-west"])
+    try:
+        with (
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(
+                billing,
+                "capture_cache_generation",
+                return_value=db.CacheGeneration("trend:kpis:platform-kpi", 0),
+            ),
+            patch.object(billing, "_check_mv_available", return_value=True),
+            patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+            patch.object(db, "_list_existing_unified_views", return_value=[table_name]),
+            patch.object(db, "get_mv_table_overrides", return_value={}),
+            patch.object(
+                billing,
+                "execute_query",
+                return_value=[{"date": "2026-08-01", "value": 3}],
+            ) as execute,
+        ):
+            result = asyncio.run(
+                billing.get_platform_kpi_trend(
+                    kpi=kpi,
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    granularity="daily",
+                    workspace_ids="123",
+                    tab="kpis",
+                )
+            )
+
+        sql = execute.call_args.args[0]
+        assert f"`{table_name}__unified`" in sql
+        assert "source_label IN ('shared-west')" in sql
+        assert "CAST(workspace_id AS STRING) IN ('123')" in sql
+        assert result["summary"]["avg_value"] == 3.0
+    finally:
+        db.reset_source_labels(token)
+
+
+@pytest.mark.parametrize("kpi", ["total_users", "stickiness"])
+def test_query_user_card_and_trend_use_identical_managed_scope(kpi):
+    token = db.set_source_labels(["shared-west"])
+    card_sql: list[str] = []
+
+    def execute_card(sql, *_args, **_kwargs):
+        if (
+            "as unique_query_users" in sql.lower()
+            and "dbsql_cost_per_query" in sql
+        ):
+            card_sql.append(sql)
+            return [{"unique_query_users": 4}]
+        if "as stickiness_pct" in sql.lower():
+            card_sql.append(sql)
+            return [{"stickiness_pct": 50.0}]
+        return []
+
+    def execute_sequential(query_funcs, timeout=None):
+        del timeout
+        return {name: fn() for name, fn in query_funcs}
+
+    try:
+        with (
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(billing, "_check_mv_available", return_value=True),
+            patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+            patch.object(
+                db,
+                "_list_existing_unified_views",
+                return_value=[
+                    "dbsql_cost_per_query",
+                    "daily_usage_summary",
+                    "daily_query_stats",
+                    "daily_workspace_breakdown",
+                ],
+            ),
+            patch.object(db, "get_mv_table_overrides", return_value={}),
+            patch.object(billing, "execute_query", side_effect=execute_card),
+            patch.object(
+                billing,
+                "execute_queries_parallel",
+                side_effect=execute_sequential,
+            ),
+        ):
+            bundle = asyncio.run(
+                billing.get_kpis_bundle(
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    workspace_ids="123",
+                )
+            )
+
+        trend_sql: list[str] = []
+        with (
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(
+                billing,
+                "capture_cache_generation",
+                return_value=db.CacheGeneration("trend:kpis:platform-kpi", 0),
+            ),
+            patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+            patch.object(
+                db,
+                "_list_existing_unified_views",
+                return_value=["dbsql_cost_per_query"],
+            ),
+            patch.object(db, "get_mv_table_overrides", return_value={}),
+            patch.object(
+                billing,
+                "execute_query",
+                side_effect=lambda sql, *_args, **_kwargs: (
+                    trend_sql.append(sql)
+                    or [{"date": "2026-08-01", "value": 50}]
+                ),
+            ),
+        ):
+            trend = asyncio.run(
+                billing.get_platform_kpi_trend(
+                    kpi=kpi,
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    granularity="daily",
+                    workspace_ids="123",
+                    tab="kpis",
+                )
+            )
+
+        alias = "as unique_query_users" if kpi == "total_users" else "as stickiness_pct"
+        scoped_card_sql = next(sql for sql in card_sql if alias in sql.lower())
+        scoped_trend_sql = trend_sql[0]
+        for sql in (scoped_card_sql, scoped_trend_sql):
+            assert "`dbsql_cost_per_query__unified`" in sql
+            assert "source_label IN ('shared-west')" in sql
+            assert "CAST(workspace_id AS STRING) IN ('123')" in sql
+            assert "start_time >= :start_date" in sql
+            assert "start_time < DATE_ADD(CAST(:end_date AS DATE), 1)" in sql
+            assert "system.query.history" not in sql
+        assert bundle["kpis"]["query_users_available"] is True
+        assert bundle["kpis"]["stickiness_available"] is True
+        assert trend["data_points"] == [{"date": "2026-08-01", "value": 50.0}]
+    finally:
+        db.reset_source_labels(token)
+
+
+@pytest.mark.parametrize(
+    ("labels", "expected_filter"),
+    [
+        (["local"], "source_label IN ('local')"),
+        ([], None),
+        (["shared-west"], "source_label IN ('shared-west')"),
+    ],
+)
+def test_kpis_anomalies_use_source_aware_daily_summary(labels, expected_filter):
+    token = db.set_source_labels(labels)
+    anomaly_sql: list[str] = []
+
+    def execute(sql, *_args, **_kwargs):
+        anomaly_sql.append(sql)
+        return []
+
+    def execute_anomaly_only(query_funcs, timeout=None):
+        del timeout
+        results = {}
+        for name, fn in query_funcs:
+            results[name] = fn() if name == "anomalies" else []
+        return results
+
+    try:
+        with (
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(billing, "_check_mv_available", return_value=True),
+            patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+            patch.object(
+                db,
+                "_list_existing_unified_views",
+                return_value=[
+                    "daily_usage_summary",
+                    "dbsql_cost_per_query",
+                    "daily_query_stats",
+                    "daily_workspace_breakdown",
+                ],
+            ),
+            patch.object(db, "get_mv_table_overrides", return_value={}),
+            patch.object(billing, "execute_query", side_effect=execute),
+            patch.object(
+                billing,
+                "execute_queries_parallel",
+                side_effect=execute_anomaly_only,
+            ),
+        ):
+            result = asyncio.run(
+                billing.get_kpis_bundle(
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    workspace_ids="123",
+                )
+            )
+
+        assert len(anomaly_sql) == 1
+        assert "`daily_usage_summary__unified`" in anomaly_sql[0]
+        assert "CAST(workspace_id AS STRING) IN ('123')" in anomaly_sql[0]
+        assert "system.billing.usage" not in anomaly_sql[0]
+        if expected_filter:
+            assert expected_filter in anomaly_sql[0]
+        else:
+            assert "source_label IN" not in anomaly_sql[0]
+        assert result["anomalies"]["available"] is True
+    finally:
+        db.reset_source_labels(token)
+
+
+def test_kpis_anomalies_do_not_query_local_when_shared_scope_cannot_be_routed():
+    token = db.set_source_labels(["shared-west"])
+    query_names: list[str] = []
+
+    def record_queries(query_funcs, timeout=None):
+        del timeout
+        query_names.extend(name for name, _fn in query_funcs)
+        return {name: [] for name, _fn in query_funcs}
+
+    try:
+        with (
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(billing, "_check_mv_available", return_value=True),
+            patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+            patch.object(
+                db,
+                "_list_existing_unified_views",
+                return_value=[
+                    "dbsql_cost_per_query",
+                    "daily_query_stats",
+                    "daily_workspace_breakdown",
+                ],
+            ),
+            patch.object(db, "get_mv_table_overrides", return_value={}),
+            patch.object(
+                billing,
+                "execute_queries_parallel",
+                side_effect=record_queries,
+            ),
+        ):
+            result = asyncio.run(
+                billing.get_kpis_bundle(
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    workspace_ids=None,
+                )
+            )
+
+        assert "anomalies" not in query_names
+        assert result["anomalies"]["anomalies"] == []
+        assert result["anomalies"]["available"] is False
+    finally:
+        db.reset_source_labels(token)
+
+
+def test_query_user_cards_are_unavailable_when_managed_source_cannot_be_routed():
+    token = db.set_source_labels(["shared-west"])
+    query_names: list[str] = []
+
+    def record_queries(query_funcs, timeout=None):
+        del timeout
+        query_names.extend(name for name, _fn in query_funcs)
+        return {name: [] for name, _fn in query_funcs}
+
+    try:
+        with (
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(billing, "_check_mv_available", return_value=True),
+            patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+            patch.object(
+                db,
+                "_list_existing_unified_views",
+                return_value=[
+                    "daily_usage_summary",
+                    "daily_query_stats",
+                    "daily_workspace_breakdown",
+                ],
+            ),
+            patch.object(db, "get_mv_table_overrides", return_value={}),
+            patch.object(
+                billing,
+                "execute_queries_parallel",
+                side_effect=record_queries,
+            ),
+        ):
+            result = asyncio.run(
+                billing.get_kpis_bundle(
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    workspace_ids="123",
+                )
+            )
+
+        assert "user_count" not in query_names
+        assert "stickiness_pct" not in query_names
+        assert result["kpis"]["query_users_available"] is False
+        assert result["kpis"]["stickiness_available"] is False
+    finally:
+        db.reset_source_labels(token)
+
+
+@pytest.mark.parametrize(
+    ("kpi", "card_sql", "trend_sql"),
+    [
+        ("total_jobs", "COUNT(DISTINCT CASE WHEN usage_metadata.job_id IS NOT NULL", "COUNT(DISTINCT usage_metadata.job_id)"),
+        ("total_job_runs", "SUM(CASE WHEN usage_metadata.job_id IS NOT NULL THEN 1 ELSE 0 END)", "COUNT(*) as value"),
+        ("active_notebooks", "COUNT(DISTINCT usage_metadata.cluster_id)", "COUNT(DISTINCT usage_metadata.cluster_id)"),
+        ("models_served", "COUNT(DISTINCT CASE WHEN sku_name LIKE '%INFERENCE%'", "COUNT(DISTINCT usage_metadata.endpoint_name)"),
+    ],
+)
+def test_local_platform_trends_use_the_card_metric_source(kpi, card_sql, trend_sql):
+    assert card_sql in BILLING_KPIS_FAST
+    captured = []
+    with (
+        patch.object(billing, "delta_cache_get", return_value=None),
+        patch.object(billing, "delta_cache_put"),
+        patch.object(
+            billing,
+            "capture_cache_generation",
+            return_value=db.CacheGeneration("trend:kpis:platform-kpi", 0),
+        ),
+        patch.object(billing, "_check_mv_available", return_value=False),
+        patch.object(
+            billing,
+            "execute_query",
+            side_effect=lambda sql, *_args: captured.append(sql) or [{"date": "2026-08-01", "value": 1}],
+        ),
+    ):
+        asyncio.run(
+            billing.get_platform_kpi_trend(
+                kpi=kpi,
+                start_date="2026-08-01",
+                end_date="2026-08-28",
+                granularity="daily",
+                workspace_ids="123",
+                tab="kpis",
+            )
+        )
+
+    assert trend_sql in captured[0]
+    assert "system.billing.usage" in captured[0]
+    assert "CAST(workspace_id AS STRING) IN ('123')" in captured[0]
+
+
+def test_local_only_platform_trend_is_empty_when_local_source_is_excluded():
+    token = db.set_source_labels(["shared-west"])
+    try:
+        with (
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(
+                billing,
+                "capture_cache_generation",
+                return_value=db.CacheGeneration("trend:kpis:platform-kpi", 0),
+            ),
+            patch.object(billing, "_check_mv_available", return_value=False),
+            patch.object(billing, "get_local_source_label", return_value="local"),
+            patch.object(billing, "execute_query") as execute,
+        ):
+            result = asyncio.run(
+                billing.get_platform_kpi_trend(
+                    kpi="total_jobs",
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    granularity="daily",
+                    workspace_ids=None,
+                    tab="kpis",
+                )
+            )
+
+        execute.assert_not_called()
+        assert result["data_points"] == []
+    finally:
+        db.reset_source_labels(token)
 
 
 def test_removed_use_case_settings_are_discarded():

@@ -198,5 +198,48 @@ describe("SettingsPermissions: polished access controls", () => {
     await userEvent.click(grants);
     expect(grants).toHaveAttribute("aria-expanded", "false");
   });
+
+  it("aligns existing users and the add-user controls to one balanced grid", async () => {
+    mockApis(SP_AUTH_STATUS, undefined, {
+      admins: ["admin@databricks.com"],
+      consumers: ["viewer@databricks.com"],
+    });
+    renderPermissions();
+
+    const rows = await screen.findAllByTestId("access-user-row");
+    const addRow = screen.getByTestId("access-add-user-row");
+
+    expect(addRow).toHaveClass("settings-access-user-grid");
+    expect(addRow.style.getPropertyValue("--settings-access-grid-columns")).toBe(
+      "minmax(220px, 0.5fr) 180px 96px",
+    );
+    expect(addRow.style.minWidth).toBe("");
+    expect(addRow.children).toHaveLength(3);
+    expect(rows).toHaveLength(2);
+    rows.forEach((row) => {
+      expect(row).toHaveClass("settings-access-user-grid");
+      expect(row.style.getPropertyValue("--settings-access-grid-columns")).toBe(
+        addRow.style.getPropertyValue("--settings-access-grid-columns"),
+      );
+      expect(row.style.minWidth).toBe("");
+      expect(row.children).toHaveLength(3);
+    });
+    expect(screen.getByRole("textbox", { name: "User email" })).toHaveStyle({ width: "100%" });
+  });
+
+  it("shows the disabled metastore browser between Users and Query authentication", async () => {
+    mockApis(SP_AUTH_STATUS);
+    renderPermissions();
+
+    const metastore = await screen.findByRole("group", { name: "Add a metastore" });
+    const queryAuthentication = screen.getByText("Query authentication");
+
+    expect(metastore).toBeDisabled();
+    expect(metastore).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("Coming soon")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Metastore" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Browse" })).toBeDisabled();
+    expect(metastore.compareDocumentPosition(queryAuthentication) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
 

@@ -11,6 +11,7 @@ import {
   GeneralSection, DashboardTabsSection, AlertsSection, DataTablesSection,
   AccessSection, ResourcesSection, ExperimentalSection,
 } from "./settings/sections";
+import "./settings/settings.css";
 import { APP_VERSION } from "@/theme";
 import {
   DEFAULT_APP_SETTINGS,
@@ -341,8 +342,8 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <button onClick={handleReset} disabled={isSaving} style={{ fontSize: 13, color: T.textSecondary, background: "none", border: "none", cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.5 : 1 }}>Reset to defaults</button>
             {saveStatus.kind === "saving" ? (
-              <span role="status" style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, color: T.primary }}>
-                <span style={{ width: 11, height: 11, borderRadius: 999, border: `2px solid ${T.borderControl}`, borderTopColor: T.primary }} />
+              <span role="status" aria-live="polite" style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, color: T.primary }}>
+                <span aria-hidden="true" className="settings-save-spinner" style={{ width: 11, height: 11, borderRadius: 999, border: `2px solid ${T.borderControl}`, borderTopColor: T.primary }} />
                 Saving {saveStatus.count} setting{saveStatus.count === 1 ? "" : "s"}…
               </span>
             ) : saveStatus.kind === "error" ? (

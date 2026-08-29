@@ -1,0 +1,29 @@
+@keyframes settings-save-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.settings-save-spinner {
+  animation: settings-save-spin 700ms linear infinite;
+  transform-origin: center;
+}
+
+.settings-access-user-grid {
+  display: grid;
+  grid-template-columns: var(--settings-access-grid-columns);
+  align-items: center;
+  column-gap: 14px;
+}
+
+@media (max-width: 760px) {
+  .settings-access-user-grid {
+    grid-template-columns: minmax(200px, 1fr) 160px 96px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-save-spinner {
+    animation: none;
+  }
+}

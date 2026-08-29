@@ -73,6 +73,30 @@ export function isQueryOwnedByTab(tab: DashboardTab, queryKey: QueryKey): boolea
   return TAB_QUERY_KEY_PREDICATES[tab](queryKey);
 }
 
+const DASHBOARD_TABS = Object.keys(TAB_QUERY_KEY_PREDICATES) as DashboardTab[];
+
+export function isDashboardQuery(queryKey: QueryKey): boolean {
+  return DASHBOARD_TABS.some((tab) => isQueryOwnedByTab(tab, queryKey));
+}
+
+/**
+ * A source change is a client-side scope change, not a server-cache reset.
+ * Mark every dashboard query stale so unopened tabs cannot reuse the prior
+ * source, then refetch only the tab the user is currently looking at.
+ */
+export async function refreshSourceScopeData(
+  queryClient: QueryClient,
+  activeTab: DashboardTab,
+): Promise<void> {
+  const activePredicate = (query: Query) => isQueryOwnedByTab(activeTab, query.queryKey);
+  await queryClient.cancelQueries({ predicate: activePredicate });
+  await queryClient.invalidateQueries({
+    predicate: (query) => isDashboardQuery(query.queryKey),
+    refetchType: "none",
+  });
+  await queryClient.refetchQueries({ type: "active", predicate: activePredicate });
+}
+
 export async function refreshTabData(
   queryClient: QueryClient,
   tab: DashboardTab,

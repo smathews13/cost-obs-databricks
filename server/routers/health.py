@@ -62,20 +62,21 @@ async def detailed_health_check() -> dict[str, Any]:
 
 
 @router.get("/health/sql-warehouse")
-async def get_sql_warehouse_status() -> dict[str, Any]:
+async def get_sql_warehouse_status(probe: bool = False) -> dict[str, Any]:
     """Check if the SQL warehouse is warm, starting, or unavailable.
 
-    REST-only by design: it reports warehouse state from the Warehouses REST API
-    and never issues a query. This endpoint is polled by the frontend every
-    5-15s, so any query here would keep the warehouse warm continuously. If the
-    REST state is unavailable, it reports warming_up and lets the first real user
-    query warm the warehouse on demand.
+    Normal polls are REST-only. During the initial full-screen cold gate, the
+    client may explicitly request one throttled SQL probe after bounded REST
+    retries. That probe can wake or verify the warehouse without enabling every
+    dashboard query at once. It is never used for a missing resource binding.
 
     Returns:
-        status: "warm" | "warming_up"
-        state:  raw warehouse state string (or None if API unavailable)
-        latency_ms: always None (kept for response-shape compatibility)
+        status: "warm" | "warming_up" | "unavailable"
+        state: raw warehouse state, REST_UNVERIFIED, or SQL_PROBE_SUCCEEDED
+        latency_ms: SQL probe latency when one succeeds, otherwise None
         warehouse_id: warehouse ID being checked (or None if not configured)
+        warehouse_size: configured cluster size (for example Small or Medium)
+        warehouse_type: SERVERLESS or the configured classic warehouse type
     """
     import os
     import re as _re
@@ -89,38 +90,113 @@ async def get_sql_warehouse_status() -> dict[str, Any]:
         _m = _re.search(r"/(?:warehouses|endpoints)/([a-f0-9]+)$", http_path, _re.IGNORECASE)
         warehouse_id = _m.group(1) if _m else None
 
+    # A missing binding is definitive configuration state, not a transient REST
+    # failure. Keep it distinct so the client can preserve the real unavailable
+    # experience without treating network errors the same way.
+    if not warehouse_id:
+        return {
+            "status": "unavailable",
+            "state": "NOT_CONFIGURED",
+            "latency_ms": None,
+            "warehouse_id": None,
+            "warehouse_size": None,
+            "warehouse_type": None,
+        }
+
+    warehouse_metadata: dict[str, Any] = {
+        "warehouse_size": None,
+        "warehouse_type": None,
+    }
+    transient_state: str | None = None
+
     # ── 1. Try warehouse REST API state ──────────────────────────────────────
     # IMPORTANT: the Databricks SDK uses the blocking `requests` library.
     # Calling warehouses.get() directly in an async function freezes the
     # asyncio event loop for the duration of the HTTP round-trip (can be
     # seconds to minutes in degraded environments). Run it in a thread with
-    # a hard 5-second timeout so a hung SDK call falls through to the SQL
-    # probe instead of blocking all other requests.
-    if warehouse_id:
-        try:
-            import asyncio as _asyncio
-            from server.db import get_workspace_client
-            _wh_id = warehouse_id  # capture for lambda
-            wh = await _asyncio.wait_for(
-                _asyncio.to_thread(lambda: get_workspace_client().warehouses.get(_wh_id)),
-                timeout=5.0,
-            )
-            raw_state = str(wh.state.value) if wh.state else "UNKNOWN"
-            warming_states = {"STOPPED", "STOPPING", "STARTING", "DELETING", "DELETED"}
-            if raw_state.upper() in warming_states:
-                return {"status": "warming_up", "state": raw_state, "latency_ms": None, "warehouse_id": warehouse_id}
-            # Any other state (RUNNING, RESIZING, SCALING_DOWN, etc.) — warehouse accepts queries.
-            return {"status": "warm", "state": raw_state, "latency_ms": None, "warehouse_id": warehouse_id}
-        except Exception as e:
-            logger.debug("Warehouse REST check failed, trying SQL probe: %s", e)
+    # a hard 5-second timeout so a hung SDK call falls through to transient
+    # status handling (and the optional SQL probe when explicitly requested).
+    try:
+        from server.db import get_workspace_client
 
-    # ── 2. REST-only — no SQL probe ───────────────────────────────────────────
-    # This endpoint is polled by the frontend every 5-15s. It must NOT issue a
-    # probe query: that would fire against the warehouse continuously and keep
-    # it warm forever (the exact 24x7 pinning we removed). If the REST state check
-    # above was unavailable (no warehouse id, or SDK error), report warming_up and
-    # let the first real user query warm the warehouse on demand.
-    return {"status": "warming_up", "state": None, "latency_ms": None, "warehouse_id": warehouse_id}
+        _wh_id = warehouse_id  # capture for lambda
+        wh = await asyncio.wait_for(
+            asyncio.to_thread(lambda: get_workspace_client().warehouses.get(_wh_id)),
+            timeout=5.0,
+        )
+        raw_state = str(wh.state.value) if wh.state else "UNKNOWN"
+        warehouse_type = (
+            "SERVERLESS"
+            if getattr(wh, "enable_serverless_compute", False)
+            else "CLASSIC"
+        )
+        warehouse_metadata = {
+            "warehouse_size": getattr(wh, "cluster_size", None),
+            "warehouse_type": warehouse_type,
+        }
+        if raw_state.upper() in {"DELETING", "DELETED"}:
+            return {
+                "status": "unavailable",
+                "state": raw_state,
+                "latency_ms": None,
+                "warehouse_id": warehouse_id,
+                **warehouse_metadata,
+            }
+        if raw_state.upper() in {"STOPPED", "STOPPING", "STARTING"}:
+            transient_state = raw_state
+            if not probe:
+                return {
+                    "status": "warming_up",
+                    "state": raw_state,
+                    "latency_ms": None,
+                    "warehouse_id": warehouse_id,
+                    **warehouse_metadata,
+                }
+        else:
+            # Any other state (RUNNING, RESIZING, SCALING_DOWN, etc.) accepts queries.
+            return {
+                "status": "warm",
+                "state": raw_state,
+                "latency_ms": None,
+                "warehouse_id": warehouse_id,
+                **warehouse_metadata,
+            }
+    except Exception as e:
+        logger.debug("Warehouse REST check failed; treating status as transient: %s", e)
+        transient_state = "REST_UNVERIFIED"
+
+    # ── 2. Optional bounded SQL recovery probe ───────────────────────────────
+    # The client sends probe=true only after repeated cold-gate polls and
+    # throttles retries. Ordinary 5-15 second health polling remains REST-only,
+    # so this cannot become a warehouse keepalive loop.
+    if probe:
+        from server.db import execute_query
+
+        started = time.monotonic()
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    lambda: execute_query("SELECT 1 AS warehouse_ready", no_cache=True)
+                ),
+                timeout=45.0,
+            )
+            return {
+                "status": "warm",
+                "state": "SQL_PROBE_SUCCEEDED",
+                "latency_ms": round((time.monotonic() - started) * 1000),
+                "warehouse_id": warehouse_id,
+                **warehouse_metadata,
+            }
+        except Exception as e:
+            logger.warning("Bounded SQL warehouse recovery probe failed: %s", e)
+
+    return {
+        "status": "warming_up",
+        "state": transient_state,
+        "latency_ms": None,
+        "warehouse_id": warehouse_id,
+        **warehouse_metadata,
+    }
 
 
 async def _check_database() -> dict[str, Any]:

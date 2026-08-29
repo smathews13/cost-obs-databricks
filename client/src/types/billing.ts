@@ -270,6 +270,8 @@ export interface SpendAnomaly {
 
 export interface SpendAnomaliesResponse {
   anomalies: SpendAnomaly[];
+  available?: boolean;
+  unavailable_reason?: string;
   start_date: string;
   end_date: string;
   error?: string;
@@ -278,6 +280,7 @@ export interface SpendAnomaliesResponse {
 export interface PlatformKPIsResponse {
   total_queries: number;
   unique_query_users: number;
+  query_users_available?: boolean;
   total_rows_read: number;
   total_bytes_read: number;
   total_compute_seconds: number;
@@ -297,7 +300,8 @@ export interface PlatformKPIsResponse {
   total_serving_dbus: number;
   avg_daily_models?: number;
   avg_daily_query_users?: number;
-  stickiness_pct?: number;
+  stickiness_pct?: number | null;
+  stickiness_available?: boolean;
   start_date: string;
   end_date: string;
   error?: string;

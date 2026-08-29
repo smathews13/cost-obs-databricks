@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SourceLabelFilter } from "../SourceLabelFilter";
 import {
@@ -20,6 +21,31 @@ afterEach(() => {
 });
 
 describe("source label reconciliation", () => {
+  it("updates module scope before invoking the App refresh callback", async () => {
+    const current = sourceData(["local", "west"]);
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => current,
+    })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["mv-sources"], current);
+    const scopesSeen: string[][] = [];
+
+    render(
+      <QueryClientProvider client={client}>
+        <SourceLabelFilter onApplied={async () => {
+          scopesSeen.push(getActiveSourceLabels());
+        }} />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "All sources" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /west/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => expect(scopesSeen).toEqual([["local"]]));
+  });
+
   it("keeps All selected when a new source appears", async () => {
     let current = sourceData(["local", "west"]);
     vi.stubGlobal("fetch", vi.fn(async () => ({

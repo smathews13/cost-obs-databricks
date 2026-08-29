@@ -64,9 +64,19 @@ export function KPITrendModal({
   workspaceIds,
   queryKeyPrefix,
 }: KPITrendModalProps) {
-  const billingTrend = useKPITrend(kpi, startDate, endDate, "daily", workspaceIds, queryKeyPrefix);
-  const platformTrend = usePlatformKPITrend(kpi, startDate, endDate, "daily", workspaceIds, queryKeyPrefix);
-  const appsTrend = useAppsKPITrend(kpi, startDate, endDate, "daily", workspaceIds);
+  // All hooks must be called on every render, but only the selected variant may
+  // own the query. Enabling every hook made billing and platform requests share
+  // the same caller-supplied query key, so the first (often incompatible)
+  // endpoint populated the modal with an empty response.
+  const billingTrend = useKPITrend(
+    kpi, startDate, endDate, "daily", workspaceIds, queryKeyPrefix, isOpen && variant === "billing",
+  );
+  const platformTrend = usePlatformKPITrend(
+    kpi, startDate, endDate, "daily", workspaceIds, queryKeyPrefix, isOpen && variant === "platform",
+  );
+  const appsTrend = useAppsKPITrend(
+    kpi, startDate, endDate, "daily", workspaceIds, isOpen && variant === "apps",
+  );
   const { data, isLoading } = variant === "platform" ? platformTrend : variant === "apps" ? appsTrend : billingTrend;
 
   const fmt = formatValue ?? (variant === "platform" ? defaultPlatformFormat : defaultBillingFormat);

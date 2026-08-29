@@ -6,9 +6,10 @@
  * NOT zero or a loading spinner.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlatformKPIsView } from "../PlatformKPIsView";
+import type { PlatformKPIsResponse } from "@/types/billing";
 
 // ---------------------------------------------------------------------------
 // Mock useFeatureAvailability so tests control grant state without a server
@@ -17,6 +18,9 @@ import { PlatformKPIsView } from "../PlatformKPIsView";
 vi.mock("@/hooks/useFeatureAvailability", () => ({
   useFeatureAvailability: vi.fn(),
   READINESS_QUERY_KEY: ["setup-readiness"],
+}));
+vi.mock("../KPITrendModal", () => ({
+  KPITrendModal: ({ kpi }: { kpi: string }) => <div data-testid="selected-kpi">{kpi}</div>,
 }));
 
 import { useFeatureAvailability } from "@/hooks/useFeatureAvailability";
@@ -33,7 +37,7 @@ function makeTableGranted(overrides: Record<string, boolean | undefined> = {}) {
 // early-returns an empty state when `data` is undefined; the unavailable-vs-zero
 // invariant only applies once data exists and a grant is denied (a denied card
 // renders "N/A" regardless of its numeric value).
-const SAMPLE_DATA = {
+const SAMPLE_DATA: PlatformKPIsResponse = {
   total_queries: 100,
   unique_query_users: 10,
   total_rows_read: 1000,
@@ -56,13 +60,16 @@ const SAMPLE_DATA = {
   avg_daily_models: 1,
   avg_daily_query_users: 8,
   stickiness_pct: 60,
+  query_users_available: true,
+  stickiness_available: true,
   start_date: "2026-01-01",
   end_date: "2026-01-31",
 };
 
 function renderView(
   tableOverrides: Record<string, boolean | undefined> = {},
-  data = SAMPLE_DATA,
+  data: PlatformKPIsResponse = SAMPLE_DATA,
+  trendEnabled = false,
 ) {
   vi.mocked(useFeatureAvailability).mockReturnValue({
     warehouseGranted: true,
@@ -78,6 +85,8 @@ function renderView(
         isLoading={false}
         spendAnomalies={undefined}
         anomaliesLoading={false}
+        startDate={trendEnabled ? "2026-01-01" : undefined}
+        endDate={trendEnabled ? "2026-01-31" : undefined}
       />
     </QueryClientProvider>
   );
@@ -176,5 +185,60 @@ describe("PlatformKPIsView: successful run result-state availability", () => {
 
     expect(screen.queryByText("Successful Runs")).not.toBeInTheDocument();
     expect(screen.queryByText("Result states unavailable")).not.toBeInTheDocument();
+  });
+});
+
+describe("PlatformKPIsView: card trend mappings", () => {
+  it.each([
+    ["Total Queries Executed", "total_queries"],
+    ["Rows Processed", "total_rows_read"],
+    ["Data Processed", "total_bytes_read"],
+    ["Compute Time", "total_compute_seconds"],
+    ["Total Active Jobs", "total_jobs"],
+    ["Job Runs", "total_job_runs"],
+    ["Successful Runs", "successful_runs"],
+    ["Total Compute Resources", "active_notebooks"],
+    ["Active Workspaces", "active_workspaces"],
+    ["Unique Models Served", "models_served"],
+    ["Unique Active Users", "total_users"],
+    ["Usage Stickiness", "stickiness"],
+  ])("maps %s to %s", (title, expectedKpi) => {
+    renderView({}, SAMPLE_DATA, true);
+
+    fireEvent.click(screen.getByText(title).closest(".co-kpi-card")!);
+
+    expect(screen.getByTestId("selected-kpi")).toHaveTextContent(expectedKpi);
+  });
+});
+
+describe("PlatformKPIsView: managed query-user population", () => {
+  it("does not derive stickiness from a different fallback population", () => {
+    renderView({}, {
+      ...SAMPLE_DATA,
+      stickiness_pct: null,
+      avg_daily_query_users: 8,
+      unique_query_users: 10,
+      stickiness_available: true,
+    });
+
+    const card = screen.getByText("Usage Stickiness").closest(".co-kpi-card");
+    expect(card).toHaveTextContent("N/A");
+    expect(card).not.toHaveTextContent("80%");
+    expect(card).not.toHaveTextContent("Unavailable:");
+  });
+
+  it("shows both user KPIs as unavailable when the managed source failed", () => {
+    renderView({}, {
+      ...SAMPLE_DATA,
+      query_users_available: false,
+      stickiness_available: false,
+    });
+
+    for (const title of ["Unique Active Users", "Usage Stickiness"]) {
+      const card = screen.getByText(title).closest(".co-kpi-card");
+      expect(card).toHaveTextContent("N/A");
+      expect(card).toHaveTextContent("managed query-user data is unavailable");
+      expect(card).not.toHaveTextContent("See trend");
+    }
   });
 });

@@ -7,6 +7,7 @@ import {
   LogOut,
   Mail,
   Slack,
+  UserRound,
 } from "lucide-react";
 
 interface UserMenuProps {
@@ -227,6 +228,13 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
         <span className="flex h-[24px] w-[24px] items-center justify-center rounded-full bg-[#FF5F46] text-[10px] font-bold text-white">
           {initials}
         </span>
+        <UserRound
+          size={13}
+          strokeWidth={1.8}
+          className="ml-[5px] shrink-0 text-[#B8CCD2] min-[900px]:ml-0"
+          data-testid="user-menu-silhouette"
+          aria-hidden="true"
+        />
         <span className="hidden max-w-[88px] truncate min-[900px]:block min-[1280px]:max-w-[160px] min-[1536px]:max-w-[220px]">{email}</span>
         <ChevronDown size={12} strokeWidth={2} className={`hidden shrink-0 opacity-70 transition-transform min-[900px]:block ${open ? "rotate-180" : ""}`} aria-hidden="true" />
       </button>

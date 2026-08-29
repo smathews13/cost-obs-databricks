@@ -84,6 +84,10 @@ export function getWorkspaceScopeKey(workspaceIds?: string[]): string {
   return workspaceIds?.length ? [...workspaceIds].sort().join(",") : "";
 }
 
+function scopedQueryKey(...parts: unknown[]) {
+  return [...parts, getActiveSourceScopeKey()];
+}
+
 /**
  * Add the dashboard's active source/workspace scope to an API URL. Source labels
  * remain repeated query parameters so labels containing commas round-trip.
@@ -124,7 +128,7 @@ function buildUrlWithWs(endpoint: string, dateRange?: DateRange, workspaceIds?: 
 
 export function useBillingSummary(dateRange?: DateRange) {
   return useQuery<BillingSummary>({
-    queryKey: ["billing", "summary", dateRange],
+    queryKey: scopedQueryKey("billing", "summary", dateRange),
     queryFn: () => fetchJson(buildUrl("/api/billing/summary", dateRange)),
     staleTime: STALE_TIME,
   });
@@ -132,7 +136,7 @@ export function useBillingSummary(dateRange?: DateRange) {
 
 export function useBillingByProduct(dateRange?: DateRange) {
   return useQuery<ProductBreakdownResponse>({
-    queryKey: ["billing", "by-product", dateRange],
+    queryKey: scopedQueryKey("billing", "by-product", dateRange),
     queryFn: () => fetchJson(buildUrl("/api/billing/by-product", dateRange)),
     staleTime: STALE_TIME,
   });
@@ -140,7 +144,7 @@ export function useBillingByProduct(dateRange?: DateRange) {
 
 export function useBillingByWorkspace(dateRange?: DateRange) {
   return useQuery<WorkspaceBreakdownResponse>({
-    queryKey: ["billing", "by-workspace", dateRange],
+    queryKey: scopedQueryKey("billing", "by-workspace", dateRange),
     queryFn: () => fetchJson(buildUrl("/api/billing/by-workspace", dateRange)),
     staleTime: STALE_TIME,
   });
@@ -148,7 +152,7 @@ export function useBillingByWorkspace(dateRange?: DateRange) {
 
 export function useBillingTimeseries(dateRange?: DateRange) {
   return useQuery<TimeseriesResponse>({
-    queryKey: ["billing", "timeseries", dateRange],
+    queryKey: scopedQueryKey("billing", "timeseries", dateRange),
     queryFn: () => fetchJson(buildUrl("/api/billing/timeseries", dateRange)),
     staleTime: STALE_TIME,
   });
@@ -156,7 +160,7 @@ export function useBillingTimeseries(dateRange?: DateRange) {
 
 export function useSqlBreakdown(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<GranularBreakdownResponse>({
-    queryKey: ["billing", "sql-breakdown", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("billing", "sql-breakdown", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: () => fetchJson(buildUrlWithWs("/api/billing/sql-breakdown", dateRange, workspaceIds)),
     staleTime: STALE_TIME,
     enabled,
@@ -165,7 +169,7 @@ export function useSqlBreakdown(dateRange?: DateRange, workspaceIds?: string[], 
 
 export function useEtlBreakdown(dateRange?: DateRange, enabled: boolean = true) {
   return useQuery<GranularBreakdownResponse>({
-    queryKey: ["billing", "etl-breakdown", dateRange],
+    queryKey: scopedQueryKey("billing", "etl-breakdown", dateRange),
     queryFn: () => fetchJson(buildUrl("/api/billing/etl-breakdown", dateRange)),
     staleTime: STALE_TIME,
     enabled,
@@ -174,7 +178,7 @@ export function useEtlBreakdown(dateRange?: DateRange, enabled: boolean = true) 
 
 export function usePipelineObjects(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<PipelineObjectsResponse>({
-    queryKey: ["billing", "pipeline-objects", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("billing", "pipeline-objects", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: () => fetchJson(buildUrlWithWs("/api/billing/pipeline-objects", dateRange, workspaceIds)),
     staleTime: STALE_TIME,
     enabled,
@@ -183,7 +187,7 @@ export function usePipelineObjects(dateRange?: DateRange, workspaceIds?: string[
 
 export function useInteractiveBreakdown(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<InteractiveBreakdownResponse>({
-    queryKey: ["billing", "interactive-breakdown", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("billing", "interactive-breakdown", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: () => fetchJson(buildUrlWithWs("/api/billing/interactive-breakdown", dateRange, workspaceIds)),
     staleTime: STALE_TIME,
     enabled,
@@ -192,7 +196,7 @@ export function useInteractiveBreakdown(dateRange?: DateRange, workspaceIds?: st
 
 export function useAWSCosts(dateRange?: DateRange, enabled: boolean = true) {
   return useQuery<AWSCostsResponse>({
-    queryKey: ["billing", "aws-costs", dateRange],
+    queryKey: scopedQueryKey("billing", "aws-costs", dateRange),
     queryFn: () => fetchJson(buildUrl("/api/billing/aws-costs", dateRange)),
     staleTime: STALE_TIME,
     enabled,
@@ -201,7 +205,7 @@ export function useAWSCosts(dateRange?: DateRange, enabled: boolean = true) {
 
 export function useAWSCostsTimeseries(dateRange?: DateRange, enabled: boolean = true) {
   return useQuery<TimeseriesResponse>({
-    queryKey: ["billing", "aws-costs-timeseries", dateRange],
+    queryKey: scopedQueryKey("billing", "aws-costs-timeseries", dateRange),
     queryFn: () => fetchJson(buildUrl("/api/billing/aws-costs-timeseries", dateRange)),
     staleTime: STALE_TIME,
     enabled,
@@ -213,7 +217,7 @@ export function useAWSCostsTimeseries(dateRange?: DateRange, enabled: boolean = 
  */
 export function useInfraCosts(dateRange?: DateRange, enabled: boolean = true) {
   return useQuery<InfraCostsResponse>({
-    queryKey: ["billing", "infra-costs", dateRange],
+    queryKey: scopedQueryKey("billing", "infra-costs", dateRange),
     queryFn: () => fetchJson(buildUrl("/api/billing/infra-costs", dateRange)),
     staleTime: STALE_TIME,
     enabled,
@@ -225,7 +229,7 @@ export function useInfraCosts(dateRange?: DateRange, enabled: boolean = true) {
  */
 export function useInfraCostsTimeseries(dateRange?: DateRange, enabled: boolean = true) {
   return useQuery<InfraCostsTimeseriesResponse>({
-    queryKey: ["billing", "infra-costs-timeseries", dateRange],
+    queryKey: scopedQueryKey("billing", "infra-costs-timeseries", dateRange),
     queryFn: () => fetchJson(buildUrl("/api/billing/infra-costs-timeseries", dateRange)),
     staleTime: STALE_TIME,
     enabled,
@@ -267,7 +271,7 @@ export function getDefaultDateRange(days: number = 30): DateRange {
 
 export function useSKUBreakdown(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<SKUBreakdownResponse>({
-    queryKey: ["billing", "sku-breakdown", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("billing", "sku-breakdown", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: () => fetchJson(buildUrlWithWs("/api/billing/sku-breakdown", dateRange, workspaceIds)),
     staleTime: STALE_TIME,
     enabled,
@@ -307,7 +311,7 @@ export interface UsersGroupsBundle {
 
 export function useUsersGroupsBundle(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<UsersGroupsBundle>({
-    queryKey: ["users-groups", "bundle", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("users-groups", "bundle", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: () => fetchJson(buildUrlWithWs("/api/users-groups/bundle", dateRange, workspaceIds)),
     staleTime: STALE_TIME,
     enabled,
@@ -358,7 +362,7 @@ export function useReportConfig() {
 
 export function useSpendAnomalies(dateRange?: DateRange, enabled: boolean = true) {
   return useQuery<SpendAnomaliesResponse>({
-    queryKey: ["billing", "spend-anomalies", dateRange],
+    queryKey: scopedQueryKey("billing", "spend-anomalies", dateRange),
     queryFn: () => fetchJson(buildUrl("/api/billing/spend-anomalies", dateRange)),
     staleTime: STALE_TIME,
     enabled,
@@ -367,7 +371,7 @@ export function useSpendAnomalies(dateRange?: DateRange, enabled: boolean = true
 
 export function usePlatformKPIs(dateRange?: DateRange, enabled: boolean = true) {
   return useQuery<PlatformKPIsResponse>({
-    queryKey: ["billing", "platform-kpis", dateRange],
+    queryKey: scopedQueryKey("billing", "platform-kpis", dateRange),
     queryFn: () => fetchJson(buildUrl("/api/billing/platform-kpis", dateRange)),
     staleTime: STALE_TIME,
     enabled,
@@ -380,9 +384,9 @@ export function usePlatformKPIs(dateRange?: DateRange, enabled: boolean = true) 
  * Use this for initial load, then lazy-load detailed breakdowns.
  */
 export function useDashboardBundleFast(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
-  const wsKey = workspaceIds?.length ? workspaceIds.join(",") : null;
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
   return useQuery<DashboardBundleFast>({
-    queryKey: ["billing", "dashboard-bundle-fast", dateRange, wsKey],
+    queryKey: scopedQueryKey("billing", "dashboard-bundle-fast", dateRange, wsKey),
     queryFn: () => {
       const base = buildUrl("/api/billing/dashboard-bundle-fast", dateRange);
       const url = wsKey
@@ -501,7 +505,7 @@ export async function fetchSubmitAndPoll<T>(
  */
 export function useAIMLDashboardBundle(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<AIMLDashboardBundle>({
-    queryKey: ["aiml", "dashboard-bundle", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("aiml", "dashboard-bundle", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: ({ signal }) =>
       fetchSubmitAndPoll<AIMLDashboardBundle>(
         buildUrlWithWs("/api/aiml/dashboard-bundle", dateRange, workspaceIds),
@@ -517,7 +521,7 @@ export function useAIMLDashboardBundle(dateRange?: DateRange, workspaceIds?: str
  */
 export function useAppsDashboardBundle(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<AppsDashboardBundle>({
-    queryKey: ["apps", "dashboard-bundle", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("apps", "dashboard-bundle", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: ({ signal }) =>
       fetchSubmitAndPoll<AppsDashboardBundle>(
         buildUrlWithWs("/api/apps/dashboard-bundle", dateRange, workspaceIds),
@@ -535,7 +539,7 @@ export function useAppsDashboardBundle(dateRange?: DateRange, workspaceIds?: str
  */
 export function useTaggingDashboardBundle(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<TaggingDashboardBundle>({
-    queryKey: ["tagging", "dashboard-bundle", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("tagging", "dashboard-bundle", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: () => fetchJson(buildUrlWithWs("/api/tagging/dashboard-bundle", dateRange, workspaceIds)),
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -549,7 +553,7 @@ export function useTaggingDashboardBundle(dateRange?: DateRange, workspaceIds?: 
  */
 export function useAWSActualCosts(dateRange?: DateRange, enabled: boolean = true) {
   return useQuery<AWSActualDashboardBundle>({
-    queryKey: ["aws-actual", "dashboard-bundle", dateRange],
+    queryKey: scopedQueryKey("aws-actual", "dashboard-bundle", dateRange),
     queryFn: () =>
       fetchJson(buildUrl("/api/aws-actual/dashboard-bundle", dateRange)),
     staleTime: 5 * 60 * 1000,
@@ -559,7 +563,7 @@ export function useAWSActualCosts(dateRange?: DateRange, enabled: boolean = true
 
 export function useAzureActualCosts(dateRange?: DateRange, enabled: boolean = true) {
   return useQuery<AzureActualDashboardBundle>({
-    queryKey: ["azure-actual", "dashboard-bundle", dateRange],
+    queryKey: scopedQueryKey("azure-actual", "dashboard-bundle", dateRange),
     queryFn: () =>
       fetchJson(buildUrl("/api/azure-actual/dashboard-bundle", dateRange)),
     staleTime: 5 * 60 * 1000,
@@ -569,7 +573,7 @@ export function useAzureActualCosts(dateRange?: DateRange, enabled: boolean = tr
 
 export function useGCPActualCosts(dateRange?: DateRange, enabled: boolean = true) {
   return useQuery<GCPActualDashboardBundle>({
-    queryKey: ["gcp-actual", "dashboard-bundle", dateRange],
+    queryKey: scopedQueryKey("gcp-actual", "dashboard-bundle", dateRange),
     queryFn: () =>
       fetchJson(buildUrl("/api/gcp-actual/dashboard-bundle", dateRange)),
     staleTime: 5 * 60 * 1000,
@@ -587,7 +591,7 @@ const dbsqlUnavailableSince = new Map<string, number>();
 
 export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   const result = useQuery<DBSQLDashboardBundle>({
-    queryKey: ["dbsql", "dashboard-bundle", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("dbsql", "dashboard-bundle", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: ({ signal }) =>
       fetchSubmitAndPoll<DBSQLDashboardBundle>(
         buildUrlWithWs("/api/dbsql/dashboard-bundle", dateRange, workspaceIds),
@@ -611,7 +615,7 @@ export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[
       return false;
     },
   });
-  const waitKey = JSON.stringify(["dbsql", "dashboard-bundle", dateRange, workspaceIds?.join(",") ?? null]);
+  const waitKey = JSON.stringify(scopedQueryKey("dbsql", "dashboard-bundle", dateRange, getWorkspaceScopeKey(workspaceIds)));
   if (!result.isError && result.data?.available === false && !dbsqlUnavailableSince.has(waitKey)) {
     dbsqlUnavailableSince.set(waitKey, Date.now());
   }
@@ -627,7 +631,7 @@ export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[
 
 export function useDBSQLTopQueries(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<import("@/types/billing").TopQueriesResponse>({
-    queryKey: ["dbsql", "top-queries", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("dbsql", "top-queries", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: () =>
       fetchJson(buildUrlWithWs("/api/dbsql/top-queries", dateRange, workspaceIds)),
     staleTime: 5 * 60 * 1000,
@@ -641,7 +645,7 @@ export function useDBSQLTopQueries(dateRange?: DateRange, workspaceIds?: string[
  */
 export function useInfraBundle(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<InfraBundleResponse>({
-    queryKey: ["billing", "infra-bundle", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("billing", "infra-bundle", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: () => fetchJson(buildUrlWithWs("/api/billing/infra-bundle", dateRange, workspaceIds)),
     staleTime: 5 * 60 * 1000,
     enabled,
@@ -654,7 +658,7 @@ export function useInfraBundle(dateRange?: DateRange, workspaceIds?: string[], e
  */
 export function useKPIsBundle(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<KPIsBundleResponse>({
-    queryKey: ["billing", "kpis-bundle", dateRange, workspaceIds?.join(",") ?? null],
+    queryKey: scopedQueryKey("billing", "kpis-bundle", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: () => fetchJson(buildUrlWithWs("/api/billing/kpis-bundle", dateRange, workspaceIds)),
     staleTime: 5 * 60 * 1000,
     enabled,

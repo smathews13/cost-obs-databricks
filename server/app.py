@@ -29,15 +29,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ── Warehouse warming: NONE ──────────────────────────────────────────────────
-# This app must never issue a synthetic warm-up query to warm the warehouse. Earlier
-# designs used a 5-min keepalive loop (pinned the warehouse 24x7) and then an
-# "on-demand" background warm on the first /api/ request; both generated
-# warehouse traffic with no user data behind it, inflating serverless cost and
-# polluting the usage data this app reports on. The warehouse is warmed solely
-# as a side effect of real user queries. A cold start adds ~15-30s to the first
-# query after idle; the frontend shows a "Starting" splash via the REST-only
-# /api/health/sql-warehouse poll (which itself issues no SQL).
+# ── Warehouse warming: bounded cold-gate recovery only ───────────────────────
+# There is no periodic SQL keepalive or broad background prewarm. During the
+# initial full-screen cold gate, the frontend may request one throttled SELECT 1
+# after repeated REST health polls. This breaks the stopped-warehouse deadlock
+# without continuously pinning serverless compute; normal health polls remain
+# REST-only, and real dashboard queries take over once the probe succeeds.
 
 
 class UserAuthMiddleware:
@@ -148,8 +145,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         if request.url.path in self._SILENT_PATHS:
             return await call_next(request)
 
-        # No warehouse warming here. The app never issues synthetic warm-up queries;
-        # the warehouse warms only as a side effect of real user queries.
+        # No implicit warehouse warming here. The only synthetic recovery query is
+        # the explicit, client-throttled probe on /api/health/sql-warehouse.
 
         # Generate request ID for correlation
         request_id = str(uuid.uuid4())[:8]

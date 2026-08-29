@@ -27,6 +27,7 @@ describe("UserMenu", () => {
 
     const trigger = screen.getByRole("button", { name: /samuel\.a\.mathews@gmail\.com/i });
     expect(trigger).toHaveClass("rail-user-trigger", "min-w-0");
+    expect(screen.getByTestId("user-menu-silhouette")).toBeInTheDocument();
     expect(screen.getByText(props.email)).toHaveClass(
       "hidden",
       "min-[900px]:block",

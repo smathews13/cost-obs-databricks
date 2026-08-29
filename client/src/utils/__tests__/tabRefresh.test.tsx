@@ -1,10 +1,11 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { TabRefreshRegion } from "@/components/TabRefreshRegion";
 import {
   isQueryOwnedByTab,
+  refreshSourceScopeData,
   refreshTabData,
   TAB_LOADING_SECTIONS,
 } from "../tabRefresh";
@@ -78,6 +79,36 @@ describe("per-tab manual refresh", () => {
     expect(refetchOptions?.predicate?.(dbuQuery)).toBe(true);
     expect(refetchOptions?.predicate?.(settingsQuery)).toBe(false);
     expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(refetch.mock.invocationCallOrder[0]);
+  });
+
+  it("refreshes DBU immediately, leaves inactive tabs stale, then fetches them on demand", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
+    });
+    const dbuFetch = vi.fn(async () => ({ total_spend: 1 }));
+    const appsFetch = vi.fn(async () => ({ apps: [] }));
+    const dbuOptions = {
+      queryKey: ["billing", "dashboard-bundle-fast", "scope-a"],
+      queryFn: dbuFetch,
+    };
+    const appsOptions = {
+      queryKey: ["apps", "dashboard-bundle", "scope-a"],
+      queryFn: appsFetch,
+    };
+    const observer = new QueryObserver(client, dbuOptions);
+    const unsubscribe = observer.subscribe(() => {});
+    await client.ensureQueryData(dbuOptions);
+    client.setQueryData(appsOptions.queryKey, { apps: ["stale"] });
+
+    await refreshSourceScopeData(client, "dbu");
+
+    expect(dbuFetch).toHaveBeenCalledTimes(2);
+    expect(appsFetch).not.toHaveBeenCalled();
+    expect(client.getQueryState(appsOptions.queryKey)?.isInvalidated).toBe(true);
+
+    await client.fetchQuery(appsOptions);
+    expect(appsFetch).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 
   it("keeps the button visible and replaces stale content with loading panels", async () => {

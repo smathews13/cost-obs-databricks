@@ -242,15 +242,15 @@ export function SettingsConfig() {
         </div>
       ) : tablesStatus?.tables?.length ? (
         <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflow: "hidden", opacity: mvRefreshing ? 0.5 : 1, transition: "opacity 300ms" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", minWidth: 820, tableLayout: "fixed", borderCollapse: "collapse" }}>
+          <div data-testid="managed-tables-scroll" style={{ width: "100%", overflowX: "auto" }}>
+            <table data-testid="managed-tables-table" style={{ width: "100%", minWidth: 960, tableLayout: "fixed", borderCollapse: "collapse" }}>
               <colgroup>
-                <col style={{ width: "31%" }} />
-                <col style={{ width: "13%" }} />
-                <col style={{ width: "10%" }} />
+                <col style={{ width: "28%" }} />
+                <col style={{ width: "18%" }} />
+                <col style={{ width: "9%" }} />
                 <col style={{ width: "18%" }} />
                 <col style={{ width: "14%" }} />
-                <col style={{ width: "14%" }} />
+                <col style={{ width: "13%" }} />
               </colgroup>
               <thead style={{ backgroundColor: T.navBg }}>
                 <tr>
@@ -284,7 +284,7 @@ export function SettingsConfig() {
                         <span style={{ color: mark.c, marginRight: 6 }}>{mark.s}</span>{t.name}{t.error && <ColWarn error={t.error} />}
                       </td>
                       <td style={td}>
-                        {t.table_type ? <span style={{ fontSize: 10, fontWeight: 500, color: T.textSecondary, backgroundColor: T.codeBg, borderRadius: 3, padding: "1px 6px" }}>{t.table_type}</span> : "N/A"}
+                        {t.table_type ? <span style={{ display: "inline-block", whiteSpace: "nowrap", fontSize: 10, fontWeight: 500, color: T.textSecondary, backgroundColor: T.codeBg, borderRadius: 3, padding: "1px 6px" }}>{t.table_type}</span> : "N/A"}
                       </td>
                       <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.textSecondary }}>{t.row_count != null ? t.row_count.toLocaleString() : "N/A"}</td>
                       <td style={{ ...td, textAlign: "right", color: T.textSecondary, fontSize: 11 }}>{RETENTION[t.name] ?? "N/A"}</td>

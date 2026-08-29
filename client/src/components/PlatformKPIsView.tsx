@@ -123,11 +123,12 @@ const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, ico
   );
 });
 
-const PLATFORM_KPI_KEYS = [
+export const PLATFORM_KPI_TREND_KEYS = [
   "total_queries", "total_rows_read", "total_bytes_read", "total_compute_seconds",
   "total_jobs", "total_job_runs", "successful_runs", "active_notebooks",
-  "active_workspaces", "models_served", "total_users",
+  "active_workspaces", "models_served", "total_users", "stickiness",
 ] as const;
+type PlatformKPITrendKey = typeof PLATFORM_KPI_TREND_KEYS[number];
 
 export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, anomaliesLoading, startDate, endDate, workspaceIds, workspaceNameMap }: PlatformKPIsViewProps) {
   const queryClient = useQueryClient();
@@ -143,9 +144,15 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
   const jobsUnavailable       = lakeflowGranted === false    ? "lakeflow grants required: run SP grants to fix" : undefined;
   const servingUnavailable    = servingGranted === false     ? "serving.served_entities grant required" : undefined;
   const queryHistUnavailable  = queryHistoryGranted === false ? "query.history grant required" : undefined;
+  const queryUsersUnavailable = data?.query_users_available === false
+    ? "managed query-user data is unavailable for this scope"
+    : undefined;
+  const stickinessUnavailable = data?.stickiness_available === false
+    ? "managed query-user data is unavailable for this scope"
+    : undefined;
 
   const [selectedKPI, setSelectedKPI] = useState<{
-    kpi: "total_queries" | "total_rows_read" | "total_bytes_read" | "total_compute_seconds" | "total_jobs" | "total_job_runs" | "successful_runs" | "active_notebooks" | "active_workspaces" | "models_served" | "total_users" | "avg_query_duration" | "unique_warehouses" | "stickiness";
+    kpi: PlatformKPITrendKey;
     label: string;
   } | null>(null);
 
@@ -155,7 +162,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
   // Pre-warm the first 3 KPI trends in the background; the rest load on card click
   useEffect(() => {
     if (!startDate || !endDate) return;
-    for (const kpi of PLATFORM_KPI_KEYS.slice(0, 3)) {
+    for (const kpi of PLATFORM_KPI_TREND_KEYS.slice(0, 3)) {
       queryClient.prefetchQuery({
         queryKey: ["kpis-platform-kpi-trend", kpi, startDate, endDate, "daily", wsKey, sourceKey],
         queryFn: async () => {
@@ -212,17 +219,15 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
     ? ((data.successful_runs / data.total_job_runs) * 100).toFixed(1)
     : null;
 
-  const stickinessPct = data.stickiness_pct != null && data.stickiness_pct > 0
+  const stickinessPct = data.stickiness_pct != null
     ? Math.round(data.stickiness_pct)
-    : (data.avg_daily_query_users && data.unique_query_users > 0
-        ? Math.min(100, Math.round((data.avg_daily_query_users / data.unique_query_users) * 100))
-        : null);
+    : null;
 
   const workspacePct = data.total_workspace_count && data.total_workspace_count > 0
     ? Math.round(((data.avg_daily_workspaces ?? data.active_workspaces) / data.total_workspace_count) * 100)
     : null;
 
-  const handleKPIClick = (kpi: "total_queries" | "total_rows_read" | "total_bytes_read" | "total_compute_seconds" | "total_jobs" | "total_job_runs" | "successful_runs" | "active_notebooks" | "active_workspaces" | "models_served" | "total_users" | "avg_query_duration" | "unique_warehouses" | "stickiness", label: string) => {
+  const handleKPIClick = (kpi: PlatformKPITrendKey, label: string) => {
     setSelectedKPI({ kpi, label });
   };
 
@@ -273,7 +278,9 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
           <KPICard
             title="Total Queries Executed"
             value={formatNumber(data.total_queries)}
-            subtitle={`from ${formatNumber(data.unique_query_users)} unique users`}
+            subtitle={queryUsersUnavailable
+              ? "unique user count unavailable"
+              : `from ${formatNumber(data.unique_query_users)} unique users`}
             isLoading={isLoading || isFetching}
             color="bg-orange-100"
             unavailableReason={queryHistUnavailable}
@@ -443,7 +450,8 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
             isLoading={isLoading || isFetching}
             infoTooltip="Distinct SQL query executors in the selected period (matches the daily trend). Job owners shown separately: some users may appear in both groups."
             color="bg-orange-100"
-            onClick={startDate && endDate ? () => handleKPIClick("total_users", "Daily Active Users") : undefined}
+            unavailableReason={queryUsersUnavailable}
+            onClick={!queryUsersUnavailable && startDate && endDate ? () => handleKPIClick("total_users", "Daily Active Users") : undefined}
             icon={
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -458,7 +466,8 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
             infoTooltip="Avg daily active users divided by total unique users in the period. Higher = more habitual usage. 20%+ is strong engagement; 10% suggests occasional usage."
             color={stickinessPct !== null ? "bg-orange-100" : "bg-gray-100"}
             isLoading={isLoading || isFetching}
-            onClick={stickinessPct !== null && startDate && endDate ? () => handleKPIClick("stickiness", "Daily Usage Stickiness") : undefined}
+            unavailableReason={stickinessUnavailable}
+            onClick={!stickinessUnavailable && stickinessPct !== null && startDate && endDate ? () => handleKPIClick("stickiness", "Daily Usage Stickiness") : undefined}
             icon={
               <svg className={`h-6 w-6 ${stickinessPct !== null ? "text-lava" : "text-gray-500"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
