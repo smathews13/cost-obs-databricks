@@ -8,7 +8,7 @@
  * 4. When SP is the active identity, the remediation bundle is shown.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SettingsPermissions } from "../SettingsPermissions";
@@ -161,7 +161,7 @@ describe("SettingsPermissions: grant bundle targets actual SP name", () => {
 });
 
 describe("SettingsPermissions: polished access controls", () => {
-  it("labels role selects and renders the custom focus chevron", async () => {
+  it("renders labeled custom role menus with a lava focus treatment and chevron", async () => {
     mockApis(SP_AUTH_STATUS, undefined, {
       admins: ["admin@databricks.com"],
       consumers: ["viewer@databricks.com"],
@@ -169,12 +169,59 @@ describe("SettingsPermissions: polished access controls", () => {
     renderPermissions();
 
     const role = await screen.findByRole("combobox", { name: "Role for admin@databricks.com" });
-    expect(role).toHaveStyle({ appearance: "none" });
-    expect(role.parentElement?.querySelector("svg[aria-hidden='true']")).toBeInTheDocument();
-    fireEvent.focus(role);
-    expect(role.parentElement?.getAttribute("style")).toContain("box-shadow");
+    expect(role.tagName).toBe("BUTTON");
+    expect(role).toHaveAttribute("aria-haspopup", "listbox");
+    expect(role).toHaveAttribute("aria-expanded", "false");
+    expect(role).toHaveClass("settings-role-select-trigger");
+    expect(role.querySelector("svg[aria-hidden='true']")).toBeInTheDocument();
+    role.focus();
+    expect(role).toHaveFocus();
     expect(screen.getByRole("combobox", { name: "Role for new user" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "User email" })).toBeInTheDocument();
+  });
+
+  it("supports keyboard navigation and role selection without a native select", async () => {
+    mockApis(SP_AUTH_STATUS, undefined, {
+      admins: ["admin@databricks.com"],
+      consumers: ["viewer@databricks.com"],
+    });
+    renderPermissions();
+
+    const role = await screen.findByRole("combobox", { name: "Role for admin@databricks.com" });
+    role.focus();
+    await userEvent.keyboard("{Enter}");
+
+    expect(role).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("listbox", { name: "Role for admin@databricks.com" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Admin" })).toHaveAttribute("aria-selected", "true");
+
+    await userEvent.keyboard("{ArrowUp}{Enter}");
+
+    expect(role).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() => {
+      const saveCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+      expect(saveCall).toBeDefined();
+      expect(JSON.parse(String(saveCall?.[1]?.body))).toEqual({
+        admins: [],
+        consumers: ["viewer@databricks.com", "admin@databricks.com"],
+      });
+    });
+  });
+
+  it("closes an open role menu on Escape without changing the role", async () => {
+    mockApis(SP_AUTH_STATUS, undefined, {
+      admins: ["admin@databricks.com"],
+      consumers: [],
+    });
+    renderPermissions();
+
+    const role = await screen.findByRole("combobox", { name: "Role for admin@databricks.com" });
+    role.focus();
+    await userEvent.keyboard("{ArrowDown}{Escape}");
+
+    expect(role).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("listbox", { name: "Role for admin@databricks.com" })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
   });
 
   it("uses an accessible SVG chevron and muted SQL panel styling", async () => {
@@ -225,6 +272,8 @@ describe("SettingsPermissions: polished access controls", () => {
       expect(row.children).toHaveLength(3);
     });
     expect(screen.getByRole("textbox", { name: "User email" })).toHaveStyle({ width: "100%" });
+    expect(screen.getByRole("combobox", { name: "Role for new user" }).parentElement).toHaveClass("settings-role-select");
+    expect(screen.getByRole("button", { name: "Add user" }).parentElement).toHaveStyle({ display: "grid" });
   });
 
   it("shows the disabled metastore browser between Users and Query authentication", async () => {

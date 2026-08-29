@@ -101,6 +101,21 @@ describe("SettingsConfig: destructive action disabled in degraded state", () => 
 
     const dropBtn = await screen.findByRole("button", { name: /drop tables/i });
     expect(dropBtn).not.toBeDisabled();
+    expect(dropBtn).toHaveClass("settings-drop-tables-button");
+    expect(dropBtn).toHaveAttribute("aria-describedby", "drop-tables-consequence");
+  });
+
+  it("states the destructive consequence directly and keeps the action in a fixed column", async () => {
+    renderSettingsConfig(HEALTHY_TABLES);
+
+    const consequence = await screen.findByText(
+      "Deletes the app-managed tables. Dashboards remain unavailable until you rebuild them. Source system tables are not changed.",
+    );
+    const dropBtn = screen.getByRole("button", { name: /drop tables/i });
+
+    expect(consequence).toHaveAttribute("id", "drop-tables-consequence");
+    expect(dropBtn.parentElement).toHaveClass("settings-danger-action-slot");
+    expect(screen.queryByText(/system\.\*/i)).not.toBeInTheDocument();
   });
 });
 

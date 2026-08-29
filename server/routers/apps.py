@@ -8,6 +8,7 @@ import threading
 import time
 from datetime import date, datetime, timedelta
 from typing import Any
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 # Matches standard Databricks service principal UUID format
 _SP_UUID_RE = re.compile(
@@ -55,12 +56,154 @@ ACTIVE_DAYS = 7
 
 # ── App name resolution (UUID → human-readable name) ────────────────────
 
-_app_name_cache: dict[str, dict[str, str]] = {}  # uuid → {name, url}
+_app_name_cache: dict[str, dict[str, Any]] = {}  # uuid → safe list metadata
 _app_name_cache_time: float = 0
 APP_NAME_CACHE_TTL = 3600  # 1 hour - app list rarely changes
 
 
-def _get_app_registry() -> dict[str, dict[str, str]]:
+def _enum_value(value: Any) -> str:
+    """Return the wire value for SDK enums without exposing object reprs."""
+    if value is None:
+        return ""
+    return str(getattr(value, "value", value))
+
+
+def _status_metadata(status: Any, instance_field: str | None = None) -> dict[str, Any] | None:
+    if not status:
+        return None
+    result: dict[str, Any] = {
+        "state": _enum_value(getattr(status, "state", None)),
+        "message": str(getattr(status, "message", None) or ""),
+    }
+    if instance_field:
+        instances = getattr(status, instance_field, None)
+        if instances is not None:
+            result["instances"] = int(instances)
+    if not result["state"] and not result["message"] and "instances" not in result:
+        return None
+    return result
+
+
+def _safe_repository_url(value: Any) -> str:
+    """Allow clickable repository URLs while dropping credentials and query tokens."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return ""
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return ""
+    if parsed.username or parsed.password:
+        return ""
+    host = parsed.hostname
+    try:
+        if parsed.port:
+            host = f"{host}:{parsed.port}"
+    except ValueError:
+        return ""
+    return urlunsplit((parsed.scheme, host, parsed.path, "", ""))
+
+
+def _safe_app_url(value: Any) -> str:
+    raw = str(value or "").strip()
+    if raw and "://" not in raw:
+        raw = f"https://{raw}"
+    safe = _safe_repository_url(raw)
+    return safe if safe.startswith("https://") else ""
+
+
+def _extract_app_metadata(app: Any, availability: str = "available") -> dict[str, Any]:
+    """Select customer-safe Apps API fields.
+
+    Deliberately excludes OAuth/client identifiers, environment variables,
+    credentials, access-token configuration, and deployment artifacts.
+    """
+    active_deployment = getattr(app, "active_deployment", None)
+    pending_deployment = getattr(app, "pending_deployment", None)
+    deployment = pending_deployment or active_deployment
+    deployment_status = _status_metadata(getattr(deployment, "status", None))
+
+    git_source = (
+        getattr(deployment, "git_source", None)
+        or getattr(app, "git_source", None)
+        or getattr(app, "default_git_source", None)
+    )
+    git_repository = (
+        getattr(git_source, "git_repository", None)
+        or getattr(app, "git_repository", None)
+    )
+    git_metadata: dict[str, str] | None = None
+    if git_source or git_repository:
+        git_metadata = {
+            "repository_url": _safe_repository_url(getattr(git_repository, "url", None)),
+            "branch": str(getattr(git_source, "branch", None) or ""),
+            "tag": str(getattr(git_source, "tag", None) or ""),
+            "commit": str(
+                getattr(git_source, "resolved_commit", None)
+                or getattr(git_source, "commit", None)
+                or ""
+            ),
+            "source_code_path": str(getattr(git_source, "source_code_path", None) or ""),
+        }
+        if not any(git_metadata.values()):
+            git_metadata = None
+
+    deployment_metadata: dict[str, Any] | None = None
+    if deployment:
+        deployment_metadata = {
+            "deployment_id": str(getattr(deployment, "deployment_id", None) or ""),
+            "state": (deployment_status or {}).get("state", ""),
+            "message": (deployment_status or {}).get("message", ""),
+            "creator": str(getattr(deployment, "creator", None) or ""),
+            "create_time": str(getattr(deployment, "create_time", None) or ""),
+            "update_time": str(getattr(deployment, "update_time", None) or ""),
+            "mode": _enum_value(getattr(deployment, "mode", None)),
+            "pending": pending_deployment is not None,
+        }
+
+    thumbnail_url = str(getattr(app, "thumbnail_url", None) or "")
+    return {
+        "availability": availability,
+        "description": str(getattr(app, "description", None) or ""),
+        "creator": str(getattr(app, "creator", None) or ""),
+        "updater": str(getattr(app, "updater", None) or ""),
+        "create_time": str(getattr(app, "create_time", None) or ""),
+        "update_time": str(getattr(app, "update_time", None) or ""),
+        "compute_size": _enum_value(getattr(app, "compute_size", None)),
+        "compute_min_instances": getattr(app, "compute_min_instances", None),
+        "compute_max_instances": getattr(app, "compute_max_instances", None),
+        "compute_status": _status_metadata(
+            getattr(app, "compute_status", None), "active_instances"
+        ),
+        "app_status": _status_metadata(
+            getattr(app, "app_status", None), "running_instances"
+        ),
+        "deployment": deployment_metadata,
+        "source_code_path": str(
+            getattr(deployment, "source_code_path", None)
+            or getattr(app, "source_code_path", None)
+            or getattr(app, "default_source_code_path", None)
+            or ""
+        ),
+        "git": git_metadata,
+        "space": str(getattr(app, "space", None) or ""),
+        "has_thumbnail": bool(thumbnail_url),
+        # Used only by the server-side image proxy; stripped from bundle output.
+        "_thumbnail_source_url": thumbnail_url,
+    }
+
+
+def _public_app_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in (metadata or {}).items()
+        if not key.startswith("_")
+    }
+
+
+def _get_app_registry() -> dict[str, dict[str, Any]]:
     """Fetch and cache the UUID → {name, url} mapping from Databricks Apps API.
 
     Returns a dict keyed by app UUID with values like:
@@ -74,18 +217,18 @@ def _get_app_registry() -> dict[str, dict[str, str]]:
 
     try:
         w = get_workspace_client()
-        registry: dict[str, dict[str, str]] = {}
+        registry: dict[str, dict[str, Any]] = {}
         for app in w.apps.list():
             app_id = getattr(app, "id", None)
             app_name = getattr(app, "name", None)
-            app_url = getattr(app, "url", None) or ""
-            # Try to get icon/thumbnail info from the app object
+            app_url = _safe_app_url(getattr(app, "url", None))
             app_description = getattr(app, "description", None) or ""
             if app_id and app_name:
                 registry[app_id] = {
                     "name": app_name,
                     "url": app_url,
                     "description": app_description,
+                    "metadata": _extract_app_metadata(app),
                 }
         _app_name_cache = registry
         _app_name_cache_time = now
@@ -96,100 +239,136 @@ def _get_app_registry() -> dict[str, dict[str, str]]:
         return _app_name_cache  # return stale cache on error
 
 
-# ── Connected artifacts cache ────────────────────────────────────────
-_app_resources_cache: dict[str, list[dict[str, str]]] = {}
-_app_resources_cache_time: float = 0
+# ── App detail + connected artifacts cache ───────────────────────────
+# One existing w.apps.get() per app supplies both metadata and resources. Keeping
+# them together prevents the expanded UI from introducing a second N+1 path.
+_app_details_cache: dict[str, dict[str, Any]] = {}
+_app_details_cache_time: float = 0
 APP_RESOURCES_CACHE_TTL = 1800  # 30 minutes — SDK calls are expensive
 
 
-def _fetch_one_app_resources(w: Any, app_name: str) -> tuple[str, list[dict[str, str]]]:
-    """Fetch resources for a single app. Runs in a thread-pool worker."""
+def _resource_binding(resource: Any) -> dict[str, str]:
+    """Convert an SDK app resource to a display-safe binding."""
+    res_name = str(getattr(resource, "name", None) or "")
+    res_description = str(getattr(resource, "description", None) or "")
+    resource_fields = (
+        ("serving_endpoint", "SERVING_ENDPOINT", ("name", "endpoint_name")),
+        ("sql_warehouse", "SQL_WAREHOUSE", ("name", "id")),
+        ("job", "JOB", ("name", "id")),
+        ("database", "LAKEBASE", ("database_name", "instance_name")),
+        ("postgres", "POSTGRES", ("database", "branch")),
+        ("genie_space", "GENIE_SPACE", ("name", "space_id")),
+        ("experiment", "EXPERIMENT", ("name", "experiment_id")),
+        ("app", "APP", ("name",)),
+        ("uc_securable", "UC_SECURABLE", ("full_name", "name")),
+    )
+    for field, resource_type, name_fields in resource_fields:
+        target = getattr(resource, field, None)
+        if not target:
+            continue
+        if not res_name:
+            res_name = next(
+                (str(getattr(target, key, None)) for key in name_fields if getattr(target, key, None)),
+                "",
+            )
+        permission = _enum_value(getattr(target, "permission", None))
+        if not res_description and permission:
+            res_description = permission.replace("_", " ").title()
+        return {"name": res_name, "type": resource_type, "description": res_description}
+
+    if getattr(resource, "secret", None):
+        # Binding aliases are useful; secret scopes, keys and values are not sent.
+        return {
+            "name": res_name or "Secret binding",
+            "type": "SECRET",
+            "description": res_description or "Secret resource binding",
+        }
+    return {
+        "name": res_name,
+        "type": _enum_value(getattr(resource, "type", None)) or "UNKNOWN",
+        "description": res_description,
+    }
+
+
+def _fetch_one_app_details(
+    w: Any, app_id: str, registry_entry: dict[str, Any]
+) -> tuple[str, dict[str, Any]]:
+    """Fetch one app once and derive both metadata and resource bindings."""
+    app_name = str(registry_entry.get("name") or app_id)
     try:
         app_detail = w.apps.get(app_name)
-        resources = getattr(app_detail, "resources", None) or []
-        app_resources: list[dict[str, str]] = []
-        for r in resources:
-            res_name = getattr(r, "name", None) or ""
-            res_description = getattr(r, "description", None) or ""
-            res_type = ""
-            if getattr(r, "serving_endpoint", None):
-                res_type = "SERVING_ENDPOINT"
-                ep = r.serving_endpoint
-                res_name = res_name or getattr(ep, "name", "") or getattr(ep, "endpoint_name", "") or ""
-                res_description = res_description or getattr(ep, "permission", "") or ""
-            elif getattr(r, "sql_warehouse", None):
-                res_type = "SQL_WAREHOUSE"
-                wh = r.sql_warehouse
-                res_name = res_name or getattr(wh, "name", "") or getattr(wh, "id", "") or ""
-                res_description = res_description or getattr(wh, "permission", "") or ""
-            elif getattr(r, "secret", None):
-                res_type = "SECRET"
-                sec = r.secret
-                res_name = res_name or getattr(sec, "key", "") or ""
-                res_description = res_description or getattr(sec, "scope", "") or ""
-            elif getattr(r, "job", None):
-                res_type = "JOB"
-                job = r.job
-                res_name = res_name or getattr(job, "id", "") or ""
-                res_description = res_description or getattr(job, "permission", "") or ""
-            elif getattr(r, "database", None):
-                res_type = "LAKEBASE"
-                pg = r.database
-                res_name = res_name or getattr(pg, "database_name", "") or getattr(pg, "instance_name", "") or ""
-                res_description = res_description or getattr(pg, "permission", "") or ""
-            else:
-                res_type = getattr(r, "type", None) or "UNKNOWN"
-            app_resources.append({"name": res_name, "type": res_type, "description": res_description})
+        resources = (
+            getattr(app_detail, "effective_resources", None)
+            or getattr(app_detail, "resources", None)
+            or []
+        )
+        app_resources = [_resource_binding(resource) for resource in resources]
 
-        sp_name = getattr(app_detail, "service_principal_name", None) or ""
-        sp_id = getattr(app_detail, "service_principal_id", None)
-        if not sp_name and sp_id:
-            sp_name = str(sp_id)
+        # The display name is useful; client/application IDs are intentionally omitted.
+        sp_name = str(getattr(app_detail, "service_principal_name", None) or "")
         if sp_name:
             app_resources.append({"name": sp_name, "type": "SERVICE_PRINCIPAL", "description": "Run-as identity"})
-        return app_name, app_resources
+
+        metadata = _extract_app_metadata(app_detail)
+        registry_entry["url"] = _safe_app_url(
+            getattr(app_detail, "url", None) or registry_entry.get("url")
+        )
+        registry_entry["description"] = metadata.get("description", "")
+        registry_entry["metadata"] = metadata
+        return app_id, {"metadata": metadata, "resources": app_resources}
     except Exception as e:
-        logger.debug("Failed to get resources for app %s: %s", app_name, e)
-        return app_name, []
+        logger.debug("Failed to get details for app %s: %s", app_name, e)
+        metadata = dict(registry_entry.get("metadata") or {})
+        metadata["availability"] = "partial"
+        return app_id, {"metadata": metadata, "resources": []}
 
 
-def _get_app_resources() -> dict[str, list[dict[str, str]]]:
-    """Fetch connected artifacts/resources for each app via w.apps.get().
+def _get_app_details(
+    registry: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Fetch and cache full safe metadata/resources via the existing get calls.
 
     Sequential fetch with per-app error isolation — the SDK client is not safe
     to share across concurrent threads, so we iterate serially with a 30s
     total budget enforced by the asyncio.wait_for() wrapper in the endpoint.
-
-    Returns a dict keyed by app name with lists of resource dicts:
-      {"cost-obs": [{"name": "sql-wh", "type": "SQL_WAREHOUSE", "description": "..."}]}
     """
-    global _app_resources_cache, _app_resources_cache_time
+    global _app_details_cache, _app_details_cache_time
 
     now = time.time()
-    if _app_resources_cache and (now - _app_resources_cache_time) < APP_RESOURCES_CACHE_TTL:
-        return _app_resources_cache
+    if _app_details_cache and (now - _app_details_cache_time) < APP_RESOURCES_CACHE_TTL:
+        return _app_details_cache
 
-    registry = _get_app_registry()
+    registry = registry or _get_app_registry()
     if not registry:
-        return _app_resources_cache
+        return _app_details_cache
 
     try:
         w = get_workspace_client()
-        resources_by_app: dict[str, list[dict[str, str]]] = {}
-        for entry in registry.values():
-            app_name, app_res = _fetch_one_app_resources(w, entry["name"])
-            resources_by_app[app_name] = app_res
+        details_by_app: dict[str, dict[str, Any]] = {}
+        for app_id, entry in registry.items():
+            detail_id, detail = _fetch_one_app_details(w, app_id, entry)
+            details_by_app[detail_id] = detail
 
-        _app_resources_cache = resources_by_app
-        _app_resources_cache_time = now
-        logger.info("Refreshed app resources cache: %d apps", len(resources_by_app))
-        return resources_by_app
+        _app_details_cache = details_by_app
+        _app_details_cache_time = now
+        logger.info("Refreshed app details cache: %d apps", len(details_by_app))
+        return details_by_app
     except Exception as e:
-        logger.warning("Failed to fetch app resources: %s", e)
-        return _app_resources_cache
+        logger.warning("Failed to fetch app details: %s", e)
+        return _app_details_cache
 
 
-def _resolve_app_name(app_id: str, registry: dict[str, dict[str, str]]) -> str:
+def _get_app_resources() -> dict[str, list[dict[str, str]]]:
+    """Compatibility view keyed by app name for the connected-artifacts endpoint."""
+    registry = _get_app_registry()
+    details = _get_app_details(registry)
+    return {
+        str(entry.get("name") or app_id): list(details.get(app_id, {}).get("resources") or [])
+        for app_id, entry in registry.items()
+    }
+
+
+def _resolve_app_name(app_id: str, registry: dict[str, dict[str, Any]]) -> str:
     """Resolve a billing app_id (UUID) to a human-readable name."""
     entry = registry.get(app_id)
     if entry:
@@ -481,7 +660,7 @@ def _process_apps(
     raw_apps: list[dict[str, Any]],
     active_only: bool,
     end_date_str: str,
-    registry: dict[str, dict[str, str]],
+    registry: dict[str, dict[str, Any]],
     sku_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Split billing rows into registered apps + unregistered bucket.
@@ -876,24 +1055,52 @@ def _compute_apps_bundle(
             key=lambda x: x["date"],
         )
 
-        # First call: block until resources are populated so the initial page load
-        # shows Connected Resources immediately (not an empty table).
-        # Subsequent calls: return the stale cache and refresh in background.
-        if not _app_resources_cache:
-            resources_by_app = _get_app_resources()
+        # First call: block until details are populated so the initial page load
+        # shows both app metadata and Connected Resources. Subsequent calls reuse
+        # the same stale cache and refresh it in the background.
+        if not _app_details_cache:
+            details_by_app = _get_app_details(registry)
         else:
-            resources_by_app = _app_resources_cache
+            details_by_app = _app_details_cache
             resource_context = contextvars.copy_context()
             threading.Thread(
                 target=resource_context.run,
-                args=(_get_app_resources,),
+                args=(_get_app_details, registry),
                 daemon=True,
-                name="apps-resources-bg",
+                name="apps-details-bg",
             ).start()
+
+        for app in apps_result["apps"]:
+            app_id = app["app_id"]
+            detail = details_by_app.get(app_id, {})
+            if app.get("is_registered"):
+                metadata = detail.get("metadata") or registry.get(app_id, {}).get("metadata") or {}
+            else:
+                metadata = {
+                    "availability": "unavailable",
+                    "description": "",
+                    "creator": "",
+                    "updater": "",
+                    "compute_size": "",
+                    "compute_status": None,
+                    "app_status": None,
+                    "deployment": None,
+                    "source_code_path": "",
+                    "git": None,
+                    "has_thumbnail": False,
+                }
+            workspace_ids = app_workspace_map.get(app_id, [])
+            app["metadata"] = _public_app_metadata(metadata)
+            app["resource_bindings"] = list(detail.get("resources") or [])
+            app["workspaces"] = [
+                {"id": ws_id, "name": all_workspaces.get(ws_id, ws_id)}
+                for ws_id in workspace_ids
+            ]
+
         connected_artifacts: list[dict[str, Any]] = []
         for uid, entry in registry.items():
             app_name = entry.get("name", uid)
-            for res in resources_by_app.get(app_name, []):
+            for res in details_by_app.get(uid, {}).get("resources", []):
                 connected_artifacts.append({
                     "app_id": uid,
                     "app_name": app_name,
@@ -1039,7 +1246,7 @@ async def get_apps_dashboard_bundle(
 # ── KPI Trend (registered-apps-only) ─────────────────────────────────
 
 def _build_app_id_filter(
-    registry: dict[str, dict[str, str]],
+    registry: dict[str, dict[str, Any]],
     col: str = "u.usage_metadata.app_id",
 ) -> str:
     """Build a SQL IN-clause for registered app UUIDs.
@@ -1276,7 +1483,17 @@ async def get_apps_kpi_trend(
 # Cache thumbnails in memory to avoid repeated HTTP calls
 _thumbnail_cache: dict[str, bytes | None] = {}
 _thumbnail_cache_time: dict[str, float] = {}
+_thumbnail_cache_content_type: dict[str, str] = {}
 THUMBNAIL_CACHE_TTL = 600  # 10 minutes
+MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024
+_ALLOWED_IMAGE_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+    "image/x-icon",
+    "image/vnd.microsoft.icon",
+}
 
 # Paths to try for app thumbnails (order matters)
 _THUMBNAIL_PATHS = [
@@ -1290,9 +1507,7 @@ _THUMBNAIL_PATHS = [
 async def get_app_thumbnail(
     app_id: str = Query(..., description="App UUID"),
 ) -> Response:
-    """Proxy an app's thumbnail image to avoid CORS/auth issues."""
-    import os
-
+    """Proxy a trusted app thumbnail without exposing workspace credentials."""
     now = time.time()
 
     # Check cache
@@ -1301,55 +1516,90 @@ async def get_app_thumbnail(
         if (now - cached_time) < THUMBNAIL_CACHE_TTL:
             data = _thumbnail_cache[app_id]
             if data:
-                content_type = "image/png" if not data[:4] == b"\x00\x00\x01\x00" else "image/x-icon"
+                content_type = _thumbnail_cache_content_type.get(app_id, "image/png")
                 return Response(content=data, media_type=content_type)
             return Response(status_code=404)
 
     registry = _get_app_registry()
     entry = registry.get(app_id)
-    if not entry or not entry.get("url"):
+    if not entry:
         _thumbnail_cache[app_id] = None
         _thumbnail_cache_time[app_id] = now
         return Response(status_code=404)
 
-    app_url = entry["url"].rstrip("/")
+    app_url = str(entry["url"]).strip()
+    if app_url and "://" not in app_url:
+        app_url = f"https://{app_url}"
 
-    # Build multiple auth approaches to try
-    auth_headers_list: list[dict[str, str]] = []
-
-    # 1) No auth (some apps serve static files publicly)
-    auth_headers_list.append({})
-
-    # 2) Workspace token auth
+    workspace_host = ""
+    workspace_auth_headers: dict[str, str] = {}
     try:
         w = get_workspace_client()
-        token = getattr(w.config, "token", None)
-        if token:
-            auth_headers_list.append({"Authorization": f"Bearer {token}"})
+        workspace_host = str(getattr(w.config, "host", None) or "").rstrip("/")
+        if workspace_host and "://" not in workspace_host:
+            workspace_host = f"https://{workspace_host}"
+        authenticate = getattr(w.config, "authenticate", None)
+        if callable(authenticate):
+            authenticated = authenticate() or {}
+            authorization = authenticated.get("Authorization") or authenticated.get("authorization")
+            if authorization:
+                workspace_auth_headers = {"Authorization": str(authorization)}
+        if not workspace_auth_headers:
+            token = str(getattr(w.config, "token", None) or "")
+            if token:
+                workspace_auth_headers = {"Authorization": f"Bearer {token}"}
     except Exception:
         pass
 
-    # 3) App-level token from environment (if available)
-    app_token = os.environ.get("DATABRICKS_TOKEN")
-    if app_token:
-        auth_headers_list.append({"Authorization": f"Bearer {app_token}"})
+    trusted_hosts = {
+        parsed.hostname
+        for parsed in (urlsplit(workspace_host), urlsplit(app_url))
+        if parsed.scheme == "https" and parsed.hostname
+    }
+    targets: list[tuple[str, bool]] = []
+    metadata = (
+        _app_details_cache.get(app_id, {}).get("metadata")
+        or entry.get("metadata")
+        or {}
+    )
+    thumbnail_source = str(metadata.get("_thumbnail_source_url") or "")
+    if thumbnail_source:
+        target = (
+            urljoin(f"{workspace_host}/", thumbnail_source.lstrip("/"))
+            if thumbnail_source.startswith("/") and workspace_host
+            else thumbnail_source
+        )
+        parsed = urlsplit(target)
+        if parsed.scheme == "https" and parsed.hostname in trusted_hosts:
+            targets.append((target, parsed.hostname == urlsplit(workspace_host).hostname))
 
-    # Try each thumbnail path with each auth approach
-    async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
-        for path in _THUMBNAIL_PATHS:
-            for headers in auth_headers_list:
+    # Older apps may not expose thumbnail_url. Probe conventional static assets,
+    # but only on the exact app hostname returned by the trusted Apps API.
+    parsed_app = urlsplit(app_url)
+    if parsed_app.scheme == "https" and parsed_app.hostname in trusted_hosts:
+        targets.extend((f"{app_url.rstrip('/')}{path}", False) for path in _THUMBNAIL_PATHS)
+
+    async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+        for target, workspace_auth_allowed in targets:
+            auth_attempts = [{}]
+            if workspace_auth_allowed and workspace_auth_headers:
+                auth_attempts.append(workspace_auth_headers)
+            for headers in auth_attempts:
                 try:
-                    resp = await client.get(f"{app_url}{path}", headers=headers)
-                    if resp.status_code == 200 and len(resp.content) > 100:
-                        ct = resp.headers.get("content-type", "")
-                        if "image" in ct or "icon" in ct or path.endswith((".png", ".ico")):
-                            _thumbnail_cache[app_id] = resp.content
-                            _thumbnail_cache_time[app_id] = now
-                            media = ct if "image" in ct else "image/png"
-                            logger.info("Thumbnail found for app %s at %s%s", entry.get("name"), app_url, path)
-                            return Response(content=resp.content, media_type=media)
+                    resp = await client.get(target, headers=headers)
+                    content_type = resp.headers.get("content-type", "").split(";", 1)[0].lower()
+                    if (
+                        resp.status_code == 200
+                        and content_type in _ALLOWED_IMAGE_TYPES
+                        and 16 <= len(resp.content) <= MAX_THUMBNAIL_BYTES
+                    ):
+                        _thumbnail_cache[app_id] = resp.content
+                        _thumbnail_cache_time[app_id] = now
+                        _thumbnail_cache_content_type[app_id] = content_type
+                        logger.info("Thumbnail found for app %s", entry.get("name"))
+                        return Response(content=resp.content, media_type=content_type)
                 except Exception as e:
-                    logger.debug("Thumbnail fetch failed for %s%s: %s", app_url, path, e)
+                    logger.debug("Thumbnail fetch failed for app %s: %s", entry.get("name"), e)
                     continue
 
     logger.info("No thumbnail found for app %s (%s)", entry.get("name"), app_url)

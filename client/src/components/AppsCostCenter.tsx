@@ -81,6 +81,87 @@ function InfoTooltip({ text }: { text: string }) {
   );
 }
 
+function AppThumbnail({
+  app,
+  size,
+  color,
+}: {
+  app: AppsApp;
+  size: number;
+  color: string;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => setFailed(false), [app.app_id]);
+
+  if (app.is_registered && app.metadata?.has_thumbnail !== false && !failed) {
+    return (
+      <img
+        src={`/api/apps/thumbnail?app_id=${encodeURIComponent(app.app_id)}`}
+        alt={`${app.app_name} icon`}
+        className="rounded-md object-cover"
+        style={{ width: size, height: size }}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <div
+      className="flex items-center justify-center rounded-md text-white"
+      style={{ backgroundColor: color, width: size, height: size }}
+      aria-label={`${app.app_name} fallback icon`}
+    >
+      <span className="font-bold select-none" style={{ fontSize: Math.max(14, size * 0.4) }}>
+        {(app.app_name || app.app_id || "?").charAt(0).toUpperCase()}
+      </span>
+    </div>
+  );
+}
+
+const displayState = (value?: string | null) =>
+  value ? value.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase()) : "Unknown";
+
+const formatTimestamp = (value?: string | null) => {
+  if (!value) return "N/A";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+};
+
+function StateBadge({ label, state }: { label: string; state?: string | null }) {
+  const normalized = (state || "").toUpperCase();
+  const tone =
+    ["RUNNING", "ACTIVE", "SUCCEEDED"].includes(normalized)
+      ? "bg-green-100 text-green-700"
+      : ["FAILED", "ERROR", "CRASHED", "UNAVAILABLE"].includes(normalized)
+        ? "bg-red-100 text-red-700"
+        : ["DEPLOYING", "STARTING", "UPDATING", "IN_PROGRESS"].includes(normalized)
+          ? "bg-blue-100 text-blue-700"
+          : "bg-gray-100 text-gray-700";
+  return (
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${tone}`}>
+      {label}: {displayState(state)}
+    </span>
+  );
+}
+
+function MetadataValue({ label, value }: { label: string; value?: string | number | null }) {
+  return (
+    <div>
+      <dt className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</dt>
+      <dd className="mt-0.5 wrap-break-word text-xs text-gray-800">{value || value === 0 ? value : "N/A"}</dd>
+    </div>
+  );
+}
+
 export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host, startDate, endDate, workspaceIds, workspaceNameMap }: AppsCostCenterProps) {
   const MINIMIZE_KEY = "cost-obs-minimize-apps-info";
 
@@ -260,11 +341,10 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
     fresh.forEach(id => seen.add(id));
   }, [availableWorkspaces]);
 
-  // Selected workspaces as names (workspace_names on apps contains names, not IDs)
-  const selectedWorkspaceNames = useMemo(() => {
-    const byId = new Map(availableWorkspaces.map(ws => [ws.id, ws.name]));
-    return new Set(selectedWorkspaces.map(id => byId.get(id) ?? id));
-  }, [selectedWorkspaces, availableWorkspaces]);
+  const selectedWorkspaceIds = useMemo(
+    () => new Set(selectedWorkspaces),
+    [selectedWorkspaces],
+  );
 
   // Filter apps by search query and workspace
   const filteredApps = useMemo(() => {
@@ -280,15 +360,20 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
     let apps = !isPartial
       ? data.apps.apps
       : data.apps.apps.filter(a =>
-          !a.workspace_names?.length
-          || a.workspace_names.some(ws => selectedWorkspaceNames.has(ws))
+          (!a.workspaces?.length && !a.workspace_names?.length)
+          || a.workspaces?.some(ws => selectedWorkspaceIds.has(ws.id))
+          || a.workspace_names?.some(ws => selectedWorkspaceIds.has(ws))
         );
     if (!searchQuery.trim()) return apps;
     const q = searchQuery.toLowerCase();
     return apps.filter(
-      (a) => a.app_name.toLowerCase().includes(q) || a.app_id.toLowerCase().includes(q)
+      (a) =>
+        a.app_name.toLowerCase().includes(q)
+        || a.app_id.toLowerCase().includes(q)
+        || a.metadata?.description?.toLowerCase().includes(q)
+        || a.metadata?.creator?.toLowerCase().includes(q)
     );
-  }, [data?.apps, searchQuery, selectedWorkspaces.length, selectedWorkspaceNames, availableWorkspaces.length]);
+  }, [data?.apps, searchQuery, selectedWorkspaces.length, selectedWorkspaceIds, availableWorkspaces.length]);
 
   // Reset to page 1 whenever filters change
   useEffect(() => {
@@ -392,7 +477,18 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
 
   /** Backend deployment page in the Databricks workspace. */
   const deploymentUrl = (app: AppsApp) =>
-    hostBase ? `${hostBase}/apps/${app.app_name}` : null;
+    hostBase ? `${hostBase}/apps-v2/app/${encodeURIComponent(app.app_name)}/overview` : null;
+
+  const selectedMetadata = selectedApp?.metadata;
+  const selectedDeployment = selectedMetadata?.deployment;
+  const selectedBindings = selectedApp?.resource_bindings || [];
+  const selectedWorkspaceLabels = selectedApp
+    ? (
+        selectedApp.workspaces?.map(ws => ws.name || resolveWsName(ws.id))
+        || selectedApp.workspace_names?.map(resolveWsName)
+        || []
+      )
+    : [];
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -785,20 +881,28 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
           <div className="mb-6 animate-fade-in rounded-lg border border-gray-200 bg-gray-50 p-5">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
-                <div
-                  className="flex h-12 w-12 items-center justify-center rounded-lg text-white text-sm font-bold"
-                  style={{ backgroundColor: appColorMap[selectedApp.app_name] || C.s1 }}
-                >
-                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                  </svg>
-                </div>
-                <div>
+                <AppThumbnail
+                  app={selectedApp}
+                  size={56}
+                  color={appColorMap[selectedApp.app_name] || C.s1}
+                />
+                <div className="min-w-0">
                   <h4 className="text-base font-semibold text-gray-900">{selectedApp.app_name}</h4>
                   {selectedApp.app_name !== selectedApp.app_id && (
                     <p className="text-[10px] text-gray-500 font-mono">{selectedApp.app_id}</p>
                   )}
-                  <div className="flex items-center gap-3">
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {selectedMetadata?.app_status && (
+                      <StateBadge label="App" state={selectedMetadata.app_status.state} />
+                    )}
+                    {selectedMetadata?.compute_status && (
+                      <StateBadge label="Compute" state={selectedMetadata.compute_status.state} />
+                    )}
+                    {selectedDeployment && (
+                      <StateBadge label={selectedDeployment.pending ? "Pending deploy" : "Deploy"} state={selectedDeployment.state} />
+                    )}
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-3">
                     {liveEndpoint(selectedApp) && (
                       <a
                         href={liveEndpoint(selectedApp)!}
@@ -816,7 +920,17 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
                         rel="noopener noreferrer"
                         className="text-xs text-blue-600 hover:underline"
                       >
-                        Backend Deployment →
+                        Manage App →
+                      </a>
+                    )}
+                    {selectedMetadata?.git?.repository_url && (
+                      <a
+                        href={selectedMetadata.git.repository_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:underline"
+                      >
+                        Source Repository →
                       </a>
                     )}
                   </div>
@@ -831,6 +945,20 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
                 </svg>
               </button>
             </div>
+
+            {selectedMetadata?.description && (
+              <p className="mt-3 max-w-4xl text-sm leading-relaxed text-gray-700">
+                {selectedMetadata.description}
+              </p>
+            )}
+
+            {selectedMetadata?.availability && selectedMetadata.availability !== "available" && (
+              <div className="mt-3 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
+                {selectedMetadata.availability === "partial"
+                  ? "Some current app metadata is unavailable. Billing history and the metadata returned by the app registry are still shown."
+                  : "This app is no longer available in the Apps registry. Billing history is preserved, but live app metadata and links may be unavailable."}
+              </div>
+            )}
 
             <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div className="rounded-md bg-white p-3 border border-gray-200">
@@ -854,6 +982,72 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
                 </p>
               </div>
             </div>
+
+            {(selectedMetadata || selectedWorkspaceLabels.length > 0) && (
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div className="rounded-md border border-gray-200 bg-white p-4">
+                  <h5 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">App & Compute</h5>
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                    <MetadataValue label="Owner / creator" value={selectedMetadata?.creator ? formatIdentity(selectedMetadata.creator) : null} />
+                    <MetadataValue label="Last updated by" value={selectedMetadata?.updater ? formatIdentity(selectedMetadata.updater) : null} />
+                    <MetadataValue label="Compute size" value={selectedMetadata?.compute_size ? displayState(selectedMetadata.compute_size) : null} />
+                    <MetadataValue
+                      label="Active instances"
+                      value={selectedMetadata?.compute_status?.instances ?? selectedMetadata?.app_status?.instances}
+                    />
+                    <MetadataValue label="App updated" value={formatTimestamp(selectedMetadata?.update_time)} />
+                    <MetadataValue label="Workspace" value={selectedWorkspaceLabels.join(", ") || null} />
+                  </dl>
+                  {(selectedMetadata?.compute_status?.message || selectedMetadata?.app_status?.message) && (
+                    <p className="mt-3 border-t border-gray-100 pt-2 text-[11px] text-gray-600">
+                      {selectedMetadata.compute_status?.message || selectedMetadata.app_status?.message}
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-md border border-gray-200 bg-white p-4">
+                  <h5 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">Deployment & Source</h5>
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                    <MetadataValue label="Deployed by" value={selectedDeployment?.creator ? formatIdentity(selectedDeployment.creator) : null} />
+                    <MetadataValue label="Deployment updated" value={formatTimestamp(selectedDeployment?.update_time)} />
+                    <MetadataValue label="Deployment mode" value={selectedDeployment?.mode ? displayState(selectedDeployment.mode) : null} />
+                    <MetadataValue label="Git reference" value={selectedMetadata?.git?.branch || selectedMetadata?.git?.tag || null} />
+                    <MetadataValue label="Commit" value={selectedMetadata?.git?.commit ? selectedMetadata.git.commit.slice(0, 12) : null} />
+                    <MetadataValue label="Space" value={selectedMetadata?.space || null} />
+                  </dl>
+                  {selectedMetadata?.source_code_path && (
+                    <div className="mt-3 border-t border-gray-100 pt-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Source path</p>
+                      <p className="mt-0.5 break-all font-mono text-[11px] text-gray-700">{selectedMetadata.source_code_path}</p>
+                    </div>
+                  )}
+                  {selectedDeployment?.message && (
+                    <p className="mt-2 text-[11px] text-gray-600">{selectedDeployment.message}</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {selectedBindings.length > 0 && (
+              <div className="mt-4">
+                <h5 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Resource Bindings</h5>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {selectedBindings.map((binding, index) => (
+                    <div key={`${binding.type}-${binding.name}-${index}`} className="rounded-md border border-gray-200 bg-white px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-xs font-medium text-gray-800">{binding.name || "Unnamed resource"}</span>
+                        <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[9px] font-medium text-gray-600">
+                          {displayState(binding.type)}
+                        </span>
+                      </div>
+                      {binding.description && (
+                        <p className="mt-1 truncate text-[10px] text-gray-500" title={binding.description}>{binding.description}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* SKU Cost Breakdown */}
             {selectedApp.sku_breakdown && selectedApp.sku_breakdown.length > 0 && (
@@ -886,7 +1080,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
               <span>{selectedApp.percentage.toFixed(1)}% of total spend</span>
               <span>Workspace count: {selectedApp.workspace_count}</span>
               {!selectedApp.is_registered && (
-                <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-yellow-700">Not in Apps registry: may be deleted</span>
+                <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-yellow-700">Historical billing record: app deleted or inaccessible</span>
               )}
             </div>
           </div>
@@ -918,14 +1112,8 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
                   }`}
                   title={`${app.app_name}${isResolved ? ` (${app.app_id})` : ""}\n${formatCurrency(app.total_spend)} · ${app.days_active}d active`}
                 >
-                  {/* App icon: letter avatar */}
-                  <div
-                    className="flex items-center justify-center rounded-md text-white transition-transform group-hover:scale-110"
-                    style={{ backgroundColor: color, width: iconSize, height: iconSize }}
-                  >
-                    <span className="font-bold select-none" style={{ fontSize: Math.max(14, iconSize * 0.4) }}>
-                      {(app.app_name || app.app_id || "?").charAt(0).toUpperCase()}
-                    </span>
+                  <div className="transition-transform group-hover:scale-110">
+                    <AppThumbnail app={app} size={iconSize} color={color} />
                   </div>
                   {/* App name */}
                   <span className="mt-1.5 w-full truncate text-center text-[10px] font-medium text-gray-700">
@@ -1168,7 +1356,9 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
 
                     const na = (v: string | null | undefined) => (!v || v === 'Unknown' || v === 'UNKNOWN') ? 'N/A' : v;
                     const displayType = na(artifact.artifact_type);
-                    const appBackendUrl = hostBase && artifact.app_name ? `${hostBase}/apps/${artifact.app_name}` : null;
+                    const appBackendUrl = hostBase && artifact.app_name
+                      ? `${hostBase}/apps-v2/app/${encodeURIComponent(artifact.app_name)}/overview`
+                      : null;
 
                     const isSP = artifact.artifact_type === 'SERVICE_PRINCIPAL';
                     const displayName = isSP ? formatIdentity(artifact.artifact_name) : na(artifact.artifact_name);

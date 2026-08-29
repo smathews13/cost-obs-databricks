@@ -474,6 +474,56 @@ export interface AppsSkuBreakdown {
   percentage: number;
 }
 
+export interface AppsStatusMetadata {
+  state: string;
+  message: string;
+  instances?: number;
+}
+
+export interface AppsDeploymentMetadata {
+  deployment_id: string;
+  state: string;
+  message: string;
+  creator: string;
+  create_time: string;
+  update_time: string;
+  mode: string;
+  pending: boolean;
+}
+
+export interface AppsGitMetadata {
+  repository_url: string;
+  branch: string;
+  tag: string;
+  commit: string;
+  source_code_path: string;
+}
+
+export interface AppsMetadata {
+  availability: "available" | "partial" | "unavailable";
+  description: string;
+  creator: string;
+  updater: string;
+  create_time?: string;
+  update_time?: string;
+  compute_size: string;
+  compute_min_instances?: number | null;
+  compute_max_instances?: number | null;
+  compute_status: AppsStatusMetadata | null;
+  app_status: AppsStatusMetadata | null;
+  deployment: AppsDeploymentMetadata | null;
+  source_code_path: string;
+  git: AppsGitMetadata | null;
+  space?: string;
+  has_thumbnail: boolean;
+}
+
+export interface AppsResourceBinding {
+  name: string;
+  type: string;
+  description: string;
+}
+
 export interface AppsApp {
   app_id: string;
   app_name: string;
@@ -487,6 +537,10 @@ export interface AppsApp {
   last_usage_date: string | null;
   percentage: number;
   is_registered: boolean;
+  status: "active" | "inactive";
+  metadata?: AppsMetadata;
+  resource_bindings?: AppsResourceBinding[];
+  workspaces?: { id: string; name: string }[];
   sku_breakdown?: AppsSkuBreakdown[];
 }
 

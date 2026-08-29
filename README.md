@@ -364,6 +364,8 @@ Use **Settings → Access** to manage who can administer or view the app.
 <a id="architecture"></a>
 ## Architecture and data lineage
 
+For the customer-ready three-page design hierarchy, request paths, tab lineage, and complete source inventory, see the [cost-obs v1.2 architecture specification](cost-obs-architecture.md).
+
 ```mermaid
 flowchart LR
     Browser["Browser / React<br/>Nine cost views, filters, reports"] -->|Authenticated REST| API["FastAPI routes<br/>Validation, shaping, tab cache control"]

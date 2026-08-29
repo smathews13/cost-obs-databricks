@@ -47,9 +47,9 @@ export interface ArchitectureOverview {
  * wording and source inventory can be reviewed without changing layout code.
  */
 export const ARCHITECTURE_OVERVIEW: ArchitectureOverview = {
-  title: "Cost Observability Architecture",
+  title: "cost-obs — Architecture (v1.2)",
   summary:
-    "A Databricks App that turns governed platform usage and operational metadata into interactive cost analysis. The browser calls a FastAPI service, which queries a Databricks SQL Warehouse and serves results from system tables or app-managed Delta aggregates.",
+    "A Databricks App that turns governed platform usage and operational metadata into interactive cost analysis. The browser calls a FastAPI service, which executes governed SQL through a bound Databricks SQL Warehouse and serves results from system tables or app-managed Delta aggregates.",
   components: [
     {
       name: "React browser interface",
@@ -100,11 +100,11 @@ export const ARCHITECTURE_OVERVIEW: ArchitectureOverview = {
   ],
   dataFlow: [
     "A signed-in user opens the React interface in Databricks Apps and selects dates, workspaces, or report options.",
-    "The browser sends same-origin requests to tab-specific FastAPI routes; architecture exports contain static design content only.",
-    "FastAPI serves a valid cached bundle when possible, otherwise submits governed SQL through the bound Databricks SQL Warehouse.",
-    "Queries use app-managed Delta aggregates for supported summaries and use live system-table queries for detailed, specialized, or fallback views.",
-    "Configured AWS, Azure, or GCP billing exports are queried only for the optional actual-cloud-cost views.",
-    "FastAPI returns shaped JSON to React, which renders the dashboard or generates the architecture PDF locally.",
+    "The browser sends same-origin requests to tab-specific FastAPI routes.",
+    "FastAPI serves a valid cached bundle when possible; otherwise it submits governed SQL through the bound SQL Warehouse.",
+    "Queries use app-managed Delta aggregates for supported summaries and live system-table queries for detailed, specialized, or fallback views.",
+    "Configured AWS / Azure / GCP billing exports are queried only for the optional actual-cloud-cost views.",
+    "FastAPI returns shaped JSON; React renders the dashboard or generates the architecture PDF locally.",
   ],
   securityGovernance: [
     "Databricks Apps authenticates the browser session and supplies user identity to the application.",

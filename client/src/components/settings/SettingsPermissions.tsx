@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ReadinessChecks, normalizeReadinessResult } from "./ReadinessChecks";
 import type { ReadinessResult } from "./ReadinessChecks";
 import { READINESS_QUERY_KEY } from "@/hooks/useFeatureAvailability";
-import { Group, Row, Select, SecondaryButton, LinkButton, MonoChip, Callout, useToast, T, MONO } from "./dubois";
+import { Group, Row, SecondaryButton, LinkButton, MonoChip, Callout, useToast, T, MONO } from "./dubois";
 import { Spinner } from "@/components/Spinner";
 import "./settings.css";
 
@@ -11,6 +12,168 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const USER_GRID_STYLE = {
   "--settings-access-grid-columns": "minmax(220px, 0.5fr) 180px 96px",
 } as React.CSSProperties;
+const ROLE_OPTIONS = [
+  { value: "consumer", label: "Consumer" },
+  { value: "admin", label: "Admin" },
+] as const;
+type UserRole = (typeof ROLE_OPTIONS)[number]["value"];
+
+function RoleMenuSelect({
+  value,
+  onChange,
+  ariaLabel,
+  disabled,
+}: {
+  value: UserRole;
+  onChange: (value: UserRole) => void;
+  ariaLabel: string;
+  disabled?: boolean;
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(() => ROLE_OPTIONS.findIndex((option) => option.value === value));
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, width: 180 });
+  const selectedIndex = ROLE_OPTIONS.findIndex((option) => option.value === value);
+  const selectedOption = ROLE_OPTIONS[selectedIndex];
+
+  const updateMenuPosition = () => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setMenuPosition({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+  };
+
+  const openMenu = (index = selectedIndex) => {
+    if (disabled) return;
+    setActiveIndex(index < 0 ? 0 : index);
+    updateMenuPosition();
+    setOpen(true);
+  };
+
+  const chooseOption = (index: number) => {
+    const option = ROLE_OPTIONS[index];
+    if (!option) return;
+    if (option.value !== value) onChange(option.value);
+    setOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
+    };
+    const reposition = () => updateMenuPosition();
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [open]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (disabled) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!open) {
+        openMenu(selectedIndex);
+        return;
+      }
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      setActiveIndex((current) => (current + direction + ROLE_OPTIONS.length) % ROLE_OPTIONS.length);
+      return;
+    }
+    if (event.key === "Home" || event.key === "End") {
+      if (!open) return;
+      event.preventDefault();
+      setActiveIndex(event.key === "Home" ? 0 : ROLE_OPTIONS.length - 1);
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (open) chooseOption(activeIndex);
+      else openMenu();
+      return;
+    }
+    if (event.key === "Escape" && open) {
+      event.preventDefault();
+      setOpen(false);
+      return;
+    }
+    if (event.key === "Tab") {
+      setOpen(false);
+      return;
+    }
+    if (event.key.length === 1) {
+      const matchIndex = ROLE_OPTIONS.findIndex((option) => option.label.toLowerCase().startsWith(event.key.toLowerCase()));
+      if (matchIndex >= 0) {
+        event.preventDefault();
+        if (open) setActiveIndex(matchIndex);
+        else chooseOption(matchIndex);
+      }
+    }
+  };
+
+  return (
+    <span className="settings-role-select">
+      <button
+        ref={triggerRef}
+        type="button"
+        role="combobox"
+        className="settings-role-select-trigger"
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        aria-activedescendant={open ? `${listboxId}-option-${activeIndex}` : undefined}
+        disabled={disabled}
+        onClick={() => open ? setOpen(false) : openMenu()}
+        onKeyDown={handleKeyDown}
+      >
+        <span>{selectedOption?.label ?? value}</span>
+        <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" className="settings-role-select-chevron">
+          <path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          id={listboxId}
+          role="listbox"
+          aria-label={ariaLabel}
+          className="settings-role-select-menu"
+          style={{ top: menuPosition.top, left: menuPosition.left, width: menuPosition.width }}
+        >
+          {ROLE_OPTIONS.map((option, index) => (
+            <div
+              id={`${listboxId}-option-${index}`}
+              key={option.value}
+              role="option"
+              aria-selected={option.value === value}
+              className={`settings-role-select-option${index === activeIndex ? " is-active" : ""}`}
+              onMouseEnter={() => setActiveIndex(index)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chooseOption(index)}
+            >
+              <span>{option.label}</span>
+              {option.value === value && (
+                <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
+                  <path d="m3.5 8.25 2.75 2.75 6.25-6.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </span>
+  );
+}
 
 interface UserPermissions {
   admins: string[];
@@ -103,7 +266,7 @@ export function SettingsPermissions() {
   });
 
   const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserRole, setNewUserRole] = useState<"admin" | "consumer">("consumer");
+  const [newUserRole, setNewUserRole] = useState<UserRole>("consumer");
 
   const allUsers = [
     ...(permissions?.admins ?? []).map(e => ({ email: e, role: "admin" as const })),
@@ -134,7 +297,7 @@ export function SettingsPermissions() {
     });
   };
 
-  const changeRole = (email: string, newRole: "admin" | "consumer") => {
+  const changeRole = (email: string, newRole: UserRole) => {
     const admins = newRole === "admin"
       ? [...(permissions?.admins ?? []).filter(e => e !== email), email]
       : (permissions?.admins ?? []).filter(e => e !== email);
@@ -263,9 +426,12 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           allUsers.map(({ email, role }, i) => (
             <div data-testid="access-user-row" className="settings-access-user-grid" key={email} style={{ ...USER_GRID_STYLE, minHeight: 52, padding: "9px 16px", borderTop: i === 0 ? "none" : `1px solid ${T.borderRow}` }}>
               <span title={email} style={{ fontSize: 13, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email}</span>
-              <Select value={role} onChange={(v) => changeRole(email, v as "admin" | "consumer")}
-                options={[{ value: "admin", label: "Admin" }, { value: "consumer", label: "Consumer" }]}
-                disabled={saveMutation.isPending} ariaLabel={`Role for ${email}`} width="100%" />
+              <RoleMenuSelect
+                value={role}
+                onChange={(nextRole) => changeRole(email, nextRole)}
+                disabled={saveMutation.isPending}
+                ariaLabel={`Role for ${email}`}
+              />
               <span style={{ justifySelf: "end" }}><LinkButton onClick={() => removeUser(email)}>Remove</LinkButton></span>
             </div>
           ))
@@ -280,9 +446,7 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
               style={{ width: "100%", height: 32, borderRadius: 4, border: `1px solid ${T.borderControl}`, padding: "0 10px", fontSize: 13, color: T.text, backgroundColor: T.surface }}
             />
           </div>
-          <Select value={newUserRole} onChange={(v) => setNewUserRole(v as "admin" | "consumer")}
-            options={[{ value: "consumer", label: "Consumer" }, { value: "admin", label: "Admin" }]}
-            ariaLabel="Role for new user" width="100%" />
+          <RoleMenuSelect value={newUserRole} onChange={setNewUserRole} ariaLabel="Role for new user" />
           <span style={{ display: "grid" }}>
             <SecondaryButton onClick={addUser} disabled={!newUserEmail.trim() || saveMutation.isPending}>
               {saveMutation.isPending ? "Saving…" : "Add user"}

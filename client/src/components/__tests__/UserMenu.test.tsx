@@ -26,7 +26,15 @@ describe("UserMenu", () => {
     render(<UserMenu {...props} />);
 
     const trigger = screen.getByRole("button", { name: /samuel\.a\.mathews@gmail\.com/i });
-    expect(trigger).toHaveClass("rail-user-trigger", "min-w-0");
+    expect(trigger).toHaveClass(
+      "rail-user-trigger",
+      "rail-control-border",
+      "min-w-0",
+      "border",
+      "bg-white/[.07]",
+    );
+    expect(trigger.className).not.toContain("border-white");
+    expect(trigger).toHaveAttribute("data-state", "closed");
     expect(screen.getByTestId("user-menu-silhouette")).toBeInTheDocument();
     expect(screen.getByText(props.email)).toHaveClass(
       "hidden",
@@ -35,6 +43,8 @@ describe("UserMenu", () => {
     );
     await user.click(trigger);
 
+    expect(trigger).toHaveAttribute("data-state", "open");
+    expect(trigger).toHaveClass("bg-[#294A56]");
     expect(await screen.findByRole("menu", { name: "User menu" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Back to Apps" })).toHaveAttribute(
       "href",

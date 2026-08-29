@@ -1,20 +1,31 @@
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ARCHITECTURE_OVERVIEW } from "../architectureOverview";
+
+interface TextRecord {
+  page: number;
+  text: string;
+  x: number;
+  y: number;
+}
 
 const pdf = vi.hoisted(() => ({
   save: vi.fn(),
   addPage: vi.fn(),
+  setPage: vi.fn(),
   text: vi.fn(),
-  pageText: [] as number[],
-  textPositions: [] as Array<{ page: number; y: number }>,
+  records: [] as TextRecord[],
 }));
 
 vi.mock("jspdf", () => ({
   jsPDF: class {
     internal = { pageSize: { width: 297, height: 210 } };
     private pages = 1;
+    private currentPage = 1;
+    private fontSize = 9;
     setFont = vi.fn();
-    setFontSize = vi.fn();
     setTextColor = vi.fn();
     setFillColor = vi.fn();
     setDrawColor = vi.fn();
@@ -25,21 +36,53 @@ vi.mock("jspdf", () => ({
     triangle = vi.fn();
     circle = vi.fn();
     addImage = vi.fn();
-    text = (...args: unknown[]) => {
-      pdf.text(...args);
-      pdf.pageText[this.pages] = (pdf.pageText[this.pages] ?? 0) + 1;
-      if (typeof args[2] === "number") {
-        pdf.textPositions.push({ page: this.pages, y: args[2] });
-      }
-    };
     save = pdf.save;
+    setFontSize = (size: number) => {
+      this.fontSize = size;
+    };
+    text = (text: string | string[], x: number, y: number, ...rest: unknown[]) => {
+      pdf.text(text, x, y, ...rest);
+      pdf.records.push({
+        page: this.currentPage,
+        text: Array.isArray(text) ? text.join("\n") : text,
+        x,
+        y,
+      });
+    };
     addPage = () => {
       this.pages += 1;
+      this.currentPage = this.pages;
       pdf.addPage();
     };
     getNumberOfPages = () => this.pages;
-    setPage = vi.fn();
-    splitTextToSize = (text: string) => [text];
+    setPage = (page: number) => {
+      this.currentPage = page;
+      pdf.setPage(page);
+    };
+    splitTextToSize = (text: string, width: number) => {
+      const maxCharacters = Math.max(4, Math.floor(width / (this.fontSize * 0.18)));
+      const words = text.split(/\s+/);
+      const lines: string[] = [];
+      let line = "";
+      for (const word of words) {
+        if (word.length > maxCharacters) {
+          if (line) lines.push(line);
+          for (let index = 0; index < word.length; index += maxCharacters) {
+            lines.push(word.slice(index, index + maxCharacters));
+          }
+          line = "";
+        } else if (!line) {
+          line = word;
+        } else if (`${line} ${word}`.length <= maxCharacters) {
+          line = `${line} ${word}`;
+        } else {
+          lines.push(line);
+          line = word;
+        }
+      }
+      if (line) lines.push(line);
+      return lines;
+    };
   },
 }));
 
@@ -51,45 +94,38 @@ vi.mock("../pdfBrand", () => ({
   PDF_BODY: [58, 56, 56],
   PDF_SLATE: [97, 135, 148],
   PDF_WHITE: [255, 255, 255],
-  loadPdfBrandAssets: vi.fn().mockResolvedValue({ costObsLockup: "lockup", databricksMark: "mark" }),
-  drawPdfMasthead: vi.fn(),
-  addPdfFooters: vi.fn(),
+  loadPdfBrandAssets: vi.fn().mockResolvedValue({
+    costObsLockup: "lockup",
+    databricksMark: "mark",
+  }),
 }));
 
-import { generateArchitectureReport } from "../architectureReport";
+import {
+  ARCHITECTURE_PDF_BODY_BOTTOM,
+  ARCHITECTURE_PDF_PAGE_COUNT,
+  generateArchitectureReport,
+} from "../architectureReport";
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../");
+const architectureMarkdownPath = resolve(repoRoot, "cost-obs-architecture.md");
+const readmePath = resolve(repoRoot, "README.md");
+const forbiddenIdentifiers = [
+  /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
+  /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,
+  /\b\d{12,16}\b/,
+  /sam\.mathews|astrolabe|azure-field-eng/i,
+];
 
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
-  pdf.pageText.length = 0;
-  pdf.textPositions.length = 0;
+  pdf.records.length = 0;
 });
 
-describe("architecture report", () => {
-  it("keeps customer-safe structured architecture content outside the renderer", () => {
-    expect(ARCHITECTURE_OVERVIEW.title).toBe("Cost Observability Architecture");
-    expect(ARCHITECTURE_OVERVIEW.components.map((item) => item.name)).toEqual(expect.arrayContaining([
-      "React browser interface",
-      "FastAPI application",
-      "Databricks SQL Warehouse",
-      "App-managed Delta layer",
-    ]));
-    expect(ARCHITECTURE_OVERVIEW.flowColumns.map((item) => item.title)).toEqual([
-      "Browser / React",
-      "FastAPI routes",
-      "SQL Warehouse",
-      "App-managed Delta",
-      "Governed sources",
-    ]);
-    expect(ARCHITECTURE_OVERVIEW.dataFlow).not.toHaveLength(0);
-    expect(ARCHITECTURE_OVERVIEW.securityGovernance).not.toHaveLength(0);
-    expect(ARCHITECTURE_OVERVIEW.refreshPaths.map((item) => item.label)).toEqual([
-      "Scheduled aggregate refresh",
-      "Administrator full rebuild",
-      "On-demand tab refresh",
-    ]);
-
-    const expectedTabs = [
+describe("architecture source of truth", () => {
+  it("contains exactly nine current tab mappings and the complete inventories", () => {
+    expect(ARCHITECTURE_OVERVIEW.title).toBe("cost-obs — Architecture (v1.2)");
+    expect(ARCHITECTURE_OVERVIEW.tabLineage.map((item) => item.tab)).toEqual([
       "DBU Overview",
       "SQL",
       "AI/ML",
@@ -99,96 +135,130 @@ describe("architecture report", () => {
       "KPIs & Trends",
       "Cloud Costs",
       "Optimize",
-    ];
-    expect(ARCHITECTURE_OVERVIEW.tabLineage.map((item) => item.tab)).toEqual(expectedTabs);
+    ]);
+    expect(ARCHITECTURE_OVERVIEW.tabLineage).toHaveLength(9);
     for (const lineage of ARCHITECTURE_OVERVIEW.tabLineage) {
       expect(lineage.uiComponents, `${lineage.tab} UI mapping`).not.toHaveLength(0);
       expect(lineage.apiRoutes, `${lineage.tab} API mapping`).not.toHaveLength(0);
       expect(lineage.managedData, `${lineage.tab} managed-data mapping`).not.toHaveLength(0);
       expect(lineage.sourceTables, `${lineage.tab} source mapping`).not.toHaveLength(0);
-      expect(lineage.apiRoutes.every((route) => route.includes("/api/"))).toBe(true);
+      expect(lineage.apiRoutes.every((route) => route.startsWith("GET /api/"))).toBe(true);
     }
-    expect(
-      ARCHITECTURE_OVERVIEW.tabLineage.find((item) => item.tab === "KPIs & Trends")
-        ?.managedData,
-    ).toEqual(expect.arrayContaining(["daily_usage_summary"]));
 
-    const sourceGroups = Object.fromEntries(
+    const groups = Object.fromEntries(
       ARCHITECTURE_OVERVIEW.sourceTables.map((group) => [group.label, group]),
     );
-    expect(sourceGroups["Core analytic system tables"].tables).toEqual([
-      "system.billing.usage",
-      "system.billing.list_prices",
-      "system.query.history",
-      "system.compute.clusters",
-      "system.compute.warehouses",
-      "system.compute.warehouse_events",
-      "system.lakeflow.jobs",
-      "system.lakeflow.pipelines",
-      "system.lakeflow.job_run_timeline",
-      "system.serving.served_entities",
-      "system.access.workspaces_latest",
-    ]);
-    expect(sourceGroups["Permission and readiness probe"].tables).toEqual([
-      "system.access.audit",
-    ]);
-    expect(sourceGroups["Permission and readiness probe"].note).toContain(
-      "not an analytic input",
-    );
-    expect(sourceGroups["Durable app state and cache"].tables).toEqual(
-      expect.arrayContaining([
-        "app_settings",
-        "app_schedule_settings",
-        "app_refresh_log",
-        "app_cloud_connections",
-        "app_workspace_filter",
-        "app_user_permissions",
-        "app_mv_refresh_state",
-      ]),
-    );
+    expect(groups["Core analytic system tables"].tables).toHaveLength(11);
+    expect(groups["App-managed analytic tables"].tables).toHaveLength(8);
+    expect(groups["Durable app state and cache"].tables).toHaveLength(13);
+    expect(groups["Optional cloud billing sources"].tables).toHaveLength(3);
+    expect(groups["Permission and readiness probe"].note).toContain("not an analytic input");
 
     const sourceTables = ARCHITECTURE_OVERVIEW.sourceTables.flatMap(
       (group) => group.tables,
     );
     expect(new Set(sourceTables).size).toBe(sourceTables.length);
-    expect(sourceTables).not.toEqual(
-      expect.arrayContaining([
-        "AWS Cost and Usage Reports",
-        "Azure Cost Management exports",
-        "GCP Cloud Billing exports",
-      ]),
-    );
-
-    const content = JSON.stringify(ARCHITECTURE_OVERVIEW);
-    expect(content).toContain("system.billing.usage");
-    expect(content).toContain("app_response_cache");
-    expect(content).not.toMatch(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-    expect(content).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
-    expect(content).not.toMatch(/sam\.mathews|astrolabe|azure-field-eng/i);
   });
 
-  it("downloads a dated architecture PDF with populated pages", async () => {
+  it("keeps structured content free of customer identifiers", () => {
+    const content = JSON.stringify(ARCHITECTURE_OVERVIEW);
+    for (const pattern of forbiddenIdentifiers) {
+      expect(content).not.toMatch(pattern);
+    }
+  });
+
+  it("ships the customer-ready root markdown and links it from README", () => {
+    const markdown = readFileSync(architectureMarkdownPath, "utf8");
+    const readme = readFileSync(readmePath, "utf8");
+    const requiredHeadings = [
+      "# cost-obs — Architecture (v1.2)",
+      "## Architecture at a glance",
+      "## Components",
+      "## Request & data flow",
+      "## Authentication & governance",
+      "## Refresh paths",
+      "## Tab-by-tab data lineage",
+      "## Source-table inventory",
+    ];
+    for (const heading of requiredHeadings) {
+      expect(markdown).toContain(heading);
+    }
+    const tabRows = markdown.match(
+      /^\| (DBU Overview|SQL|AI\/ML|Apps|Tagging|Users|KPIs & Trends|Cloud Costs|Optimize) \|/gm,
+    );
+    expect(tabRows).toHaveLength(9);
+    expect(markdown).toContain("**App-managed aggregates (8)");
+    expect(markdown).toContain("**Durable app state & cache (13):**");
+    expect(markdown).toContain("Static design content only");
+    for (const pattern of forbiddenIdentifiers) {
+      expect(markdown).not.toMatch(pattern);
+    }
+    expect(readme).toContain(
+      "[cost-obs v1.2 architecture specification](cost-obs-architecture.md)",
+    );
+  });
+});
+
+describe("three-page architecture PDF", () => {
+  it("renders the reference hierarchy on exactly three populated pages", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-28T12:00:00Z"));
 
     await generateArchitectureReport();
 
-    expect(pdf.save).toHaveBeenCalledWith("cost-observability-architecture-2026-08-28.pdf");
-    expect(pdf.text).toHaveBeenCalledWith("Cost Observability Architecture", 14, 34);
-    expect(pdf.text.mock.calls.length).toBeGreaterThan(20);
-    const renderedText = JSON.stringify(pdf.text.mock.calls);
-    expect(renderedText).toContain("Architecture at a glance");
-    expect(renderedText).toContain("AUTHENTICATION + GOVERNANCE");
-    expect(renderedText).toContain("SCHEDULED REFRESH");
-    expect(renderedText).toContain("ON-DEMAND REFRESH");
-    expect(renderedText).toContain("Tab-by-tab data lineage");
-    for (const lineage of ARCHITECTURE_OVERVIEW.tabLineage) {
-      expect(renderedText).toContain(lineage.tab);
+    expect(ARCHITECTURE_PDF_PAGE_COUNT).toBe(3);
+    expect(pdf.addPage).toHaveBeenCalledTimes(2);
+    expect(pdf.save).toHaveBeenCalledWith(
+      "cost-observability-architecture-2026-08-28.pdf",
+    );
+    for (const page of [1, 2, 3]) {
+      expect(pdf.records.some((record) => record.page === page)).toBe(true);
     }
-    const pageCount = pdf.addPage.mock.calls.length + 1;
-    expect(pageCount).toBeGreaterThanOrEqual(4);
-    const textCounts = Array.from({ length: pageCount }, (_, index) => pdf.pageText[index + 1] ?? 0);
-    expect(textCounts.every((count) => count > 0)).toBe(true);
-    expect(pdf.textPositions.every(({ y }) => y >= 0 && y <= 189)).toBe(true);
+
+    const text = pdf.records.map((record) => record.text).join("\n");
+    for (const required of [
+      "cost-obs — architecture",
+      "Architecture at a glance",
+      "AUTHENTICATION + GOVERNANCE",
+      "SCHEDULED REFRESH",
+      "ON-DEMAND REFRESH",
+      "Request & data flow",
+      "Authentication & governance",
+      "Refresh paths",
+      "COMPONENTS SUMMARY",
+      "Tab-by-tab data lineage",
+      "SOURCE / APP-MANAGED / CLOUD INVENTORIES",
+    ]) {
+      expect(text).toContain(required);
+    }
+    for (const lineage of ARCHITECTURE_OVERVIEW.tabLineage) {
+      expect(text).toContain(lineage.tab);
+    }
+  });
+
+  it("uses the exact v1.2 footer style and keeps body text inside the content area", async () => {
+    await generateArchitectureReport();
+
+    const footerLabels = pdf.records.filter((record) => record.y === 202);
+    expect(footerLabels.map((record) => record.text)).toEqual([
+      "cost-obs v1.2 · architecture",
+      "1 / 3",
+      "cost-obs v1.2 · architecture",
+      "2 / 3",
+      "cost-obs v1.2 · architecture · static design content only — no customer, account, workspace, or user identifiers",
+      "3 / 3",
+    ]);
+    const bodyText = pdf.records.filter((record) => record.y !== 202);
+    expect(
+      bodyText.filter(
+        (record) => record.y < 0 || record.y > ARCHITECTURE_PDF_BODY_BOTTOM,
+      ),
+    ).toEqual([]);
+    expect(bodyText.filter((record) => record.x < 0 || record.x > 283)).toEqual([]);
+
+    const renderedText = pdf.records.map((record) => record.text).join("\n");
+    for (const pattern of forbiddenIdentifiers) {
+      expect(renderedText).not.toMatch(pattern);
+    }
   });
 });

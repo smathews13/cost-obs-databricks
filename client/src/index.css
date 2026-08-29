@@ -71,7 +71,7 @@
   --s4: #FFAB00;
   --s5: #618794;
   --status-dot: #3CD68F;
-  --rail-control-border: #0F526F;
+  --rail-control-border: #315F70;
   --baseline: #D9D4CB;
   --busy: #FFB3A6;
   --cal-mid: #D2F0E1;
@@ -233,17 +233,26 @@ body {
 }
 
 @keyframes healthyStatusBlink {
-  0%, 2%, 7%, 100% {
+  0%, 2%, 8%, 100% {
     opacity: 1;
+    transform: scale(1);
     box-shadow: 0 0 0 0 rgba(60, 214, 143, 0);
   }
-  4% {
-    opacity: 0.72;
-    box-shadow: 0 0 0 3px rgba(60, 214, 143, 0.2);
+  3.5% {
+    opacity: 0.35;
+    transform: scale(0.82);
+    box-shadow: 0 0 0 4px rgba(60, 214, 143, 0.32);
+  }
+  5.5% {
+    opacity: 1;
+    transform: scale(1.32);
+    box-shadow: 0 0 0 1px rgba(60, 214, 143, 0.12);
   }
 }
 .healthy-status-dot {
-  animation: healthyStatusBlink 14s ease-out infinite;
+  animation: healthyStatusBlink 11s ease-out infinite;
+  transform-origin: center;
+  will-change: opacity, transform, box-shadow;
 }
 
 /* Brand-colored button with hover */

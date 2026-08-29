@@ -27,13 +27,26 @@ describe("WarehouseGuidanceBanner", () => {
       />,
     );
 
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveClass(
+      "warehouse-guidance-banner",
+      "w-[calc(100%-16px)]",
+      "rounded-[10px]",
+      "border-[#F2A895]",
+      "bg-[#FFF0EB]",
+    );
+    expect(screen.getByText("Warehouse sizing recommendation")).toBeInTheDocument();
     expect(screen.getByText(
       "The recommended warehouse size is Medium, otherwise query latency may be volatile.",
     )).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Manage warehouse/i })).toHaveAttribute(
+    const manage = screen.getByRole("link", { name: /Manage warehouse/i });
+    expect(manage).toHaveAttribute(
       "href",
       "https://dbc.example.com/sql/warehouses/warehouse-123/edit",
     );
+    expect(manage).toHaveClass("border", "bg-[#C94632]", "text-white");
+    expect(manage.className).not.toContain("underline");
+    expect(manage.querySelector("svg")).toBeInTheDocument();
     expect(screen.getByText(/X-Small · serverless/i)).toBeInTheDocument();
   });
 

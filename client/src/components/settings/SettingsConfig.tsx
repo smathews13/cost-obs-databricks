@@ -2,8 +2,9 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { READINESS_QUERY_KEY } from "@/hooks/useFeatureAvailability";
 import { MvSourcesSection } from "./MvSourcesSection";
-import { Group, Select, SecondaryButton, DangerOutlineButton, TextInput, Callout, T, MONO } from "./dubois";
+import { Group, Select, SecondaryButton, TextInput, Callout, T, MONO } from "./dubois";
 import { Spinner } from "@/components/Spinner";
+import "./settings.css";
 
 // Kept for the Data & tables section's storage-location chip (it imports this type).
 export interface AppConfigInfo {
@@ -128,7 +129,6 @@ export function SettingsConfig() {
       _mvPollInterval = setInterval(() => _mvPollCallback?.(), 30_000);
     }
     return () => { _mvPollCallback = null; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleMvRefresh() {
@@ -363,16 +363,28 @@ export function SettingsConfig() {
       <div style={{ marginTop: 20 }}>
         <Group label="Danger zone" danger>
           <div style={{ padding: "12px 16px" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-              <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
+              <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.dangerFg }}>Drop all managed tables</div>
-                <div style={{ fontSize: 12, color: T.dangerFg, marginTop: 2, opacity: 0.85 }}>
-                  Permanently deletes the app-managed tables from your catalog. The dashboard stops loading until you rebuild. No source data is lost: <code style={{ fontFamily: MONO }}>system.*</code> is the source of truth.
+                <div id="drop-tables-consequence" style={{ fontSize: 12, color: T.dangerFg, marginTop: 2, opacity: 0.85 }}>
+                  Deletes the app-managed tables. Dashboards remain unavailable until you rebuild them. Source system tables are not changed.
                 </div>
               </div>
-              {!wipePending
-                ? <DangerOutlineButton disabled={degradedTables} onClick={() => { if (degradedTables) return; setWipePending(true); setWipeResult(null); setWipeConfirmText(""); }}>Drop tables…</DangerOutlineButton>
-                : <SecondaryButton onClick={() => { setWipePending(false); setWipeConfirmText(""); }}>Cancel</SecondaryButton>}
+              <div className="settings-danger-action-slot">
+                {!wipePending
+                  ? (
+                    <button
+                      type="button"
+                      className="settings-drop-tables-button"
+                      aria-describedby="drop-tables-consequence"
+                      disabled={degradedTables}
+                      onClick={() => { if (degradedTables) return; setWipePending(true); setWipeResult(null); setWipeConfirmText(""); }}
+                    >
+                      Drop tables
+                    </button>
+                  )
+                  : <SecondaryButton onClick={() => { setWipePending(false); setWipeConfirmText(""); }}>Cancel</SecondaryButton>}
+              </div>
             </div>
             {degradedTables && (
               <div style={{ marginTop: 10, fontSize: 12, color: T.warningFg }}>
