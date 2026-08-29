@@ -186,6 +186,21 @@ describe("PlatformKPIsView: successful run result-state availability", () => {
     expect(screen.queryByText("Successful Runs")).not.toBeInTheDocument();
     expect(screen.queryByText("Result states unavailable")).not.toBeInTheDocument();
   });
+
+  it("does not advertise empty job trends when the period has no jobs or runs", () => {
+    renderView({}, {
+      ...SAMPLE_DATA,
+      total_jobs: 0,
+      total_job_runs: 0,
+      successful_runs: 0,
+      successful_runs_available: false,
+    });
+
+    const jobsCard = screen.getByText("Total Active Jobs").closest(".co-kpi-card");
+    const runsCard = screen.getByText("Job Runs").closest(".co-kpi-card");
+    expect(jobsCard).not.toHaveTextContent("See trend");
+    expect(runsCard).not.toHaveTextContent("See trend");
+  });
 });
 
 describe("PlatformKPIsView: card trend mappings", () => {
