@@ -36,10 +36,16 @@ vi.mock("jspdf", () => ({
     triangle = vi.fn();
     circle = vi.fn();
     addImage = vi.fn();
+    saveGraphicsState = vi.fn();
+    restoreGraphicsState = vi.fn();
+    clip = vi.fn();
+    discardPath = vi.fn();
     save = pdf.save;
     setFontSize = (size: number) => {
       this.fontSize = size;
     };
+    getFontSize = () => this.fontSize;
+    getTextWidth = (text: string) => text.length * this.fontSize * 0.18;
     text = (text: string | string[], x: number, y: number, ...rest: unknown[]) => {
       pdf.text(text, x, y, ...rest);
       pdf.records.push({
@@ -102,9 +108,12 @@ vi.mock("../pdfBrand", () => ({
 
 import {
   ARCHITECTURE_PDF_BODY_BOTTOM,
+  ARCHITECTURE_PDF_MIN_FONT_SIZE,
   ARCHITECTURE_PDF_PAGE_COUNT,
+  fittedText,
   generateArchitectureReport,
 } from "../architectureReport";
+import { jsPDF } from "jspdf";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../");
 const architectureMarkdownPath = resolve(repoRoot, "cost-obs-architecture.md");
@@ -249,6 +258,26 @@ describe("architecture source of truth", () => {
 });
 
 describe("three-page architecture PDF", () => {
+  it("hard-limits fitted text and records overflow at the font floor", () => {
+    const doc = new jsPDF();
+    const overflows: number[] = [];
+    const fitted = fittedText(
+      doc,
+      "A deliberately long architecture sentence that cannot fit inside a narrow two-line box without truncation.",
+      18,
+      8,
+      2,
+      ARCHITECTURE_PDF_MIN_FONT_SIZE,
+      (result) => overflows.push(result.sourceLineCount),
+    );
+
+    expect(fitted.size).toBeGreaterThanOrEqual(ARCHITECTURE_PDF_MIN_FONT_SIZE);
+    expect(fitted.lines).toHaveLength(2);
+    expect(fitted.lines.at(-1)).toMatch(/\.\.\.$/);
+    expect(fitted.overflow).toBe(true);
+    expect(overflows).toEqual([fitted.sourceLineCount]);
+  });
+
   it("renders the reference hierarchy on exactly three populated pages", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-28T12:00:00Z"));
@@ -306,6 +335,7 @@ describe("three-page architecture PDF", () => {
     expect(bodyText.filter((record) => record.x < 0 || record.x > 283)).toEqual([]);
 
     const renderedText = pdf.records.map((record) => record.text).join("\n");
+    expect(renderedText).not.toContain("→");
     for (const pattern of forbiddenIdentifiers) {
       expect(renderedText).not.toMatch(pattern);
     }

@@ -81,8 +81,10 @@ export function isDashboardQuery(queryKey: QueryKey): boolean {
 
 /**
  * A source change is a client-side scope change, not a server-cache reset.
- * Mark every dashboard query stale so unopened tabs cannot reuse the prior
- * source, then refetch only the tab the user is currently looking at.
+ * Cancel the active tab's old-scope request and mark every dashboard query stale.
+ * The source-scope state change gives hooks a new query key, which starts exactly
+ * one active-tab fetch on the next render. Refetching here would run the old key
+ * under the new module scope and duplicate warehouse work.
  */
 export async function refreshSourceScopeData(
   queryClient: QueryClient,
@@ -94,10 +96,6 @@ export async function refreshSourceScopeData(
     predicate: (query) => isDashboardQuery(query.queryKey),
     refetchType: "none",
   });
-  await queryClient.refetchQueries(
-    { type: "active", predicate: activePredicate },
-    { throwOnError: true },
-  );
 }
 
 export async function refreshTabData(

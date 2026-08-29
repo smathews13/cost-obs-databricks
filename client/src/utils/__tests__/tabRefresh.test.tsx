@@ -81,7 +81,7 @@ describe("per-tab manual refresh", () => {
     expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(refetch.mock.invocationCallOrder[0]);
   });
 
-  it("refreshes DBU immediately, leaves inactive tabs stale, then fetches them on demand", async () => {
+  it("invalidates old scope without duplicate refetch, then fetches new scope on demand", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
     });
@@ -102,11 +102,14 @@ describe("per-tab manual refresh", () => {
 
     await refreshSourceScopeData(client, "dbu");
 
-    expect(dbuFetch).toHaveBeenCalledTimes(2);
+    expect(dbuFetch).toHaveBeenCalledTimes(1);
     expect(appsFetch).not.toHaveBeenCalled();
+    expect(client.getQueryState(dbuOptions.queryKey)?.isInvalidated).toBe(true);
     expect(client.getQueryState(appsOptions.queryKey)?.isInvalidated).toBe(true);
 
-    await client.fetchQuery(appsOptions);
+    await client.fetchQuery({ ...dbuOptions, queryKey: ["billing", "dashboard-bundle-fast", "scope-b"] });
+    await client.fetchQuery({ ...appsOptions, queryKey: ["apps", "dashboard-bundle", "scope-b"] });
+    expect(dbuFetch).toHaveBeenCalledTimes(2);
     expect(appsFetch).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
