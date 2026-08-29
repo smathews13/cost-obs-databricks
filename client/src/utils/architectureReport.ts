@@ -333,8 +333,12 @@ function drawPageOneHeader(
   );
   setText(doc, 6.5, PDF_SLATE, "bold");
   drawText(doc, audit, "brand eyebrow", "BUILT ON", 253, 10.6);
-  image(audit, "Databricks mark", { x: 270, y: 5.8, width: 9, height: 9 }, () =>
-    doc.addImage(assets.databricksMark, "PNG", 270, 5.8, 9, 9),
+  doc.setFillColor(...DB_HEADER);
+  shape(audit, "Databricks mark background", { x: 267.5, y: 3.4, width: 14, height: 14 }, () =>
+    doc.roundedRect(267.5, 3.4, 14, 14, 2, 2, "F"),
+  );
+  image(audit, "Databricks mark", { x: 270, y: 5.9, width: 9, height: 9 }, () =>
+    doc.addImage(assets.databricksMark, "PNG", 270, 5.9, 9, 9),
   );
   setText(doc, 7.2, DB_HEADER, "bold");
   drawText(doc, audit, "Databricks wordmark", "Databricks", 252.8, 18);
