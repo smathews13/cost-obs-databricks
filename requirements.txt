@@ -9,7 +9,7 @@ anyio==4.12.1
     #   httpx
     #   starlette
     #   watchfiles
-cachetools==7.0.0
+cachetools==5.5.2
     # via cost-observability-control
 certifi==2026.1.4
     # via
@@ -63,8 +63,10 @@ openpyxl==3.1.5
     # via databricks-sql-connector
 pandas==2.2.3
     # via databricks-sql-connector
-protobuf==6.33.4
-    # via databricks-sdk
+protobuf==5.29.6
+    # via
+    #   cost-observability-control
+    #   databricks-sdk
 pyarrow==23.0.0
     # via databricks-sql-connector
 pyasn1==0.6.2
@@ -130,5 +132,7 @@ uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'c
     # via uvicorn
 watchfiles==1.1.1
     # via uvicorn
-websockets==16.0
-    # via uvicorn
+websockets==12.0
+    # via
+    #   cost-observability-control
+    #   uvicorn
