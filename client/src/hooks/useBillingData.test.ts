@@ -1,12 +1,14 @@
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchSubmitAndPoll,
+  responsePayloadIssue,
   setActiveSourceLabels,
   useAppsDashboardBundle,
   useDashboardBundleFast,
+  useDBSQLQueryCosts,
 } from "./useBillingData";
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -92,6 +94,42 @@ describe("fetchSubmitAndPoll", () => {
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["error", "_error"])(
+    "rejects HTTP 200 bundle payloads carrying %s",
+    async (errorKey) => {
+      fetchMock.mockResolvedValue(
+        jsonResponse(200, { [errorKey]: "bundle failed" }),
+      );
+
+      await expect(fetchSubmitAndPoll("/api/bundle")).rejects.toThrow(
+        "bundle failed",
+      );
+    },
+  );
+});
+
+describe("report payload readiness", () => {
+  it("blocks required unavailable payloads but accepts truthful empty data", () => {
+    expect(
+      responsePayloadIssue(
+        { available: false, message: "section unavailable" },
+        true,
+      ),
+    ).toBe("section unavailable");
+    expect(
+      responsePayloadIssue(
+        { available: true, availability: "empty", rows: [] },
+        true,
+      ),
+    ).toBeUndefined();
+    expect(responsePayloadIssue({ rows: [] }, true)).toBeUndefined();
+  });
+
+  it("surfaces error payloads regardless of availability fields", () => {
+    expect(responsePayloadIssue({ error: "query failed" })).toBe("query failed");
+    expect(responsePayloadIssue({ _error: "worker failed" })).toBe("worker failed");
+  });
 });
 
 describe("dashboard source scope", () => {
@@ -143,5 +181,47 @@ describe("dashboard source scope", () => {
     const url = new URL(String(fetchMock.mock.calls[0][0]), "https://example.test");
     expect(url.searchParams.getAll("source_labels")).toEqual(["shared-west"]);
     expect(url.searchParams.get("workspace_ids")).toBe("1,2");
+  });
+});
+
+describe("DBSQL unavailable polling", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(jsonResponse(200, { available: false }));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps one timeout window across unmounts instead of restarting on render", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    const first = renderHook(() => useDBSQLQueryCosts(undefined, undefined, true), { wrapper });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(first.result.current.data?.available).toBe(false);
+
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+    first.unmount();
+
+    await act(() => vi.advanceTimersByTimeAsync(3 * 60 * 1000));
+    const callsBeforeRemount = fetchMock.mock.calls.length;
+    const second = renderHook(() => useDBSQLQueryCosts(undefined, undefined, true), { wrapper });
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+
+    expect(second.result.current.data?.available).toBe(false);
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(callsBeforeRemount + 1);
+    const callsAfterRemount = fetchMock.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(fetchMock.mock.calls.length).toBe(callsAfterRemount);
+    second.unmount();
   });
 });

@@ -272,6 +272,7 @@ export function SettingsPermissions() {
     ...(permissions?.admins ?? []).map(e => ({ email: e, role: "admin" as const })),
     ...(permissions?.consumers ?? []).map(e => ({ email: e, role: "consumer" as const })),
   ].sort((a, b) => a.email.localeCompare(b.email));
+  const explicitAdminCount = permissions?.admins?.length ?? 0;
 
   const addUser = () => {
     const email = newUserEmail.trim();
@@ -416,6 +417,11 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
         <span>Users</span>
         <span style={{ fontSize: 12, fontWeight: 400, color: T.textSecondary }}>Anyone not listed is a Consumer (dashboards only)</span>
       </div>
+      {explicitAdminCount === 1 && (
+        <p id="last-admin-explanation" role="status" style={{ margin: "0 2px 8px", fontSize: 12, color: T.warningFg }}>
+          The only explicit admin cannot be removed or changed to Consumer. Add another admin first.
+        </p>
+      )}
       <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflowX: "auto" }}>
         {allUsers.length === 0 ? (
           <div style={{ padding: "12px 16px", fontSize: 12, color: T.textSecondary, fontStyle: "italic" }}>
@@ -424,16 +430,40 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           </div>
         ) : (
           allUsers.map(({ email, role }, i) => (
+            (() => {
+              const isLastAdmin = role === "admin" && explicitAdminCount === 1;
+              return (
             <div data-testid="access-user-row" className="settings-access-user-grid" key={email} style={{ ...USER_GRID_STYLE, minHeight: 52, padding: "9px 16px", borderTop: i === 0 ? "none" : `1px solid ${T.borderRow}` }}>
               <span title={email} style={{ fontSize: 13, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email}</span>
               <RoleMenuSelect
                 value={role}
                 onChange={(nextRole) => changeRole(email, nextRole)}
-                disabled={saveMutation.isPending}
+                disabled={saveMutation.isPending || isLastAdmin}
                 ariaLabel={`Role for ${email}`}
               />
-              <span style={{ justifySelf: "end" }}><LinkButton onClick={() => removeUser(email)}>Remove</LinkButton></span>
+              <span style={{ justifySelf: "end" }}>
+                <button
+                  type="button"
+                  onClick={() => removeUser(email)}
+                  disabled={saveMutation.isPending || isLastAdmin}
+                  aria-describedby={isLastAdmin ? "last-admin-explanation" : undefined}
+                  title={isLastAdmin ? "Add another admin before removing this administrator." : undefined}
+                  style={{
+                    border: 0,
+                    padding: 0,
+                    background: "transparent",
+                    color: isLastAdmin ? T.textFaint : T.primary,
+                    cursor: isLastAdmin ? "not-allowed" : "pointer",
+                    fontSize: 12,
+                    fontWeight: 500,
+                  }}
+                >
+                  Remove
+                </button>
+              </span>
             </div>
+              );
+            })()
           ))
         )}
         {/* Add-user row */}

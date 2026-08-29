@@ -34,7 +34,12 @@ function InfoTooltip({ text }: { text: string }) {
 }
 import type { UserSpend } from "@/hooks/useBillingData";
 import type { DateRange } from "@/types/billing";
-import { formatIdentity, isServicePrincipal, useSpNameMap } from "@/utils/identity";
+import {
+  buildAnonymizedIdentityMap,
+  formatIdentity,
+  isServicePrincipal,
+  useSpNameMap,
+} from "@/utils/identity";
 import { C, productColor, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
@@ -205,18 +210,6 @@ interface Props {
 
 const PAGE_SIZE = 10;
 
-export function buildAnonymizedIdentityMap(users: UserSpend[]): Map<string, string> {
-  const map = new Map<string, string>();
-  let index = 0;
-  [...users].sort((a, b) => b.total_spend - a.total_spend).forEach((user) => {
-    if (!isServicePrincipal(user.user_email)) {
-      map.set(user.user_email, `User ${index + 1}`);
-      index++;
-    }
-  });
-  return map;
-}
-
 export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUsers = false, workspaceIds, workspaceNameMap }: Props) {
   const spNameMap = useSpNameMap();
   const [selectedUser, setSelectedUser] = useState<UserSpend | null>(null);
@@ -225,8 +218,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
   const [typeFilterOpen, setTypeFilterOpen] = useState(false);
   const typeFilterRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(0);
-  const [productFilter, setProductFilter] = useState<string[]>([]);
-  const productFilterInitialized = useRef(false);
+  const [selectedProducts, setProductFilter] = useState<string[] | null>(null);
   const [productFilterOpen, setProductFilterOpen] = useState(false);
   const productFilterRef = useRef<HTMLDivElement>(null);
   const [selectedKPI, setSelectedKPI] = useState<{kpi: string; label: string; variant?: "billing" | "platform"} | null>(null);
@@ -257,14 +249,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
   const summary = data?.summary;
   const topUsers = data?.top_users ?? [];
   const uniqueProducts = Array.from(new Set(topUsers.map(u => u.primary_product).filter(Boolean))).sort() as string[];
-
-  useEffect(() => {
-    if (productFilterInitialized.current) return;
-    if (uniqueProducts.length > 0) {
-      setProductFilter([...uniqueProducts]);
-      productFilterInitialized.current = true;
-    }
-  }, [uniqueProducts]);
+  const productFilter = selectedProducts ?? uniqueProducts;
 
   const daysDiff = startDate && endDate
     ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1
@@ -589,7 +574,15 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                   {uniqueProducts.map(p => (
                     <button
                       key={p}
-                      onClick={() => { setProductFilter(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]); setPage(0); }}
+                      onClick={() => {
+                        setProductFilter((previous) => {
+                          const current = previous ?? uniqueProducts;
+                          return current.includes(p)
+                            ? current.filter((value) => value !== p)
+                            : [...current, p];
+                        });
+                        setPage(0);
+                      }}
                       className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs hover:bg-gray-50"
                     >
                       <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${productFilter.includes(p) ? "border-orange-500 bg-orange-500" : "border-gray-300"}`}>

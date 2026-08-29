@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   ChevronDown,
   ChevronRight,
+  Github,
   LayoutGrid,
   LogOut,
   Mail,
@@ -19,9 +20,17 @@ interface UserMenuProps {
 
 type MenuItemElement = HTMLAnchorElement | HTMLButtonElement;
 
-const SLACK_TEAM_ID = "T02EPKPG3";
-const SLACK_MEMBER_ID = "U04H3555WMB";
-const FEEDBACK_EMAIL = "mailto:samuel.a.mathews@gmail.com?subject=cost-obs%20v1.2%20feedback";
+interface FeedbackTargets {
+  github_issue_url: string;
+  email_href: string | null;
+  slack: { team_id: string; member_id: string; web_url: string } | null;
+}
+
+const DEFAULT_FEEDBACK_TARGETS: FeedbackTargets = {
+  github_issue_url: "https://github.com/smathews13/cost-obs-databricks-v1.0/issues/new",
+  email_href: null,
+  slack: null,
+};
 
 function workspaceBaseUrl(host: string | null | undefined): string | null {
   const trimmed = host?.trim();
@@ -32,7 +41,7 @@ function workspaceBaseUrl(host: string | null | undefined): string | null {
   ).replace(/\/+$/, "");
 }
 
-export function readableUserName(name: string, email: string): string {
+function readableUserName(name: string, email: string): string {
   const candidate = name.trim();
   const opaqueIdentity = (
     !candidate
@@ -61,6 +70,7 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
   const [open, setOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
   const [chooserSide, setChooserSide] = useState<"left" | "right">("left");
+  const [feedbackTargets, setFeedbackTargets] = useState(DEFAULT_FEEDBACK_TARGETS);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const feedbackRef = useRef<HTMLButtonElement>(null);
@@ -102,6 +112,21 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
 
   useEffect(() => () => {
     if (hoverCloseTimerRef.current !== null) window.clearTimeout(hoverCloseTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/user/feedback-targets", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("feedback config unavailable")))
+      .then((targets: FeedbackTargets) => {
+        setFeedbackTargets({
+          github_issue_url: targets.github_issue_url || DEFAULT_FEEDBACK_TARGETS.github_issue_url,
+          email_href: targets.email_href || null,
+          slack: targets.slack || null,
+        });
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -183,21 +208,23 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
   };
 
   const openSlack = () => {
+    if (!feedbackTargets.slack) return;
+    const { team_id: teamId, member_id: memberId, web_url: webUrl } = feedbackTargets.slack;
     let blurred = false;
     const onBlur = () => {
       blurred = true;
     };
     window.addEventListener("blur", onBlur, { once: true });
-    window.location.href = `slack://user?team=${SLACK_TEAM_ID}&id=${SLACK_MEMBER_ID}`;
+    window.location.href = `slack://user?team=${teamId}&id=${memberId}`;
     window.setTimeout(() => {
       window.removeEventListener("blur", onBlur);
       if (!blurred && document.hasFocus()) {
-        window.open(`https://databricks.slack.com/team/${SLACK_MEMBER_ID}`, "_blank", "noopener,noreferrer");
+        window.open(webUrl, "_blank", "noopener,noreferrer");
       }
     }, 800);
   };
 
-  const itemClass = "flex h-[40px] w-full items-center gap-[11px] rounded-[6px] px-[10px] text-left text-[13.5px] font-medium text-[#1B3139] hover:bg-[#FBF9F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35";
+  const itemClass = "user-menu-item flex h-[40px] w-full items-center gap-[11px] rounded-[6px] px-[10px] text-left text-[13.5px] font-medium text-[#1B3139] hover:bg-[#FBF9F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35";
   const unavailableClass = !baseUrl ? " pointer-events-none opacity-50" : "";
 
   return (
@@ -245,24 +272,24 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
           role="menu"
           aria-label="User menu"
           onKeyDown={onMainMenuKeyDown}
-          className="animate-fade-in absolute right-0 top-full z-50 mt-[8px] w-[300px] rounded-[10px] border border-[#E4E2DD] bg-white p-[8px] text-[#1B3139] shadow-[0_8px_28px_rgba(11,32,38,.16)]"
+          className="user-menu-panel animate-fade-in absolute right-0 top-full z-50 mt-[8px] w-[300px] rounded-[10px] border border-[#E4E2DD] bg-white p-[8px] text-[#1B3139] shadow-[0_8px_28px_rgba(11,32,38,.16)]"
         >
           <div className="flex items-center gap-[10px] px-[8px] py-[7px]">
             <span className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-full border border-[#FFD9CE] bg-[#FFEDE8] text-[12px] font-bold text-[#D82A18]">
               {initials}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13.5px] font-semibold text-[#1B3139]">{displayName}</span>
-              <span className="block truncate text-[11.5px] text-[#618794]">{email}</span>
+              <span className="user-menu-name block truncate text-[13.5px] font-semibold text-[#1B3139]">{displayName}</span>
+              <span className="user-menu-secondary block truncate text-[11.5px] text-[#618794]">{email}</span>
             </span>
             {isAdmin && (
-              <span className="rounded-full bg-[#EEEDE9] px-[8px] py-[3px] text-[11px] font-semibold text-[#618794]">
+              <span className="user-menu-badge rounded-full bg-[#EEEDE9] px-[8px] py-[3px] text-[11px] font-semibold text-[#618794]">
                 Admin
               </span>
             )}
           </div>
 
-          <div className="my-[6px] h-px bg-[#EFECE6]" />
+          <div className="user-menu-divider my-[6px] h-px bg-[#EFECE6]" />
 
           <a
             ref={(element) => { mainItemRefs.current[0] = element; }}
@@ -307,37 +334,53 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
                 aria-label="Send via"
                 onKeyDown={onChooserKeyDown}
                 onMouseEnter={() => openChooser(false)}
-                className={`animate-fade-in absolute top-0 z-60 w-[186px] rounded-[10px] border border-[#E4E2DD] bg-white p-[8px] shadow-[0_8px_28px_rgba(11,32,38,.16)] ${chooserSide === "left" ? "right-full mr-[8px]" : "left-full ml-[8px]"}`}
+                className={`user-menu-panel animate-fade-in absolute top-0 z-60 w-[186px] rounded-[10px] border border-[#E4E2DD] bg-white p-[8px] shadow-[0_8px_28px_rgba(11,32,38,.16)] ${chooserSide === "left" ? "right-full mr-[8px]" : "left-full ml-[8px]"}`}
               >
-                <div className="px-[10px] pb-[5px] pt-[3px] text-[10.5px] font-bold tracking-[.07em] text-[#618794]">
+                <div className="user-menu-secondary px-[10px] pb-[5px] pt-[3px] text-[10.5px] font-bold tracking-[.07em] text-[#618794]">
                   SEND VIA
                 </div>
-                <button
-                  ref={(element) => { chooserItemRefs.current[0] = element; }}
-                  type="button"
-                  role="menuitem"
-                  tabIndex={-1}
-                  onClick={openSlack}
-                  className="flex h-[36px] w-full items-center gap-[10px] rounded-[6px] px-[10px] text-[13px] font-medium text-[#1B3139] hover:bg-[#FBF9F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
-                >
-                  <Slack size={14} className="text-[#618794]" aria-hidden="true" />
-                  Slack DM
-                </button>
                 <a
-                  ref={(element) => { chooserItemRefs.current[1] = element; }}
+                  ref={(element) => { chooserItemRefs.current[0] = element; }}
                   role="menuitem"
                   tabIndex={-1}
-                  href={FEEDBACK_EMAIL}
-                  className="flex h-[36px] w-full items-center gap-[10px] rounded-[6px] px-[10px] text-[13px] font-medium text-[#1B3139] hover:bg-[#FBF9F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
+                  href={feedbackTargets.github_issue_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="user-menu-item flex h-[36px] w-full items-center gap-[10px] rounded-[6px] px-[10px] text-[13px] font-medium text-[#1B3139] hover:bg-[#FBF9F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
                 >
-                  <Mail size={14} className="text-[#618794]" aria-hidden="true" />
-                  Email
+                  <Github size={14} className="text-[#618794]" aria-hidden="true" />
+                  GitHub issue
                 </a>
+                {feedbackTargets.slack && (
+                  <button
+                    ref={(element) => { chooserItemRefs.current[1] = element; }}
+                    type="button"
+                    role="menuitem"
+                    tabIndex={-1}
+                    onClick={openSlack}
+                    className="user-menu-item flex h-[36px] w-full items-center gap-[10px] rounded-[6px] px-[10px] text-[13px] font-medium text-[#1B3139] hover:bg-[#FBF9F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
+                  >
+                    <Slack size={14} className="text-[#618794]" aria-hidden="true" />
+                    Slack DM
+                  </button>
+                )}
+                {feedbackTargets.email_href && (
+                  <a
+                    ref={(element) => { chooserItemRefs.current[2] = element; }}
+                    role="menuitem"
+                    tabIndex={-1}
+                    href={feedbackTargets.email_href}
+                    className="user-menu-item flex h-[36px] w-full items-center gap-[10px] rounded-[6px] px-[10px] text-[13px] font-medium text-[#1B3139] hover:bg-[#FBF9F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
+                  >
+                    <Mail size={14} className="text-[#618794]" aria-hidden="true" />
+                    Email
+                  </a>
+                )}
               </div>
             )}
           </div>
 
-          <div className="my-[6px] h-px bg-[#EFECE6]" />
+          <div className="user-menu-divider my-[6px] h-px bg-[#EFECE6]" />
 
           <a
             ref={(element) => { mainItemRefs.current[2] = element; }}

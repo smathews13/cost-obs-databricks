@@ -63,6 +63,11 @@ export function SettingsDialog(props: SettingsDialogProps) {
 function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVisibility, appSettings }: SettingsDialogProps) {
   const rqClient = useQueryClient();
   const toast = useToast();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
   const [nav, setNav] = useState<NavKey>("general");
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [localVisibility, setLocalVisibility] = useState<TabVisibility>(tabVisibility);
@@ -152,6 +157,31 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
     return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
   }, [requestClose]);
 
+  useEffect(() => {
+    const returnFocus = returnFocusRef.current;
+    closeButtonRef.current?.focus();
+    return () => {
+      window.setTimeout(() => returnFocus?.focus(), 0);
+    };
+  }, []);
+
+  const trapFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) ?? []);
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     editingRef.current = true;
     seededRef.current = true;
@@ -216,18 +246,21 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
       rqClient.setQueryData<UnifiedSettings | null>(["unified-settings"], (current) =>
         mergeUnifiedSettings(current, submittedUpdate.payload));
       rqClient.invalidateQueries({ queryKey: ["unified-settings"], refetchType: "none" });
-      persistAppSettings(submittedSettings);
+      const durableSettings = submittedUpdate.payload.webhook
+        ? { ...submittedSettings, slackWebhookUrl: "" }
+        : submittedSettings;
+      persistAppSettings(durableSettings);
       persistTabVisibility(visibility);
-      setSavedSettings(submittedSettings);
+      setSavedSettings(durableSettings);
       setSavedVisibility(visibility);
       if (editRevisionRef.current === submittedRevision) {
-        setLocalSettings(submittedSettings);
+        setLocalSettings(durableSettings);
         editingRef.current = false;
         setSaveStatus({ kind: "saved", count: result?.updated_count ?? submittedUpdate.updatedCount });
       } else {
         setSaveStatus({ kind: "idle" });
       }
-      onSettingsChange(submittedSettings);
+      onSettingsChange(durableSettings);
       onTabVisibilityChange(visibility);
       toast(landingHidden ? "Settings saved: landing tab reset to first visible" : successToast);
     } catch (error) {
@@ -283,14 +316,22 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 p-4" onClick={(e) => e.target === e.currentTarget && requestClose()}>
-      <div style={{ width: "100%", maxWidth: 1120, height: "min(760px, 90vh)", backgroundColor: T.surface, borderRadius: 8, border: `1px solid ${T.borderGroup}`, boxShadow: "0 20px 60px rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-dialog-title"
+        onKeyDown={trapFocus}
+        style={{ width: "100%", maxWidth: 1120, height: "min(760px, 90vh)", backgroundColor: T.surface, borderRadius: 8, border: `1px solid ${T.borderGroup}`, boxShadow: "0 20px 60px rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", overflow: "hidden" }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${T.borderGroup}` }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: T.text }}>Settings</div>
+            <h2 id="settings-dialog-title" style={{ margin: 0, fontSize: 16, fontWeight: 600, color: T.text }}>Settings</h2>
             <div style={{ fontSize: 12, color: T.textSecondary, fontFamily: undefined }}>{appName} · Databricks App</div>
           </div>
-          <button onClick={requestClose} style={{ padding: 4, borderRadius: 6, color: T.textSecondary, background: "none", border: "none", cursor: "pointer" }} aria-label="Close">
+          <button ref={closeButtonRef} onClick={requestClose} style={{ padding: 4, borderRadius: 6, color: T.textSecondary, background: "none", border: "none", cursor: "pointer" }} aria-label="Close settings">
             <svg style={{ width: 20, height: 20 }} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>

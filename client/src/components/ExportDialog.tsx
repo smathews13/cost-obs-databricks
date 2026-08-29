@@ -33,6 +33,8 @@ interface ExportDialogProps {
   onExportArchitecture?: () => Promise<void>;
   tabVisibility: TabVisibility;
   dataLoading?: boolean;
+  dataErrors?: Partial<Record<keyof TabVisibility, string>>;
+  onRetryFailed?: () => Promise<void>;
 }
 
 // Map export sections to the tab that owns them: order matches tab nav so the
@@ -81,6 +83,8 @@ export function ExportDialog({
   onExportArchitecture,
   tabVisibility,
   dataLoading = false,
+  dataErrors = {},
+  onRetryFailed,
 }: ExportDialogProps) {
   const visibleSections = useMemo(() => {
     const result: ExportSections = {} as ExportSections;
@@ -95,6 +99,7 @@ export function ExportDialog({
   const [format, setFormat] = useState<ExportFormat>("pdf");
   const [architectureBusy, setArchitectureBusy] = useState(false);
   const [architectureError, setArchitectureError] = useState<string | null>(null);
+  const [retryingFailed, setRetryingFailed] = useState(false);
 
   // Escape key handler
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -138,11 +143,28 @@ export function ExportDialog({
 
   const visibleKeys = (Object.keys(sectionToTab) as Array<keyof ExportSections>).filter((k) => visibleSections[k]);
   const selectedCount = visibleKeys.filter((k) => sections[k]).length;
+  const failedSelectedTabs = Array.from(new Set(
+    visibleKeys
+      .filter((key) => sections[key])
+      .map((key) => sectionToTab[key])
+      .filter((tab): tab is keyof TabVisibility => Boolean(tab && dataErrors[tab])),
+  ));
+  const hasSelectedErrors = failedSelectedTabs.length > 0;
 
   const handleExport = () => {
-    if (dataLoading || architectureBusy) return;
+    if (dataLoading || architectureBusy || hasSelectedErrors) return;
     onExport(sections, format);
     onClose();
+  };
+
+  const retryFailed = async () => {
+    if (!onRetryFailed || retryingFailed) return;
+    setRetryingFailed(true);
+    try {
+      await onRetryFailed();
+    } finally {
+      setRetryingFailed(false);
+    }
   };
 
   const handleArchitectureExport = async () => {
@@ -329,6 +351,8 @@ export function ExportDialog({
               {visibleKeys.map((key) => {
                 const { label, description } = sectionLabels[key];
                 const checked = sections[key];
+                const tab = sectionToTab[key];
+                const sectionError = tab ? dataErrors[tab] : undefined;
 
                 return (
                   <label
@@ -351,6 +375,11 @@ export function ExportDialog({
                     <div className="flex-1">
                       <div className="text-sm font-semibold leading-4" style={{ color: C.ink }}>{label}</div>
                       <div className="mt-0.5 truncate text-xs leading-4" style={{ color: C.slate }} title={description}>{description}</div>
+                      {sectionError && (
+                        <div role="status" className="mt-1 text-[11px] font-semibold text-red-700">
+                          Data failed to load. Deselect this section or retry.
+                        </div>
+                      )}
                     </div>
                   </label>
                 );
@@ -363,9 +392,18 @@ export function ExportDialog({
             className="flex flex-wrap items-center justify-between gap-3 px-6 py-4"
             style={{ background: C.oatPage, borderTop: `1px solid ${C.hairline}` }}
           >
-            <span className="text-xs" style={{ color: C.slate }}>
-              Active workspace and date filters are applied.
-            </span>
+            {hasSelectedErrors ? (
+              <div role="alert" className="flex items-center gap-3 text-xs text-red-700">
+                <span>Selected report sections failed to load. Export is blocked to prevent a partial report.</span>
+                <button type="button" onClick={() => void retryFailed()} disabled={!onRetryFailed || retryingFailed} className="font-semibold underline disabled:opacity-50">
+                  {retryingFailed ? "Retrying…" : "Retry failed sections"}
+                </button>
+              </div>
+            ) : (
+              <span className="text-xs" style={{ color: C.slate }}>
+                Active workspace and date filters are applied.
+              </span>
+            )}
             <div className="flex items-center gap-3">
             <button
               type="button"
@@ -379,8 +417,8 @@ export function ExportDialog({
             <button
               type="button"
               onClick={handleExport}
-              disabled={selectedCount === 0 || dataLoading || architectureBusy}
-              aria-label={dataLoading ? "Preparing report data" : undefined}
+              disabled={selectedCount === 0 || dataLoading || architectureBusy || hasSelectedErrors}
+              aria-label={dataLoading ? "Preparing report data" : hasSelectedErrors ? "Export blocked by failed report data" : undefined}
               className="btn-brand inline-flex items-center gap-2 px-4 py-2 text-sm focus-visible:outline-none"
             >
               {dataLoading ? <Spinner size="xs" /> : (

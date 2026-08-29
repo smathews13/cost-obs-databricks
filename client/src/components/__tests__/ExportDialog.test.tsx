@@ -32,6 +32,46 @@ describe("ExportDialog report data loading", () => {
     expect(button).toBeDisabled();
   });
 
+  it("blocks failed selected sections, annotates them, and retries", async () => {
+    const onRetryFailed = vi.fn().mockResolvedValue(undefined);
+    const onExport = vi.fn();
+    render(
+      <ExportDialog
+        isOpen
+        onClose={vi.fn()}
+        onExport={onExport}
+        tabVisibility={visibility}
+        dataErrors={{ apps: "Apps data failed to load." }}
+        onRetryFailed={onRetryFailed}
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Export is blocked");
+    expect(screen.getByRole("button", { name: "Export blocked by failed report data" })).toBeDisabled();
+    expect(screen.getByText("Data failed to load. Deselect this section or retry.")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Retry failed sections" }));
+    expect(onRetryFailed).toHaveBeenCalledOnce();
+    expect(onExport).not.toHaveBeenCalled();
+  });
+
+  it("allows an explicit complete export after failed sections are deselected", async () => {
+    const onExport = vi.fn();
+    render(
+      <ExportDialog
+        isOpen
+        onClose={vi.fn()}
+        onExport={onExport}
+        tabVisibility={visibility}
+        dataErrors={{ apps: "Apps data failed to load." }}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("checkbox", { name: /Apps/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Export 14 sections as PDF/ }));
+    expect(onExport).toHaveBeenCalledOnce();
+    expect(onExport.mock.calls[0][0].apps).toBe(false);
+  });
+
   it("hides architecture export when the feature is disabled", () => {
     render(
       <ExportDialog

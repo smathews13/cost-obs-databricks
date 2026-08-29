@@ -148,6 +148,9 @@ export function loadAppSettings(): AppSettings {
       if (parsed.density === undefined) {
         merged.density = parsed.compactMode ? "compact" : "comfortable";
       }
+      // Webhook URLs are credentials. The durable server setting is the only
+      // source of truth; never revive a legacy secret from browser storage.
+      merged.slackWebhookUrl = "";
       return merged;
     }
   } catch {
@@ -161,6 +164,9 @@ export function persistAppSettings(settings: AppSettings): void {
     ...settings,
     darkMode: settings.theme === "dark",
     compactMode: settings.density === "compact",
+    // Keep the draft field in memory only. The server returns masked status and
+    // owns the durable secret after Save.
+    slackWebhookUrl: undefined,
   };
   localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(stored));
 }

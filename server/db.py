@@ -716,7 +716,7 @@ def get_unified_view_tables() -> list[str]:
     return read_delta_unified_view_tables()
 
 
-def save_unified_view_tables(tables: list[str]) -> None:
+def save_unified_view_tables(tables: list[str], *, strict: bool = False) -> None:
     """Record which MV tables have a built unified view — local file (fast) + durable
     Delta table (cross-worker + survives redeploys)."""
     clean = [t for t in tables if isinstance(t, str)]
@@ -732,7 +732,7 @@ def save_unified_view_tables(tables: list[str]) -> None:
         os.replace(tmp_path, _MV_UNIFIED_TABLES_FILE)
     except OSError as e:
         logger.debug("Could not persist unified-view table list to file: %s", e)
-    write_delta_unified_view_tables(clean)
+    write_delta_unified_view_tables(clean, strict=strict)
 
 
 def _unified_views_table() -> str:
@@ -767,7 +767,9 @@ def read_delta_unified_view_tables() -> list[str]:
         return []
 
 
-def write_delta_unified_view_tables(tables: list[str]) -> None:
+def write_delta_unified_view_tables(
+    tables: list[str], *, strict: bool = False
+) -> None:
     """Persist the built-unified-view list to the durable Delta table, ATOMICALLY.
 
     Uses a single `INSERT OVERWRITE` (one statement) rather than a DELETE followed by
@@ -796,6 +798,8 @@ def write_delta_unified_view_tables(tables: list[str]) -> None:
         execute_write(f"INSERT OVERWRITE {table} VALUES {values}", None)
     except Exception as e:
         logger.warning("Could not persist unified-view list to Delta (non-fatal): %s", e)
+        if strict:
+            raise
 
 
 def _valid_mv_source(s: object) -> bool:
@@ -1043,6 +1047,20 @@ def selected_source_labels() -> list[str]:
     return [str(x) for x in _source_labels.get() if str(x).strip()]
 
 
+def local_source_is_selected() -> bool:
+    """Whether request scope includes this workspace's local managed data.
+
+    An empty selection means the normal all-sources scope. With an explicit
+    selection, local-only integrations (cloud billing exports configured on this
+    app) must not leak into a shared-source-only response.
+    """
+    labels = selected_source_labels()
+    if not labels:
+        return True
+    local_label = get_local_source_label().strip()
+    return any(label.strip() == local_label for label in labels)
+
+
 def _mv_tables_referenced_by_template(mv_query: str) -> set[str]:
     """Managed-table names referenced by an unformatted MV SQL template."""
     placeholder_pattern = r"`\{catalog\}`\.`\{schema\}`\.`([^`]+)`"
@@ -1166,6 +1184,10 @@ DEDICATED_WAREHOUSE_AUTO_STOP_MINS = 10
 _CACHE_MAX_SIZE = 200  # Max number of cached queries
 _CACHE_TTL = 2 * 60 * 60  # 2 hours
 _query_cache: TTLCache = TTLCache(maxsize=_CACHE_MAX_SIZE, ttl=_CACHE_TTL)
+_query_cache_lock = threading.RLock()
+_query_cache_sequence = 0
+_query_cache_global_generation = 0
+_query_cache_pattern_generations: dict[str, int] = {}
 
 # SQL connection timeout in seconds
 # Set high to accommodate slow system table scans (system.query.history 30-day range)
@@ -1183,19 +1205,36 @@ def clear_query_cache(pattern: str | None = None) -> int:
     Returns:
         Number of entries cleared
     """
-    global _query_cache
-    if pattern is None:
-        count = len(_query_cache)
-        _query_cache.clear()
-        logger.info(f"Cleared entire query cache ({count} entries)")
-        return count
-    else:
-        # Clear entries matching pattern
+    global _query_cache_sequence, _query_cache_global_generation
+    with _query_cache_lock:
+        _query_cache_sequence += 1
+        generation = _query_cache_sequence
+        if pattern is None:
+            _query_cache_global_generation = generation
+            _query_cache_pattern_generations.clear()
+            count = len(_query_cache)
+            _query_cache.clear()
+            logger.info(f"Cleared entire query cache ({count} entries)")
+            return count
+
+        # Record the invalidation even when no matching entry exists yet. A query
+        # that started before this clear may still be running and must not publish
+        # its stale result afterward.
+        _query_cache_pattern_generations[pattern] = generation
         keys_to_clear = [k for k in _query_cache.keys() if pattern in k]
         for key in keys_to_clear:
             _query_cache.pop(key, None)
         logger.info(f"Cleared {len(keys_to_clear)} cache entries matching '{pattern}'")
         return len(keys_to_clear)
+
+
+def _query_cache_generation_for_key(cache_key: str) -> int:
+    """Current in-process invalidation generation affecting one cache key."""
+    generation = _query_cache_global_generation
+    for pattern, pattern_generation in _query_cache_pattern_generations.items():
+        if pattern in cache_key:
+            generation = max(generation, pattern_generation)
+    return generation
 
 
 # ── Delta shared response cache ───────────────────────────────────────────────
@@ -1212,6 +1251,7 @@ _CREATE_RESPONSE_CACHE_TABLE = """
 CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema}`.`app_response_cache` (
   cache_key    STRING NOT NULL,
   endpoint     STRING,
+  generation   BIGINT,
   payload_json STRING,
   computed_at  TIMESTAMP,
   expires_at   TIMESTAMP
@@ -1242,6 +1282,16 @@ def _ensure_response_cache_table() -> bool:
                 _CREATE_RESPONSE_CACHE_TABLE.format(catalog=cat, schema=sch),
                 no_cache=True,
             )
+            try:
+                execute_query(
+                    f"ALTER TABLE `{cat}`.`{sch}`.`app_response_cache` "
+                    "ADD COLUMNS (generation BIGINT)",
+                    no_cache=True,
+                )
+            except Exception:
+                # Existing and newly-created tables both converge on the same
+                # schema; duplicate-column errors are expected after migration.
+                pass
         finally:
             _user_token.reset(tok)
         _response_cache_table_ready = True
@@ -1395,21 +1445,23 @@ def delta_cache_get(key: str) -> dict | None:
         from concurrent.futures import Future, wait as _cfwait
         ctx = contextvars.copy_context()
 
+        # Snapshot before starting remote I/O. The SQL call must never hold the
+        # generation lock: a cold warehouse can otherwise prevent invalidation
+        # for the connector's full 300-second timeout.
+        generation_state_before = _read_cache_generation_state()
+
         def _run():
-            with _cache_generation_operation_lock() as state:
-                tok = _user_token.set("")
-                try:
-                    rows = execute_query(
-                        f"SELECT payload_json, endpoint FROM `{cat}`.`{sch}`.`app_response_cache` "
-                        f"WHERE cache_key = :key AND expires_at > CURRENT_TIMESTAMP() LIMIT 1",
-                        {"key": key},
-                        no_cache=True,
-                    )
-                finally:
-                    _user_token.reset(tok)
-                endpoint = str(rows[0].get("endpoint") or "") if rows else ""
-                generation = _cache_generation_value(endpoint, state)
-                return rows, generation
+            tok = _user_token.set("")
+            try:
+                return execute_query(
+                    f"SELECT payload_json, endpoint, generation "
+                    f"FROM `{cat}`.`{sch}`.`app_response_cache` "
+                    f"WHERE cache_key = :key AND expires_at > CURRENT_TIMESTAMP() LIMIT 1",
+                    {"key": key},
+                    no_cache=True,
+                )
+            finally:
+                _user_token.reset(tok)
 
         future: Future = Future()
 
@@ -1424,15 +1476,40 @@ def delta_cache_get(key: str) -> dict | None:
         if not done:
             logger.debug("Delta cache SQL read timed out after 5s — treating as cache miss")
             return None
-        rows, generation = future.result()
+        rows = future.result()
         if rows and rows[0].get("payload_json"):
             import gzip, base64 as _b64
-            result = json.loads(gzip.decompress(_b64.b64decode(rows[0]["payload_json"])).decode())
-            _delta_l1[key] = result
-            if rows[0].get("endpoint"):
-                _delta_l1_endpoints[key] = str(rows[0]["endpoint"])
-                _delta_l1_generations[key] = generation
-            return result
+            endpoint = str(rows[0].get("endpoint") or "")
+            row_generation = rows[0].get("generation")
+            expected_generation = _cache_generation_value(
+                endpoint, generation_state_before
+            )
+            try:
+                row_generation_value = int(row_generation)
+            except (TypeError, ValueError):
+                # Pre-migration rows are deliberately treated as stale.
+                return None
+            with _cache_generation_operation_lock() as current_state:
+                current_generation = _cache_generation_value(endpoint, current_state)
+                if (
+                    expected_generation != current_generation
+                    or row_generation_value != current_generation
+                ):
+                    logger.info(
+                        "Rejected stale Delta cache read for %s after invalidation",
+                        endpoint,
+                    )
+                    return None
+                result = json.loads(
+                    gzip.decompress(_b64.b64decode(rows[0]["payload_json"])).decode()
+                )
+                _delta_l1[key] = result
+                if endpoint:
+                    _delta_l1_endpoints[key] = endpoint
+                    _delta_l1_generations[key] = current_generation
+                # Promotion and return are linearized under the same generation
+                # lock as invalidation.
+                return result
     except Exception as e:
         logger.debug("Delta cache read failed (non-fatal): %s", e)
     return None
@@ -1480,42 +1557,56 @@ def delta_cache_put(
             if not _cache_generation_is_current(_generation, state):
                 logger.info("Rejected stale Delta cache write for %s after invalidation", _endpoint)
                 return
-            if not _ensure_response_cache_table():
-                return
-            cat, sch = get_catalog_schema()
-            if not cat or not sch:
-                return
-            import gzip, base64 as _b64
-            compressed = _b64.b64encode(gzip.compress(json.dumps(_payload).encode())).decode("ascii")
-            merge_sql = f"""MERGE INTO `{cat}`.`{sch}`.`app_response_cache` AS tgt
-                USING (SELECT
-                    :key      AS cache_key,
-                    :endpoint AS endpoint,
-                    :payload  AS payload_json,
-                    CURRENT_TIMESTAMP() AS computed_at,
-                    TIMESTAMPADD(SECOND, {_ttl}, CURRENT_TIMESTAMP()) AS expires_at
-                ) AS src
-                ON tgt.cache_key = src.cache_key
-                WHEN MATCHED THEN UPDATE SET *
-                WHEN NOT MATCHED BY TARGET THEN INSERT *"""
-            merge_params = {"key": _key, "endpoint": _endpoint, "payload": compressed}
-            for attempt in range(2):
+        if not _ensure_response_cache_table():
+            return
+        cat, sch = get_catalog_schema()
+        if not cat or not sch:
+            return
+        import gzip, base64 as _b64
+        compressed = _b64.b64encode(gzip.compress(json.dumps(_payload).encode())).decode("ascii")
+        merge_sql = f"""MERGE INTO `{cat}`.`{sch}`.`app_response_cache` AS tgt
+            USING (SELECT
+                :key        AS cache_key,
+                :endpoint   AS endpoint,
+                :generation AS generation,
+                :payload    AS payload_json,
+                CURRENT_TIMESTAMP() AS computed_at,
+                TIMESTAMPADD(SECOND, {_ttl}, CURRENT_TIMESTAMP()) AS expires_at
+            ) AS src
+            ON tgt.cache_key = src.cache_key
+            WHEN MATCHED THEN UPDATE SET *
+            WHEN NOT MATCHED BY TARGET THEN INSERT *"""
+        merge_params = {
+            "key": _key,
+            "endpoint": _endpoint,
+            "generation": _generation.value,
+            "payload": compressed,
+        }
+        for attempt in range(2):
+            try:
+                tok = _user_token.set("")
                 try:
-                    tok = _user_token.set("")
-                    try:
-                        execute_query(
-                            f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache` WHERE expires_at < CURRENT_TIMESTAMP()",
-                            no_cache=True,
+                    execute_query(
+                        f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache` WHERE expires_at < CURRENT_TIMESTAMP()",
+                        no_cache=True,
+                    )
+                    execute_query(merge_sql, merge_params, no_cache=True)
+                finally:
+                    _user_token.reset(tok)
+                # The remote row may have landed after an invalidate/delete.
+                # Its stored generation makes that harmless: readers reject it.
+                with _cache_generation_operation_lock() as state:
+                    if not _cache_generation_is_current(_generation, state):
+                        logger.info(
+                            "Delta cache write for %s completed stale; readers will reject it",
+                            _endpoint,
                         )
-                        execute_query(merge_sql, merge_params, no_cache=True)
-                    finally:
-                        _user_token.reset(tok)
-                    return
-                except Exception as e:
-                    if attempt == 0:
-                        logger.debug("Delta cache write conflict, retrying: %s", e)
-                    else:
-                        logger.debug("Delta cache write failed after retry (non-fatal): %s", e)
+                return
+            except Exception as e:
+                if attempt == 0:
+                    logger.debug("Delta cache write conflict, retrying: %s", e)
+                else:
+                    logger.debug("Delta cache write failed after retry (non-fatal): %s", e)
 
     threading.Thread(target=_write, daemon=True, name="delta-cache-put").start()
     return True
@@ -1549,29 +1640,29 @@ def delta_cache_invalidate(pattern: str | None = None) -> None:
             _delta_l1_endpoints.clear()
             _delta_l1_generations.clear()
 
-        # Clear Delta while retaining the same operation lock. An older writer
-        # either completed before this delete or will observe the new generation.
+    # Remote cleanup is best-effort and deliberately outside the generation
+    # lock. Generation-tagged readers reject any old or late-arriving row.
+    try:
+        cat, sch = get_catalog_schema()
+        if not cat or not sch:
+            return
+        tok = _user_token.set("")
         try:
-            cat, sch = get_catalog_schema()
-            if not cat or not sch:
-                return
-            tok = _user_token.set("")
-            try:
-                if pattern:
-                    execute_query(
-                        f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache` WHERE endpoint LIKE :pat",
-                        {"pat": f"{pattern}%"},
-                        no_cache=True,
-                    )
-                else:
-                    execute_query(
-                        f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache`",
-                        no_cache=True,
-                    )
-            finally:
-                _user_token.reset(tok)
-        except Exception as e:
-            logger.debug("Delta cache invalidation failed (non-fatal): %s", e)
+            if pattern:
+                execute_query(
+                    f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache` WHERE endpoint LIKE :pat",
+                    {"pat": f"{pattern}%"},
+                    no_cache=True,
+                )
+            else:
+                execute_query(
+                    f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache`",
+                    no_cache=True,
+                )
+        finally:
+            _user_token.reset(tok)
+    except Exception as e:
+        logger.debug("Delta cache invalidation failed (non-fatal): %s", e)
 
 # Singleton WorkspaceClient instance
 _workspace_client: WorkspaceClient | None = None
@@ -2021,13 +2112,18 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
     """
     start_time = time.time()
 
-    # Check cache first (TTLCache handles expiration automatically)
+    cache_key: str | None = None
+    cache_generation: int | None = None
+    # Cache synchronization is deliberately limited to the local TTLCache and
+    # generation snapshot. The remote SQL query runs without this lock.
     if not no_cache:
         effective_cache_tag = cache_tag or _request_cache_tag.get()
         cache_key = _get_cache_key(query, params, tag=effective_cache_tag)
-        if cache_key in _query_cache:
-            logger.info(f"Cache hit - returned in {(time.time() - start_time)*1000:.0f}ms")
-            return _query_cache[cache_key]
+        with _query_cache_lock:
+            cache_generation = _query_cache_generation_for_key(cache_key)
+            if cache_key in _query_cache:
+                logger.info(f"Cache hit - returned in {(time.time() - start_time)*1000:.0f}ms")
+                return _query_cache[cache_key]
 
     def _run(force_sp: bool = False) -> list[dict[str, Any]]:
         """Execute the query. force_sp=True forces SP identity for this call."""
@@ -2068,11 +2164,12 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
         else:
             raise
 
-    # Cache the result (TTLCache handles expiration automatically)
-    if not no_cache:
-        effective_cache_tag = cache_tag or _request_cache_tag.get()
-        cache_key = _get_cache_key(query, params, tag=effective_cache_tag)
-        _query_cache[cache_key] = result
+    if cache_key is not None and cache_generation is not None:
+        with _query_cache_lock:
+            if _query_cache_generation_for_key(cache_key) == cache_generation:
+                _query_cache[cache_key] = result
+            else:
+                logger.info("Rejected stale in-process cache write after invalidation")
     elapsed = time.time() - start_time
     _sql_tag = " ".join(query.split())[:60]
     logger.info(f"Query [{_sql_tag}] executed in {elapsed:.2f}s ({len(result)} rows)")

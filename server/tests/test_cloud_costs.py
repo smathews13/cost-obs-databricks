@@ -4,7 +4,7 @@ import asyncio
 from unittest.mock import patch
 
 from server.cloud_pricing import get_instance_family
-from server.routers import billing
+from server.routers import aws_actual, azure_actual, billing, gcp_actual
 
 
 def _ok(rows):
@@ -92,7 +92,7 @@ def test_infra_bundle_explains_empty_filtered_date_range():
     assert "workspace filter and date range" in costs["reason_detail"]
 
 
-def test_infra_bundle_reports_partial_metadata_and_prices_only_complete_rows():
+def test_infra_bundle_keeps_dbus_but_never_invents_vm_currency_cost():
     result, cache_put = _run_bundle(
         {
             "clusters": _ok(
@@ -144,10 +144,14 @@ def test_infra_bundle_reports_partial_metadata_and_prices_only_complete_rows():
     assert costs["available"] is True
     assert costs["availability"] == "partial"
     assert costs["reason"] == "metadata_partial"
-    assert [row["cluster_id"] for row in costs["clusters"]] == ["complete"]
-    assert costs["total_dbu_hours"] == 10
-    # Unknown but present instance types retain the documented fallback price.
-    assert costs["total_estimated_cost"] == 7.5
+    assert [row["cluster_id"] for row in costs["clusters"]] == [
+        "complete",
+        "missing-driver",
+    ]
+    assert costs["total_dbu_hours"] == 15
+    assert costs["total_estimated_cost"] is None
+    assert costs["currency_estimate_available"] is False
+    assert all(row["estimated_cost"] is None for row in costs["clusters"])
     assert costs["metadata_quality"] == {
         "total_rows": 2,
         "priced_rows": 1,
@@ -160,16 +164,13 @@ def test_infra_bundle_reports_partial_metadata_and_prices_only_complete_rows():
     assert timeseries["availability"] == "partial"
     assert timeseries["reason"] == "metadata_partial"
     assert timeseries["timeseries"] == [
-        {
-            "date": "2026-08-01",
-            "Infrastructure Cost": 7.5,
-            "total_dbu_hours": 10.0,
-        }
+        {"date": "2026-08-01", "total_dbu_hours": 15.0}
     ]
+    assert timeseries["currency_estimate_available"] is False
     cache_put.assert_called_once()
 
 
-def test_infra_bundle_marks_all_missing_instance_metadata_unavailable():
+def test_infra_bundle_keeps_cluster_dbus_when_instance_metadata_is_missing():
     result, _ = _run_bundle(
         {
             "clusters": _ok(
@@ -202,20 +203,22 @@ def test_infra_bundle_marks_all_missing_instance_metadata_unavailable():
     )
 
     costs = result["infra_costs"]
-    assert costs["available"] is False
-    assert costs["availability"] == "unavailable"
+    assert costs["available"] is True
+    assert costs["availability"] == "partial"
     assert costs["error_kind"] == "metadata"
-    assert costs["reason"] == "metadata_unavailable"
-    assert costs["clusters"] == []
-    assert costs["total_estimated_cost"] == 0
-    assert "no rows had both driver and worker" in costs["reason_detail"]
+    assert costs["reason"] == "metadata_partial"
+    assert len(costs["clusters"]) == 1
+    assert costs["clusters"][0]["total_dbu_hours"] == 8
+    assert costs["total_estimated_cost"] is None
 
     timeseries = result["infra_timeseries"]
-    assert timeseries["available"] is False
-    assert timeseries["availability"] == "unavailable"
+    assert timeseries["available"] is True
+    assert timeseries["availability"] == "partial"
     assert timeseries["error_kind"] == "metadata"
-    assert timeseries["reason"] == "metadata_unavailable"
-    assert timeseries["timeseries"] == []
+    assert timeseries["reason"] == "metadata_partial"
+    assert timeseries["timeseries"] == [
+        {"date": "2026-08-01", "total_dbu_hours": 8.0}
+    ]
 
 
 def test_infra_summary_detail_and_timeseries_share_classic_dlt_scope():
@@ -271,4 +274,31 @@ def test_infra_query_errors_classify_permission_and_metadata_failures():
             "[TABLE_OR_VIEW_NOT_FOUND] system.compute.clusters"
         )
         == "metadata"
+    )
+
+
+def test_actual_cost_queries_include_the_selected_end_date():
+    aws_queries = [
+        aws_actual.AWS_ACTUAL_SUMMARY,
+        aws_actual.AWS_COSTS_BY_CLUSTER,
+        aws_actual.AWS_COSTS_BY_CHARGE_TYPE,
+        aws_actual.AWS_COSTS_TIMESERIES,
+    ]
+    azure_queries = [
+        azure_actual.AZURE_ACTUAL_SUMMARY,
+        azure_actual.AZURE_COSTS_BY_CLUSTER,
+        azure_actual.AZURE_COSTS_BY_CHARGE_TYPE,
+        azure_actual.AZURE_COSTS_TIMESERIES,
+    ]
+    gcp_queries = [
+        gcp_actual.GCP_ACTUAL_SUMMARY,
+        gcp_actual.GCP_COSTS_BY_SERVICE,
+        gcp_actual.GCP_COSTS_BY_PROJECT,
+        gcp_actual.GCP_COSTS_BY_SKU,
+        gcp_actual.GCP_COSTS_TIMESERIES,
+    ]
+
+    assert all("usage_date <= :end_date" in sql for sql in aws_queries + azure_queries)
+    assert all(
+        "DATE(usage_start_time) <= :end_date" in sql for sql in gcp_queries
     )

@@ -6,9 +6,10 @@ import logging
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from typing import Any
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 # Matches standard Databricks service principal UUID format
 _SP_UUID_RE = re.compile(
@@ -189,7 +190,6 @@ def _extract_app_metadata(app: Any, availability: str = "available") -> dict[str
         ),
         "git": git_metadata,
         "space": str(getattr(app, "space", None) or ""),
-        "has_thumbnail": bool(thumbnail_url),
         # Used only by the server-side image proxy; stripped from bundle output.
         "_thumbnail_source_url": thumbnail_url,
     }
@@ -201,6 +201,25 @@ def _public_app_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
         for key, value in (metadata or {}).items()
         if not key.startswith("_")
     }
+
+
+def _public_thumbnail_url(
+    app_id: str,
+    is_registered: bool,
+    metadata: dict[str, Any],
+    registry_entry: dict[str, Any],
+) -> str | None:
+    """Return the one client-facing thumbnail contract.
+
+    A registered app with either an explicit registry thumbnail or a trusted app
+    endpoint can be resolved by the proxy. The proxy probes conventional static
+    icon paths and returns a generated fallback instead of leaking a 404.
+    """
+    if not is_registered:
+        return None
+    if not (metadata.get("_thumbnail_source_url") or registry_entry.get("url")):
+        return None
+    return f"/api/apps/thumbnail?app_id={quote(str(app_id), safe='')}"
 
 
 def _get_app_registry() -> dict[str, dict[str, Any]]:
@@ -245,6 +264,9 @@ def _get_app_registry() -> dict[str, dict[str, Any]]:
 _app_details_cache: dict[str, dict[str, Any]] = {}
 _app_details_cache_time: float = 0
 APP_RESOURCES_CACHE_TTL = 1800  # 30 minutes — SDK calls are expensive
+_app_details_refresh_lock = threading.Lock()
+_app_details_refresh_inflight: threading.Event | None = None
+_APP_DETAILS_MAX_WORKERS = 6
 
 
 def _resource_binding(resource: Any) -> dict[str, str]:
@@ -328,9 +350,8 @@ def _get_app_details(
 ) -> dict[str, dict[str, Any]]:
     """Fetch and cache full safe metadata/resources via the existing get calls.
 
-    Sequential fetch with per-app error isolation — the SDK client is not safe
-    to share across concurrent threads, so we iterate serially with a 30s
-    total budget enforced by the asyncio.wait_for() wrapper in the endpoint.
+    Uses bounded parallel fetches and one shared refresh flight. Concurrent
+    requests either reuse the fresh cache or wait for the same refresh.
     """
     global _app_details_cache, _app_details_cache_time
 
@@ -342,20 +363,48 @@ def _get_app_details(
     if not registry:
         return _app_details_cache
 
+    global _app_details_refresh_inflight
+    leader = False
+    with _app_details_refresh_lock:
+        now = time.time()
+        if _app_details_cache and (now - _app_details_cache_time) < APP_RESOURCES_CACHE_TTL:
+            return _app_details_cache
+        if _app_details_refresh_inflight is None:
+            _app_details_refresh_inflight = threading.Event()
+            leader = True
+        inflight = _app_details_refresh_inflight
+
+    if not leader:
+        inflight.wait(timeout=30.0)
+        return _app_details_cache
+
     try:
         w = get_workspace_client()
         details_by_app: dict[str, dict[str, Any]] = {}
-        for app_id, entry in registry.items():
-            detail_id, detail = _fetch_one_app_details(w, app_id, entry)
-            details_by_app[detail_id] = detail
+        with ThreadPoolExecutor(
+            max_workers=min(_APP_DETAILS_MAX_WORKERS, max(1, len(registry))),
+            thread_name_prefix="apps-detail",
+        ) as executor:
+            futures = {
+                executor.submit(_fetch_one_app_details, w, app_id, entry): app_id
+                for app_id, entry in registry.items()
+            }
+            for future in as_completed(futures):
+                detail_id, detail = future.result()
+                details_by_app[detail_id] = detail
 
         _app_details_cache = details_by_app
-        _app_details_cache_time = now
+        _app_details_cache_time = time.time()
         logger.info("Refreshed app details cache: %d apps", len(details_by_app))
         return details_by_app
     except Exception as e:
         logger.warning("Failed to fetch app details: %s", e)
         return _app_details_cache
+    finally:
+        with _app_details_refresh_lock:
+            if _app_details_refresh_inflight is not None:
+                _app_details_refresh_inflight.set()
+            _app_details_refresh_inflight = None
 
 
 def _get_app_resources() -> dict[str, list[dict[str, str]]]:
@@ -1087,10 +1136,17 @@ def _compute_apps_bundle(
                     "deployment": None,
                     "source_code_path": "",
                     "git": None,
-                    "has_thumbnail": False,
+                    "thumbnail_url": None,
                 }
             workspace_ids = app_workspace_map.get(app_id, [])
-            app["metadata"] = _public_app_metadata(metadata)
+            public_metadata = _public_app_metadata(metadata)
+            public_metadata["thumbnail_url"] = _public_thumbnail_url(
+                str(app_id),
+                bool(app.get("is_registered")),
+                metadata,
+                registry.get(app_id, {}),
+            )
+            app["metadata"] = public_metadata
             app["resource_bindings"] = list(detail.get("resources") or [])
             app["workspaces"] = [
                 {"id": ws_id, "name": all_workspaces.get(ws_id, ws_id)}
@@ -1503,6 +1559,23 @@ _THUMBNAIL_PATHS = [
 ]
 
 
+def _normalized_https_origin(url: str) -> tuple[str, str, int] | None:
+    """Return an exact normalized HTTPS origin, including effective port."""
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return None
+    try:
+        port = parsed.port or 443
+    except ValueError:
+        return None
+    return ("https", parsed.hostname.rstrip(".").lower(), port)
+
+
 @router.get("/thumbnail")
 async def get_app_thumbnail(
     app_id: str = Query(..., description="App UUID"),
@@ -1532,29 +1605,21 @@ async def get_app_thumbnail(
         app_url = f"https://{app_url}"
 
     workspace_host = ""
-    workspace_auth_headers: dict[str, str] = {}
+    workspace_client = None
     try:
-        w = get_workspace_client()
-        workspace_host = str(getattr(w.config, "host", None) or "").rstrip("/")
+        workspace_client = get_workspace_client()
+        workspace_host = str(
+            getattr(workspace_client.config, "host", None) or ""
+        ).rstrip("/")
         if workspace_host and "://" not in workspace_host:
             workspace_host = f"https://{workspace_host}"
-        authenticate = getattr(w.config, "authenticate", None)
-        if callable(authenticate):
-            authenticated = authenticate() or {}
-            authorization = authenticated.get("Authorization") or authenticated.get("authorization")
-            if authorization:
-                workspace_auth_headers = {"Authorization": str(authorization)}
-        if not workspace_auth_headers:
-            token = str(getattr(w.config, "token", None) or "")
-            if token:
-                workspace_auth_headers = {"Authorization": f"Bearer {token}"}
     except Exception:
         pass
 
-    trusted_hosts = {
-        parsed.hostname
-        for parsed in (urlsplit(workspace_host), urlsplit(app_url))
-        if parsed.scheme == "https" and parsed.hostname
+    workspace_origin = _normalized_https_origin(workspace_host)
+    app_origin = _normalized_https_origin(app_url)
+    trusted_origins = {
+        origin for origin in (workspace_origin, app_origin) if origin is not None
     }
     targets: list[tuple[str, bool]] = []
     metadata = (
@@ -1569,43 +1634,96 @@ async def get_app_thumbnail(
             if thumbnail_source.startswith("/") and workspace_host
             else thumbnail_source
         )
-        parsed = urlsplit(target)
-        if parsed.scheme == "https" and parsed.hostname in trusted_hosts:
-            targets.append((target, parsed.hostname == urlsplit(workspace_host).hostname))
+        target_origin = _normalized_https_origin(target)
+        if target_origin in trusted_origins:
+            targets.append((target, target_origin == workspace_origin))
 
     # Older apps may not expose thumbnail_url. Probe conventional static assets,
     # but only on the exact app hostname returned by the trusted Apps API.
-    parsed_app = urlsplit(app_url)
-    if parsed_app.scheme == "https" and parsed_app.hostname in trusted_hosts:
+    if app_origin in trusted_origins:
         targets.extend((f"{app_url.rstrip('/')}{path}", False) for path in _THUMBNAIL_PATHS)
+
+    def _workspace_auth_headers() -> dict[str, str]:
+        # Called only after the target's exact scheme/hostname/port has matched
+        # the configured workspace origin.
+        if workspace_client is None:
+            return {}
+        authenticate = getattr(workspace_client.config, "authenticate", None)
+        if callable(authenticate):
+            authenticated = authenticate() or {}
+            authorization = authenticated.get("Authorization") or authenticated.get("authorization")
+            if authorization:
+                return {"Authorization": str(authorization)}
+        token = str(getattr(workspace_client.config, "token", None) or "")
+        return {"Authorization": f"Bearer {token}"} if token else {}
 
     async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
         for target, workspace_auth_allowed in targets:
             auth_attempts = [{}]
-            if workspace_auth_allowed and workspace_auth_headers:
-                auth_attempts.append(workspace_auth_headers)
+            if workspace_auth_allowed:
+                auth_attempts.append(None)
             for headers in auth_attempts:
                 try:
-                    resp = await client.get(target, headers=headers)
-                    content_type = resp.headers.get("content-type", "").split(";", 1)[0].lower()
-                    if (
-                        resp.status_code == 200
-                        and content_type in _ALLOWED_IMAGE_TYPES
-                        and 16 <= len(resp.content) <= MAX_THUMBNAIL_BYTES
-                    ):
-                        _thumbnail_cache[app_id] = resp.content
+                    request_headers = (
+                        _workspace_auth_headers() if headers is None else headers
+                    )
+                    if headers is None and not request_headers:
+                        continue
+                    async with client.stream(
+                        "GET", target, headers=request_headers
+                    ) as resp:
+                        content_type = (
+                            resp.headers.get("content-type", "")
+                            .split(";", 1)[0]
+                            .lower()
+                        )
+                        content_length = resp.headers.get("content-length")
+                        if (
+                            resp.status_code != 200
+                            or content_type not in _ALLOWED_IMAGE_TYPES
+                            or (
+                                content_length
+                                and int(content_length) > MAX_THUMBNAIL_BYTES
+                            )
+                        ):
+                            continue
+                        chunks: list[bytes] = []
+                        size = 0
+                        exceeded = False
+                        async for chunk in resp.aiter_bytes():
+                            size += len(chunk)
+                            if size > MAX_THUMBNAIL_BYTES:
+                                exceeded = True
+                                break
+                            chunks.append(chunk)
+                        if exceeded or size < 16:
+                            continue
+                        content = b"".join(chunks)
+                        _thumbnail_cache[app_id] = content
                         _thumbnail_cache_time[app_id] = now
                         _thumbnail_cache_content_type[app_id] = content_type
                         logger.info("Thumbnail found for app %s", entry.get("name"))
-                        return Response(content=resp.content, media_type=content_type)
+                        return Response(content=content, media_type=content_type)
+                except (TypeError, ValueError):
+                    continue
                 except Exception as e:
                     logger.debug("Thumbnail fetch failed for app %s: %s", entry.get("name"), e)
                     continue
 
-    logger.info("No thumbnail found for app %s (%s)", entry.get("name"), app_url)
-    _thumbnail_cache[app_id] = None
+    logger.info("No custom thumbnail found for app %s (%s); using fallback", entry.get("name"), app_url)
+    label = str(entry.get("name") or app_id or "?").strip()[:1].upper() or "?"
+    if not label.isalnum():
+        label = "?"
+    fallback = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">'
+        '<rect width="96" height="96" rx="12" fill="#2272B4"/>'
+        f'<text x="48" y="61" text-anchor="middle" font-family="Arial,sans-serif" '
+        f'font-size="42" font-weight="700" fill="white">{label}</text></svg>'
+    ).encode("utf-8")
+    _thumbnail_cache[app_id] = fallback
     _thumbnail_cache_time[app_id] = now
-    return Response(status_code=404)
+    _thumbnail_cache_content_type[app_id] = "image/svg+xml"
+    return Response(content=fallback, media_type="image/svg+xml")
 
 
 # ── Connected artifacts ──────────────────────────────────────────────
@@ -1613,8 +1731,23 @@ async def get_app_thumbnail(
 @router.get("/connected-artifacts")
 async def get_connected_artifacts() -> dict[str, Any]:
     """Get connected artifacts (serving endpoints, warehouses, etc.) for all apps."""
-    registry = _get_app_registry()
-    resources_by_app = _get_app_resources()
+    try:
+        registry, resources_by_app = await asyncio.wait_for(
+            asyncio.to_thread(
+                lambda: (_get_app_registry(), _get_app_resources())
+            ),
+            timeout=30.0,
+        )
+        stale = False
+    except asyncio.TimeoutError:
+        registry = dict(_app_name_cache)
+        resources_by_app = {
+            str(entry.get("name") or app_id): list(
+                _app_details_cache.get(app_id, {}).get("resources") or []
+            )
+            for app_id, entry in registry.items()
+        }
+        stale = True
 
     artifacts: list[dict[str, Any]] = []
     for uid, entry in registry.items():
@@ -1632,4 +1765,5 @@ async def get_connected_artifacts() -> dict[str, Any]:
     return {
         "artifacts": artifacts,
         "count": len(artifacts),
+        "stale": stale,
     }

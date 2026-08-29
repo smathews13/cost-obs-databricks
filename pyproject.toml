@@ -1,6 +1,6 @@
 [project]
 name = "cost-observability-control"
-version = "1.0.0"
+version = "1.2.0"
 description = "Cost Observability & Control - Databricks compute consumption and spend analytics"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,7 +15,6 @@ dependencies = [
     "python-multipart>=0.0.9",
     "pymupdf>=1.25.0",
     "python-docx>=1.1.0",
-    "psycopg[binary,pool]>=3.2.0",
 ]
 
 [project.optional-dependencies]

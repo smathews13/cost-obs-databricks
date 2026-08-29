@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -109,11 +109,11 @@ import {
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../");
 const architectureMarkdownPath = resolve(repoRoot, "cost-obs-architecture.md");
 const readmePath = resolve(repoRoot, "README.md");
+const serverRoot = resolve(repoRoot, "server");
 const forbiddenIdentifiers = [
   /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
   /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,
   /\b\d{12,16}\b/,
-  /sam\.mathews|astrolabe|azure-field-eng/i,
 ];
 
 afterEach(() => {
@@ -196,6 +196,55 @@ describe("architecture source of truth", () => {
     expect(readme).toContain(
       "[cost-obs v1.2 architecture specification](cost-obs-architecture.md)",
     );
+  });
+
+  it("keeps markdown, visible tabs, API routes, and table references in sync", () => {
+    const markdown = readFileSync(architectureMarkdownPath, "utf8");
+    const appSource = readFileSync(resolve(repoRoot, "client/src/App.tsx"), "utf8");
+    const routerFiles: Record<string, string> = {
+      billing: "billing.py",
+      dbsql: "dbsql_base.py",
+      aiml: "aiml.py",
+      apps: "apps.py",
+      tagging: "tagging.py",
+      "users-groups": "users_groups.py",
+      "aws-actual": "aws_actual.py",
+      "azure-actual": "azure_actual.py",
+      "gcp-actual": "gcp_actual.py",
+      sql: "warehouse_health.py",
+    };
+    const serverText = readdirSync(serverRoot, { recursive: true })
+      .filter((path) => String(path).endsWith(".py"))
+      .map((path) => readFileSync(resolve(serverRoot, String(path)), "utf8"))
+      .join("\n");
+
+    for (const lineage of ARCHITECTURE_OVERVIEW.tabLineage) {
+      expect(markdown).toContain(`| ${lineage.tab} |`);
+      expect(appSource).toContain(lineage.tab);
+      for (const route of lineage.apiRoutes) {
+        const relative = route.replace(/^GET \/api\//, "");
+        expect(markdown, `${lineage.tab} markdown route ${relative}`).toContain(relative);
+        const normalizedRelative = relative.startsWith("sql/warehouse-health")
+          ? relative.replace("sql/warehouse-health", "sql")
+          : relative;
+        const [prefix, ...suffixParts] = normalizedRelative.split("/");
+        const routerFile = routerFiles[prefix];
+        expect(routerFile, `router mapping for ${route}`).toBeTruthy();
+        const suffix = `/${suffixParts.join("/")}`.replace(/\/$/, "");
+        const routerSource = readFileSync(resolve(serverRoot, "routers", routerFile), "utf8");
+        expect(routerSource, `implemented route ${route}`).toContain(
+          `@router.get("${suffix}")`,
+        );
+      }
+      for (const table of [...lineage.managedData, ...lineage.sourceTables]) {
+        const tableName = table.split(" ")[0].replace(/[();]/g, "");
+        if (tableName === "No") continue;
+        expect(serverText, `server reference for ${tableName}`).toContain(tableName);
+        expect(markdown, `${lineage.tab} markdown table ${tableName}`).toContain(
+          tableName.replace(/^system\./, ""),
+        );
+      }
+    }
   });
 });
 

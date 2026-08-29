@@ -328,15 +328,15 @@ export const ARCHITECTURE_OVERVIEW: ArchitectureOverview = {
         "GET /api/gcp-actual/dashboard-bundle",
         "GET /api/billing/kpi-trend",
       ],
-      managedData: ["app_response_cache (bundle cache; estimates are live)"],
+      managedData: ["app_response_cache (bundle cache; cluster and DBU analytics are live)"],
       sourceTables: [
         "system.billing.usage",
         "system.compute.clusters",
         "system.access.workspaces_latest",
       ],
       fallbacks: [
-        "Estimated infrastructure cost remains available when no cloud billing export is configured.",
-        "Rows with missing instance metadata or pricing are marked unavailable instead of being treated as valid estimates.",
+        "Cluster and DBU analytics remain available when no cloud billing export is configured.",
+        "Currency costs are unavailable until an AWS, Azure, or GCP billing export is configured; DBUs are not treated as VM node-hours.",
       ],
       optionalSources: [
         "AWS Cost and Usage Report aggregate: configurable <catalog>.<schema>.actuals_gold.",

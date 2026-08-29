@@ -35,6 +35,10 @@ import {
   PDF_SLATE,
   PDF_WHITE,
 } from "./pdfBrand";
+import {
+  anonymizeExportPayload,
+  type CostExportContext,
+} from "./identity";
 
 // Optimize tab exports: pulled from /api/sql/warehouse-health and
 // /api/sql/warehouse-health/idle-time; kept structural so the two views
@@ -245,9 +249,25 @@ export interface ExportData {
   optimize: OptimizeExport | undefined;
   dateRange: { start: string; end: string };
   workspaceFilter?: { ids: string[]; names?: string[] };
+  context?: CostExportContext;
+}
+
+export function costReportContextLines(context?: CostExportContext): string[] {
+  const lines: string[] = [];
+  const companyName = context?.companyName?.trim();
+  if (companyName) lines.push(`Company: ${companyName}`);
+  lines.push(
+    `Data source scope: ${context?.sourceLabels?.length
+      ? context.sourceLabels.join(", ")
+      : "All configured sources"}`,
+  );
+  const cloudProvider = context?.cloudProvider?.trim();
+  lines.push(`Cloud provider: ${cloudProvider ? cloudProvider.toUpperCase() : "Unknown"}`);
+  return lines;
 }
 
 export async function generateCostReport(data: ExportData, sections?: ExportSections): Promise<void> {
+  data = anonymizeExportPayload(data, Boolean(data.context?.anonymizeUsers));
   const brandAssets = await loadPdfBrandAssets();
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.width;
@@ -272,8 +292,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
     optimize: true,
   };
   const hasCloudCosts = Boolean(data.awsCosts && (
-    data.awsCosts.total_estimated_cost > 0
-    || data.awsCosts.clusters?.length
+    data.awsCosts.clusters?.length
     || data.awsCosts.instance_families?.length
   ));
   const hasAiml = Boolean(data.aiml && (
@@ -347,6 +366,11 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
     ? `Workspace filter: ${data.workspaceFilter.names?.length ? data.workspaceFilter.names.join(", ") : data.workspaceFilter.ids.join(", ")}`
     : "Workspace filter: All workspaces (account-wide)";
   doc.text(wfLabel, 14, yPos);
+  yPos += 5;
+  for (const contextLine of costReportContextLines(data.context)) {
+    doc.text(contextLine, 14, yPos);
+    yPos += 5;
+  }
   doc.setTextColor(PDF_BODY[0], PDF_BODY[1], PDF_BODY[2]);
   yPos += 12;
 
@@ -570,7 +594,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
     yPos = getLastTableY(doc) + 12;
   }
 
-  // AWS Infrastructure
+  // Cloud infrastructure metadata (currency requires a billing integration)
   if (includeSections.awsCosts && data.awsCosts && hasCloudCosts) {
     doc.addPage();
     yPos = 20;
@@ -585,13 +609,13 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.text(
-      `Total Estimated AWS Cost: ${formatCurrency(data.awsCosts.total_estimated_cost)}`,
+      "Cloud VM currency cost: Unavailable without authoritative node-hours or a cloud billing integration",
       14,
       yPos
     );
     yPos += 5;
     doc.text(
-      `Based on ${formatNumber(data.awsCosts.total_dbu_hours)} DBU hours across ${data.awsCosts.clusters.length} clusters`,
+      `${formatNumber(data.awsCosts.total_dbu_hours)} Databricks DBUs across ${data.awsCosts.clusters.length} clusters`,
       14,
       yPos
     );
@@ -610,7 +634,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
       doc.setFontSize(12);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
-      doc.text("Top 10 Clusters by AWS Cost", 14, yPos);
+      doc.text("Top 10 Clusters by Databricks DBUs", 14, yPos);
       doc.setTextColor(0, 0, 0);
       yPos += 6;
 
@@ -620,13 +644,13 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
           : c.cluster_name || c.cluster_id || "Unknown",
         c.driver_instance_type || "-",
         c.worker_instance_type || "-",
-        formatCurrency(c.estimated_aws_cost),
+        "Unavailable",
         formatNumber(c.total_dbu_hours),
       ]);
 
       autoTable(doc, {
         startY: yPos,
-        head: [["Cluster", "Driver Type", "Worker Type", "AWS Cost", "DBU Hrs"]],
+        head: [["Cluster", "Driver Type", "Worker Type", "VM Cost", "DBUs"]],
         body: clusterData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 8 },

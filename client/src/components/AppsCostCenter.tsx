@@ -94,10 +94,10 @@ function AppThumbnail({
 
   useEffect(() => setFailed(false), [app.app_id]);
 
-  if (app.is_registered && app.metadata?.has_thumbnail !== false && !failed) {
+  if (app.metadata?.thumbnail_url && !failed) {
     return (
       <img
-        src={`/api/apps/thumbnail?app_id=${encodeURIComponent(app.app_id)}`}
+        src={app.metadata.thumbnail_url}
         alt={`${app.app_name} icon`}
         className="rounded-md object-cover"
         style={{ width: size, height: size }}
@@ -173,7 +173,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
   });
 
   const [selectedKPI, setSelectedKPI] = useState<{kpi: string; label: string} | null>(null);
-  const [selectedApp, setSelectedApp] = useState<AppsApp | null>(null);
+  const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedWorkspaces, setSelectedWorkspaces] = useState<string[]>([]);
   const selectedWorkspacesSeen = useRef<Set<string>>(new Set());
@@ -357,7 +357,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
     // workspace_names is [] whenever there's no APPS billing to map from).
     const isPartial = selectedWorkspaces.length > 0
       && selectedWorkspaces.length < availableWorkspaces.length;
-    let apps = !isPartial
+    const apps = !isPartial
       ? data.apps.apps
       : data.apps.apps.filter(a =>
           (!a.workspaces?.length && !a.workspace_names?.length)
@@ -374,6 +374,12 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
         || a.metadata?.creator?.toLowerCase().includes(q)
     );
   }, [data?.apps, searchQuery, selectedWorkspaces.length, selectedWorkspaceIds, availableWorkspaces.length]);
+  const selectedApp = selectedAppId
+    ? data?.apps?.apps?.find((app) => app.app_id === selectedAppId) ?? null
+    : null;
+  const selectedUnavailable = Boolean(
+    selectedAppId && data?.apps?.apps && !selectedApp,
+  );
 
   // Reset to page 1 whenever filters change
   useEffect(() => {
@@ -724,7 +730,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
       )}
 
       {/* App Grid: each app is a clickable tile */}
-      {appsData.apps.length > 0 && (
+      {(appsData.apps.length > 0 || selectedUnavailable) && (
       <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="shrink-0 text-lg font-semibold text-gray-900">
@@ -833,7 +839,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
             </div>
             {selectedApp && (
               <button
-                onClick={() => setSelectedApp(null)}
+                onClick={() => setSelectedAppId(null)}
                 className="text-xs text-gray-500 hover:text-gray-700"
               >
                 ← Back to grid
@@ -874,6 +880,12 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
               </span>
             </div>
           )
+        )}
+        {selectedUnavailable && (
+          <div role="status" className="mb-4 flex items-center justify-between gap-3 rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
+            <span>The selected app is no longer available in the current date, workspace, or source scope.</span>
+            <button type="button" onClick={() => setSelectedAppId(null)} className="font-semibold underline">Dismiss</button>
+          </div>
         )}
 
         {/* Detail panel: shown when an app is selected */}
@@ -937,7 +949,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
                 </div>
               </div>
               <button
-                onClick={() => setSelectedApp(null)}
+                onClick={() => setSelectedAppId(null)}
                 className="rounded p-1 text-gray-500 hover:bg-gray-200 hover:text-gray-600"
               >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1104,7 +1116,9 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
               return (
                 <button
                   key={app.app_id}
-                  onClick={() => setSelectedApp(isSelected ? null : app)}
+                  onClick={() => {
+                    setSelectedAppId(isSelected ? null : app.app_id);
+                  }}
                   className={`group relative flex flex-col items-center justify-center rounded-lg border-2 p-2.5 transition-all hover:shadow-md ${
                     isSelected
                       ? "border-lava shadow-md scale-105"
@@ -1196,7 +1210,10 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
             {/* Single toolbar row: title · filters · search */}
             <div className="mb-4 flex flex-wrap items-center gap-2">
-              <h3 className="mr-2 text-lg font-semibold text-gray-900 shrink-0">Connected Resources</h3>
+              <div className="mr-2 shrink-0">
+                <h3 className="text-lg font-semibold text-gray-900">Connected Resources</h3>
+                <p className="text-[11px] text-gray-500">Current Apps registry metadata · account-wide, not filtered by date, workspace, or source</p>
+              </div>
 
               <div className="ml-auto flex shrink-0 items-center gap-2">
 

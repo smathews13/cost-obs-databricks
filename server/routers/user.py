@@ -4,8 +4,10 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, Request
 
@@ -30,6 +32,83 @@ _sp_cache_at: float = 0.0
 _sp_cache_ok: bool = False
 _SP_CACHE_TTL = 24 * 3600  # 24 hours on success
 _SP_CACHE_FAIL_TTL = 300   # 5 minutes on failure — retry sooner
+
+_DEFAULT_FEEDBACK_ISSUE_URL = (
+    "https://github.com/smathews13/cost-obs-databricks-v1.0/issues/new"
+)
+_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_SLACK_TEAM_PATTERN = re.compile(r"^T[A-Z0-9]{8,}$")
+_SLACK_MEMBER_PATTERN = re.compile(r"^[UW][A-Z0-9]{8,}$")
+
+
+def _safe_https_url(value: str, *, host: str | None = None) -> str | None:
+    candidate = value.strip()
+    if not candidate:
+        return None
+    parsed = urlparse(candidate)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or (host and parsed.hostname != host)
+    ):
+        return None
+    return candidate
+
+
+def _safe_slack_web_url(value: str) -> str | None:
+    candidate = _safe_https_url(value)
+    if not candidate:
+        return None
+    parsed = urlparse(candidate)
+    hostname = parsed.hostname or ""
+    if (
+        not hostname.endswith(".slack.com")
+        or hostname == "hooks.slack.com"
+        or not parsed.path.startswith("/team/")
+    ):
+        return None
+    return candidate
+
+
+def _feedback_targets_from_env() -> dict[str, Any]:
+    """Return public feedback destinations only; never return webhook credentials."""
+    configured_issue_url = _safe_https_url(
+        os.getenv("COST_OBS_FEEDBACK_GITHUB_URL", ""),
+        host="github.com",
+    )
+    email = os.getenv("COST_OBS_FEEDBACK_EMAIL", "").strip()
+    email_href = (
+        f"mailto:{email}?subject={quote('cost-obs v1.2 feedback')}"
+        if _EMAIL_PATTERN.fullmatch(email)
+        else None
+    )
+
+    team_id = os.getenv("COST_OBS_FEEDBACK_SLACK_TEAM_ID", "").strip()
+    member_id = os.getenv("COST_OBS_FEEDBACK_SLACK_MEMBER_ID", "").strip()
+    slack_web_url = _safe_slack_web_url(
+        os.getenv("COST_OBS_FEEDBACK_SLACK_WEB_URL", "")
+    )
+    slack = None
+    if (
+        _SLACK_TEAM_PATTERN.fullmatch(team_id)
+        and _SLACK_MEMBER_PATTERN.fullmatch(member_id)
+        and slack_web_url
+    ):
+        slack = {
+            "team_id": team_id,
+            "member_id": member_id,
+            "web_url": slack_web_url,
+        }
+
+    return {
+        "github_issue_url": configured_issue_url or _DEFAULT_FEEDBACK_ISSUE_URL,
+        "email_href": email_href,
+        "slack": slack,
+    }
 
 
 def _collect_sp_names(sp_iter) -> dict[str, str]:
@@ -170,6 +249,12 @@ async def get_current_user(request: Request):
         "name": user_name,
         "role": _get_user_role(user_email),
     }
+
+
+@router.get("/feedback-targets")
+async def get_feedback_targets() -> dict[str, Any]:
+    """Expose customer-safe feedback links configured at app runtime."""
+    return _feedback_targets_from_env()
 
 
 @router.get("/service-principals")

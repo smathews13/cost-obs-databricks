@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query
+from server.db import execute_query, local_source_is_selected
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -51,7 +51,7 @@ SELECT
   COUNT(DISTINCT DATE(usage_date))            AS days_in_range
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
 """
 
 AZURE_COSTS_BY_CLUSTER = """
@@ -64,7 +64,7 @@ SELECT
   COUNT(DISTINCT DATE(usage_date))                                                    AS days_active
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
   AND usage_metadata.cluster_id IS NOT NULL
 GROUP BY usage_metadata.cluster_id
 ORDER BY total_cost DESC
@@ -78,7 +78,7 @@ SELECT
   COUNT(DISTINCT DATE(usage_date)) AS days_active
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
   AND usage_metadata.warehouse_id IS NOT NULL
 GROUP BY usage_metadata.warehouse_id
 ORDER BY total_cost DESC
@@ -92,7 +92,7 @@ SELECT
   SUM(cost_in_usd)              AS total_cost_usd
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
 GROUP BY charge_type
 ORDER BY total_cost DESC
 """
@@ -103,7 +103,7 @@ SELECT
   SUM(cost_in_billing_currency) AS total_cost
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
 GROUP BY pricing_model
 ORDER BY total_cost DESC
 """
@@ -115,7 +115,7 @@ SELECT
   SUM(cost_in_billing_currency) AS daily_cost
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
 GROUP BY DATE(usage_date), charge_type
 ORDER BY date
 """
@@ -125,6 +125,17 @@ ORDER BY date
 async def get_azure_status() -> dict[str, Any]:
     """Check if Azure cost tables are available (cached 5 min)."""
     catalog, schema = get_catalog_schema()
+    if not local_source_is_selected():
+        return {
+            "azure_available": False,
+            "available": False,
+            "scoped_out": True,
+            "reason": "source_scope_excludes_local",
+            "message": "Azure cost exports are configured locally and are unavailable in the selected shared-source scope.",
+            "catalog": None,
+            "schema": None,
+            "table": None,
+        }
 
     if _azure_status_cache["available"] is not None and (time.time() - _azure_status_cache["checked_at"]) < _AZURE_STATUS_TTL:
         available = _azure_status_cache["available"]
@@ -160,7 +171,14 @@ async def get_azure_actual_summary(
 
     status = await get_azure_status()
     if not status["azure_available"]:
-        return {"available": False, "message": "Azure cost data not configured.", "start_date": start_date, "end_date": end_date}
+        return {
+            "available": False,
+            "scoped_out": bool(status.get("scoped_out")),
+            "reason": status.get("reason"),
+            "message": status.get("message") or "Azure cost data not configured.",
+            "start_date": start_date,
+            "end_date": end_date,
+        }
 
     results = await asyncio.to_thread(execute_query,
         AZURE_ACTUAL_SUMMARY.format(catalog=catalog, schema=schema),
@@ -312,7 +330,14 @@ async def get_azure_actual_dashboard_bundle(
 
     status = await get_azure_status()
     if not status["azure_available"]:
-        return {"available": False, "message": "Azure cost data not configured", "start_date": start_date, "end_date": end_date}
+        return {
+            "available": False,
+            "scoped_out": bool(status.get("scoped_out")),
+            "reason": status.get("reason"),
+            "message": status.get("message") or "Azure cost data not configured",
+            "start_date": start_date,
+            "end_date": end_date,
+        }
 
     summary, by_cluster, by_charge_type, timeseries = await asyncio.gather(
         get_azure_actual_summary(start_date, end_date),

@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from server.routers import aiml, apps, aws_actual, azure_actual, gcp_actual, billing, dbsql, debug, health, permissions, settings, setup, tagging, user, users_groups, warehouse_health
+from server.version import APP_VERSION
 
 # Configure structured logging
 logging.basicConfig(
@@ -1114,7 +1115,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Cost Observability & Control (COC)",
     description="Cost observability and analytics control dashboard",
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 

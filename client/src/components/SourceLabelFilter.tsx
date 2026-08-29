@@ -62,6 +62,7 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
   );
   const [applying, setApplying] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [retrySelection, setRetrySelection] = useState<Set<string> | null>(null);
   const lastAppliedRef = useRef<string>(getActiveSourceScopeKey());
   const previousLabelsRef = useRef<string[]>([]);
   const selectedRef = useRef(selected);
@@ -77,8 +78,11 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
     // Skip the refetch when the effective selection hasn't changed (e.g. closing
     // the dropdown without edits).
     const key = [...effective].sort().join("");
-    if (key === lastAppliedRef.current) return;
-    lastAppliedRef.current = key;
+    if (key === lastAppliedRef.current && !err) return;
+    const previousEffective = getActiveSourceLabels();
+    const previousVisible = previousEffective.length
+      ? new Set(previousEffective)
+      : new Set(allLabels);
     // The shared module scope must change before the App invalidates/refetches.
     // Query functions read this value when they build their scoped API URL.
     setActiveSourceLabels(effective);
@@ -86,12 +90,28 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
     setErr(null);
     try {
       await onApplied?.();
+      lastAppliedRef.current = key;
+      selectedRef.current = new Set(next);
+      setSelected(new Set(next));
+      setRetrySelection(null);
     } catch {
-      setErr("Some data failed to refresh: try again.");
+      // The attempted request used `effective`. Restore both the module scope and
+      // visible selection, then refetch the prior scope so stale data is never
+      // presented as if the new filter succeeded.
+      setActiveSourceLabels(previousEffective);
+      selectedRef.current = previousVisible;
+      setSelected(previousVisible);
+      setRetrySelection(new Set(next));
+      setErr("Source filter was not applied because the refresh failed.");
+      try {
+        await onApplied?.();
+      } catch {
+        // Keep the original error visible; the Retry action remains available.
+      }
     } finally {
       setApplying(false);
     }
-  }, [allLabels, onApplied]);
+  }, [allLabels, err, onApplied]);
 
   // Keep the visible selection and the module-level applied scope synchronized
   // when shared sources are added or removed while the dashboard is open.
@@ -166,6 +186,14 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
+      {err && !open && (
+        <div role="alert" className="absolute right-0 top-full z-30 mt-2 flex w-72 items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 shadow-lg">
+          <span>{err}</span>
+          <button type="button" disabled={applying || !retrySelection} onClick={() => retrySelection && void apply(retrySelection)} className="shrink-0 font-semibold underline disabled:opacity-50">
+            Retry
+          </button>
+        </div>
+      )}
 
       {open && (
         <div className="co-filter-menu absolute right-0 z-20 mt-2 min-w-[220px] p-3">
@@ -191,7 +219,14 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
               );
             })}
           </div>
-          {err && <div className="mt-2 rounded bg-red-50 px-2 py-1 text-[11px] text-red-700">{err}</div>}
+          {err && (
+            <div role="alert" className="mt-2 flex items-center justify-between gap-2 rounded bg-red-50 px-2 py-1 text-[11px] text-red-700">
+              <span>{err}</span>
+              <button type="button" disabled={applying || !retrySelection} onClick={() => retrySelection && void apply(retrySelection)} className="font-semibold underline disabled:opacity-50">
+                Retry
+              </button>
+            </div>
+          )}
           <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-2">
             <span className="text-[11px] text-gray-500">{allSelected ? `All ${allLabels.length}` : `${selected.size} of ${allLabels.length}`} selected</span>
             <button

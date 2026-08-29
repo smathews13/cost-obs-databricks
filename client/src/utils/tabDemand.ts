@@ -57,3 +57,15 @@ export async function cancelRunningSubmitAndPollForTab(
     predicate: (query) => isRunningSubmitAndPollQuery(tab, query),
   });
 }
+
+export async function cancelExportPreparationQueries(
+  queryClient: QueryClient,
+  preserveTab?: DashboardTab,
+): Promise<void> {
+  const exportPollTabs = Object.keys(SUBMIT_AND_POLL_TAB_KEYS) as DashboardTab[];
+  await queryClient.cancelQueries({
+    predicate: (query) => exportPollTabs.some(
+      (tab) => tab !== preserveTab && isRunningSubmitAndPollQuery(tab, query),
+    ),
+  });
+}

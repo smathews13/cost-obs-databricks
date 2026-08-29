@@ -51,6 +51,27 @@ function getDefaultEndDate(): string {
 // unnecessary refetches on tab focus / component remount.
 const STALE_TIME = 5 * 60 * 1000;
 
+export function responsePayloadIssue(
+  payload: unknown,
+  requireAvailable = false,
+): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const record = payload as Record<string, unknown>;
+  for (const key of ["error", "_error"] as const) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+    if (value && typeof value === "object") return JSON.stringify(value);
+  }
+  if (requireAvailable && record.available === false) {
+    for (const key of ["reason_detail", "message", "reason"] as const) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) return value;
+    }
+    return "Required data is unavailable.";
+  }
+  return undefined;
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
@@ -61,7 +82,10 @@ async function fetchJson<T>(url: string): Promise<T> {
     } catch { /* ignore parse errors */ }
     throw new Error(detail);
   }
-  return response.json();
+  const data = await response.json() as T;
+  const issue = responsePayloadIssue(data);
+  if (issue) throw new Error(issue);
+  return data;
 }
 
 // Active MV source-label selection, set by the top-nav SourceLabelFilter. Empty
@@ -484,10 +508,9 @@ export async function fetchSubmitAndPoll<T>(
         } catch { /* ignore parse errors */ }
         throw new Error(detail);
       }
-      const data = await response.json() as T & { _error?: string };
-      if (data && typeof data === "object" && "_error" in data) {
-        throw new Error((data as { _error: string })._error || "Bundle compute failed");
-      }
+      const data = await response.json() as T;
+      const issue = responsePayloadIssue(data);
+      if (issue) throw new Error(issue);
       return data;
     }
   } catch (error) {
@@ -615,18 +638,7 @@ export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[
       return false;
     },
   });
-  const waitKey = JSON.stringify(scopedQueryKey("dbsql", "dashboard-bundle", dateRange, getWorkspaceScopeKey(workspaceIds)));
-  if (!result.isError && result.data?.available === false && !dbsqlUnavailableSince.has(waitKey)) {
-    dbsqlUnavailableSince.set(waitKey, Date.now());
-  }
-  const waitingForTable =
-    !!result.data &&
-    result.data.available === false &&
-    Date.now() - (dbsqlUnavailableSince.get(waitKey) ?? 0) < UNAVAILABLE_POLL_MS;
-  return {
-    ...result,
-    isLoading: !result.isError && (result.isLoading || waitingForTable),
-  };
+  return result;
 }
 
 export function useDBSQLTopQueries(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {

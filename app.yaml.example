@@ -28,11 +28,13 @@ env:
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: sql-warehouse
 
-  # Unity Catalog location for materialized views (defaults: main / cost_obs)
-  - name: COST_OBS_CATALOG
-    value: main
-  - name: COST_OBS_SCHEMA
-    value: cost_obs
+  # Optional: preconfigure a dedicated Unity Catalog location. Leave these
+  # commented for Git installs so the setup wizard can collect and validate
+  # the location. The app refuses the legacy main.cost_obs target.
+  # - name: COST_OBS_CATALOG
+  #   value: <your-dedicated-catalog>
+  # - name: COST_OBS_SCHEMA
+  #   value: <your-dedicated-schema>
 
   # Optional: uncomment to point at a specific warehouse instead of the resource above
   # - name: DATABRICKS_HTTP_PATH
@@ -47,6 +49,19 @@ env:
   #   value: projects/<project>/branches/<branch>/endpoints/<endpoint>
   # - name: PGHOST
   #   value: <lakebase-hostname>
+
+  # Optional public feedback destinations. Leave unset to use the public GitHub
+  # issue form only. These are public routing values, never webhook credentials.
+  # - name: COST_OBS_FEEDBACK_GITHUB_URL
+  #   value: https://github.com/<owner>/<repository>/issues/new
+  # - name: COST_OBS_FEEDBACK_EMAIL
+  #   value: <feedback-email>
+  # - name: COST_OBS_FEEDBACK_SLACK_TEAM_ID
+  #   value: <slack-team-id>
+  # - name: COST_OBS_FEEDBACK_SLACK_MEMBER_ID
+  #   value: <slack-member-id>
+  # - name: COST_OBS_FEEDBACK_SLACK_WEB_URL
+  #   value: <slack-member-web-url>
 
   # AWS / Azure actual cost tables (defaults: billing.aws / billing.azure)
   # - name: AWS_COST_CATALOG

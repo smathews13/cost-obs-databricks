@@ -568,6 +568,31 @@ button.rounded-full[class*="px-"] {
   color: var(--dm-text) !important;
 }
 
+/* Portaled account menu uses explicit tokens so its hard-coded light utility
+   classes cannot make text unreadable when the page is in dark mode. */
+.dark-mode .user-menu-panel {
+  background: var(--dm-surface) !important;
+  border-color: var(--dm-border) !important;
+  color: var(--dm-text) !important;
+}
+.dark-mode .user-menu-name,
+.dark-mode .user-menu-item {
+  color: var(--dm-text) !important;
+}
+.dark-mode .user-menu-secondary {
+  color: var(--dm-text-secondary) !important;
+}
+.dark-mode .user-menu-item:hover {
+  background: var(--dm-surface-raised) !important;
+}
+.dark-mode .user-menu-badge {
+  background: var(--dm-surface-raised) !important;
+  color: var(--dm-text-secondary) !important;
+}
+.dark-mode .user-menu-divider {
+  background: var(--dm-border) !important;
+}
+
 /* Page-level background (the min-h-screen wrapper in App.tsx uses inline style) */
 .dark-mode .min-h-screen {
   background-color: var(--dm-bg) !important;

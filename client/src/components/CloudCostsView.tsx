@@ -152,6 +152,21 @@ function getClusterUrl(host: string | null | undefined, clusterId: string | null
 
 type CloudProvider = "AWS" | "AZURE" | "GCP";
 
+function SortIndicator({
+  field,
+  activeField,
+  direction,
+}: {
+  field: SortField;
+  activeField: SortField;
+  direction: SortDirection;
+}) {
+  if (activeField !== field) {
+    return <span className="ml-1 text-gray-300">↕</span>;
+  }
+  return <span className="ml-1">{direction === "asc" ? "↑" : "↓"}</span>;
+}
+
 function getInstancePricingUrl(instanceType: string | null, cloud: CloudProvider): string {
   if (cloud === "AZURE") {
     if (!instanceType) return "https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/";
@@ -220,7 +235,6 @@ export function CloudCostsView({
   const [showHistoricalClusters, setShowHistoricalClusters] = useState(false);
   const [selectedKPI, setSelectedKPI] = useState<{kpi: string; label: string} | null>(null);
   const [selectedFamilies, setSelectedFamilies] = useState<Set<string>>(new Set());
-  useEffect(() => { setCurrentPage(1); }, [selectedFamilies]);
   const [tableFamily, setTableFamily] = useState<string[]>([]);
   const tableFamilySeen = useRef<Set<string>>(new Set());
   const [tableWorkspace, setTableWorkspace] = useState<string[]>([]);
@@ -300,7 +314,7 @@ export function CloudCostsView({
   const sourceKey = getActiveSourceScopeKey();
   useEffect(() => {
     if (!startDate || !endDate) return;
-    for (const kpi of ["infra_cost", "infra_clusters", "infra_dbu_hours", "avg_cost_per_cluster"]) {
+    for (const kpi of ["infra_clusters", "infra_dbu_hours"]) {
       queryClient.prefetchQuery({
         queryKey: ["infra-kpi-trend", kpi, startDate, endDate, "daily", wsKey, sourceKey],
         queryFn: async () => {
@@ -386,13 +400,6 @@ export function CloudCostsView({
     }
   };
 
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) {
-      return <span className="ml-1 text-gray-300">↕</span>;
-    }
-    return <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>;
-  };
-
   const showLoading = isLoading || infraLoading || (costMode === "actual" && (
     activeActualCloud === "AZURE" ? azureActualLoading :
     activeActualCloud === "GCP"   ? gcpActualLoading :
@@ -459,27 +466,21 @@ export function CloudCostsView({
     >
       {isAzure ? (
         <ul className="list-inside list-disc space-y-1">
-          <li>Estimates Azure VM consumption rates (East US, Linux) per node based on cluster instance types</li>
-          <li>Node uptime is derived from DBU hours. Clusters are billed for every node hour while running</li>
-          <li>Pricing uses Azure public rates from 2025 with East US as the baseline</li>
-          <li><strong>Not included:</strong> Managed Disk storage and outbound bandwidth</li>
-          <li>Actual costs may vary by region, SKU availability, and subscription discounts</li>
+          <li>Shows Databricks DBUs, active clusters, and Azure VM instance metadata</li>
+          <li>DBUs are not VM node-hours, so the app does not infer an Azure currency cost from them</li>
+          <li>Connect Azure Cost Management for authoritative VM, disk, and network costs</li>
         </ul>
       ) : isGCP ? (
         <ul className="list-inside list-disc space-y-1">
-          <li>Estimates Compute Engine consumption rates (us-central1, Linux) per node based on cluster machine types</li>
-          <li>Node uptime is derived from DBU hours. Clusters are billed for every node hour while running</li>
-          <li>Pricing uses GCP public rates from 2025 with us-central1 as the baseline</li>
-          <li><strong>Not included:</strong> Persistent Disk storage, egress charges, and Google Cloud Storage</li>
-          <li>Actual costs may vary by region, committed use discounts, and Spot VM usage</li>
+          <li>Shows Databricks DBUs, active clusters, and GCP machine-type metadata</li>
+          <li>DBUs are not VM node-hours, so the app does not infer a GCP currency cost from them</li>
+          <li>Connect GCP Billing Export for authoritative VM, disk, storage, and network costs</li>
         </ul>
       ) : (
         <ul className="list-inside list-disc space-y-1">
-          <li>Estimates EC2 consumption rates (us-east-1, Linux) per node based on cluster instance types</li>
-          <li>Node uptime is derived from DBU hours. Clusters are billed for every node hour while running</li>
-          <li>Pricing uses AWS public rates from 2025 with us-east-1 as the baseline</li>
-          <li><strong>Not included:</strong> EBS gp3 storage, data transfer, and Route 53</li>
-          <li>Actual costs may vary by region, purchasing model, and AWS organization discounts</li>
+          <li>Shows Databricks DBUs, active clusters, and EC2 instance-type metadata</li>
+          <li>DBUs are not VM node-hours, so the app does not infer an AWS currency cost from them</li>
+          <li>Connect AWS CUR 2.0 for authoritative EC2, EBS, network, and discount-adjusted costs</li>
         </ul>
       )}
       <p className="mt-3 text-xs italic" style={{ color: C.slate }}>
@@ -586,33 +587,17 @@ export function CloudCostsView({
   const instanceFamilies = data?.instance_families ?? EMPTY_INSTANCE_FAMILIES;
 
   const cloudSummary = useMemo(() => {
-    if (!data) return { totalCost: 0, totalDBUHours: 0, avgActiveClustersPerDay: 0, avgCostPerCluster: 0 };
+    if (!data) return { databricksSpend: 0, totalDBUHours: 0, avgActiveClustersPerDay: 0, avgDatabricksSpendPerCluster: 0 };
     const bs = billingSummary;
     const totalDBUHours = data.clusters.reduce((sum, c) => sum + (c.total_dbu_hours || 0), 0);
     const clustersWithTypes = data.clusters.filter(c => c.driver_instance_type || c.worker_instance_type);
-    const estimatedTotal = clustersWithTypes.reduce((sum, c) => sum + (c.estimated_aws_cost || 0), 0);
-
-    const avgCostPerCluster = bs?.avg_cost_per_cluster || (() => {
-      const tsPoints = infraTimeseriesData?.timeseries || [];
-      const activeTsPoints = tsPoints.filter(p => (p["Infrastructure Cost"] || 0) > 0);
-      if (activeTsPoints.length > 0) {
-        const tsTotal = activeTsPoints.reduce((s, p) => s + (p["Infrastructure Cost"] || 0), 0);
-        return tsTotal / activeTsPoints.length;
-      }
-      return 0;
-    })();
-
-    if (bs && bs.total_cost != null && bs.total_cost > 0) {
-      return {
-        totalCost: bs.total_cost,
-        totalDBUHours,
-        avgActiveClustersPerDay: bs.avg_clusters_per_day ?? 0,
-        avgCostPerCluster,
-      };
-    }
-
-    return { totalCost: estimatedTotal, totalDBUHours, avgActiveClustersPerDay: clustersWithTypes.length, avgCostPerCluster };
-  }, [data, infraTimeseriesData, billingSummary]);
+    return {
+      databricksSpend: bs?.databricks_compute_spend ?? 0,
+      totalDBUHours,
+      avgActiveClustersPerDay: bs?.avg_clusters_per_day ?? clustersWithTypes.length,
+      avgDatabricksSpendPerCluster: bs?.avg_databricks_spend_per_cluster ?? 0,
+    };
+  }, [data, billingSummary]);
 
   const historicalClusterCount = clusters.filter(c => !c.driver_instance_type && !c.worker_instance_type).length;
 
@@ -662,7 +647,7 @@ export function CloudCostsView({
     const map: Record<string, string> = {};
     for (const c of familyFilteredClusters) {
       const wsId = c.workspace_id;
-      const wsName = (c as any).workspace_name;
+      const wsName = c.workspace_name;
       if (wsId && wsName && !map[wsId]) map[wsId] = wsName;
     }
     return map;
@@ -719,7 +704,7 @@ export function CloudCostsView({
       value: f.total_dbu_hours,
     }));
 
-  const timeseriesFamilies: string[] = (timeseriesData as any)?.instance_families || [];
+  const timeseriesFamilies: string[] = timeseriesData?.instance_families || [];
 
   const filteredTimeseriesData = useMemo(() => {
     if (!timeseriesData?.timeseries) return null;
@@ -793,7 +778,7 @@ export function CloudCostsView({
     );
   }
   if (!data || clusters.length === 0) {
-    const hasBillingSummary = billingSummary != null && billingSummary.total_cost != null && billingSummary.total_cost > 0;
+    const hasBillingSummary = billingSummary != null && (billingSummary.databricks_compute_spend ?? 0) > 0;
     return (
       <div className="space-y-6">
         {ModeToggle}
@@ -801,8 +786,8 @@ export function CloudCostsView({
         {hasBillingSummary ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-              <p className="text-sm font-medium text-gray-500">Compute Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(billingSummary.total_cost ?? 0)}</p>
+              <p className="text-sm font-medium text-gray-500">Databricks Compute Spend</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(billingSummary.databricks_compute_spend ?? 0)}</p>
               <p className="mt-1 text-xs text-gray-500">{billingSummary.days_in_range ?? 0} days (all-purpose + jobs + DLT)</p>
             </div>
             <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
@@ -811,8 +796,8 @@ export function CloudCostsView({
               <p className="mt-1 text-xs text-gray-500">daily average</p>
             </div>
             <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-              <p className="text-sm font-medium text-gray-500">Avg Cost / Cluster</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(billingSummary.avg_cost_per_cluster ?? 0)}</p>
+              <p className="text-sm font-medium text-gray-500">Databricks Spend / Cluster</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(billingSummary.avg_databricks_spend_per_cluster ?? 0)}</p>
               <p className="mt-1 text-xs text-gray-500">per cluster per day</p>
             </div>
           </div>
@@ -880,11 +865,9 @@ export function CloudCostsView({
 
       <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div
-          className="relative rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
+          className="relative rounded-lg bg-white p-6 border shadow-sm"
           style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({ kpi: "infra_cost", label: `Daily ${cloudDisplayName} Cluster Spend` })}
         >
-          <span className="absolute top-2 left-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amberTint, color: C.amberInk, border: `1px solid ${C.hairline}` }}>est.</span>
           <div className="flex items-center">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -892,14 +875,13 @@ export function CloudCostsView({
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Cloud Costs</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(cloudSummary.totalCost)}</p>
+              <p className="text-sm font-medium text-gray-500">Databricks Compute Spend</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(cloudSummary.databricksSpend)}</p>
               {startDate && endDate && (() => {
                 const days = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1;
-                const dailyAvg = cloudSummary.totalCost > 0 ? cloudSummary.totalCost / days : 0;
+                const dailyAvg = cloudSummary.databricksSpend > 0 ? cloudSummary.databricksSpend / days : 0;
                 return <p className="mt-1 text-xs text-gray-500">{formatCurrency(dailyAvg)}/day avg · {days} days</p>;
               })()}
-              {startDate && endDate && <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
             </div>
           </div>
         </div>
@@ -942,11 +924,9 @@ export function CloudCostsView({
           </div>
         </div>
         <div
-          className={`relative rounded-lg bg-white p-6 border shadow-sm transition-all ${startDate && endDate ? "cursor-pointer hover:shadow-md hover:scale-[1.01]" : ""}`}
+          className="relative rounded-lg bg-white p-6 border shadow-sm"
           style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({ kpi: "avg_cost_per_cluster", label: `Daily ${cloudDisplayName} Cost Per-Cluster` })}
         >
-          <span className="absolute top-2 left-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amberTint, color: C.amberInk, border: `1px solid ${C.hairline}` }}>est.</span>
           <div className="flex items-center">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -954,12 +934,9 @@ export function CloudCostsView({
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Cost Per-Cluster<InfoTooltip text="Total estimated cloud infrastructure cost divided by the number of distinct clusters with billing activity in the period." /></p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(cloudSummary.avgCostPerCluster)}</p>
+              <p className="text-sm font-medium text-gray-500">Databricks Spend / Cluster<InfoTooltip text="Databricks DBU spend divided by active clusters. This is not a cloud VM cost estimate." /></p>
+              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(cloudSummary.avgDatabricksSpendPerCluster)}</p>
               {startDate && endDate && <p className="mt-1 text-xs text-gray-500">average over {Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1} days</p>}
-              {startDate && endDate && (
-                <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
-              )}
             </div>
           </div>
         </div>
@@ -967,7 +944,7 @@ export function CloudCostsView({
 
       {selectedKPI && startDate && endDate && (
         <KPITrendModal
-          kpi={selectedKPI.kpi as any}
+          kpi={selectedKPI.kpi}
           kpiLabel={selectedKPI.label}
           isOpen={!!selectedKPI}
           onClose={() => setSelectedKPI(null)}
@@ -981,12 +958,12 @@ export function CloudCostsView({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {(infraTimeseriesLoading || timeseriesLoading) ? (
           <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-            <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Cluster Costs{daysCount ? ` over ${daysCount} Days` : ""} <span className="ml-1 inline-flex items-center rounded px-1.5 py-0.5 align-middle text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amberTint, color: C.amberInk, border: `1px solid ${C.hairline}` }}>est.</span></h3>
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">Cluster DBUs{daysCount ? ` over ${daysCount} Days` : ""}</h3>
             <div className="flex h-80 items-center justify-center"><Spinner size="md" /></div>
           </div>
         ) : (infraTimeseriesData?.timeseries && infraTimeseriesData.timeseries.length > 0) ? (
           <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-            <h3 className="mb-4 text-lg font-semibold text-gray-900">{cloudDisplayName} Cluster Costs{daysCount ? ` over ${daysCount} Days` : ""} <span className="ml-1 inline-flex items-center rounded px-1.5 py-0.5 align-middle text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amberTint, color: C.amberInk, border: `1px solid ${C.hairline}` }}>est.</span></h3>
+            <h3 className="mb-4 text-lg font-semibold text-gray-900">Cluster DBUs{daysCount ? ` over ${daysCount} Days` : ""}</h3>
             <ResponsiveContainer width="100%" height={320}>
               <AreaChart data={infraTimeseriesData.timeseries} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                 <defs>
@@ -996,13 +973,13 @@ export function CloudCostsView({
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="date" tickFormatter={formatDate} stroke={C.muted} fontSize={12} tickMargin={8} />
-                <YAxis tickFormatter={(v) => formatCurrency(v)} stroke={C.muted} fontSize={12} width={80} />
+                <YAxis tickFormatter={(v) => formatNumber(v)} stroke={C.muted} fontSize={12} width={80} />
                 <Tooltip
-                  formatter={(value: number | undefined) => formatCurrency(value ?? 0)}
+                  formatter={(value: number | undefined) => [`${formatNumber(value ?? 0)} DBUs`, "Usage"]}
                   labelFormatter={(label) => format(parseISO(label as string), "MMM d, yyyy")}
                   contentStyle={{ backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
                 />
-                <Area isAnimationActive={false} type="monotone" dataKey="Infrastructure Cost" stroke={C.s1} strokeWidth={2} fill="url(#infraCostGradient)" />
+                <Area isAnimationActive={false} type="monotone" dataKey="total_dbu_hours" stroke={C.s1} strokeWidth={2} fill="url(#infraCostGradient)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -1013,7 +990,10 @@ export function CloudCostsView({
               {timeseriesFamilies.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2">
                   <button
-                    onClick={() => setSelectedFamilies(new Set())}
+                    onClick={() => {
+                      setSelectedFamilies(new Set());
+                      setCurrentPage(1);
+                    }}
                     className={`rounded-full px-3 py-1 text-xs font-medium ${
                       selectedFamilies.size === 0 ? "text-white" : "bg-blue-50 text-blue-700 hover:bg-blue-100"
                     }`}
@@ -1030,6 +1010,7 @@ export function CloudCostsView({
                           if (next.has(family)) { next.delete(family); } else { next.add(family); }
                           return next;
                         });
+                        setCurrentPage(1);
                       }}
                       className={`rounded-full px-3 py-1 text-xs font-medium ${
                         selectedFamilies.has(family) ? "text-white" : "bg-blue-50 text-blue-700 hover:bg-blue-100"
@@ -1070,7 +1051,7 @@ export function CloudCostsView({
               <XAxis type="number" tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} stroke={C.muted} fontSize={12} tickMargin={8} />
               <YAxis type="category" dataKey="name" width={100} fontSize={12} stroke={C.muted} interval={0} />
               <Tooltip
-                formatter={(value: number | undefined) => [formatNumber(value ?? 0) + " DBU hours", "Usage"]}
+                formatter={(value: number | undefined) => [formatNumber(value ?? 0) + " DBUs", "Usage"]}
                 contentStyle={{ backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
               />
               <Bar isAnimationActive={false} dataKey="value" radius={[0, 4, 4, 0]}>
@@ -1088,13 +1069,12 @@ export function CloudCostsView({
           <div>
             <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
               {cloudDisplayName} Cluster Leaderboard
-              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide" style={{ backgroundColor: C.amberTint, color: C.amberInk, border: `1px solid ${C.hairline}` }}>est.</span>
               <span className="inline-flex items-center group relative">
                 <svg className="h-3.5 w-3.5 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span className="pointer-events-none absolute top-5 left-0 z-[9999] w-72 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-normal text-gray-600 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                  Estimated {cloudDisplayName} VM cost for cluster compute nodes, derived from DBU hours × cloud instance pricing ({cloudDisplayName === "GCP" ? "us-central1" : cloudDisplayName === "Azure" ? "East US" : "us-east-1"} on-demand rates). This is separate from Databricks DBU spend shown in the page header.
+                  VM currency cost is unavailable because this project does not have authoritative node-hour and worker-count data. Connect cloud billing for actual costs.
                 </span>
               </span>
             </h3>
@@ -1261,13 +1241,13 @@ export function CloudCostsView({
             <thead className="bg-gray-50">
               <tr>
                 <th className="cursor-pointer px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => handleSort("cluster_name")}>
-                  Cluster <SortIcon field="cluster_name" />
+                  Cluster <SortIndicator field="cluster_name" activeField={sortField} direction={sortDirection} />
                 </th>
                 <th className="w-44 px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Instance Types</th>
                 <th className="w-28 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
                   <div className="flex items-center justify-end gap-1">
                     <span className="cursor-pointer hover:text-gray-700" onClick={() => handleSort("estimated_aws_cost")}>
-                      Cost <SortIcon field="estimated_aws_cost" />
+                      VM Cost
                     </span>
                     <div className="group relative">
                       <svg className="h-3.5 w-3.5 cursor-help text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1276,20 +1256,18 @@ export function CloudCostsView({
                       <div className="invisible absolute right-0 top-6 z-10 w-72 rounded-lg bg-gray-900 p-3 text-xs text-white opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
                         <p className="font-semibold mb-1.5">Cost Estimate Details</p>
                         <ul className="space-y-1 text-gray-200">
-                          <li>• {isAzure ? "Azure VM" : isGCP ? "Compute Engine VM" : "EC2 instance"} costs only</li>
-                          <li>• Based on on-demand pricing</li>
-                          <li>• Assumes avg 2-4 workers per cluster</li>
-                          <li>• Excludes storage, network, and platform fees</li>
+                          <li>Unavailable without authoritative node-hours and worker counts</li>
+                          <li>Use a cloud billing integration for currency costs</li>
                         </ul>
                       </div>
                     </div>
                   </div>
                 </th>
                 <th className="w-28 cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => handleSort("total_dbu_hours")}>
-                  DBU Hours <SortIcon field="total_dbu_hours" />
+                  DBU Hours <SortIndicator field="total_dbu_hours" activeField={sortField} direction={sortDirection} />
                 </th>
                 <th className="w-16 cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => handleSort("days_active")}>
-                  Days <SortIcon field="days_active" />
+                  Days <SortIndicator field="days_active" activeField={sortField} direction={sortDirection} />
                 </th>
                 <th className="w-14 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">%</th>
               </tr>
@@ -1378,7 +1356,7 @@ export function CloudCostsView({
                         )}
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-medium text-gray-900">{formatCurrency(cluster.estimated_aws_cost)}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-medium text-gray-500">Unavailable</td>
                     <td className="whitespace-nowrap px-3 py-3 text-right text-sm text-gray-600">{formatNumber(cluster.total_dbu_hours)}</td>
                     <td className="whitespace-nowrap px-3 py-3 text-right text-sm text-gray-600">{cluster.days_active}</td>
                     <td className="whitespace-nowrap px-3 py-3 text-right text-sm text-gray-500">{(cluster.percentage ?? 0).toFixed(1)}%</td>
@@ -1390,7 +1368,7 @@ export function CloudCostsView({
               <tr>
                 <td colSpan={2} className="px-3 py-3 text-sm font-medium text-gray-700">Total ({sortedClusters.length} clusters)</td>
                 <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-bold text-gray-900">
-                  {formatCurrency(data.total_estimated_cost)}
+                  Unavailable
                 </td>
                 <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-medium text-gray-700">{formatNumber(data.total_dbu_hours)}</td>
                 <td colSpan={2}></td>

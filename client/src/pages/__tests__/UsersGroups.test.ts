@@ -3,7 +3,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UserSpend } from "@/hooks/useBillingData";
 import { useUsersGroupsBundle } from "@/hooks/useBillingData";
-import UsersGroups, { buildAnonymizedIdentityMap } from "../UsersGroups";
+import UsersGroups from "../UsersGroups";
+import { buildAnonymizedIdentityMap } from "@/utils/identity";
 
 vi.mock("@/hooks/useBillingData", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/hooks/useBillingData")>();

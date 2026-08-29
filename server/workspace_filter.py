@@ -5,7 +5,7 @@ the dashboard to specific workspaces only.  All workspaces are shown when the
 variable is not set.
 
 Example:
-    COST_OBS_WORKSPACES=3233745148968388,1234567890123456
+    COST_OBS_WORKSPACES=<workspace-id>[,<workspace-id>]
 """
 
 import json

@@ -31,7 +31,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query
+from server.db import execute_query, local_source_is_selected
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -86,7 +86,7 @@ SELECT
   COUNT(DISTINCT DATE(usage_start_time)) AS days_in_range
 FROM `{catalog}`.`{schema}`.`{table}`
 WHERE DATE(usage_start_time) >= :start_date
-  AND DATE(usage_start_time) <  :end_date
+  AND DATE(usage_start_time) <= :end_date
   AND cost > 0
 GROUP BY currency
 ORDER BY total_cost DESC
@@ -100,7 +100,7 @@ SELECT
   COUNT(DISTINCT DATE(usage_start_time))  AS days_active
 FROM `{catalog}`.`{schema}`.`{table}`
 WHERE DATE(usage_start_time) >= :start_date
-  AND DATE(usage_start_time) <  :end_date
+  AND DATE(usage_start_time) <= :end_date
   AND cost > 0
 GROUP BY service.description
 ORDER BY total_cost DESC
@@ -115,7 +115,7 @@ SELECT
   COUNT(DISTINCT service.description)     AS service_count
 FROM `{catalog}`.`{schema}`.`{table}`
 WHERE DATE(usage_start_time) >= :start_date
-  AND DATE(usage_start_time) <  :end_date
+  AND DATE(usage_start_time) <= :end_date
   AND cost > 0
 GROUP BY project.id, project.name
 ORDER BY total_cost DESC
@@ -129,7 +129,7 @@ SELECT
   SUM(cost)            AS total_cost
 FROM `{catalog}`.`{schema}`.`{table}`
 WHERE DATE(usage_start_time) >= :start_date
-  AND DATE(usage_start_time) <  :end_date
+  AND DATE(usage_start_time) <= :end_date
   AND cost > 0
 GROUP BY service.description, sku.description
 ORDER BY total_cost DESC
@@ -143,7 +143,7 @@ SELECT
   SUM(cost)              AS daily_cost
 FROM `{catalog}`.`{schema}`.`{table}`
 WHERE DATE(usage_start_time) >= :start_date
-  AND DATE(usage_start_time) <  :end_date
+  AND DATE(usage_start_time) <= :end_date
   AND cost > 0
 GROUP BY DATE(usage_start_time), service.description
 ORDER BY date
@@ -166,6 +166,17 @@ def _defaults(start_date, end_date):
 async def get_gcp_status() -> dict[str, Any]:
     """Check if GCP billing tables are available (cached 5 min)."""
     catalog, schema, table = get_catalog_schema_table()
+    if not local_source_is_selected():
+        return {
+            "gcp_available": False,
+            "available": False,
+            "scoped_out": True,
+            "reason": "source_scope_excludes_local",
+            "message": "GCP billing exports are configured locally and are unavailable in the selected shared-source scope.",
+            "catalog": None,
+            "schema": None,
+            "table": None,
+        }
 
     if (
         _gcp_status_cache["available"] is not None
@@ -207,7 +218,9 @@ async def get_gcp_actual_summary(
     if not status["gcp_available"]:
         return {
             "available": False,
-            "message": "GCP billing data not configured. Connect a BigQuery billing export via Lakehouse Federation.",
+            "scoped_out": bool(status.get("scoped_out")),
+            "reason": status.get("reason"),
+            "message": status.get("message") or "GCP billing data not configured. Connect a BigQuery billing export via Lakehouse Federation.",
             "start_date": start_date,
             "end_date": end_date,
         }
@@ -421,7 +434,9 @@ async def get_gcp_actual_dashboard_bundle(
     if not status["gcp_available"]:
         return {
             "available": False,
-            "message": "GCP billing data not configured. Set up Lakehouse Federation to BigQuery billing export.",
+            "scoped_out": bool(status.get("scoped_out")),
+            "reason": status.get("reason"),
+            "message": status.get("message") or "GCP billing data not configured. Set up Lakehouse Federation to BigQuery billing export.",
             "start_date": start_date,
             "end_date": end_date,
         }

@@ -12,8 +12,8 @@
         "notebook_path": "/Workspace/Users/<YOUR_USER>/apps/<YOUR_APP_NAME>/notebooks/refresh_mvs",
         "source": "WORKSPACE",
         "base_parameters": {
-          "COST_OBS_CATALOG": "main",
-          "COST_OBS_SCHEMA": "cost_obs"
+          "COST_OBS_CATALOG": "__COST_OBS_CATALOG__",
+          "COST_OBS_SCHEMA": "__COST_OBS_SCHEMA__"
         }
       }
     }

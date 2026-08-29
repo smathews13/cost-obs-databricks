@@ -45,7 +45,7 @@ const metadataApp: AppsApp = {
       commit: "abc123def4567890",
       source_code_path: "app",
     },
-    has_thumbnail: true,
+    thumbnail_url: "/api/apps/thumbnail?app_id=app-123",
   },
   resource_bindings: [
     { name: "analytics-warehouse", type: "SQL_WAREHOUSE", description: "Can use" },
@@ -73,7 +73,7 @@ const historicalApp: AppsApp = {
     deployment: null,
     source_code_path: "",
     git: null,
-    has_thumbnail: false,
+    thumbnail_url: null,
   },
   resource_bindings: [],
 };
@@ -165,5 +165,44 @@ describe("AppsCostCenter metadata detail", () => {
     expect(screen.getByText(/no longer available in the Apps registry/i)).toBeInTheDocument();
     expect(screen.getByText(/Historical billing record: app deleted or inaccessible/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Live App Endpoint →" })).not.toBeInTheDocument();
+  });
+
+  it("derives selected detail from the current scoped bundle and closes stale detail", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <AppsCostCenter data={bundle([metadataApp])} isLoading={false} />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByText("Metadata App"));
+    expect(screen.getByText("Tracks safe customer application metadata.")).toBeVisible();
+
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <AppsCostCenter data={bundle([])} isLoading={false} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByText("Tracks safe customer application metadata.")).not.toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("no longer available in the current date, workspace, or source scope");
+  });
+
+  it("labels connected resources as registry-wide metadata", () => {
+    const data = bundle([metadataApp]);
+    data.connected_artifacts = [{
+      app_id: "app-123",
+      app_name: "Metadata App",
+      artifact_name: "warehouse-1",
+      artifact_type: "SQL_WAREHOUSE",
+      artifact_description: "Can use",
+    }];
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <AppsCostCenter data={data} isLoading={false} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText(/account-wide, not filtered by date, workspace, or source/i)).toBeVisible();
   });
 });

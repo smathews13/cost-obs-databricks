@@ -54,7 +54,11 @@ def test_unified_put_dispatches_architecture_view_setting():
 
     save.assert_called_once_with({"enable_architecture_view": True})
     snapshot.assert_not_called()
-    assert result == {"status": "saved", "updated_count": 1}
+    assert result == {
+        "status": "saved",
+        "updated_count": 1,
+        "domains": {"app": {"ok": True}},
+    }
 
 
 def test_unified_put_tab_only_skips_thresholds_webhook_and_snapshot():
@@ -74,7 +78,11 @@ def test_unified_put_tab_only_skips_thresholds_webhook_and_snapshot():
     save_thresholds.assert_not_called()
     save_webhook.assert_not_called()
     snapshot.assert_not_called()
-    assert result == {"status": "saved", "updated_count": 1}
+    assert result == {
+        "status": "saved",
+        "updated_count": 1,
+        "domains": {"app": {"ok": True}},
+    }
 
 
 def test_unified_put_allows_clearing_webhook():
@@ -88,7 +96,11 @@ def test_unified_put_allows_clearing_webhook():
 
     save_webhook.assert_called_once_with({"slack_webhook_url": ""})
     save_app.assert_not_called()
-    assert result == {"status": "saved", "updated_count": 1}
+    assert result == {
+        "status": "saved",
+        "updated_count": 1,
+        "domains": {"webhook": {"ok": True}},
+    }
 
 
 def test_save_app_settings_persists_architecture_view_to_delta_and_file(tmp_path):
@@ -158,7 +170,11 @@ def test_unified_put_returns_503_when_app_settings_are_not_durable():
             asyncio.run(settings.put_unified_settings(request))
 
     assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "Delta unavailable"
+    assert exc_info.value.detail == {
+        "status": "partial_failure",
+        "updated_count": 0,
+        "domains": {"app": {"ok": False, "error": "Delta unavailable"}},
+    }
     save.assert_called_once()
     saved_partial = save.call_args.args[0]
     assert saved_partial["theme"] == "dark"

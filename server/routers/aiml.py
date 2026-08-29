@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from server.db import CacheGeneration, capture_cache_generation, execute_query, execute_queries_parallel, bundle_cache_key, delta_cache_get, delta_cache_put
+from server.db import CacheGeneration, capture_cache_generation, execute_query, execute_queries_parallel, bundle_cache_key, delta_cache_get, delta_cache_put, get_local_source_label, selected_source_labels
 from server import workspace_filter as wf
 from server import cache_ttls
 
@@ -38,6 +38,22 @@ _aiml_bundle_inflight_lock = threading.Lock()
 _aiml_available: bool = True
 _aiml_last_failure: float = 0.0
 _AIML_RETRY_INTERVAL: float = 1800.0  # skip new computes for 30 min after a mass timeout
+
+
+def _shared_only_scope() -> bool:
+    labels = selected_source_labels()
+    return bool(labels) and get_local_source_label() not in labels
+
+
+def _shared_scope_unavailable(**shape: Any) -> dict[str, Any]:
+    return {
+        "available": False,
+        "unavailable_reason": (
+            "AI/ML detail is derived from local system tables and is unavailable "
+            "when this workspace is excluded from the selected sources."
+        ),
+        **shape,
+    }
 
 
 def get_default_start_date() -> str:
@@ -777,6 +793,8 @@ async def get_aiml_summary(
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
 ) -> dict[str, Any]:
+    if _shared_only_scope():
+        return _shared_scope_unavailable(total_dbus=0, total_spend=0)
     """Get AI/ML cost summary."""
     params = {
         "start_date": start_date or get_default_start_date(),
@@ -821,6 +839,8 @@ async def get_fmapi_providers(
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
 ) -> dict[str, Any]:
+    if _shared_only_scope():
+        return _shared_scope_unavailable(providers=[], total_spend=0)
     """Get FMAPI provider costs (Anthropic, OpenAI, Gemini)."""
     params = {
         "start_date": start_date or get_default_start_date(),
@@ -864,6 +884,8 @@ async def get_serverless_endpoints(
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
 ) -> dict[str, Any]:
+    if _shared_only_scope():
+        return _shared_scope_unavailable(endpoints=[], total_spend=0)
     """Get serverless inference costs by endpoint."""
     params = {
         "start_date": start_date or get_default_start_date(),
@@ -910,6 +932,8 @@ async def get_aiml_by_category(
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
 ) -> dict[str, Any]:
+    if _shared_only_scope():
+        return _shared_scope_unavailable(categories=[], total_spend=0)
     """Get AI/ML costs by category."""
     params = {
         "start_date": start_date or get_default_start_date(),
@@ -952,6 +976,8 @@ async def get_aiml_timeseries(
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
 ) -> dict[str, Any]:
+    if _shared_only_scope():
+        return _shared_scope_unavailable(timeseries=[], categories=[])
     """Get AI/ML cost timeseries by category."""
     params = {
         "start_date": start_date or get_default_start_date(),
@@ -1242,6 +1268,19 @@ async def get_aiml_dashboard_bundle(
     end_date: str = Query(default=None),
     workspace_ids: str = Query(default=None),
 ) -> dict[str, Any]:
+    if _shared_only_scope():
+        unavailable = _shared_scope_unavailable()
+        return {
+            **unavailable,
+            "summary": {**unavailable, "total_dbus": 0, "total_spend": 0},
+            "providers": {**unavailable, "providers": [], "total_spend": 0},
+            "endpoints": {**unavailable, "endpoints": [], "total_spend": 0},
+            "categories": {**unavailable, "categories": [], "total_spend": 0},
+            "timeseries": {**unavailable, "timeseries": [], "categories": []},
+            "models": {**unavailable, "models": []},
+            "ml_clusters": {**unavailable, "clusters": []},
+            "agent_bricks": {**unavailable, "agents": []},
+        }
     """Get all AI/ML dashboard data in a single request (submit-and-poll: 202 on cache miss)."""
     params = {
         "start_date": start_date or get_default_start_date(),

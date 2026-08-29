@@ -190,4 +190,20 @@ describe("settings hydration", () => {
       webhook: { configured: false, masked_url: null },
     });
   });
+
+  it("never persists or revives a Slack webhook secret in browser storage", () => {
+    localStorage.setItem("coc-app-settings", JSON.stringify({
+      slackWebhookUrl: "https://hooks.slack.com/services/legacy-secret",
+      companyName: "Acme",
+    }));
+    expect(loadAppSettings().slackWebhookUrl).toBe("");
+
+    persistAppSettings({
+      ...loadAppSettings(),
+      slackWebhookUrl: "https://hooks.slack.com/services/new-secret",
+    });
+    const raw = localStorage.getItem("coc-app-settings") ?? "";
+    expect(raw).not.toContain("hooks.slack.com");
+    expect(JSON.parse(raw)).not.toHaveProperty("slackWebhookUrl");
+  });
 });

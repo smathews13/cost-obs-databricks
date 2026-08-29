@@ -1,4 +1,8 @@
 import type { ExportSections } from "@/components/ExportDialog";
+import {
+  anonymizeExportPayload,
+  type CostExportContext,
+} from "@/utils/identity";
 
 function fmt(n: unknown, decimals = 2): string {
   return Number(n ?? 0).toFixed(decimals);
@@ -31,7 +35,11 @@ function row(...cells: string[]): string {
   return `<Row>${cells.join("")}</Row>`;
 }
 
-function metaSheet(dateRange: { start: string; end: string }, workspaceFilter?: WorkspaceFilter): string {
+function metaSheet(
+  dateRange: { start: string; end: string },
+  workspaceFilter?: WorkspaceFilter,
+  context?: CostExportContext,
+): string {
   const rows = [
     row(headerCell("Cost Observability Report")),
     row(cell("Date Range"), cell(`${dateRange.start} to ${dateRange.end}`)),
@@ -45,6 +53,10 @@ function metaSheet(dateRange: { start: string; end: string }, workspaceFilter?: 
           : "All workspaces (account-wide)"
       )
     ),
+    row(cell("Company"), cell(context?.companyName?.trim() || "Not configured")),
+    row(cell("Data Source Scope"), cell(context?.sourceLabels?.length ? context.sourceLabels.join(", ") : "All configured sources")),
+    row(cell("Cloud Provider"), cell(context?.cloudProvider?.trim().toUpperCase() || "Unknown")),
+    row(cell("User Identities"), cell(context?.anonymizeUsers ? "Anonymized" : "Original")),
     row(cell("Generated"), cell(new Date().toLocaleString())),
   ];
   return sheet("Report Info", rows);
@@ -56,12 +68,18 @@ export interface WorkspaceFilter {
 }
 
 export function generateCostCSV(
+  // The workbook intentionally accepts the mixed tab-bundle union assembled by App.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data: any,
   sections: ExportSections,
   dateRange: { start: string; end: string },
-  workspaceFilter?: WorkspaceFilter
+  workspaceFilter?: WorkspaceFilter,
+  context?: CostExportContext,
 ): void {
-  const sheets: string[] = [metaSheet(dateRange, workspaceFilter)];
+  data = anonymizeExportPayload(data, Boolean(context?.anonymizeUsers));
+  context = anonymizeExportPayload(context, Boolean(context?.anonymizeUsers));
+  workspaceFilter = anonymizeExportPayload(workspaceFilter, Boolean(context?.anonymizeUsers));
+  const sheets: string[] = [metaSheet(dateRange, workspaceFilter, context)];
 
   // === DBU Overview tab ===
   const dbuRows: string[] = [];

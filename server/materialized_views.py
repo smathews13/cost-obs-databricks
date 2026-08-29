@@ -1957,7 +1957,11 @@ def rebuild_unified_views(catalog: str | None = None, schema: str | None = None)
 
 
 def _rebuild_unified_views_locked(
-    catalog: str | None = None, schema: str | None = None
+    catalog: str | None = None,
+    schema: str | None = None,
+    *,
+    sources_override: list[dict] | None = None,
+    persist_registry: bool = True,
 ) -> dict:
     """Implementation of ``rebuild_unified_views`` with the DDL lock held."""
     from server.db import (
@@ -1976,9 +1980,15 @@ def _rebuild_unified_views_locked(
     if not catalog or not schema:
         return {"ok": False, "error": "no catalog/schema configured"}
 
-    sources = get_mv_sources()
+    sources = (
+        [dict(source) for source in sources_override]
+        if sources_override is not None
+        else get_mv_sources()
+    )
     if not sources:
-        _drop_unified_views_locked(catalog, schema)
+        _drop_unified_views_locked(
+            catalog, schema, persist_registry=persist_registry
+        )
         return {"ok": True, "sources": 0, "views": {}}
 
     local_label = get_local_source_label().replace("'", "''")
@@ -2048,9 +2058,20 @@ def _rebuild_unified_views_locked(
     # Preserve prior live entries on partial failures; remove only views that
     # were definitively observed absent. This prevents a transient failure for
     # one table from truncating routing for every other still-live view.
-    save_unified_view_tables([t for t in _MV_TABLES if t in known_existing])
+    routed_tables = [t for t in _MV_TABLES if t in known_existing]
+    build_ok = all(
+        isinstance(result, dict) and bool(result.get("built"))
+        for result in summary.values()
+    ) and len(summary) == len(_MV_TABLES)
+    if persist_registry and build_ok:
+        save_unified_view_tables(routed_tables)
     logger.info("Unified MV views rebuilt (%d source(s) configured)", len(sources))
-    return {"ok": True, "sources": len(sources), "views": summary}
+    return {
+        "ok": build_ok,
+        "sources": len(sources),
+        "views": summary,
+        "routed_tables": routed_tables,
+    }
 
 
 def drop_unified_views(catalog: str | None = None, schema: str | None = None) -> None:
@@ -2060,7 +2081,10 @@ def drop_unified_views(catalog: str | None = None, schema: str | None = None) ->
 
 
 def _drop_unified_views_locked(
-    catalog: str | None = None, schema: str | None = None
+    catalog: str | None = None,
+    schema: str | None = None,
+    *,
+    persist_registry: bool = True,
 ) -> None:
     """Drop unified views while the caller holds ``unified_views_rebuild_lock``."""
     from server.db import execute_query, get_catalog_schema, save_unified_view_tables, MV_UNIFIED_SUFFIX
@@ -2083,7 +2107,8 @@ def _drop_unified_views_locked(
         for t in _MV_TABLES
         if _unified_view_exists(catalog, schema, f"{t}{MV_UNIFIED_SUFFIX}") is True
     ]
-    save_unified_view_tables(remaining)
+    if persist_registry:
+        save_unified_view_tables(remaining)
 
 
 def check_materialized_views_exist(catalog: str | None = None, schema: str | None = None) -> dict:

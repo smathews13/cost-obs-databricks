@@ -163,7 +163,7 @@ describe("SettingsPermissions: grant bundle targets actual SP name", () => {
 describe("SettingsPermissions: polished access controls", () => {
   it("renders labeled custom role menus with a lava focus treatment and chevron", async () => {
     mockApis(SP_AUTH_STATUS, undefined, {
-      admins: ["admin@databricks.com"],
+      admins: ["admin@databricks.com", "backup@databricks.com"],
       consumers: ["viewer@databricks.com"],
     });
     renderPermissions();
@@ -182,7 +182,7 @@ describe("SettingsPermissions: polished access controls", () => {
 
   it("supports keyboard navigation and role selection without a native select", async () => {
     mockApis(SP_AUTH_STATUS, undefined, {
-      admins: ["admin@databricks.com"],
+      admins: ["admin@databricks.com", "backup@databricks.com"],
       consumers: ["viewer@databricks.com"],
     });
     renderPermissions();
@@ -202,7 +202,7 @@ describe("SettingsPermissions: polished access controls", () => {
       const saveCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
       expect(saveCall).toBeDefined();
       expect(JSON.parse(String(saveCall?.[1]?.body))).toEqual({
-        admins: [],
+        admins: ["backup@databricks.com"],
         consumers: ["viewer@databricks.com", "admin@databricks.com"],
       });
     });
@@ -210,7 +210,7 @@ describe("SettingsPermissions: polished access controls", () => {
 
   it("closes an open role menu on Escape without changing the role", async () => {
     mockApis(SP_AUTH_STATUS, undefined, {
-      admins: ["admin@databricks.com"],
+      admins: ["admin@databricks.com", "backup@databricks.com"],
       consumers: [],
     });
     renderPermissions();
@@ -289,6 +289,20 @@ describe("SettingsPermissions: polished access controls", () => {
     expect(screen.getByRole("textbox", { name: "Metastore" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Browse" })).toBeDisabled();
     expect(metastore.compareDocumentPosition(queryAuthentication) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("disables removal and demotion of the last explicit admin", async () => {
+    mockApis(SP_AUTH_STATUS, undefined, {
+      admins: ["admin@databricks.com"],
+      consumers: ["viewer@databricks.com"],
+    });
+    renderPermissions();
+
+    expect(await screen.findByText(/only explicit admin cannot be removed/i)).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Role for admin@databricks.com" })).toBeDisabled();
+    const adminRow = screen.getByText("admin@databricks.com").closest("[data-testid='access-user-row']");
+    expect(adminRow?.querySelector("button[aria-describedby='last-admin-explanation']")).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Role for viewer@databricks.com" })).toBeEnabled();
   });
 });
 

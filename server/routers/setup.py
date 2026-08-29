@@ -22,6 +22,14 @@ from server.db import get_workspace_client, _user_token as _db_user_token
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+def _require_setup_admin(request: Request) -> None:
+    """Reuse the configured app-role policy for setup mutations."""
+    from server.routers.settings import _require_admin
+
+    _require_admin(request)
+
+
 SETTINGS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", ".settings")
 # Written when the setup wizard completes. This file lives in .settings/ which is
 # wiped on every Databricks Apps git redeploy — ensuring the wizard always runs on
@@ -544,7 +552,9 @@ async def get_setup_status() -> dict[str, Any]:
 
 
 @router.post("/complete")
-async def mark_setup_complete(background_tasks: BackgroundTasks) -> dict[str, Any]:
+async def mark_setup_complete(
+    request: Request, background_tasks: BackgroundTasks
+) -> dict[str, Any]:
     """Write setup_done.json and kick off the initial MV build in the background.
 
     Called by the frontend when the user clicks 'Complete' in the setup wizard.
@@ -552,6 +562,7 @@ async def mark_setup_complete(background_tasks: BackgroundTasks) -> dict[str, An
     The background rebuild creates all materialized views so the dashboard has
     data immediately after setup — no manual Rebuild click required.
     """
+    _require_setup_admin(request)
     global _setup_confirmed_ready
     try:
         os.makedirs(SETTINGS_DIR, exist_ok=True)
@@ -944,6 +955,7 @@ async def create_tables(
     WARNING: This operation can take several minutes on large accounts.
     Set run_in_background=true (default) to run asynchronously.
     """
+    _require_setup_admin(request)
     cat, sch = get_catalog_schema()
     target_catalog = catalog or cat
     target_schema = schema or sch
@@ -1164,6 +1176,7 @@ def _create_tables_task(catalog: str, schema: str, user_token: str = ""):
 
 @router.post("/refresh-tables")
 async def refresh_tables(
+    request: Request,
     background_tasks: BackgroundTasks,
     catalog: str = Query(default=None, description="Target catalog"),
     schema: str = Query(default=None, description="Target schema"),
@@ -1174,6 +1187,7 @@ async def refresh_tables(
     This rebuilds all tables from scratch with current data.
     Should be run daily to keep data fresh.
     """
+    _require_setup_admin(request)
     cat, sch = get_catalog_schema()
     target_catalog = catalog or cat
     target_schema = schema or sch
@@ -1260,6 +1274,7 @@ async def get_aws_cur_status() -> dict[str, Any]:
 
 @router.post("/aws-cur/create-tables")
 async def create_aws_cur_tables(
+    request: Request,
     background_tasks: BackgroundTasks,
     s3_path: str = Query(default=None, description="S3 path to CUR data (e.g., s3://bucket/cur-reports/)"),
     catalog: str = Query(default=None, description="Target catalog"),
@@ -1284,6 +1299,7 @@ async def create_aws_cur_tables(
         load_data: If True, also loads data from S3 into bronze table
         run_in_background: Run table creation in background
     """
+    _require_setup_admin(request)
     from server.aws_cur_setup import create_cur_tables, get_catalog_schema
 
     cat, sch = get_catalog_schema()
@@ -1330,6 +1346,7 @@ def _create_cur_tables_task(catalog: str, schema: str, s3_path: str | None, load
 
 @router.post("/aws-cur/refresh")
 async def refresh_aws_cur_tables(
+    request: Request,
     background_tasks: BackgroundTasks,
     s3_path: str = Query(default=None, description="S3 path to CUR data"),
     catalog: str = Query(default=None, description="Target catalog"),
@@ -1341,6 +1358,7 @@ async def refresh_aws_cur_tables(
     This incrementally loads new CUR data from S3 and refreshes
     the silver and gold tables.
     """
+    _require_setup_admin(request)
     from server.aws_cur_setup import refresh_cur_tables, get_catalog_schema
 
     cat, sch = get_catalog_schema()
@@ -1494,6 +1512,7 @@ async def ensure_catalog(request: Request) -> dict[str, Any]:
        via SQL GRANT using the user's forwarded token (avoids unity-catalog scope issue).
     3. Verify SP can now access the catalog. If still blocked, return clear SQL to run.
     """
+    _require_setup_admin(request)
     import asyncio as _asyncio
 
     catalog, _ = get_catalog_schema()
@@ -1648,6 +1667,7 @@ async def ensure_schema(request: Request) -> dict[str, Any]:
     Runs as the SP via UC SDK. The SP owns the catalog after ensure-catalog
     creates it, so CREATE SCHEMA succeeds without any extra privilege grant.
     """
+    _require_setup_admin(request)
     import asyncio as _asyncio
 
     catalog, schema = get_catalog_schema()
@@ -2597,8 +2617,9 @@ def _record_drop_in_refresh_log() -> None:
 
 
 @router.delete("/drop-materialized-views")
-async def drop_mvs() -> dict:
+async def drop_mvs(request: Request) -> dict:
     """Drop all app-managed materialized view tables. Irreversible — use with caution."""
+    _require_setup_admin(request)
     try:
         from server.db import get_catalog_schema
         catalog, schema = get_catalog_schema()

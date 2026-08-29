@@ -15,8 +15,15 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation
 from server import cache_ttls
+from server.db import (
+    bundle_cache_key,
+    capture_cache_generation,
+    delta_cache_get,
+    delta_cache_put,
+    execute_query,
+    local_source_is_selected,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -47,7 +54,7 @@ SELECT
   COUNT(DISTINCT DATE(usage_date)) as days_in_range
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
 """
 
 # Costs by cluster
@@ -61,7 +68,7 @@ SELECT
   COUNT(DISTINCT DATE(usage_date)) as days_active
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
   AND usage_metadata.cluster_id IS NOT NULL
 GROUP BY usage_metadata.cluster_id
 ORDER BY total_cost DESC
@@ -76,7 +83,7 @@ SELECT
   COUNT(DISTINCT DATE(usage_date)) as days_active
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
   AND usage_metadata.warehouse_id IS NOT NULL
 GROUP BY usage_metadata.warehouse_id
 ORDER BY total_cost DESC
@@ -93,7 +100,7 @@ SELECT
   SUM(net_amortized_cost) as net_amortized_cost
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
 GROUP BY charge_type
 ORDER BY net_unblended_cost DESC
 """
@@ -106,7 +113,7 @@ SELECT
   SUM(net_unblended_cost) as daily_cost
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
 GROUP BY DATE(usage_date), charge_type
 ORDER BY date
 """
@@ -121,7 +128,7 @@ SELECT
   SUM(net_amortized_cost) as net_amortized
 FROM `{catalog}`.`{schema}`.`actuals_gold`
 WHERE usage_date >= :start_date
-  AND usage_date < :end_date
+  AND usage_date <= :end_date
 GROUP BY DATE(usage_date)
 ORDER BY date
 """
@@ -144,6 +151,17 @@ def get_catalog_schema() -> tuple[str, str]:
 async def get_cur_status() -> dict[str, Any]:
     """Check if AWS CUR tables are available (cached 5 min)."""
     catalog, schema = get_catalog_schema()
+    if not local_source_is_selected():
+        return {
+            "cur_available": False,
+            "available": False,
+            "scoped_out": True,
+            "reason": "source_scope_excludes_local",
+            "message": "AWS CUR is configured locally and is unavailable in the selected shared-source scope.",
+            "catalog": None,
+            "schema": None,
+            "table": None,
+        }
 
     if _cur_status_cache["available"] is not None and (time.time() - _cur_status_cache["checked_at"]) < _CUR_STATUS_TTL:
         available = _cur_status_cache["available"]
@@ -185,7 +203,9 @@ async def get_aws_actual_summary(
     if not status["cur_available"]:
         return {
             "available": False,
-            "message": "AWS CUR data not configured. Using estimated costs.",
+            "scoped_out": bool(status.get("scoped_out")),
+            "reason": status.get("reason"),
+            "message": status.get("message") or "AWS CUR data not configured. Using estimated costs.",
             "start_date": start_date,
             "end_date": end_date,
         }
@@ -413,7 +433,9 @@ async def get_aws_actual_dashboard_bundle(
     if not status["cur_available"]:
         return {
             "available": False,
-            "message": "AWS CUR data not configured",
+            "scoped_out": bool(status.get("scoped_out")),
+            "reason": status.get("reason"),
+            "message": status.get("message") or "AWS CUR data not configured",
             "start_date": start_date,
             "end_date": end_date,
         }

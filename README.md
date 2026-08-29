@@ -201,6 +201,8 @@ Keep the first deployment minimal. Add optional cloud-cost or advanced integrati
 | `AWS_COST_CATALOG` / `AWS_COST_SCHEMA` | `billing` / `aws` | AWS CUR actual cost tables |
 | `AZURE_COST_CATALOG` / `AZURE_COST_SCHEMA` | `billing` / `azure` | Azure cost export tables |
 | `DATABRICKS_TOKEN` | — | Service principal token override; not needed when deployed as a Databricks App |
+| `COST_OBS_FEEDBACK_GITHUB_URL` | Public issue form | Optional HTTPS `github.com` issue-form override |
+| `COST_OBS_FEEDBACK_EMAIL` / `COST_OBS_FEEDBACK_SLACK_*` | — | Optional public feedback routes; incomplete or unsafe values are ignored |
 
 </details>
 
@@ -340,11 +342,11 @@ Use **Settings → Access** to manage who can administer or view the app.
 | Feature | Description |
 |---|---|
 | **Multi-Cloud Support** | Auto-detects AWS, Azure, or GCP from workspace URL; displays cloud-specific logos, instance types, pricing links, and setup guides |
-| **Infrastructure KPIs** | Total cloud cost, DBU hours, avg active clusters/day, avg cluster cost — all derived from billing data |
-| **Cost Over Time** | Area chart of estimated infrastructure costs with instance family filter bubbles |
-| **Instance Family Usage** | DBU hours by EC2 (AWS), VM series (Azure), or machine type (GCP) instance family |
+| **Infrastructure KPIs** | Databricks compute spend, DBUs, and average active clusters/day |
+| **Usage Over Time** | Daily classic-cluster DBUs |
+| **Instance Family Usage** | DBUs by EC2 (AWS), VM series (Azure), or machine type (GCP) instance family |
 | **Cluster Table** | Per-cluster cost attribution with instance types, pricing links, pagination, and historical toggle |
-| **Actual Costs Integration** | Toggle between estimated and actual costs when AWS CUR 2.0, Azure Cost Management Export, or GCP Billing Export is configured |
+| **Actual Costs Integration** | Currency costs from AWS CUR 2.0, Azure Cost Management Export, or GCP Billing Export |
 | **Cloud Integration Wizard** | In-app 5-step setup guide for AWS, Azure, and GCP actual cost integration |
 | **2025 Pricing** | Updated EC2 and Azure VM pricing covering: AWS m7i, r7i, c7i, i4i, g6; Azure Dv6, Ev5/v6, NC A100 v4, ND A100 v4, NVadsA10 v5 |
 
@@ -432,7 +434,7 @@ Tables are built automatically when the setup wizard completes. The dashboard wo
 
 Tables are automatically refreshed on a nightly schedule (default: 05:00 UTC). The scheduler runs incremental updates using MERGE INTO, so only new data is processed after the initial full build — refresh times after the first run are typically under a minute for most deployments.
 
-The refresh frequency and scheduled time are configurable under **Settings → General**. Options include nightly (default) and every 6 hours.
+The refresh frequency and scheduled time are configurable under **Settings → General**. Options include nightly (default), weekly, and monthly.
 
 To rebuild on demand, go to **Settings → Data & tables**. This triggers a full rebuild of all 8 tables from the latest `system.*` data and typically takes 3–8 minutes. Progress is shown in real time.
 
@@ -449,7 +451,7 @@ The downloadable architecture report maps every visible tab to its React compone
 - **Tagging** uses `daily_tag_summary` plus live billing and optional compute/Lakeflow metadata.
 - **Users** reads live billing and pricing data, with optional SCIM group enrichment.
 - **KPIs & Trends** combines `daily_usage_summary`, `daily_query_stats`, `daily_workspace_breakdown`, `dbsql_cost_per_query`, and live billing/query/Lakeflow sources.
-- **Cloud Costs** estimates from billing and compute metadata, with optional AWS, Azure, or GCP billing exports for actual costs.
+- **Cloud Costs** shows DBU and cluster metadata. Currency costs are shown only from AWS, Azure, or GCP billing exports; DBUs are not treated as VM node-hours.
 - **Optimize** analyzes warehouse metadata, events, query history, billing, and list prices live.
 
 ### Performance Optimizations
@@ -472,7 +474,7 @@ The downloadable architecture report maps every visible tab to its React compone
 <a id="cloud-cost-integration"></a>
 ## Cloud cost integration
 
-The Cloud Costs tab displays estimated infrastructure costs out of the box. It can also show **actual** AWS, Azure, or GCP billing data when configured. Full step-by-step setup instructions are built into the app — open the Cloud Costs tab and click **Set Up Actual Costs** to launch the in-app wizard.
+The Cloud Costs tab displays Databricks compute spend, DBUs, and cluster metadata out of the box. It shows **actual** AWS, Azure, or GCP currency costs only when a cloud billing integration is configured. Full step-by-step setup instructions are built into the app.
 
 ### AWS (CUR 2.0)
 
@@ -517,7 +519,7 @@ cost-obs-databricks/
 │   ├── materialized_views.py    # MV creation, refresh, and query templates
 │   ├── alerting.py              # Spike detection logic
 │   ├── alert_manager.py         # Alert persistence and delivery
-│   ├── cloud_pricing.py         # EC2 / Azure VM pricing for cost estimates
+│   ├── cloud_pricing.py         # Legacy instance metadata/pricing references
 │   ├── queries/
 │   │   └── __init__.py          # Core billing SQL
 │   └── routers/                 # 20 API route handlers
@@ -559,7 +561,7 @@ The backend exposes a REST API at `/api/`. Key endpoints:
 | `GET /api/billing/by-product` | Spend by product category with workspace filter |
 | `GET /api/billing/sku-breakdown` | Top SKUs with workspace filter |
 | `GET /api/billing/spend-by-user-group` | Top users by spend |
-| `GET /api/billing/infra-bundle` | Cloud cost estimates with billing-derived KPIs |
+| `GET /api/billing/infra-bundle` | Cluster/DBU analytics plus explicit cloud-currency availability |
 | `GET /api/dbsql/dashboard-bundle` | SQL tab data (sources, users, warehouses, queries) |
 | `GET /api/warehouse-health/recommendations` | Rightsizing recommendations |
 | `GET /api/aws-actual/dashboard-bundle` | AWS CUR actual cost data bundle |

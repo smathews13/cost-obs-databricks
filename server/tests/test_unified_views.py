@@ -195,7 +195,8 @@ def test_partial_failure_preserves_other_live_registry_entries():
 
     assert result["views"]["one"]["built"] is False
     assert result["views"]["two"]["built"] is True
-    assert saved[-1] == ["one", "two"]
+    assert result["ok"] is False
+    assert saved == []
 
 
 def test_selected_source_routes_only_to_verified_physical_view():

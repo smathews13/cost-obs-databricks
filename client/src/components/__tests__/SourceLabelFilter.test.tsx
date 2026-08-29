@@ -96,4 +96,39 @@ describe("source label reconciliation", () => {
     expect(getActiveSourceLabels()).toEqual(["local"]);
     expect(onApplied).toHaveBeenCalledTimes(1);
   });
+
+  it("rolls back a failed scope and offers a direct retry", async () => {
+    const current = sourceData(["local", "west"]);
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => current,
+    })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["mv-sources"], current);
+    const scopesSeen: string[][] = [];
+    let calls = 0;
+
+    render(
+      <QueryClientProvider client={client}>
+        <SourceLabelFilter onApplied={async () => {
+          calls += 1;
+          scopesSeen.push(getActiveSourceLabels());
+          if (calls === 1) throw new Error("warehouse unavailable");
+        }} />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "All sources" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /west/i }));
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Source filter was not applied");
+    expect(getActiveSourceLabels()).toEqual([]);
+    expect(scopesSeen).toEqual([["local"], []]);
+    expect(screen.getByRole("button", { name: "All sources" })).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(getActiveSourceLabels()).toEqual(["local"]));
+    expect(scopesSeen).toEqual([["local"], [], ["local"]]);
+  });
 });

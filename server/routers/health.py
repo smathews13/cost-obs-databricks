@@ -1,15 +1,69 @@
 """Health check endpoints with actual service verification."""
 
 import asyncio
+import json
 import logging
+import os
+import threading
 import time
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Request
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_warehouse_probe_lock = threading.Lock()
+_warehouse_probe_inflight: threading.Event | None = None
+_warehouse_probe_last_at = 0.0
+_warehouse_probe_last_result: dict[str, Any] | None = None
+_WAREHOUSE_PROBE_MIN_INTERVAL = 60.0
+_WAREHOUSE_PROBE_LOCK_PATH = "/tmp/cost-obs-warehouse-probe.lock"
+_WAREHOUSE_PROBE_STATE_PATH = "/tmp/cost-obs-warehouse-probe.json"
+
+
+def _read_shared_probe_result() -> tuple[float, dict[str, Any] | None]:
+    try:
+        with open(_WAREHOUSE_PROBE_STATE_PATH) as state_file:
+            state = json.load(state_file)
+        result = state.get("result")
+        return float(state.get("completed_at") or 0), (
+            dict(result) if isinstance(result, dict) else None
+        )
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return 0.0, None
+
+
+def _write_shared_probe_result(result: dict[str, Any]) -> None:
+    try:
+        state = {"completed_at": time.time(), "result": result}
+        temp_path = (
+            f"{_WAREHOUSE_PROBE_STATE_PATH}.{os.getpid()}."
+            f"{threading.get_ident()}.tmp"
+        )
+        with open(temp_path, "w") as state_file:
+            json.dump(state, state_file)
+            state_file.flush()
+            os.fsync(state_file.fileno())
+        os.replace(temp_path, _WAREHOUSE_PROBE_STATE_PATH)
+    except OSError as exc:
+        logger.debug("Could not persist shared warehouse-probe state: %s", exc)
+
+
+def _acquire_shared_probe_lock():
+    import fcntl
+
+    lock_file = open(_WAREHOUSE_PROBE_LOCK_PATH, "a+")
+    fcntl.flock(lock_file, fcntl.LOCK_EX)
+    return lock_file
+
+
+def _release_shared_probe_lock(lock_file) -> None:
+    import fcntl
+
+    fcntl.flock(lock_file, fcntl.LOCK_UN)
+    lock_file.close()
 
 
 @router.get("/ping")
@@ -62,7 +116,9 @@ async def detailed_health_check() -> dict[str, Any]:
 
 
 @router.get("/health/sql-warehouse")
-async def get_sql_warehouse_status(probe: bool = False) -> dict[str, Any]:
+async def get_sql_warehouse_status(
+    request: Request, probe: bool = False
+) -> dict[str, Any]:
     """Check if the SQL warehouse is warm, starting, or unavailable.
 
     Normal polls are REST-only. During the initial full-screen cold gate, the
@@ -80,6 +136,11 @@ async def get_sql_warehouse_status(probe: bool = False) -> dict[str, Any]:
     """
     import os
     import re as _re
+
+    if probe:
+        from server.routers.settings import _require_admin
+
+        _require_admin(request)
 
     # Prefer DATABRICKS_WAREHOUSE_ID if injected; fall back to parsing HTTP path.
     # The regex handles /sql/1.0/warehouses/<id> and /sql/1.0/endpoints/<id>,
@@ -172,23 +233,93 @@ async def get_sql_warehouse_status(probe: bool = False) -> dict[str, Any]:
     if probe:
         from server.db import execute_query
 
+        global _warehouse_probe_inflight
+        global _warehouse_probe_last_at
+        global _warehouse_probe_last_result
+
+        leader = False
+        now = time.monotonic()
+        with _warehouse_probe_lock:
+            if (
+                _warehouse_probe_last_result is not None
+                and now - _warehouse_probe_last_at < _WAREHOUSE_PROBE_MIN_INTERVAL
+            ):
+                return dict(_warehouse_probe_last_result)
+            if _warehouse_probe_inflight is None:
+                _warehouse_probe_inflight = threading.Event()
+                leader = True
+            inflight = _warehouse_probe_inflight
+
+        if not leader:
+            completed = await asyncio.to_thread(
+                inflight.wait, 45.0
+            )
+            with _warehouse_probe_lock:
+                if completed and _warehouse_probe_last_result is not None:
+                    return dict(_warehouse_probe_last_result)
+            return {
+                "status": "warming_up",
+                "state": "SQL_PROBE_IN_PROGRESS",
+                "latency_ms": None,
+                "warehouse_id": warehouse_id,
+                **warehouse_metadata,
+            }
+
         started = time.monotonic()
+        probe_result = {
+            "status": "warming_up",
+            "state": transient_state,
+            "latency_ms": None,
+            "warehouse_id": warehouse_id,
+            **warehouse_metadata,
+        }
+        shared_lock_file = None
         try:
+            shared_lock_file = await asyncio.to_thread(_acquire_shared_probe_lock)
+            completed_at, shared_result = _read_shared_probe_result()
+            if (
+                shared_result is not None
+                and time.time() - completed_at < _WAREHOUSE_PROBE_MIN_INTERVAL
+            ):
+                probe_result = shared_result
+                return probe_result
             await asyncio.wait_for(
                 asyncio.to_thread(
                     lambda: execute_query("SELECT 1 AS warehouse_ready", no_cache=True)
                 ),
                 timeout=45.0,
             )
-            return {
+            probe_result = {
                 "status": "warm",
                 "state": "SQL_PROBE_SUCCEEDED",
                 "latency_ms": round((time.monotonic() - started) * 1000),
                 "warehouse_id": warehouse_id,
                 **warehouse_metadata,
             }
+            _write_shared_probe_result(probe_result)
+            return probe_result
         except Exception as e:
             logger.warning("Bounded SQL warehouse recovery probe failed: %s", e)
+            probe_result = {
+                "status": "warming_up",
+                "state": transient_state,
+                "latency_ms": None,
+                "warehouse_id": warehouse_id,
+                **warehouse_metadata,
+            }
+            _write_shared_probe_result(probe_result)
+            return probe_result
+        finally:
+            if shared_lock_file is not None:
+                await asyncio.to_thread(
+                    _release_shared_probe_lock, shared_lock_file
+                )
+            with _warehouse_probe_lock:
+                _warehouse_probe_last_at = time.monotonic()
+                _warehouse_probe_last_result = dict(probe_result)
+                if _warehouse_probe_inflight is not None:
+                    _warehouse_probe_inflight.set()
+                _warehouse_probe_inflight = None
 
     return {
         "status": "warming_up",
@@ -276,7 +407,7 @@ def _run_prewarm():
 
 
 @router.post("/cache/clear")
-async def clear_cache(tab: str | None = None) -> dict[str, Any]:
+async def clear_cache(request: Request, tab: str | None = None) -> dict[str, Any]:
     """Clear server-side query cache for a specific tab or all tabs.
 
     Tab patterns:
@@ -293,6 +424,9 @@ async def clear_cache(tab: str | None = None) -> dict[str, Any]:
       (none)       → clears entire cache
     """
     from server.db import clear_query_cache, delta_cache_invalidate
+    from server.routers.settings import _require_admin
+
+    _require_admin(request)
 
     TAB_PATTERNS: dict[str, list[str]] = {
         "dbu":          [

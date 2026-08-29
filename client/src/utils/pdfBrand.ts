@@ -13,6 +13,11 @@ export interface PdfBrandAssets {
   databricksMark: string;
 }
 
+export const PDF_BRAND_ASSET_PATHS = {
+  costObsLockup: "/brand/costobs-lockup-white.svg",
+  databricksMark: "/databricks.svg",
+} as const;
+
 /**
  * Rasterize a checked-in SVG without changing its geometry. jsPDF does not
  * natively embed SVG, so the browser converts the official asset to PNG.
@@ -46,8 +51,8 @@ async function svgAssetToPng(path: string, width: number, height: number): Promi
 
 export async function loadPdfBrandAssets(): Promise<PdfBrandAssets> {
   const [costObsLockup, databricksMark] = await Promise.all([
-    svgAssetToPng("/brand/costobs-lockup-white.svg", 880, 192),
-    svgAssetToPng("/databricks.svg", 192, 192),
+    svgAssetToPng(PDF_BRAND_ASSET_PATHS.costObsLockup, 880, 192),
+    svgAssetToPng(PDF_BRAND_ASSET_PATHS.databricksMark, 192, 192),
   ]);
   return { costObsLockup, databricksMark };
 }

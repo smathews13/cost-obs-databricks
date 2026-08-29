@@ -16,8 +16,6 @@ from server import cache_ttls
 from server.queries import (
     ACCOUNT_INFO,
     AWS_COST_BY_INSTANCE_TYPE,
-    AWS_COST_ESTIMATE,
-    AWS_COST_TIMESERIES,
     BILLING_BY_PRODUCT,
     BILLING_BY_PRODUCT_FAST,
     BILLING_BY_PRODUCT_WORKSPACE,
@@ -696,14 +694,32 @@ async def get_infra_costs(
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
 ) -> dict[str, Any]:
-    """Get estimated infrastructure costs based on cluster instance types.
+    """Get cluster DBUs and instance metadata.
 
-    Automatically detects the cloud provider (AWS or Azure) and uses appropriate pricing.
+    Currency estimates are explicitly unavailable without node-hour data.
     """
     params = {
         "start_date": start_date or get_default_start_date(),
         "end_date": end_date or get_default_end_date(),
     }
+    if not _local_source_selected():
+        return {
+            "cloud": "UNKNOWN",
+            "cloud_display_name": "Cloud",
+            "clusters": [],
+            "instance_families": [],
+            "total_estimated_cost": None,
+            "total_dbu_hours": 0,
+            "available": False,
+            "availability": "unavailable",
+            "reason": "shared_scope_unsupported",
+            "reason_detail": (
+                "Classic infrastructure metadata is local-only and is unavailable "
+                "when this workspace is excluded from the selected sources."
+            ),
+            "start_date": params["start_date"],
+            "end_date": params["end_date"],
+        }
 
     try:
         # Single query — instance families are derived in Python from cluster results
@@ -734,11 +750,9 @@ async def get_infra_costs(
             driver_type = row.get("driver_instance_type")
             worker_type = row.get("worker_instance_type")
 
-            driver_cost = get_instance_pricing(driver_type, cloud)
-            worker_cost = get_instance_pricing(worker_type, cloud)
-            estimated_cost = dbu_hours * (driver_cost + worker_cost * 2) / 2
-
-            total_estimated_cost += estimated_cost
+            # DBUs are not node-hours. Without an authoritative node timeline
+            # and worker counts, no currency estimate can be derived here.
+            estimated_cost = None
             total_dbu_hours += dbu_hours
 
             clusters.append({
@@ -777,11 +791,19 @@ async def get_infra_costs(
             "cloud_display_name": get_cloud_display_name(cloud),
             "clusters": clusters,
             "instance_families": instance_families,
-            "total_estimated_cost": total_estimated_cost,
+            "total_estimated_cost": None,
             "total_dbu_hours": total_dbu_hours,
+            "currency_estimate_available": False,
+            "estimate_unavailable_reason": (
+                "Cloud VM cost is unavailable because this deployment has no "
+                "granted node-hour and worker-count timeline."
+            ),
             "start_date": params["start_date"],
             "end_date": params["end_date"],
-            "disclaimer": get_pricing_disclaimer(cloud),
+            "disclaimer": (
+                "Cluster DBUs and instance metadata are shown. Cloud VM currency "
+                "cost requires an actual billing integration or authoritative node-hours."
+            ),
         }
     except Exception as e:
         return {
@@ -802,14 +824,25 @@ async def get_infra_costs_timeseries(
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
 ) -> dict[str, Any]:
-    """Get estimated infrastructure costs over time (daily).
-
-    Automatically detects cloud provider and uses appropriate pricing.
-    """
+    """Get daily cluster DBUs; cloud currency history requires billing exports."""
     params = {
         "start_date": start_date or get_default_start_date(),
         "end_date": end_date or get_default_end_date(),
     }
+    if not _local_source_selected():
+        return {
+            "cloud": "UNKNOWN",
+            "cloud_display_name": "Cloud",
+            "timeseries": [],
+            "available": False,
+            "availability": "unavailable",
+            "reason": "shared_scope_unsupported",
+            "reason_detail": (
+                "Infrastructure history is local-only and unavailable for a shared-only source selection."
+            ),
+            "start_date": params["start_date"],
+            "end_date": params["end_date"],
+        }
 
     try:
         results = await asyncio.to_thread(execute_query, INFRA_COST_TIMESERIES, params)
@@ -832,14 +865,9 @@ async def get_infra_costs_timeseries(
         timeseries = []
         for row in results:
             dbu_hours = float(row.get("total_dbu_hours") or 0)
-            # Use average pricing for timeseries (rough estimate)
-            avg_cost_per_hour = 0.50  # Reasonable average
-            estimated_cost = dbu_hours * avg_cost_per_hour
-
             timeseries.append(
                 {
                     "date": str(row.get("usage_date")),
-                    "Infrastructure Cost": estimated_cost,
                     "total_dbu_hours": dbu_hours,
                 }
             )
@@ -848,6 +876,10 @@ async def get_infra_costs_timeseries(
             "cloud": cloud,
             "cloud_display_name": get_cloud_display_name(cloud),
             "timeseries": timeseries,
+            "currency_estimate_available": False,
+            "estimate_unavailable_reason": (
+                "Cloud VM cost history is unavailable without authoritative node-hours."
+            ),
             "start_date": params["start_date"],
             "end_date": params["end_date"],
         }
@@ -978,6 +1010,35 @@ async def get_infra_bundle(
         "end_date": end_date or get_default_end_date(),
     }
     id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    if not _local_source_selected():
+        empty = {
+            "cloud": "UNKNOWN",
+            "cloud_display_name": "Cloud",
+            "available": False,
+            "availability": "unavailable",
+            "reason": "shared_scope_unsupported",
+            "reason_detail": (
+                "Infrastructure metadata is local-only and is unavailable when "
+                "this workspace is excluded from the selected sources."
+            ),
+            "start_date": params["start_date"],
+            "end_date": params["end_date"],
+        }
+        return {
+            "infra_costs": {
+                **empty,
+                "clusters": [],
+                "instance_families": [],
+                "total_estimated_cost": None,
+                "total_dbu_hours": 0,
+                "currency_estimate_available": False,
+            },
+            "infra_timeseries": {
+                **empty,
+                "timeseries": [],
+                "currency_estimate_available": False,
+            },
+        }
 
     # Delta cross-worker cache
     _dkey = bundle_cache_key("billing:infra-bundle", params["start_date"], params["end_date"], id_list)
@@ -1094,28 +1155,23 @@ async def get_infra_bundle(
             float(row.get("total_dbu_hours") or 0) for row in missing_cluster_results
         )
 
-        # Pre-build a pricing map for all unique instance types to avoid repeated lookups
+        # Instance types remain useful for cluster analysis, but DBU quantity is
+        # not elapsed node-hours and cannot be multiplied by VM hourly prices.
         all_types = {
-            row.get("driver_instance_type") for row in priced_cluster_results
+            row.get("driver_instance_type") for row in cluster_results
         } | {
-            row.get("worker_instance_type") for row in priced_cluster_results
+            row.get("worker_instance_type") for row in cluster_results
         }
-        pricing_map = {t: get_instance_pricing(t, cloud) for t in all_types if t}
         family_map = {t: get_instance_family(t, cloud) for t in all_types if t}
 
         clusters = []
-        total_estimated_cost = 0
         total_dbu_hours = 0
         family_agg: dict[str, dict] = {}
 
-        for row in priced_cluster_results:
+        for row in cluster_results:
             dbu_hours = float(row.get("total_dbu_hours") or 0)
             driver_type = row.get("driver_instance_type")
             worker_type = row.get("worker_instance_type")
-            driver_cost = pricing_map.get(driver_type, 0.0) if driver_type else 0.0
-            worker_cost = pricing_map.get(worker_type, 0.0) if worker_type else 0.0
-            estimated_cost = dbu_hours * (driver_cost + worker_cost * 2) / 2
-            total_estimated_cost += estimated_cost
             total_dbu_hours += dbu_hours
             clusters.append({
                 "cluster_id": row.get("cluster_id"),
@@ -1126,7 +1182,7 @@ async def get_infra_bundle(
                 "workspace_id": str(row.get("workspace_id") or ""),
                 "workspace_name": row.get("workspace_name"),
                 "total_dbu_hours": dbu_hours,
-                "estimated_cost": estimated_cost,
+                "estimated_cost": None,
                 "days_active": row.get("days_active") or 0,
             })
             # Derive instance families from cluster data — no second query needed
@@ -1141,10 +1197,7 @@ async def get_infra_bundle(
                         family_agg[family] = {"instance_family": family, "total_dbu_hours": dbu_hours, "days_active": days}
 
         for cluster in clusters:
-            cluster["percentage"] = (
-                (cluster["estimated_cost"] / total_estimated_cost * 100)
-                if total_estimated_cost > 0 else 0
-            )
+            cluster["percentage"] = None
         instance_families = sorted(family_agg.values(), key=lambda f: f["total_dbu_hours"], reverse=True)
         metadata_quality = {
             "total_rows": len(cluster_results),
@@ -1205,18 +1258,13 @@ async def get_infra_bundle(
             ):
                 timeseries_missing_rows += 1
                 timeseries_missing_dbu_hours += dbu_hours
-                continue
-
-            timeseries_priced_rows += 1
-            driver_cost = get_instance_pricing(driver_type, cloud)
-            worker_cost = get_instance_pricing(worker_type, cloud)
-            estimated_cost = dbu_hours * (driver_cost + worker_cost * 2) / 2
+            else:
+                timeseries_priced_rows += 1
             date_key = str(row.get("usage_date"))
             daily = timeseries_by_date.setdefault(
                 date_key,
-                {"date": date_key, "Infrastructure Cost": 0.0, "total_dbu_hours": 0.0},
+                {"date": date_key, "total_dbu_hours": 0.0},
             )
-            daily["Infrastructure Cost"] += estimated_cost
             daily["total_dbu_hours"] += dbu_hours
         timeseries = [
             timeseries_by_date[date_key] for date_key in sorted(timeseries_by_date)
@@ -1261,9 +1309,9 @@ async def get_infra_bundle(
         if billing_summary_results:
             bs = billing_summary_results[0]
             billing_summary = {
-                "total_cost": float(bs.get("total_cost") or 0),
+                "databricks_compute_spend": float(bs.get("total_cost") or 0),
                 "avg_clusters_per_day": round(float(bs.get("avg_clusters_per_day") or 0)),
-                "avg_cost_per_cluster": float(bs.get("avg_cost_per_cluster") or 0),
+                "avg_databricks_spend_per_cluster": float(bs.get("avg_cost_per_cluster") or 0),
                 "days_in_range": int(bs.get("days_in_range") or 0),
             }
 
@@ -1273,8 +1321,13 @@ async def get_infra_bundle(
                 "cloud_display_name": get_cloud_display_name(cloud),
                 "clusters": clusters,
                 "instance_families": instance_families,
-                "total_estimated_cost": total_estimated_cost,
+                "total_estimated_cost": None,
                 "total_dbu_hours": total_dbu_hours,
+                "currency_estimate_available": False,
+                "estimate_unavailable_reason": (
+                    "Cloud VM cost is unavailable because this project grants "
+                    "cluster metadata but no authoritative node-hour and worker-count timeline."
+                ),
                 "billing_summary": billing_summary,
                 "available": cluster_status["available"] and availability != "unavailable",
                 "availability": availability,
@@ -1295,12 +1348,19 @@ async def get_infra_bundle(
                 },
                 "start_date": params["start_date"],
                 "end_date": params["end_date"],
-                "disclaimer": get_pricing_disclaimer(cloud),
+                "disclaimer": (
+                    "Cluster DBUs and instance metadata are shown. Use AWS CUR, "
+                    "Azure Cost Management, or GCP Billing Export for currency costs."
+                ),
             },
             "infra_timeseries": {
                 "cloud": cloud,
                 "cloud_display_name": get_cloud_display_name(cloud),
                 "timeseries": timeseries,
+                "currency_estimate_available": False,
+                "estimate_unavailable_reason": (
+                    "Cloud VM cost history is unavailable without authoritative node-hours."
+                ),
                 "available": (
                     timeseries_status["available"]
                     and timeseries_availability != "unavailable"
@@ -1342,8 +1402,9 @@ async def get_infra_bundle(
                 **empty,
                 "clusters": [],
                 "instance_families": [],
-                "total_estimated_cost": 0,
+                "total_estimated_cost": None,
                 "total_dbu_hours": 0,
+                "currency_estimate_available": False,
                 "available": False,
                 "availability": "unavailable",
                 "error": str(e),
@@ -1377,19 +1438,27 @@ async def get_aws_costs(
         "start_date": start_date or get_default_start_date(),
         "end_date": end_date or get_default_end_date(),
     }
+    if not _local_source_selected():
+        return {
+            "clusters": [],
+            "instance_families": [],
+            "total_estimated_cost": None,
+            "total_dbu_hours": 0,
+            "currency_estimate_available": False,
+            "reason": "shared_scope_unsupported",
+            "start_date": params["start_date"],
+            "end_date": params["end_date"],
+        }
 
     try:
         # Get detailed cluster costs
-        cluster_results = await asyncio.to_thread(execute_query, AWS_COST_ESTIMATE, params)
+        cluster_results = await asyncio.to_thread(execute_query, INFRA_COST_ESTIMATE, params)
 
         clusters = []
-        total_estimated_cost = 0
         total_dbu_hours = 0
 
         for row in cluster_results:
-            cost = float(row.get("estimated_aws_cost") or 0)
             dbu_hours = float(row.get("total_dbu_hours") or 0)
-            total_estimated_cost += cost
             total_dbu_hours += dbu_hours
             clusters.append(
                 {
@@ -1399,18 +1468,13 @@ async def get_aws_costs(
                     "worker_instance_type": row.get("worker_instance_type"),
                     "cluster_source": row.get("cluster_source"),
                     "total_dbu_hours": dbu_hours,
-                    "estimated_aws_cost": cost,
+                    "estimated_aws_cost": None,
                     "days_active": row.get("days_active") or 0,
                 }
             )
 
-        # Calculate percentages
         for cluster in clusters:
-            cluster["percentage"] = (
-                (cluster["estimated_aws_cost"] / total_estimated_cost * 100)
-                if total_estimated_cost > 0
-                else 0
-            )
+            cluster["percentage"] = None
 
         # Get instance family breakdown
         family_results = await asyncio.to_thread(execute_query, AWS_COST_BY_INSTANCE_TYPE, params)
@@ -1427,17 +1491,24 @@ async def get_aws_costs(
         return {
             "clusters": clusters,
             "instance_families": instance_families,
-            "total_estimated_cost": total_estimated_cost,
+            "total_estimated_cost": None,
             "total_dbu_hours": total_dbu_hours,
+            "currency_estimate_available": False,
+            "estimate_unavailable_reason": (
+                "AWS VM cost is unavailable without authoritative node-hours "
+                "and worker counts."
+            ),
             "start_date": params["start_date"],
             "end_date": params["end_date"],
-            "disclaimer": "AWS costs are estimated based on EC2 On-Demand pricing (US East). Actual costs may vary based on region, reserved instances, and spot pricing.",
+            "disclaimer": (
+                "DBU and cluster metadata only. Connect AWS CUR for currency costs."
+            ),
         }
     except Exception as e:
         return {
             "clusters": [],
             "instance_families": [],
-            "total_estimated_cost": 0,
+            "total_estimated_cost": None,
             "total_dbu_hours": 0,
             "start_date": params["start_date"],
             "end_date": params["end_date"],
@@ -1450,15 +1521,42 @@ async def get_aws_costs_timeseries(
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
 ) -> dict[str, Any]:
-    """Get estimated AWS infrastructure costs over time (daily rolling aggregate)."""
+    """Get AWS classic-cluster DBUs over time; no inferred VM currency cost."""
     params = {
         "start_date": start_date or get_default_start_date(),
         "end_date": end_date or get_default_end_date(),
     }
+    if not _local_source_selected():
+        return {
+            "timeseries": [],
+            "instance_families": [],
+            "available": False,
+            "reason": "shared_scope_unsupported",
+            "start_date": params["start_date"],
+            "end_date": params["end_date"],
+        }
 
     try:
-        results = await asyncio.to_thread(execute_query, AWS_COST_TIMESERIES, params)
-        return _format_aws_timeseries(results, params)
+        results = await asyncio.to_thread(execute_query, INFRA_COST_TIMESERIES, params)
+        by_date: dict[str, float] = {}
+        for row in results:
+            key = str(row.get("usage_date"))
+            by_date[key] = by_date.get(key, 0.0) + float(
+                row.get("total_dbu_hours") or 0
+            )
+        return {
+            "timeseries": [
+                {"date": key, "Cluster DBUs": value}
+                for key, value in sorted(by_date.items())
+            ],
+            "instance_families": [],
+            "currency_estimate_available": False,
+            "estimate_unavailable_reason": (
+                "AWS VM cost history requires CUR or authoritative node-hours."
+            ),
+            "start_date": params["start_date"],
+            "end_date": params["end_date"],
+        }
     except Exception as e:
         return {
             "timeseries": [],
@@ -1562,9 +1660,6 @@ async def get_dashboard_bundle(
         ("etl_breakdown", lambda: execute_query(ETL_BREAKDOWN, params)),
         ("pipeline_objects", lambda: _enrich_pipeline_results(execute_query(PIPELINE_OBJECTS, params))),
         ("interactive", lambda: execute_query(INTERACTIVE_BREAKDOWN, params)),
-        ("aws_clusters", lambda: execute_query(AWS_COST_ESTIMATE, params)),
-        ("aws_instances", lambda: execute_query(AWS_COST_BY_INSTANCE_TYPE, params)),
-        ("aws_timeseries", lambda: execute_query(AWS_COST_TIMESERIES, params)),
     ]
 
     try:
@@ -1581,8 +1676,14 @@ async def get_dashboard_bundle(
             "pipeline_objects": _format_pipeline_objects(results.get("pipeline_objects"), params),
             "interactive": _format_interactive(results.get("interactive"), params),
             "aws": {
-                "clusters": _format_aws_clusters(results.get("aws_clusters"), results.get("aws_instances"), params),
-                "timeseries": _format_aws_timeseries(results.get("aws_timeseries"), params),
+                "available": False,
+                "currency_estimate_available": False,
+                "unavailable_reason": (
+                    "Cloud VM currency estimates require actual billing data "
+                    "or authoritative node-hours."
+                ),
+                "clusters": [],
+                "timeseries": [],
             },
         }
 
@@ -2727,6 +2828,12 @@ async def get_kpis_bundle(
     ORDER BY ABS(change_percent) DESC
     LIMIT 20
     """
+    ACTIVE_WORKSPACES_MV_QUERY = """
+    SELECT COUNT(DISTINCT workspace_id) AS active_workspaces
+    FROM `{catalog}`.`{schema}`.`daily_workspace_breakdown`
+    WHERE usage_date BETWEEN :start_date AND :end_date
+      {ws_filter}
+    """
 
     # Direct Delta query for query stats — used as fallback if Lakebase daily_query_stats is empty
     mv_ws = _mv_ws_clause(id_list)
@@ -2741,10 +2848,12 @@ async def get_kpis_bundle(
 
     # Run billing and lakeflow queries separately so a lakeflow permission failure
     # doesn't zero out the billing-backed KPIs (jobs, workspaces, clusters).
-    parallel_queries: list[tuple[str, Any]] = [
-        ("billing_kpis", lambda: execute_query(billing_kpis_sql, params)),
-        ("lakeflow_kpis", lambda: execute_query(lakeflow_kpis_sql, params)),
-    ]
+    parallel_queries: list[tuple[str, Any]] = []
+    if _local_source_selected():
+        parallel_queries.extend([
+            ("billing_kpis", lambda: execute_query(billing_kpis_sql, params)),
+            ("lakeflow_kpis", lambda: execute_query(lakeflow_kpis_sql, params)),
+        ])
     source_labels = selected_source_labels()
     anomaly_source_filter = source_label_filter_clause(ANOMALIES_MV_QUERY)
     if use_mv and (not source_labels or anomaly_source_filter):
@@ -2761,6 +2870,11 @@ async def get_kpis_bundle(
     if use_mv:
         avg_daily_ws_sql = _get_mv_query(AVG_DAILY_WORKSPACES, mv_ws)
         parallel_queries.append(("avg_daily_ws", lambda: execute_query(avg_daily_ws_sql, params)))
+        active_workspaces_sql = _get_mv_query(ACTIVE_WORKSPACES_MV_QUERY, mv_ws)
+        parallel_queries.append((
+            "active_workspaces",
+            lambda: execute_query(active_workspaces_sql, params),
+        ))
         avg_daily_users_sql = _get_mv_query(AVG_DAILY_QUERY_USERS_MV, mv_ws)
         parallel_queries.append(("avg_daily_query_users", lambda: execute_query(avg_daily_users_sql, params)))
 
@@ -2779,9 +2893,10 @@ async def get_kpis_bundle(
     except Exception as exc:
         logger.warning("Managed query-user count is unavailable: %s", exc)
     # Workspace count (all-time) and avg daily model endpoints — fast billing scans
-    parallel_queries.append(("total_workspaces", lambda: execute_query(TOTAL_WORKSPACES_ALLTIME, {})))
-    avg_daily_models_sql = _inject_ws_filter(AVG_DAILY_MODELS, billing_ws_clause)
-    parallel_queries.append(("avg_daily_models", lambda: execute_query(avg_daily_models_sql, params)))
+    if _local_source_selected():
+        parallel_queries.append(("total_workspaces", lambda: execute_query(TOTAL_WORKSPACES_ALLTIME, {})))
+        avg_daily_models_sql = _inject_ws_filter(AVG_DAILY_MODELS, billing_ws_clause)
+        parallel_queries.append(("avg_daily_models", lambda: execute_query(avg_daily_models_sql, params)))
     # Stickiness uses the same query-level MV as the unique-user card and trend.
     # This keeps source-label, workspace, and date scope identical across both.
     try:
@@ -2858,6 +2973,12 @@ async def get_kpis_bundle(
         kpis_response["active_notebooks"] = total_clusters + sql_warehouses
         kpis_response["models_served"] = int(row.get("models_served") or 0)
         kpis_response["total_serving_dbus"] = float(row.get("total_serving_dbus") or 0)
+
+    scoped_workspace_results = query_results.get("active_workspaces")
+    if scoped_workspace_results:
+        kpis_response["active_workspaces"] = int(
+            scoped_workspace_results[0].get("active_workspaces") or 0
+        )
 
     avg_daily_ws_results = query_results.get("avg_daily_ws")
     if avg_daily_ws_results and len(avg_daily_ws_results) > 0:
@@ -2990,6 +3111,43 @@ async def get_kpi_trend(
     ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
 
     use_mv = await asyncio.to_thread(_check_mv_available)
+
+    unavailable_reason = None
+    if kpi in {"infra_cost", "avg_cost_per_cluster"}:
+        unavailable_reason = (
+            "Cloud currency trends require actual cloud billing data or "
+            "authoritative node-hours; DBU spend is not a cloud VM cost estimate."
+        )
+    elif selected_source_labels() and kpi not in {
+        "total_spend",
+        "avg_daily_spend",
+        "total_dbus",
+        "workspace_count",
+        "user_spend",
+        "sql_spend",
+    }:
+        unavailable_reason = (
+            "This KPI is derived from local-only system tables and is unavailable "
+            "for the selected shared-source scope."
+        )
+    if unavailable_reason:
+        return _resp({
+            "kpi": kpi,
+            "granularity": granularity,
+            "available": False,
+            "unavailable_reason": unavailable_reason,
+            "data_points": [],
+            "summary": {
+                "period_start_value": 0,
+                "period_end_value": 0,
+                "change_amount": 0,
+                "change_percent": 0,
+                "min_value": 0,
+                "max_value": 0,
+                "avg_value": 0,
+                "trend": "flat",
+            },
+        })
 
     # Build query based on KPI type — use MVs when available for daily-aggregation KPIs
     # mv_fallback_query is set when using an MV so we can fall back to live if MV is empty
@@ -3792,6 +3950,26 @@ async def get_platform_kpi_trend(
         return _resp(_build_platform_kpi_response(kpi, granularity, managed_points))
 
     use_mv = await asyncio.to_thread(_check_mv_available)
+
+    if selected_source_labels() and not (
+        granularity == "daily"
+        and kpi in {
+            "total_queries",
+            "total_rows_read",
+            "total_bytes_read",
+            "total_compute_seconds",
+            "active_workspaces",
+        }
+    ):
+        unavailable = _build_platform_kpi_response(kpi, granularity, [])
+        unavailable.update({
+            "available": False,
+            "unavailable_reason": (
+                "This platform KPI has no source-union managed view for the "
+                "requested granularity."
+            ),
+        })
+        return _resp(unavailable)
 
     # The KPI cards read these metrics from source-union-capable managed tables.
     # Their daily drilldowns must use the same tables; querying the local system

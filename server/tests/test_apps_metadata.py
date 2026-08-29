@@ -1,3 +1,7 @@
+import asyncio
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
@@ -67,13 +71,28 @@ def test_extract_app_metadata_selects_safe_operational_fields():
     assert public["deployment"]["state"] == "SUCCEEDED"
     assert public["git"]["commit"] == "abc123def4567890"
     assert public["git"]["repository_url"] == "https://github.example.com/customer/demo.git"
-    assert public["has_thumbnail"] is True
+    assert "has_thumbnail" not in public
     assert "_thumbnail_source_url" not in public
     assert "env_vars" not in public
     assert "oauth2_app_client_id" not in public
     assert "service_principal_client_id" not in public
     assert "forward_user_access_token" not in public
     assert "never-return-this" not in repr(public)
+
+
+def test_public_thumbnail_contract_allows_conventional_icons_without_false_boolean():
+    assert apps._public_thumbnail_url(
+        "app/id",
+        True,
+        {"_thumbnail_source_url": ""},
+        {"url": "https://safe-app.example.databricksapps.com"},
+    ) == "/api/apps/thumbnail?app_id=app%2Fid"
+    assert apps._public_thumbnail_url(
+        "deleted",
+        False,
+        {"_thumbnail_source_url": "/icon.png"},
+        {"url": "https://safe-app.example.databricksapps.com"},
+    ) is None
 
 
 def test_app_detail_cache_reuses_existing_single_get_per_app(monkeypatch):
@@ -155,6 +174,69 @@ def test_app_detail_cache_reuses_existing_single_get_per_app(monkeypatch):
     }
 
 
+def test_app_detail_refresh_is_bounded_parallel_and_single_flight(monkeypatch):
+    active = 0
+    max_active = 0
+    calls = 0
+    guard = threading.Lock()
+
+    class FakeApps:
+        def get(self, name):
+            nonlocal active, max_active, calls
+            with guard:
+                active += 1
+                calls += 1
+                max_active = max(max_active, active)
+            time.sleep(0.03)
+            with guard:
+                active -= 1
+            return SimpleNamespace(
+                description=name,
+                active_deployment=None,
+                pending_deployment=None,
+                effective_resources=[],
+                resources=[],
+                thumbnail_url=None,
+                url=f"https://{name}.example.databricksapps.com",
+            )
+
+    registry = {
+        f"id-{index}": {"name": f"app-{index}", "url": "", "metadata": {}}
+        for index in range(10)
+    }
+    monkeypatch.setattr(
+        apps, "get_workspace_client", lambda: SimpleNamespace(apps=FakeApps())
+    )
+    monkeypatch.setattr(apps, "_app_details_cache", {})
+    monkeypatch.setattr(apps, "_app_details_cache_time", 0)
+    monkeypatch.setattr(apps, "_app_details_refresh_inflight", None)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: apps._get_app_details(registry), range(2)))
+
+    assert calls == len(registry)
+    assert 1 < max_active <= apps._APP_DETAILS_MAX_WORKERS
+    assert results[0] is results[1]
+
+
+@pytest.mark.asyncio
+async def test_connected_artifacts_refresh_does_not_block_event_loop(monkeypatch):
+    registry = {"id": {"name": "app", "url": "", "metadata": {}}}
+    monkeypatch.setattr(apps, "_get_app_registry", lambda: registry)
+
+    def slow_resources():
+        time.sleep(0.05)
+        return {"app": []}
+
+    monkeypatch.setattr(apps, "_get_app_resources", slow_resources)
+    route = asyncio.create_task(apps.get_connected_artifacts())
+    started = time.monotonic()
+    await asyncio.sleep(0.005)
+    assert time.monotonic() - started < 0.03
+    result = await route
+    assert result["stale"] is False
+
+
 def test_secret_binding_never_exposes_scope_or_key():
     binding = apps._resource_binding(
         SimpleNamespace(
@@ -197,6 +279,15 @@ async def test_thumbnail_proxy_authenticates_only_to_workspace_host(monkeypatch)
             self.content = content
             self.headers = {"content-type": content_type}
 
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def aiter_bytes(self):
+            yield self.content
+
     class FakeAsyncClient:
         def __init__(self, **kwargs):
             assert kwargs["follow_redirects"] is False
@@ -207,7 +298,7 @@ async def test_thumbnail_proxy_authenticates_only_to_workspace_host(monkeypatch)
         async def __aexit__(self, *_args):
             return None
 
-        async def get(self, target, headers):
+        def stream(self, _method, target, headers):
             calls.append((target, headers))
             if headers:
                 return FakeResponse(200, b"\x89PNG" + (b"x" * 32), "image/png")
@@ -248,3 +339,128 @@ async def test_thumbnail_proxy_authenticates_only_to_workspace_host(monkeypatch)
             {"Authorization": "Bearer workspace-token"},
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_proxy_rejects_lookalike_origin_before_credentials(monkeypatch):
+    auth_calls = 0
+
+    def authenticate():
+        nonlocal auth_calls
+        auth_calls += 1
+        return {"Authorization": "Bearer secret"}
+
+    class NotFound:
+        status_code = 404
+        headers = {"content-type": "text/plain"}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def aiter_bytes(self):
+            if False:
+                yield b""
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def stream(self, *_args, **_kwargs):
+            return NotFound()
+
+    registry = {
+        "app-id": {
+            "name": "safe-app",
+            "url": "https://safe-app.example.databricksapps.com",
+            "metadata": {
+                "_thumbnail_source_url": "https://workspace.example.com.evil.test/icon.png"
+            },
+        }
+    }
+    config = SimpleNamespace(
+        host="https://workspace.example.com:443",
+        token=None,
+        authenticate=authenticate,
+    )
+    monkeypatch.setattr(apps, "_get_app_registry", lambda: registry)
+    monkeypatch.setattr(apps, "get_workspace_client", lambda: SimpleNamespace(config=config))
+    monkeypatch.setattr(apps.httpx, "AsyncClient", Client)
+    monkeypatch.setattr(apps, "_thumbnail_cache", {})
+    monkeypatch.setattr(apps, "_thumbnail_cache_time", {})
+    monkeypatch.setattr(apps, "_thumbnail_cache_content_type", {})
+
+    response = await apps.get_app_thumbnail("app-id")
+
+    assert response.status_code == 200
+    assert response.media_type == "image/svg+xml"
+    assert auth_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_proxy_aborts_stream_over_hard_cap(monkeypatch):
+    yielded = 0
+
+    class Streamed:
+        status_code = 200
+        headers = {"content-type": "image/png"}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def aiter_bytes(self):
+            nonlocal yielded
+            for _ in range(10):
+                yielded += 1
+                yield b"x" * (apps.MAX_THUMBNAIL_BYTES // 2)
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def stream(self, *_args, **_kwargs):
+            return Streamed()
+
+    registry = {
+        "app-id": {
+            "name": "safe-app",
+            "url": "",
+            "metadata": {
+                "_thumbnail_source_url": "/ajax-api/2.0/thumbnails/app-id.png"
+            },
+        }
+    }
+    config = SimpleNamespace(
+        host="https://workspace.example.com",
+        token=None,
+        authenticate=lambda: {},
+    )
+    monkeypatch.setattr(apps, "_get_app_registry", lambda: registry)
+    monkeypatch.setattr(apps, "get_workspace_client", lambda: SimpleNamespace(config=config))
+    monkeypatch.setattr(apps.httpx, "AsyncClient", Client)
+    monkeypatch.setattr(apps, "_thumbnail_cache", {})
+    monkeypatch.setattr(apps, "_thumbnail_cache_time", {})
+    monkeypatch.setattr(apps, "_thumbnail_cache_content_type", {})
+
+    response = await apps.get_app_thumbnail("app-id")
+
+    assert response.status_code == 200
+    assert response.media_type == "image/svg+xml"
+    assert yielded == 3

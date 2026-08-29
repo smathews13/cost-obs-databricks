@@ -831,13 +831,20 @@ async def get_user_detail(request: Request, email: str) -> dict[str, Any]:
 
 # ── Report Config CRUD ────────────────────────────────────────────────────────
 
+def _require_report_admin(request: Request) -> None:
+    from server.routers.settings import _require_admin
+
+    _require_admin(request)
+
+
 @router.get("/report-config")
 async def get_report_config() -> dict[str, Any]:
     return _load_report_config()
 
 
 @router.post("/report-config/weekly-report")
-async def add_weekly_report(data: WeeklyReportConfig) -> dict[str, Any]:
+async def add_weekly_report(request: Request, data: WeeklyReportConfig) -> dict[str, Any]:
+    _require_report_admin(request)
     config = _load_report_config()
     # Prevent duplicates
     existing = [r for r in config["weekly_reports"] if r["email"] == data.email]
@@ -860,7 +867,8 @@ async def add_weekly_report(data: WeeklyReportConfig) -> dict[str, Any]:
 
 
 @router.delete("/report-config/weekly-report/{email_or_id}")
-async def delete_weekly_report(email_or_id: str) -> dict[str, Any]:
+async def delete_weekly_report(request: Request, email_or_id: str) -> dict[str, Any]:
+    _require_report_admin(request)
     config = _load_report_config()
     config["weekly_reports"] = [
         r for r in config["weekly_reports"]
@@ -871,7 +879,8 @@ async def delete_weekly_report(email_or_id: str) -> dict[str, Any]:
 
 
 @router.post("/report-config/user-alert")
-async def add_user_alert(data: UserAlertConfig) -> dict[str, Any]:
+async def add_user_alert(request: Request, data: UserAlertConfig) -> dict[str, Any]:
+    _require_report_admin(request)
     config = _load_report_config()
     existing = [a for a in config["user_alerts"] if a["email"] == data.email]
     if existing:
@@ -898,7 +907,8 @@ async def add_user_alert(data: UserAlertConfig) -> dict[str, Any]:
 
 
 @router.delete("/report-config/user-alert/{email_or_id}")
-async def delete_user_alert(email_or_id: str) -> dict[str, Any]:
+async def delete_user_alert(request: Request, email_or_id: str) -> dict[str, Any]:
+    _require_report_admin(request)
     config = _load_report_config()
     config["user_alerts"] = [
         a for a in config["user_alerts"]
@@ -910,11 +920,13 @@ async def delete_user_alert(email_or_id: str) -> dict[str, Any]:
 
 @router.post("/send-test-report")
 async def send_test_report(
+    request: Request,
     email: str = Query(...),
     start_date: str = Query(default=None),
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     """Send a test weekly spend report to the given email."""
+    _require_report_admin(request)
     if not end_date:
         end_date = (date.today() - timedelta(days=1)).isoformat()
     if not start_date:

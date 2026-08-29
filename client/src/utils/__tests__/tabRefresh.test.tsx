@@ -144,4 +144,23 @@ describe("per-tab manual refresh", () => {
     expect(screen.getByText("Refresh this tab", { selector: "p" })).toBeVisible();
     expect(screen.getByText(/clears this tab's caches/)).toBeVisible();
   });
+
+  it("keeps refresh failures visible and directly retryable", async () => {
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TabRefreshRegion
+        isLoading={false}
+        isRefreshing={false}
+        loadingSections={[]}
+        onRefresh={onRefresh}
+        refreshError="This tab could not be refreshed: warehouse unavailable"
+      >
+        <div>Current content</div>
+      </TabRefreshRegion>,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("warehouse unavailable");
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
 });

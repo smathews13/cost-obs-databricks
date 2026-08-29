@@ -39,7 +39,7 @@ A Pro or Classic warehouse also works, but cold-start times will be longer durin
 2. Click **Create app**.
 3. Select **Import from Git** and enter the repository URL:
    ```
-   https://github.com/smathews13/cost-obs-databricks
+   https://github.com/smathews13/cost-obs-databricks-v1.0
    ```
 4. Leave the branch as `main`.
 5. Give the app a name — for example, `cost-observability` — and click **Create**.

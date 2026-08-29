@@ -523,8 +523,7 @@ function addArchitectureFooters(doc: jsPDF): void {
   }
 }
 
-export async function generateArchitectureReport(): Promise<void> {
-  const assets = await loadPdfBrandAssets();
+export function createArchitectureReport(assets: PdfBrandAssets): jsPDF {
   const doc = new jsPDF({ orientation: "landscape" });
 
   drawPageOne(doc, assets);
@@ -537,6 +536,12 @@ export async function generateArchitectureReport(): Promise<void> {
     throw new Error(`Architecture report must contain exactly ${PAGE_COUNT} pages`);
   }
   addArchitectureFooters(doc);
+  return doc;
+}
+
+export async function generateArchitectureReport(): Promise<void> {
+  const assets = await loadPdfBrandAssets();
+  const doc = createArchitectureReport(assets);
   doc.save(`cost-observability-architecture-${format(new Date(), "yyyy-MM-dd")}.pdf`);
 }
 

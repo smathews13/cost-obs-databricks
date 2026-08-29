@@ -386,6 +386,6 @@ def daily_digest():
 
 ## Related Documentation
 
-- [Feature Scope: Proactive Alerts](./feature_scope_proactive_alerts.md)
+- Alert thresholds and delivery settings are documented directly in this guide.
 - [System Tables Reference](https://docs.databricks.com/administration-guide/system-tables/index.html)
 - [Databricks SQL Alerts](https://docs.databricks.com/sql/user/alerts/index.html)

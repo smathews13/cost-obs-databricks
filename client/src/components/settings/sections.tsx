@@ -10,6 +10,7 @@ import {
 } from "./dubois";
 
 // Tab labels for landing-tab select + visibility list (spec §6 order).
+// eslint-disable-next-line react-refresh/only-export-components
 export const TAB_LABELS: Record<keyof TabVisibility, string> = {
   dbu: "DBU Overview", sql: "SQL", aiml: "AI/ML", apps: "Apps", tagging: "Tagging",
   "users-groups": "Users", kpis: "Platform KPIs & Trends", infra: "Cloud Costs",
@@ -45,18 +46,54 @@ export function GeneralSection({ localSettings, updateSetting, tabVisibility, ca
   const { data: pricing } = useQuery<{ use_account_prices: boolean } | null>({
     queryKey: ["settings-pricing-mode"], queryFn: () => fetch("/api/settings/pricing-mode").then(r => r.json()).catch(() => null), staleTime: 300000,
   });
+  const [pricingError, setPricingError] = useState<string | null>(null);
+  const [pricingSaving, setPricingSaving] = useState(false);
+  const pricingQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const durablePricingRef = useRef<boolean | null>(null);
+  const pricingRevisionRef = useRef(0);
+  useEffect(() => {
+    if (pricing && durablePricingRef.current === null) {
+      durablePricingRef.current = pricing.use_account_prices;
+    }
+  }, [pricing]);
 
   const sp = authStatus?.sp_user_name || authStatus?.sp_client_id || appConfig?.identity?.display_name || appConfig?.identity?.user_name || "Service principal";
   const defaultName = authStatus?.sp_display_name || appConfig?.identity?.display_name || "service principal name";
   const visibleTabs = TAB_ORDER.filter((k) => tabVisibility[k]);
 
-  const setPricing = async (useAccount: boolean) => {
+  const setPricing = (useAccount: boolean) => {
+    const revision = ++pricingRevisionRef.current;
+    if (durablePricingRef.current === null) {
+      durablePricingRef.current = pricing?.use_account_prices ?? false;
+    }
     qc.setQueryData(["settings-pricing-mode"], { use_account_prices: useAccount });
-    try {
-      await fetch("/api/settings/pricing-mode", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ use_account_prices: useAccount }) });
-      qc.invalidateQueries();
-      toast(useAccount ? "Using account prices" : "Using list prices");
-    } catch { toast("Could not update price basis"); }
+    setPricingError(null);
+    setPricingSaving(true);
+    pricingQueueRef.current = pricingQueueRef.current.then(async () => {
+      try {
+        const response = await fetch("/api/settings/pricing-mode", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ use_account_prices: useAccount }),
+        });
+        if (!response.ok) throw new Error(`Server returned ${response.status}`);
+        durablePricingRef.current = useAccount;
+        if (revision === pricingRevisionRef.current) {
+          await qc.invalidateQueries();
+          toast(useAccount ? "Using account prices" : "Using list prices");
+        }
+      } catch (error) {
+        if (revision === pricingRevisionRef.current) {
+          const durable = durablePricingRef.current ?? false;
+          qc.setQueryData(["settings-pricing-mode"], { use_account_prices: durable });
+          const message = error instanceof Error ? error.message : "Unknown error";
+          setPricingError(`Price basis was not saved: ${message}. Try again.`);
+          toast("Could not update price basis");
+        }
+      } finally {
+        if (revision === pricingRevisionRef.current) setPricingSaving(false);
+      }
+    });
   };
 
   return (
@@ -106,8 +143,13 @@ export function GeneralSection({ localSettings, updateSetting, tabVisibility, ca
           helper={caps && !caps.account_prices_available
             ? "system.billing.account_prices not accessible (private preview): account prices fall back to list prices. Saves immediately."
             : "Account prices read from system.billing.account_prices (private preview). Saves immediately."}
-          control={<Select value={pricing?.use_account_prices ? "account" : "list"} onChange={(v) => setPricing(v === "account")}
+          control={<Select ariaLabel="Price basis" value={pricing?.use_account_prices ? "account" : "list"} onChange={(v) => setPricing(v === "account")}
             options={[{ value: "list", label: "List prices" }, { value: "account", label: "Account prices" }]} />} />
+        {(pricingSaving || pricingError) && (
+          <div role={pricingError ? "alert" : "status"} style={{ padding: "0 16px 10px", fontSize: 12, color: pricingError ? T.dangerFg : T.textSecondary }}>
+            {pricingError ?? "Saving price basis…"}
+          </div>
+        )}
       </Group>
     </div>
   );
@@ -166,9 +208,20 @@ export function AlertsSection({ localSettings, updateSetting, caps }: CommonProp
                 placeholder={masked ? "https://hooks.slack.com/…••••" : "https://hooks.slack.com/services/…"} width={260} />
               <SecondaryButton disabled={!localSettings.slackWebhookUrl && !webhookStatus?.configured}
                 onClick={async () => {
-                  if (localSettings.slackWebhookUrl) await fetch("/api/settings/webhook", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slack_webhook_url: localSettings.slackWebhookUrl }) });
-                  const r = await fetch("/api/settings/webhook/test", { method: "POST" }); const d = await r.json().catch(() => ({}));
-                  toast(d.success ? "Test message sent to Slack" : `Test failed: ${d.error ?? "unknown"}`);
+                  try {
+                    if (localSettings.slackWebhookUrl) {
+                      const saveResponse = await fetch("/api/settings/webhook", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slack_webhook_url: localSettings.slackWebhookUrl }) });
+                      if (!saveResponse.ok) {
+                        toast(`Webhook was not saved (HTTP ${saveResponse.status})`);
+                        return;
+                      }
+                      updateSetting("slackWebhookUrl", "");
+                    }
+                    const r = await fetch("/api/settings/webhook/test", { method: "POST" }); const d = await r.json().catch(() => ({}));
+                    toast(d.success ? "Test message sent to Slack" : `Test failed: ${d.error ?? "unknown"}`);
+                  } catch {
+                    toast("Webhook test failed: network unavailable");
+                  }
                 }}>Send test</SecondaryButton>
             </div>
           } />
@@ -256,31 +309,71 @@ export function ExperimentalSection({ localSettings, updateSetting }: CommonProp
 interface Schedule { enabled: boolean; frequency: "nightly" | "weekly" | "monthly"; hour_utc: number; lookback_days: number; }
 const SCHED_DEFAULTS: Schedule = { enabled: true, frequency: "nightly", hour_utc: 5, lookback_days: 180 };
 
-function ScheduleGroup() {
+export function ScheduleGroup() {
   const toast = useToast();
   const { data } = useQuery<Schedule>({
     queryKey: ["settings-schedule"], queryFn: () => fetch("/api/settings/schedule").then(r => r.ok ? r.json() : SCHED_DEFAULTS).catch(() => SCHED_DEFAULTS), staleTime: 300000,
   });
   const [s, setS] = useState<Schedule>(data ?? SCHED_DEFAULTS);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const synced = useRef(!!data);
-  useEffect(() => { if (data && !synced.current) { setS(data); synced.current = true; } }, [data]);
+  const durableRef = useRef<Schedule>(data ?? SCHED_DEFAULTS);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const saveRevisionRef = useRef(0);
+  useEffect(() => {
+    if (data && !synced.current) {
+      setS(data);
+      durableRef.current = data;
+      synced.current = true;
+    }
+  }, [data]);
   const save = (next: Schedule) => {
-    synced.current = true; setS(next);
-    fetch("/api/settings/schedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(next) }).then(() => toast("Refresh schedule saved")).catch(() => toast("Could not save schedule"));
+    const revision = ++saveRevisionRef.current;
+    synced.current = true;
+    setS(next);
+    setSaveError(null);
+    setSaving(true);
+    saveQueueRef.current = saveQueueRef.current.then(async () => {
+      try {
+        const response = await fetch("/api/settings/schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(next),
+        });
+        if (!response.ok) throw new Error(`Server returned ${response.status}`);
+        durableRef.current = next;
+        if (revision === saveRevisionRef.current) toast("Refresh schedule saved");
+      } catch (error) {
+        if (revision === saveRevisionRef.current) {
+          setS(durableRef.current);
+          const message = error instanceof Error ? error.message : "Unknown error";
+          setSaveError(`Refresh schedule was not saved: ${message}. Try again.`);
+          toast("Could not save schedule");
+        }
+      } finally {
+        if (revision === saveRevisionRef.current) setSaving(false);
+      }
+    });
   };
   const hours = Array.from({ length: 24 }, (_, h) => ({ value: h, label: `${String(h).padStart(2, "0")}:00 UTC` }));
   return (
     <Group label="Refresh schedule">
       <Row first label="Scheduled refresh" helper="Full rebuilds take 3 to 8 minutes; incremental refreshes finish in under a minute."
-        control={<Toggle checked={s.enabled} onChange={(v) => save({ ...s, enabled: v })} />} />
+        control={<Toggle label="Scheduled refresh" checked={s.enabled} onChange={(v) => save({ ...s, enabled: v })} />} />
       {s.enabled && <Row label="Frequency" helper="How often to rebuild the managed tables."
-        control={<Select value={s.frequency} onChange={(v) => save({ ...s, frequency: v as Schedule["frequency"] })}
+        control={<Select ariaLabel="Refresh frequency" value={s.frequency} onChange={(v) => save({ ...s, frequency: v as Schedule["frequency"] })}
           options={[{ value: "nightly", label: "Nightly" }, { value: "weekly", label: "Weekly (Mondays)" }, { value: "monthly", label: "Monthly (1st)" }]} />} />}
       {s.enabled && <Row label="Run at" helper="Hour the rebuild runs."
-        control={<Select value={s.hour_utc} onChange={(v) => save({ ...s, hour_utc: Number(v) })} options={hours} />} />}
+        control={<Select ariaLabel="Refresh hour" value={s.hour_utc} onChange={(v) => save({ ...s, hour_utc: Number(v) })} options={hours} />} />}
       {s.enabled && <Row label="Rebuild window" helper="How far back to pull data on each rebuild."
-        control={<Select value={s.lookback_days} onChange={(v) => save({ ...s, lookback_days: Number(v) })}
+        control={<Select ariaLabel="Rebuild window" value={s.lookback_days} onChange={(v) => save({ ...s, lookback_days: Number(v) })}
           options={[{ value: 180, label: "6 months" }, { value: 365, label: "1 year" }, { value: 730, label: "2 years" }, { value: 1095, label: "3 years" }]} />} />}
+      {(saving || saveError) && (
+        <div role={saveError ? "alert" : "status"} style={{ padding: "0 16px 10px", fontSize: 12, color: saveError ? T.dangerFg : T.textSecondary }}>
+          {saveError ?? "Saving refresh schedule…"}
+        </div>
+      )}
     </Group>
   );
 }

@@ -4,6 +4,7 @@ import {
   fetchWarehouseHealth,
   nextWarehouseWarmState,
   shouldGateDashboard,
+  shouldShowDbuSkeleton,
   shouldRequestWarehouseProbe,
   warehouseHealthPollInterval,
   warehouseManagementHref,
@@ -48,6 +49,12 @@ describe("warehouse cold-start gating", () => {
     expect(warehouseHealthPollInterval(undefined, true)).toBe(15_000);
     expect(warehouseHealthPollInterval("warming_up", false)).toBe(5_000);
     expect(warehouseHealthPollInterval("warm", false)).toBe(15_000);
+  });
+
+  it("lets a successful DBU bundle replace the health-error skeleton", () => {
+    expect(shouldShowDbuSkeleton(true, false)).toBe(false);
+    expect(shouldShowDbuSkeleton(true, true)).toBe(true);
+    expect(shouldShowDbuSkeleton(false, false)).toBe(true);
   });
 });
 

@@ -1,4 +1,7 @@
 import asyncio
+import base64
+import gzip
+import json
 import multiprocessing
 import threading
 import time
@@ -8,11 +11,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from server import db
 from server.queries import PLATFORM_KPIS_FAST
-from server.routers import aiml, apps, billing, dbsql_base, settings
+from server.routers import aiml, apps, billing, dbsql_base, health, settings
 
 
 class _Request:
@@ -35,6 +38,15 @@ class _CapturedThread:
 
     def start(self):
         return None
+
+
+class _ImmediateThread:
+    def __init__(self, *, target, args=(), **_kwargs):
+        self.target = target
+        self.args = args
+
+    def start(self):
+        self.target(*self.args)
 
 
 def _dashboard_endpoint(router):
@@ -82,6 +94,9 @@ def test_aiml_background_thread_captures_request_context():
         with (
             patch.object(aiml, "delta_cache_get", return_value=None),
             patch.object(aiml, "_aiml_available", True),
+            patch.object(
+                aiml, "get_local_source_label", return_value="shared-central"
+            ),
             patch.object(
                 aiml,
                 "capture_cache_generation",
@@ -182,6 +197,74 @@ def test_dbsql_mv_query_refuses_unfiltered_source_fallback():
         db.reset_source_labels(token)
 
 
+def test_dbsql_bundle_filters_warehouse_billing_and_region_counts():
+    captured: list[str] = []
+    router = dbsql_base.create_dbsql_router("dbsql_cost_per_query")
+    endpoint = _dashboard_endpoint(router)
+    compute_bundle = next(
+        cell.cell_contents
+        for cell in endpoint.__closure__ or ()
+        if callable(cell.cell_contents)
+        and getattr(cell.cell_contents, "__name__", "") == "_compute_dbsql_bundle"
+    )
+    dbsql_base._dbsql_bundle_inflight.clear()
+    dbsql_base._mv_status_cache["dbsql_cost_per_query"] = (
+        time.monotonic(),
+        {"mv_available": True},
+    )
+
+    def execute(sql, *_args, **_kwargs):
+        captured.append(sql)
+        if "COUNT(DISTINCT u.workspace_id) AS ws_count" in sql:
+            return [{"ws_count": 2}]
+        if "COUNT(DISTINCT workspace_id) AS ws_count" in sql:
+            return [{"ws_count": 1}]
+        if "u.product_features.is_serverless" in sql:
+            return [{
+                "date": "2026-08-01",
+                "warehouse_id": "w1",
+                "is_serverless": True,
+                "sql_tier": None,
+                "sku_name": "PREMIUM_SQL_SERVERLESS",
+                "daily_spend": 4,
+            }]
+        return []
+
+    def sequential(queries, *_args, **_kwargs):
+        return {name: fn() for name, fn in queries}
+
+    with (
+        patch.object(dbsql_base, "delta_cache_put") as cache_put,
+        patch.object(dbsql_base, "get_catalog_schema", return_value=("c", "s")),
+        patch.object(dbsql_base, "execute_query", side_effect=execute),
+        patch.object(dbsql_base, "execute_queries_parallel", side_effect=sequential),
+    ):
+        compute_bundle(
+            "2026-08-01",
+            "2026-08-28",
+            ["123", "456"],
+            "123,456",
+            "key",
+            db.CacheGeneration(
+                "dbsql:dbsql_cost_per_query:dashboard-bundle", 0
+            ),
+        )
+
+    scoped_live_queries = [
+        sql for sql in captured
+        if "system.billing.usage u" in sql or "system.compute.warehouses" in sql
+    ]
+    assert scoped_live_queries
+    assert all(
+        "('123', '456')" in sql or "('123','456')" in sql
+        for sql in scoped_live_queries
+    )
+    response = cache_put.call_args.args[2]
+    assert response["warehouse_type_timeseries"]["timeseries"][0]["SERVERLESS"] == 4
+    assert response["region_scope"]["billing_workspace_count"] == 2
+    assert response["region_scope"]["in_region_workspace_count"] == 1
+
+
 def _reset_delta_l1():
     db._delta_l1.clear()
     db._delta_l1_endpoints.clear()
@@ -247,6 +330,42 @@ def test_cache_generation_fences_old_worker_across_processes(tmp_path):
         assert parent.recv() is False
         process.join(timeout=5)
     assert process.exitcode == 0
+
+
+def test_blocked_delta_read_does_not_block_invalidate_or_return_stale(tmp_path):
+    _reset_delta_l1()
+    read_started = threading.Event()
+    release_read = threading.Event()
+    payload = base64.b64encode(
+        gzip.compress(json.dumps({"stale": True}).encode())
+    ).decode()
+
+    def execute(sql, *_args, **_kwargs):
+        if sql.lstrip().startswith("SELECT payload_json"):
+            read_started.set()
+            assert release_read.wait(timeout=2)
+            return [{
+                "payload_json": payload,
+                "endpoint": "billing:kpis-bundle",
+                "generation": 0,
+            }]
+        return []
+
+    with (
+        patch.object(db, "_CACHE_GENERATION_STATE_PATH", str(tmp_path / "state.json")),
+        patch.object(db, "_CACHE_GENERATION_LOCK_PATH", str(tmp_path / "lock")),
+        patch.object(db, "get_catalog_schema", return_value=("catalog", "schema")),
+        patch.object(db, "execute_query", side_effect=execute),
+    ):
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            pending = executor.submit(db.delta_cache_get, "remote-key")
+            assert read_started.wait(timeout=1)
+            started = time.monotonic()
+            db.delta_cache_invalidate("billing:")
+            assert time.monotonic() - started < 0.5
+            release_read.set()
+            assert pending.result(timeout=2) is None
+    assert "remote-key" not in db._delta_l1
 
 
 @pytest.mark.parametrize(
@@ -319,6 +438,8 @@ def test_unified_put_returns_503_when_requested_group_is_not_durable():
         with pytest.raises(HTTPException) as exc:
             asyncio.run(settings.put_unified_settings(request))
     assert exc.value.status_code == 503
+    assert exc.value.detail["status"] == "partial_failure"
+    assert exc.value.detail["domains"]["webhook"]["ok"] is False
 
 
 def test_individual_settings_endpoints_return_503_on_delta_failure():
@@ -344,9 +465,16 @@ def test_individual_settings_endpoints_return_503_on_delta_failure():
                     _Request({"daily_budget": 100})
                 )
             )
-    with patch.object(settings, "_save_pricing_settings", side_effect=failure):
+    with (
+        patch.object(settings, "_require_admin"),
+        patch.object(settings, "_save_pricing_settings", side_effect=failure),
+    ):
         with pytest.raises(HTTPException) as pricing_exc:
-            asyncio.run(settings.set_pricing_mode({"use_account_prices": True}))
+            asyncio.run(
+                settings.set_pricing_mode(
+                    _Request(), {"use_account_prices": True}
+                )
+            )
     assert webhook_exc.value.status_code == 503
     assert thresholds_exc.value.status_code == 503
     assert pricing_exc.value.status_code == 503
@@ -409,6 +537,58 @@ def test_individual_schedule_update_preserves_unspecified_values(tmp_path):
     save.assert_called_once_with(result)
 
 
+def test_standalone_schedule_save_propagates_delta_failure(tmp_path):
+    with (
+        patch.object(settings, "_require_admin"),
+        patch.object(settings, "SETTINGS_DIR", str(tmp_path)),
+        patch.object(settings, "SCHEDULE_SETTINGS_FILE", str(tmp_path / "schedule.json")),
+        patch.object(settings, "load_schedule_settings", return_value={}),
+        patch.object(
+            settings,
+            "_save_schedule_to_table",
+            side_effect=RuntimeError("Delta unavailable"),
+        ),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(
+                settings.save_schedule_endpoint(_Request(), {"hour_utc": 11})
+            )
+    assert exc.value.status_code == 503
+
+
+def test_app_settings_partial_saves_are_serialized_across_workers(tmp_path):
+    state = {"company_name": "Before", "theme": "system"}
+    state_lock = threading.Lock()
+
+    def load():
+        with state_lock:
+            snapshot = dict(state)
+        time.sleep(0.02)
+        return {**settings._APP_SETTINGS_DEFAULTS, **snapshot}
+
+    def write(_sql, params):
+        with state_lock:
+            state.update(json.loads(params["s"]))
+        return 1
+
+    with (
+        patch.object(settings, "SETTINGS_DIR", str(tmp_path)),
+        patch.object(settings, "APP_SETTINGS_FILE", str(tmp_path / "app.json")),
+        patch.object(settings, "get_app_settings", side_effect=load),
+        patch.object(settings, "_ensure_app_settings_table"),
+        patch.object(settings, "_config_table", return_value="app_settings"),
+        patch("server.db.execute_write", side_effect=write),
+    ):
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            list(executor.map(
+                lambda partial: settings.save_app_settings(partial),
+                ({"company_name": "After"}, {"theme": "dark"}),
+            ))
+
+    assert state["company_name"] == "After"
+    assert state["theme"] == "dark"
+
+
 def test_share_last_updated_probes_all_selected_tables_and_returns_max():
     modified = {
         "one": "2026-08-20T10:00:00+00:00",
@@ -448,6 +628,26 @@ def test_shared_source_add_and_remove_require_admin():
             asyncio.run(settings.remove_mv_source(_Request(), "shared"))
     assert add_exc.value.status_code == 403
     assert remove_exc.value.status_code == 403
+
+
+def test_costly_and_mutating_control_routes_require_admin():
+    denied = HTTPException(status_code=403, detail="Admin required")
+    request = _Request()
+    calls = [
+        lambda: health.clear_cache(request),
+        lambda: settings.trigger_mv_refresh(request, BackgroundTasks()),
+        lambda: settings.set_pricing_mode(
+            request, {"use_account_prices": True}
+        ),
+        lambda: settings.save_catalog_settings(
+            request, {"catalog": "c", "schema": "s"}
+        ),
+    ]
+    with patch.object(settings, "_require_admin", side_effect=denied):
+        for call in calls:
+            with pytest.raises(HTTPException) as exc:
+                asyncio.run(call())
+            assert exc.value.status_code == 403
 
 
 def test_mv_source_delta_replacement_is_atomic():
@@ -506,6 +706,7 @@ def test_concurrent_source_adds_do_not_lose_updates():
         patch("server.db.get_catalog_schema", return_value=("local", "cost")),
         patch("server.db.get_mv_sources", side_effect=get_sources),
         patch("server.db.save_mv_sources", side_effect=save_sources),
+            patch("server.db.save_unified_view_tables"),
         patch.object(settings, "_detect_source_cloud", return_value=None),
         patch.object(settings, "append_refresh_history"),
         patch.object(materialized_views, "unified_views_rebuild_lock", operation_lock),
@@ -520,6 +721,48 @@ def test_concurrent_source_adds_do_not_lose_updates():
 
     assert all(result["ok"] for result in results)
     assert {source["label"] for source in shared_sources} == {"east", "west"}
+
+
+def test_shared_source_add_rolls_back_when_view_build_is_partial():
+    from server import materialized_views
+
+    @contextmanager
+    def operation_lock(*_args, **_kwargs):
+        yield SimpleNamespace()
+
+    previous = [{"label": "old", "catalog": "remote", "schema": "cost"}]
+    failed = {
+        "ok": False,
+        "views": {"daily_usage_summary": {"built": False}},
+        "routed_tables": [],
+    }
+    restored = {"ok": True, "views": {}, "routed_tables": ["daily_usage_summary"]}
+    with (
+        patch.object(settings, "_require_admin"),
+        patch("server.db.get_catalog_schema", return_value=("local", "cost")),
+        patch("server.db.get_mv_sources", return_value=previous),
+        patch("server.db.save_mv_sources") as save_sources,
+        patch("server.db.save_unified_view_tables"),
+        patch.object(settings, "_detect_source_cloud", return_value=None),
+        patch.object(materialized_views, "unified_views_rebuild_lock", operation_lock),
+        patch.object(
+            materialized_views,
+            "_rebuild_unified_views_locked",
+            side_effect=[failed, restored],
+        ) as rebuild,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(
+                settings.add_mv_source(
+                    _Request(),
+                    {"label": "new", "catalog": "remote2", "schema": "cost"},
+                )
+            )
+
+    assert exc.value.status_code == 503
+    save_sources.assert_not_called()
+    assert rebuild.call_count == 2
+    assert rebuild.call_args_list[1].kwargs["sources_override"] == previous
 
 
 def test_kpis_bundle_filters_lakeflow_successful_runs_by_workspace():
@@ -637,6 +880,139 @@ def test_billing_trend_combines_workspace_and_source_scope():
         db.reset_source_labels(source_token)
 
 
+def test_shared_only_scope_never_falls_back_to_local_aiml_or_infra():
+    source_token = db.set_source_labels(["shared-west"])
+    try:
+        with (
+            patch.object(aiml, "get_local_source_label", return_value="local"),
+            patch.object(billing, "get_local_source_label", return_value="local"),
+            patch.object(aiml, "execute_query") as aiml_query,
+            patch.object(billing, "execute_query") as infra_query,
+        ):
+            aiml_result = asyncio.run(
+                aiml.get_aiml_summary(
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                )
+            )
+            infra_result = asyncio.run(
+                billing.get_infra_bundle(
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    workspace_ids=None,
+                )
+            )
+        assert aiml_result["available"] is False
+        assert infra_result["infra_costs"]["available"] is False
+        aiml_query.assert_not_called()
+        infra_query.assert_not_called()
+    finally:
+        db.reset_source_labels(source_token)
+
+
+def test_shared_scope_unsupported_kpi_trend_is_explicitly_unavailable():
+    source_token = db.set_source_labels(["shared-west"])
+    try:
+        with (
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(billing, "_check_mv_available", return_value=True),
+            patch.object(billing, "execute_query") as execute,
+        ):
+            result = asyncio.run(
+                billing.get_kpi_trend(
+                    kpi="aiml_endpoints",
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    granularity="daily",
+                    workspace_ids=None,
+                    tab="aiml",
+                )
+            )
+        assert result["available"] is False
+        assert result["data_points"] == []
+        execute.assert_not_called()
+    finally:
+        db.reset_source_labels(source_token)
+
+
+def test_shared_only_kpis_bundle_uses_unified_workspace_count_not_local_live_data():
+    source_token = db.set_source_labels(["shared-west"])
+    seen_names: list[str] = []
+
+    def execute_parallel(queries, *_args, **_kwargs):
+        result = {}
+        for name, _function in queries:
+            seen_names.append(name)
+            if name == "active_workspaces":
+                result[name] = [{"active_workspaces": 7}]
+            elif name == "mv_kpis":
+                result[name] = [{"total_queries": 3}]
+            else:
+                result[name] = []
+        return result
+
+    try:
+        with (
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(billing, "_check_mv_available", return_value=True),
+            patch.object(billing, "get_catalog_schema", return_value=("c", "s")),
+            patch.object(billing, "get_local_source_label", return_value="local"),
+            patch.object(
+                billing, "_get_mv_query", side_effect=lambda template, *_: template
+            ),
+            patch.object(
+                billing,
+                "execute_queries_parallel",
+                side_effect=execute_parallel,
+            ),
+        ):
+            result = asyncio.run(
+                billing.get_kpis_bundle(
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    workspace_ids=None,
+                )
+            )
+        assert result["kpis"]["active_workspaces"] == 7
+        assert result["kpis"]["total_queries"] == 3
+        assert {
+            "billing_kpis",
+            "lakeflow_kpis",
+            "total_workspaces",
+            "avg_daily_models",
+        }.isdisjoint(seen_names)
+    finally:
+        db.reset_source_labels(source_token)
+
+
+def test_shared_only_platform_live_kpi_trend_is_unavailable():
+    source_token = db.set_source_labels(["shared-west"])
+    try:
+        with (
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(billing, "_check_mv_available", return_value=True),
+            patch.object(billing, "execute_query") as execute,
+        ):
+            result = asyncio.run(
+                billing.get_platform_kpi_trend(
+                    kpi="successful_runs",
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    granularity="daily",
+                    workspace_ids=None,
+                    tab="kpis",
+                )
+            )
+        assert result["available"] is False
+        assert result["data_points"] == []
+        execute.assert_not_called()
+    finally:
+        db.reset_source_labels(source_token)
+
+
 @pytest.mark.parametrize(
     "kpi",
     ["apps_spend", "apps_dbus", "apps_count", "apps_avg_cost_per_app"],
@@ -709,3 +1085,24 @@ def test_standalone_platform_kpis_reports_successful_runs_availability():
     assert result["successful_runs"] == 0
     assert result["successful_runs_available"] is True
     assert "result_state_available" in PLATFORM_KPIS_FAST
+
+
+def test_permissions_update_rejects_removing_every_explicit_admin():
+    with (
+        patch.object(settings, "_require_admin", return_value="admin@example.com"),
+        patch.object(settings, "_save_user_permissions_to_table") as save,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(
+                settings.save_user_permissions(
+                    _Request(),
+                    settings.UserPermissionsModel(
+                        admins=[],
+                        consumers=["admin@example.com"],
+                    ),
+                )
+            )
+
+    assert exc.value.status_code == 400
+    assert "At least one explicit admin" in str(exc.value.detail)
+    save.assert_not_called()

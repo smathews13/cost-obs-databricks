@@ -28,6 +28,8 @@ from server.db import (
     execute_query,
     get_catalog_schema,
     get_host_url,
+    get_local_source_label,
+    selected_source_labels,
     source_label_filter_clause,
 )
 from server import workspace_filter as wf
@@ -302,6 +304,15 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         try:
             catalog, schema = get_catalog_schema()
             ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
+            billing_ws_clause = wf.build_ws_filter_clause(
+                col="u.workspace_id", id_list=id_list
+            )
+            compute_ws_clause = wf.build_ws_filter_clause(
+                col="w.workspace_id", id_list=id_list
+            )
+            compute_count_ws_clause = wf.build_ws_filter_clause(
+                col="workspace_id", id_list=id_list
+            )
             params = {"start_date": start_date, "end_date": end_date}
 
             queries = [
@@ -310,16 +321,23 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 ("by_user",      lambda: _exec("by_user",      params, catalog, schema, ws_clause)),
                 ("by_warehouse", lambda: _exec("by_warehouse", params, catalog, schema, ws_clause)),
                 ("timeseries",   lambda: _exec("timeseries",   params, catalog, schema, ws_clause)),
-                ("wh_meta",      lambda: execute_query("""
+            ]
+            labels = selected_source_labels()
+            local_metadata_allowed = not labels or get_local_source_label() in labels
+            if local_metadata_allowed:
+                queries.extend([
+                ("wh_meta",      lambda: execute_query(f"""
                     SELECT w.warehouse_id, MAX(w.warehouse_name) as warehouse_name,
                            MAX(w.warehouse_type) as warehouse_type, MAX(w.warehouse_size) as warehouse_size,
                            MAX(w.workspace_id) as workspace_id,
                            MAX(ws.workspace_name) as workspace_name
                     FROM system.compute.warehouses w
                     LEFT JOIN system.access.workspaces_latest ws ON w.workspace_id = ws.workspace_id
+                    WHERE 1 = 1
+                      {compute_ws_clause}
                     GROUP BY w.warehouse_id
                 """)),
-                ("wh_type_billing", lambda: execute_query("""
+                ("wh_type_billing", lambda: execute_query(f"""
                     SELECT
                       u.usage_date as date,
                       u.usage_metadata.warehouse_id as warehouse_id,
@@ -333,6 +351,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                     WHERE u.billing_origin_product = 'SQL'
                       AND u.usage_date BETWEEN :start_date AND :end_date
                       AND u.usage_quantity > 0
+                      {billing_ws_clause}
                     GROUP BY
                       u.usage_date,
                       u.usage_metadata.warehouse_id,
@@ -345,20 +364,22 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 # region. Count workspaces that have SQL spend in billing vs. workspaces
                 # visible in compute; the difference is workspaces in OTHER regions whose
                 # SQL/warehouse detail this deployment cannot see.
-                ("region_billing_ws", lambda: execute_query("""
+                ("region_billing_ws", lambda: execute_query(f"""
                     SELECT COUNT(DISTINCT u.workspace_id) AS ws_count
                     FROM system.billing.usage u
                     WHERE u.billing_origin_product = 'SQL'
                       AND u.usage_date BETWEEN :start_date AND :end_date
                       AND u.usage_quantity > 0
                       AND u.workspace_id IS NOT NULL
+                      {billing_ws_clause}
                 """, params)),
-                ("region_compute_ws", lambda: execute_query("""
+                ("region_compute_ws", lambda: execute_query(f"""
                     SELECT COUNT(DISTINCT workspace_id) AS ws_count
                     FROM system.compute.warehouses
                     WHERE workspace_id IS NOT NULL
+                      {compute_count_ws_clause}
                 """)),
-            ]
+                ])
 
             results = execute_queries_parallel(queries, 120.0)
 
@@ -476,7 +497,14 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 for wt in wh_types_list:
                     row_d.setdefault(wt, 0)
                 wh_ts_list.append(row_d)
-            warehouse_type_timeseries = {"available": True, "timeseries": wh_ts_list, "warehouse_types": wh_types_list}
+            warehouse_type_timeseries = {
+                "available": local_metadata_allowed,
+                "timeseries": wh_ts_list,
+                "warehouse_types": wh_types_list,
+                **({} if local_metadata_allowed else {
+                    "unavailable_reason": "Warehouse type billing is local-only for this shared-source scope."
+                }),
+            }
 
             # region_scope — surface when this deployment's region-scoped system tables
             # (system.compute / system.query) cover fewer workspaces than account-wide
@@ -508,6 +536,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 "in_region_workspace_count": compute_ws,
                 "missing_workspace_count": missing_ws,
                 "limited": missing_ws > 0 and detail_ready,
+                "available": local_metadata_allowed,
             }
 
             _resp = {
@@ -736,7 +765,11 @@ def create_dbsql_router(table_name: str) -> APIRouter:
 
         # Look up warehouse names and types from system.compute.warehouses
         warehouse_meta: dict[str, dict[str, str]] = {}
+        labels = selected_source_labels()
+        local_metadata_allowed = not labels or get_local_source_label() in labels
         try:
+            if not local_metadata_allowed:
+                raise LookupError("local metadata excluded by source scope")
             meta_results = await asyncio.to_thread(execute_query, """
                 SELECT w.warehouse_id, MAX(w.warehouse_name) as warehouse_name,
                        MAX(w.warehouse_type) as warehouse_type, MAX(w.warehouse_size) as warehouse_size,
@@ -756,6 +789,8 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                         "workspace_id": str(r.get("workspace_id")) if r.get("workspace_id") else None,
                         "workspace_name": r.get("workspace_name"),
                     }
+        except LookupError:
+            pass
         except Exception as e:
             logger.warning(f"Could not look up warehouse metadata: {e}")
 
@@ -976,13 +1011,35 @@ def create_dbsql_router(table_name: str) -> APIRouter:
     async def get_warehouse_type_timeseries(
         start_date: str = Query(default=None),
         end_date: str = Query(default=None),
+        workspace_ids: str = Query(default=None),
     ) -> dict[str, Any]:
         start_date, end_date = _default_dates(start_date, end_date)
+        labels = selected_source_labels()
+        if labels and get_local_source_label() not in labels:
+            return {
+                "available": False,
+                "timeseries": [],
+                "warehouse_types": [],
+                "unavailable_reason": (
+                    "Warehouse type billing is local-only for this shared-source scope."
+                ),
+            }
+        id_list = [
+            item.strip() for item in workspace_ids.split(",") if item.strip()
+        ] if workspace_ids else None
+        billing_ws_clause = wf.build_ws_filter_clause(
+            col="u.workspace_id", id_list=id_list
+        )
+        compute_ws_clause = wf.build_ws_filter_clause(
+            col="workspace_id", id_list=id_list
+        )
 
         try:
-            meta_results = await asyncio.to_thread(execute_query, """
+            meta_results = await asyncio.to_thread(execute_query, f"""
                 SELECT warehouse_id, MAX(warehouse_type) as warehouse_type
                 FROM system.compute.warehouses
+                WHERE 1 = 1
+                  {compute_ws_clause}
                 GROUP BY warehouse_id
             """)
             wh_types = {r["warehouse_id"]: r.get("warehouse_type") for r in (meta_results or [])}
@@ -990,7 +1047,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
             wh_types = {}
 
         try:
-            results = await asyncio.to_thread(execute_query, """
+            results = await asyncio.to_thread(execute_query, f"""
                 SELECT
                   u.usage_date as date,
                   u.usage_metadata.warehouse_id as warehouse_id,
@@ -1004,6 +1061,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 WHERE u.billing_origin_product = 'SQL'
                   AND u.usage_date BETWEEN :start_date AND :end_date
                   AND u.usage_quantity > 0
+                  {billing_ws_clause}
                 GROUP BY
                   u.usage_date,
                   u.usage_metadata.warehouse_id,

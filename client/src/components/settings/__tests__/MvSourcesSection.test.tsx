@@ -10,7 +10,7 @@ afterEach(() => {
 
 describe("shared source freshness", () => {
   it("checks freshness and keeps refresh/remove actions aligned", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/mv-sources/check")) {
         return {

@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -6,13 +7,23 @@ from server import db
 from server.routers import health
 
 
+def _request():
+    return SimpleNamespace(headers={})
+
+
+@pytest.fixture(autouse=True)
+def _allow_admin():
+    with patch("server.routers.settings._require_admin"):
+        yield
+
+
 @pytest.mark.asyncio
 async def test_dbu_cache_clear_is_scoped_to_dbu_patterns():
     with (
         patch("server.db.clear_query_cache", return_value=1) as clear_query_cache,
         patch("server.db.delta_cache_invalidate") as delta_cache_invalidate,
     ):
-        result = await health.clear_cache("dbu")
+        result = await health.clear_cache(_request(), "dbu")
 
     assert result["tab"] == "dbu"
     cleared_patterns = [call.args[0] for call in clear_query_cache.call_args_list]
@@ -33,7 +44,7 @@ async def test_infra_cache_clear_covers_all_actual_cost_providers():
         patch("server.db.clear_query_cache", return_value=0) as clear_query_cache,
         patch("server.db.delta_cache_invalidate"),
     ):
-        result = await health.clear_cache("infra")
+        result = await health.clear_cache(_request(), "infra")
 
     assert result["tab"] == "infra"
     patterns = [call.args[0] for call in clear_query_cache.call_args_list]
@@ -48,7 +59,7 @@ async def test_tab_cache_clear_invalidates_only_its_owned_trends(tab):
         patch("server.db.clear_query_cache", return_value=0),
         patch("server.db.delta_cache_invalidate") as delta_cache_invalidate,
     ):
-        await health.clear_cache(tab)
+        await health.clear_cache(_request(), tab)
 
     patterns = [call.args[0] for call in delta_cache_invalidate.call_args_list]
     assert f"trend:{tab}:" in patterns
@@ -71,7 +82,7 @@ async def test_optimizer_cache_clear_resets_router_caches():
         patch("server.db.clear_query_cache", return_value=0) as clear_query_cache,
         patch("server.db.delta_cache_invalidate"),
     ):
-        result = await health.clear_cache("optimizer")
+        result = await health.clear_cache(_request(), "optimizer")
 
     assert result["tab"] == "optimizer"
     assert "tab:optimizer" in [call.args[0] for call in clear_query_cache.call_args_list]

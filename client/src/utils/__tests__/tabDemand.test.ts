@@ -3,6 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import type { TabVisibility } from "@/components/SettingsDialog";
 import {
   buildExportScopeKey,
+  cancelExportPreparationQueries,
   cancelRunningSubmitAndPollForTab,
   isRunningSubmitAndPollQuery,
   isTabDataRequested,
@@ -68,5 +69,32 @@ describe("on-demand tab data", () => {
 
     expect(apps.state.fetchStatus).toBe("idle");
     expect(client.getQueryData(aiml.queryKey)).toEqual({ ready: true });
+  });
+
+  it("aborts export-owned pollers while preserving the active tab poller", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const makeRunning = (prefix: "apps" | "aiml" | "dbsql") => {
+      const query = client.getQueryCache().build(client, {
+        queryKey: [prefix, "dashboard-bundle", "scope"],
+        queryFn: ({ signal }) => new Promise((resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+          void resolve;
+        }),
+      });
+      return { query, running: query.fetch().catch(() => undefined) };
+    };
+    const apps = makeRunning("apps");
+    const aiml = makeRunning("aiml");
+    const dbsql = makeRunning("dbsql");
+
+    await cancelExportPreparationQueries(client, "apps");
+    await Promise.all([aiml.running, dbsql.running]);
+
+    expect(apps.query.state.fetchStatus).toBe("fetching");
+    expect(aiml.query.state.fetchStatus).toBe("idle");
+    expect(dbsql.query.state.fetchStatus).toBe("idle");
+    await cancelExportPreparationQueries(client);
+    await apps.running;
+    expect(apps.query.state.fetchStatus).toBe("idle");
   });
 });

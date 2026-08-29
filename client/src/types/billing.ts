@@ -51,6 +51,7 @@ export interface TimeseriesDataPoint {
 export interface TimeseriesResponse {
   timeseries: TimeseriesDataPoint[];
   categories: string[];
+  instance_families?: string[];
   start_date: string;
   end_date: string;
 }
@@ -136,9 +137,9 @@ export interface AWSClusterCost {
   workspace_name?: string | null;
   state: string | null;
   total_dbu_hours: number;
-  estimated_aws_cost: number;
+  estimated_aws_cost: number | null;
   days_active: number;
-  percentage: number;
+  percentage: number | null;
 }
 
 export interface AWSInstanceFamily {
@@ -150,8 +151,10 @@ export interface AWSInstanceFamily {
 export interface AWSCostsResponse {
   clusters: AWSClusterCost[];
   instance_families: AWSInstanceFamily[];
-  total_estimated_cost: number;
+  total_estimated_cost: number | null;
   total_dbu_hours: number;
+  currency_estimate_available?: boolean;
+  estimate_unavailable_reason?: string;
   start_date: string;
   end_date: string;
   disclaimer?: string;
@@ -166,9 +169,11 @@ export interface InfraClusterCost {
   worker_instance_type: string | null;
   cluster_source: string | null;
   total_dbu_hours: number;
-  estimated_cost: number;
+  estimated_cost: number | null;
   days_active: number;
-  percentage: number;
+  percentage: number | null;
+  workspace_id?: string | null;
+  workspace_name?: string | null;
 }
 
 export interface InfraInstanceFamily {
@@ -179,9 +184,9 @@ export interface InfraInstanceFamily {
 }
 
 export interface InfraBillingSummary {
-  total_cost?: number;
+  databricks_compute_spend?: number;
   avg_clusters_per_day?: number;
-  avg_cost_per_cluster?: number;
+  avg_databricks_spend_per_cluster?: number;
   days_in_range?: number;
 }
 
@@ -207,8 +212,10 @@ export interface InfraCostsResponse {
   cloud_display_name: string;
   clusters: InfraClusterCost[];
   instance_families: InfraInstanceFamily[];
-  total_estimated_cost: number;
+  total_estimated_cost: number | null;
   total_dbu_hours: number;
+  currency_estimate_available?: boolean;
+  estimate_unavailable_reason?: string;
   billing_summary?: InfraBillingSummary;
   available?: boolean;
   availability?: InfraAvailability;
@@ -225,7 +232,7 @@ export interface InfraCostsResponse {
 
 export interface InfraCostsTimeseriesPoint {
   date: string;
-  "Infrastructure Cost": number;
+  "Infrastructure Cost"?: number | null;
   total_dbu_hours: number;
 }
 
@@ -239,6 +246,8 @@ export interface InfraCostsTimeseriesResponse {
   reason?: string | null;
   reason_detail?: string | null;
   metadata_quality?: InfraMetadataQuality;
+  currency_estimate_available?: boolean;
+  estimate_unavailable_reason?: string;
   start_date: string;
   end_date: string;
   error?: string;
@@ -515,7 +524,7 @@ export interface AppsMetadata {
   source_code_path: string;
   git: AppsGitMetadata | null;
   space?: string;
-  has_thumbnail: boolean;
+  thumbnail_url: string | null;
 }
 
 export interface AppsResourceBinding {

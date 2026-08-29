@@ -71,6 +71,8 @@ import {
   useInfraBundle,
   useKPIsBundle,
   useUsersGroupsBundle,
+  getActiveSourceLabels,
+  responsePayloadIssue,
 } from "@/hooks/useBillingData";
 import type { DateRange, WorkspaceBreakdown } from "@/types/billing";
 import { generateArchitectureReport } from "@/utils/architectureReport";
@@ -81,15 +83,17 @@ import { CostObsLockup, VersionPill, PageHero, Chip, InfoPanel } from "@/compone
 import { LoadingPanels, Spinner } from "@/components/Spinner";
 import {
   buildExportScopeKey,
+  cancelExportPreparationQueries,
   cancelRunningSubmitAndPollForTab,
   isTabDataRequested,
 } from "@/utils/tabDemand";
-import { refreshSourceScopeData, refreshTabData, TAB_LOADING_SECTIONS } from "@/utils/tabRefresh";
+import { isDashboardQuery, refreshSourceScopeData, refreshTabData, TAB_LOADING_SECTIONS } from "@/utils/tabRefresh";
 import {
   WAREHOUSE_WARM_SESSION_KEY,
   fetchWarehouseHealth,
   nextWarehouseWarmState,
   shouldGateDashboard,
+  shouldShowDbuSkeleton,
   shouldRequestWarehouseProbe,
   warehouseHealthPollInterval,
   type WarehouseHealth,
@@ -325,6 +329,7 @@ function Dashboard() {
   const setupStatusAbortRef = useRef<AbortController | null>(null);
   const rqClient = useQueryClient();
   const [explicitRefreshingTab, setExplicitRefreshingTab] = useState<ViewTab | null>(null);
+  const [refreshErrors, setRefreshErrors] = useState<Partial<Record<ViewTab, string>>>({});
   const previousActiveTabRef = useRef(activeTab);
 
   useEffect(() => {
@@ -339,10 +344,16 @@ function Dashboard() {
     if (explicitRefreshingTab !== null) return;
     const tab = activeTab;
     setExplicitRefreshingTab(tab);
+    setRefreshErrors((current) => ({ ...current, [tab]: undefined }));
     try {
       await refreshTabData(rqClient, tab);
     } catch (error) {
       console.error(`Failed to refresh ${tab} tab`, error);
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      setRefreshErrors((current) => ({
+        ...current,
+        [tab]: `This tab could not be refreshed: ${detail}`,
+      }));
     } finally {
       setExplicitRefreshingTab(null);
     }
@@ -601,7 +612,7 @@ function Dashboard() {
   const usersRequested = requested("users-groups");
 
   // Fast bundle for the DBU tab and report exports (uses materialized views).
-  const { data: bundle, isLoading: bundleLoading } = useDashboardBundleFast(
+  const { data: bundle, isLoading: bundleLoading, isError: bundleError } = useDashboardBundleFast(
     dateRange,
     selectedWorkspaceIds.length ? selectedWorkspaceIds : undefined,
     dbuRequested,
@@ -663,16 +674,16 @@ function Dashboard() {
 
   // Each tab now opts into only the queries it owns. React Query keeps settled data
   // cached, so revisiting a tab is instant until its stale-time expires.
-  const { data: sqlBreakdown, isLoading: sqlLoading } = useSqlBreakdown(dateRange, _wsIds, sqlRequested);
-  const { data: pipelineObjects, isLoading: pipelineLoading } = usePipelineObjects(dateRange, _wsIds, dbuRequested);
-  const { data: interactiveBreakdown, isLoading: interactiveLoading } = useInteractiveBreakdown(dateRange, _wsIds, dbuRequested);
-  const { data: skuBreakdown, isLoading: skuLoading } = useSKUBreakdown(dateRange, _wsIds, dbuRequested);
+  const { data: sqlBreakdown, isLoading: sqlLoading, isError: sqlError } = useSqlBreakdown(dateRange, _wsIds, sqlRequested);
+  const { data: pipelineObjects, isLoading: pipelineLoading, isError: pipelineError } = usePipelineObjects(dateRange, _wsIds, dbuRequested);
+  const { data: interactiveBreakdown, isLoading: interactiveLoading, isError: interactiveError } = useInteractiveBreakdown(dateRange, _wsIds, dbuRequested);
+  const { data: skuBreakdown, isLoading: skuLoading, isError: skuError } = useSKUBreakdown(dateRange, _wsIds, dbuRequested);
 
-  const { data: infraBundle, isLoading: infraBundleLoading } = useInfraBundle(dateRange, _wsIds, infraRequested);
+  const { data: infraBundle, isLoading: infraBundleLoading, isError: infraBundleError } = useInfraBundle(dateRange, _wsIds, infraRequested);
   const infraCosts = infraBundle?.infra_costs;
   const infraCostsTimeseries = infraBundle?.infra_timeseries;
 
-  const { data: kpisBundle, isLoading: kpisBundleLoading, isFetching: kpisBundleFetching } = useKPIsBundle(dateRange, _wsIds, kpisRequested);
+  const { data: kpisBundle, isLoading: kpisBundleLoading, isFetching: kpisBundleFetching, isError: kpisBundleError } = useKPIsBundle(dateRange, _wsIds, kpisRequested);
   const spendAnomalies = kpisBundle?.anomalies;
   const platformKPIs = kpisBundle?.kpis;
   const anomaliesLoading = kpisBundleLoading;
@@ -692,19 +703,19 @@ function Dashboard() {
     error: appsErrorObj,
     refetch: refetchApps,
   } = useAppsDashboardBundle(dateRange, _wsIds, appsRequested);
-  const { data: taggingData, isLoading: taggingLoading } = useTaggingDashboardBundle(dateRange, _wsIds, taggingRequested);
+  const { data: taggingData, isLoading: taggingLoading, isError: taggingError } = useTaggingDashboardBundle(dateRange, _wsIds, taggingRequested);
 
   // Cloud actual costs: no workspace filter
-  const { data: awsActualData, isLoading: awsActualLoading } = useAWSActualCosts(dateRange, infraRequested);
-  const { data: azureActualData, isLoading: azureActualLoading } = useAzureActualCosts(dateRange, infraRequested);
-  const { data: gcpActualData, isLoading: gcpActualLoading } = useGCPActualCosts(dateRange, infraRequested);
+  const { data: awsActualData, isLoading: awsActualLoading, isError: awsActualError } = useAWSActualCosts(dateRange, infraRequested);
+  const { data: azureActualData, isLoading: azureActualLoading, isError: azureActualError } = useAzureActualCosts(dateRange, infraRequested);
+  const { data: gcpActualData, isLoading: gcpActualLoading, isError: gcpActualError } = useGCPActualCosts(dateRange, infraRequested);
 
   const { data: dbsqlData, isLoading: dbsqlLoading, isError: dbsqlError } = useDBSQLQueryCosts(dateRange, _wsIds, sqlRequested);
-  const { data: dbsqlTopQueriesData, isLoading: dbsqlTopQueriesLoading } = useDBSQLTopQueries(dateRange, _wsIds, sqlRequested);
-  const { data: usersGroupsData, isLoading: usersGroupsLoading } = useUsersGroupsBundle(dateRange, _wsIds, usersRequested);
+  const { data: dbsqlTopQueriesData, isLoading: dbsqlTopQueriesLoading, isError: dbsqlTopQueriesError } = useDBSQLTopQueries(dateRange, _wsIds, sqlRequested);
+  const { data: usersGroupsData, isLoading: usersGroupsLoading, isError: usersGroupsError } = useUsersGroupsBundle(dateRange, _wsIds, usersRequested);
 
   // Optimizer queries run when its tab or the report exporter requests them.
-  const { data: optimizeRightsizingData, isLoading: optimizeRightsizingLoading } = useQuery<{
+  const { data: optimizeRightsizingData, isLoading: optimizeRightsizingLoading, isError: optimizeRightsizingError } = useQuery<{
     available: boolean;
     warehouses_analyzed: number;
     recommendations: Array<{
@@ -717,14 +728,18 @@ function Dashboard() {
     }>;
   }>({
     queryKey: ["warehouse-health"],
-    queryFn: () => fetch("/api/sql/warehouse-health").then(r => r.json()),
+    queryFn: async () => {
+      const response = await fetch("/api/sql/warehouse-health");
+      if (!response.ok) throw new Error(`Warehouse health request failed with ${response.status}`);
+      return response.json();
+    },
     staleTime: 30 * 60 * 1000,
     retry: false,
     // Deferred: only fire when the Optimize tab is actually opened. Previously
     // this prefetched at Dashboard mount and could starve concurrent bundles.
     enabled: optimizerRequested,
   });
-  const { data: optimizeIdleData, isLoading: optimizeIdleLoading } = useQuery<{
+  const { data: optimizeIdleData, isLoading: optimizeIdleLoading, isError: optimizeIdleError } = useQuery<{
     available: boolean;
     serverless_detected: boolean;
     warehouses: Array<{
@@ -742,12 +757,14 @@ function Dashboard() {
     }>;
   }>({
     queryKey: ["warehouse-idle-time", dateRange.startDate, dateRange.endDate, _wsIds?.join(",")],
-    queryFn: () => {
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (dateRange.startDate) params.set("start_date", dateRange.startDate);
       if (dateRange.endDate) params.set("end_date", dateRange.endDate);
       if (_wsIds?.length) params.set("workspace_ids", _wsIds.join(","));
-      return fetch(`/api/sql/warehouse-health/idle-time?${params}`).then(r => r.json());
+      const response = await fetch(`/api/sql/warehouse-health/idle-time?${params}`);
+      if (!response.ok) throw new Error(`Warehouse idle-time request failed with ${response.status}`);
+      return response.json();
     },
     staleTime: 30 * 60 * 1000,
     retry: false,
@@ -766,10 +783,66 @@ function Dashboard() {
     tagging: taggingLoading,
     "users-groups": usersGroupsLoading,
   };
+  const firstPayloadIssue = (
+    ...payloads: Array<[unknown, boolean?]>
+  ): string | undefined => {
+    for (const [payload, requireAvailable = false] of payloads) {
+      const issue = responsePayloadIssue(payload, requireAvailable);
+      if (issue) return issue;
+    }
+    return undefined;
+  };
+  const reportPayloadIssues: Partial<Record<ViewTab, string>> = {
+    dbu: firstPayloadIssue(
+      [bundle],
+      [bundle?.summary, true],
+      [bundle?.products, true],
+      [bundle?.workspaces, true],
+      [skuBreakdown, true],
+      [pipelineObjects, true],
+      [interactiveBreakdown, true],
+    ),
+    sql: firstPayloadIssue(
+      [sqlBreakdown, true],
+      [dbsqlData, true],
+      [dbsqlTopQueriesData, true],
+    ),
+    infra: firstPayloadIssue(
+      [infraBundle],
+      [infraCosts, true],
+      [infraCostsTimeseries, true],
+    ),
+    optimizer: firstPayloadIssue(
+      [optimizeRightsizingData, true],
+      [optimizeIdleData, true],
+    ),
+    kpis: firstPayloadIssue(
+      [kpisBundle],
+      [spendAnomalies, true],
+      [platformKPIs, true],
+    ),
+    aiml: firstPayloadIssue([aimlData, true]),
+    apps: firstPayloadIssue([appsData, true]),
+    tagging: firstPayloadIssue([taggingData, true]),
+    "users-groups": firstPayloadIssue([usersGroupsData, true]),
+  };
+  const tabErrors: Partial<Record<ViewTab, string>> = {
+    dbu: reportPayloadIssues.dbu || (bundleError || skuError || pipelineError || interactiveError ? "DBU Overview data failed to load." : undefined),
+    sql: reportPayloadIssues.sql || (sqlError || dbsqlError || dbsqlTopQueriesError ? "SQL data failed to load." : undefined),
+    infra: reportPayloadIssues.infra || (infraBundleError || awsActualError || azureActualError || gcpActualError ? "Cloud Costs data failed to load." : undefined),
+    optimizer: reportPayloadIssues.optimizer || (optimizeRightsizingError || optimizeIdleError ? "Optimize data failed to load." : undefined),
+    kpis: reportPayloadIssues.kpis || (kpisBundleError ? "Platform KPI data failed to load." : undefined),
+    aiml: reportPayloadIssues.aiml || (aimlError ? "AI/ML data failed to load." : undefined),
+    apps: reportPayloadIssues.apps || (appsError ? "Apps data failed to load." : undefined),
+    tagging: reportPayloadIssues.tagging || (taggingError ? "Tagging data failed to load." : undefined),
+    "users-groups": reportPayloadIssues["users-groups"] || (usersGroupsError ? "Users data failed to load." : undefined),
+  };
   const activeTabInitialLoading = !warehouseQueriesAllowed || tabLoading[activeTab];
   const showActiveTabLoading = activeTabInitialLoading || explicitRefreshingTab === activeTab;
   const exportDataLoading = exportPreparationRequested &&
     (Object.keys(tabVisibility) as ViewTab[]).some((tab) => tabVisibility[tab] && tabLoading[tab]);
+  const exportHasErrors = exportPreparationRequested &&
+    (Object.keys(tabVisibility) as ViewTab[]).some((tab) => tabVisibility[tab] && Boolean(tabErrors[tab]));
 
   useEffect(() => {
     if (!exportPreparationRequested) return;
@@ -777,17 +850,44 @@ function Dashboard() {
       setExportPreparationArmed(true);
       return;
     }
-    if (exportDataLoading) return;
+    if (exportDataLoading || exportHasErrors) return;
     setPreparedExportScope(exportScopeKey);
     setExportPreparingScope(null);
-  }, [exportDataLoading, exportPreparationArmed, exportPreparationRequested, exportScopeKey]);
+  }, [exportDataLoading, exportHasErrors, exportPreparationArmed, exportPreparationRequested, exportScopeKey]);
+
+  const previousExportScopeRef = useRef(exportScopeKey);
+  useEffect(() => {
+    if (previousExportScopeRef.current === exportScopeKey) return;
+    previousExportScopeRef.current = exportScopeKey;
+    setPreparedExportScope(null);
+    if (!showExportDialog) return;
+    void cancelExportPreparationQueries(rqClient);
+    setExportPreparingScope(exportScopeKey);
+    setExportPreparationArmed(false);
+  }, [exportScopeKey, rqClient, showExportDialog]);
 
   const openExportDialog = () => {
-    const needsPreparation = preparedExportScope !== exportScopeKey;
+    const hasVisibleErrors = (Object.keys(tabVisibility) as ViewTab[])
+      .some((tab) => tabVisibility[tab] && Boolean(tabErrors[tab]));
+    const needsPreparation = preparedExportScope !== exportScopeKey || hasVisibleErrors;
     setExportPreparingScope(needsPreparation ? exportScopeKey : null);
     setExportPreparationArmed(!needsPreparation);
     setShowExportDialog(true);
   };
+
+  const closeExportDialog = useCallback(() => {
+    setShowExportDialog(false);
+    setExportPreparingScope(null);
+    setExportPreparationArmed(false);
+    void cancelExportPreparationQueries(rqClient, activeTab);
+  }, [activeTab, rqClient]);
+
+  const retryFailedExportData = useCallback(async () => {
+    await rqClient.refetchQueries({
+      type: "active",
+      predicate: (query) => query.state.status === "error" && isDashboardQuery(query.queryKey),
+    });
+  }, [rqClient]);
 
   // Workspace list for the filter dropdown: SQL-backed, only fire when warehouse is ready.
   const { data: wsListData, isLoading: wsListLoading } = useQuery<{ workspaces: { id: string; name: string; historical?: boolean }[] }>({
@@ -862,15 +962,15 @@ function Dashboard() {
       total_dbu_hours: c.total_dbu_hours,
       days_active: c.days_active,
       percentage: c.percentage,
-      workspace_id: (c as any).workspace_id || "",
-      workspace_name: (c as any).workspace_name ?? null,
+      workspace_id: c.workspace_id || "",
+      workspace_name: c.workspace_name ?? null,
       state: null,
       estimated_aws_cost: c.estimated_cost,
     })),
     instance_families: infraCosts.instance_families,
     total_estimated_cost: infraCosts.total_estimated_cost,
     total_dbu_hours: infraCosts.total_dbu_hours,
-    billing_summary: (infraCosts as any).billing_summary,
+    billing_summary: infraCosts.billing_summary,
     start_date: infraCosts.start_date,
     end_date: infraCosts.end_date,
     disclaimer: infraCosts.disclaimer,
@@ -880,9 +980,9 @@ function Dashboard() {
   const infraViewTimeseries = useMemo(() => infraCostsTimeseries ? {
     timeseries: (infraCostsTimeseries.timeseries || []).map(t => ({
       date: t.date,
-      "Cloud Cost": t["Infrastructure Cost"],
+      "Cluster DBUs": t.total_dbu_hours,
     })),
-    categories: ["Cloud Cost"],
+    categories: ["Cluster DBUs"],
     start_date: infraCostsTimeseries.start_date,
     end_date: infraCostsTimeseries.end_date,
   } : undefined, [infraCostsTimeseries]);
@@ -891,6 +991,12 @@ function Dashboard() {
     const workspaceFilter = _wsIds?.length
       ? { ids: _wsIds, names: _wsIds.map((id: string) => workspaceNameMap[id] || id) }
       : { ids: [] };
+    const exportContext = {
+      anonymizeUsers: appSettings.anonymizeUsers,
+      companyName: appSettings.companyName,
+      sourceLabels: getActiveSourceLabels(),
+      cloudProvider: accountInfo?.cloud,
+    };
 
     if (format === "csv") {
       generateCostCSV(
@@ -909,7 +1015,8 @@ function Dashboard() {
         },
         sections,
         { start: dateRange.startDate, end: dateRange.endDate },
-        workspaceFilter
+        workspaceFilter,
+        exportContext,
       );
       return;
     }
@@ -937,7 +1044,7 @@ function Dashboard() {
             total_dbu_hours: c.total_dbu_hours,
             days_active: c.days_active,
             percentage: c.percentage,
-            workspace_id: (c as any).workspace_id || "",
+            workspace_id: c.workspace_id || "",
             state: null,
             estimated_aws_cost: c.estimated_cost,
           })),
@@ -963,6 +1070,12 @@ function Dashboard() {
           end: dateRange.endDate,
         },
         workspaceFilter,
+        context: {
+          anonymizeUsers: appSettings.anonymizeUsers,
+          companyName: appSettings.companyName,
+          sourceLabels: getActiveSourceLabels(),
+          cloudProvider: accountInfo?.cloud,
+        },
         },
         sections
       );
@@ -1382,12 +1495,13 @@ function Dashboard() {
           isRefreshing={explicitRefreshingTab !== null}
           loadingSections={TAB_LOADING_SECTIONS[activeTab]}
           onRefresh={handleTabRefresh}
+          refreshError={refreshErrors[activeTab]}
         >
         <Suspense fallback={
           <LoadingPanels sections={TAB_LOADING_SECTIONS[activeTab]} />
         }>
         {activeTab === "dbu" ? (
-          (!warehouseStatus || bundleLoading) ? (
+          shouldShowDbuSkeleton(warehouseQueriesAllowed, bundleLoading) ? (
             <LoadingPanels sections={[
               "Spend Over Time",
               "Spend by Product",
@@ -1575,12 +1689,14 @@ function Dashboard() {
 
       <ExportDialog
         isOpen={showExportDialog}
-        onClose={() => setShowExportDialog(false)}
+        onClose={closeExportDialog}
         onExport={handleExport}
         enableArchitectureView={appSettings.enableArchitectureView}
         onExportArchitecture={handleArchitectureExport}
         tabVisibility={tabVisibility}
         dataLoading={exportDataLoading}
+        dataErrors={tabErrors}
+        onRetryFailed={retryFailedExportData}
       />
 
       <SettingsDialog

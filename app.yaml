@@ -1,4 +1,4 @@
-command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--timeout-graceful-shutdown", "10"]
+command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # =============================================================================
 # Setup: configure in the Databricks Apps UI before deploying
@@ -8,6 +8,11 @@ command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000", "-
 #    Pick your existing Serverless Pro warehouse, set permission to "Can use",
 #    leave the resource key as "sql-warehouse".
 #    The app reads DATABRICKS_WAREHOUSE_ID (injected automatically) to connect.
+#
+# 2. User authorization → + Add scope → sql   (optional but recommended)
+#    Allows the app to run queries as the logged-in user rather than the SP.
+#    Workspace admins get system table access automatically — no GRANT needed.
+#    Users will see a one-time consent prompt on first open.
 #
 # =============================================================================
 
@@ -23,37 +28,40 @@ env:
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: sql-warehouse
 
-  # Unity Catalog location for materialized views — REQUIRED, no default.
-  # Set these to a dedicated catalog and schema before deploying.
-  # The setup wizard will also prompt for these values on first launch.
-  # Example:
-  #   COST_OBS_CATALOG: my_catalog
-  #   COST_OBS_SCHEMA:  cost_obs_app
+  # Optional: preconfigure a dedicated Unity Catalog location. Leave these
+  # commented for Git installs so the setup wizard can collect and validate
+  # the location. The app refuses the legacy main.cost_obs target.
   # - name: COST_OBS_CATALOG
-  #   value: <your-catalog>
+  #   value: <your-dedicated-catalog>
   # - name: COST_OBS_SCHEMA
-  #   value: <your-schema>
+  #   value: <your-dedicated-schema>
 
   # Optional: uncomment to point at a specific warehouse instead of the resource above
   # - name: DATABRICKS_HTTP_PATH
   #   value: /sql/1.0/warehouses/<id>
 
-  # Databricks Account ID — used to resolve cross-metastore workspace names.
-  # The app auto-detects this from system.billing.usage; set this only to override.
-  # - name: DATABRICKS_ACCOUNT_ID
-  #   value: <your-account-id>
-
   # Azure subscription ID (shown in account banner on Azure workspaces)
   # - name: AZURE_SUBSCRIPTION_ID
   #   value: <subscription-id>
 
-  # Workspace filter — restrict the dashboard to specific workspace(s).
-  # Value: comma-separated workspace IDs (from the setup wizard or Databricks account console).
-  # Single ID → workspace dropdown is hidden (data is implicitly scoped).
-  # Multiple IDs → dropdown appears so users can filter within the configured pool.
-  # Omit to show all workspaces (dropdown appears when the account has multiple).
-  # - name: COST_OBS_WORKSPACES
-  #   value: 3233745148968388
+  # Lakebase — optional, app falls back to Delta tables if not set
+  # - name: ENDPOINT_NAME
+  #   value: projects/<project>/branches/<branch>/endpoints/<endpoint>
+  # - name: PGHOST
+  #   value: <lakebase-hostname>
+
+  # Optional public feedback destinations. Leave unset to use the public GitHub
+  # issue form only. These are public routing values, never webhook credentials.
+  # - name: COST_OBS_FEEDBACK_GITHUB_URL
+  #   value: https://github.com/<owner>/<repository>/issues/new
+  # - name: COST_OBS_FEEDBACK_EMAIL
+  #   value: <feedback-email>
+  # - name: COST_OBS_FEEDBACK_SLACK_TEAM_ID
+  #   value: <slack-team-id>
+  # - name: COST_OBS_FEEDBACK_SLACK_MEMBER_ID
+  #   value: <slack-member-id>
+  # - name: COST_OBS_FEEDBACK_SLACK_WEB_URL
+  #   value: <slack-member-web-url>
 
   # AWS / Azure actual cost tables (defaults: billing.aws / billing.azure)
   # - name: AWS_COST_CATALOG

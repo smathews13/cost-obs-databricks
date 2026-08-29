@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { useState } from "react";
 import { loadAppSettings, loadTabVisibility } from "@/utils/settingsHydration";
 import { SettingsDialog } from "../SettingsDialog";
 
@@ -396,4 +397,84 @@ it("persists all toggles from the first Save click", async () => {
   expect(putBodies[0].tab_visibility.infra).toBe(false);
   expect(putBodies[0].tab_visibility.optimizer).toBe(false);
   expect(putBodies[0].general.anonymize_users).toBe(true);
+});
+
+it("clears a saved webhook draft without writing the secret to localStorage", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/api/settings") && init?.method === "PUT") {
+      return { ok: true, status: 200, json: async () => ({ updated_count: 1 }) };
+    }
+    if (String(input).endsWith("/api/settings")) {
+      return { ok: true, status: 200, json: async () => ({ webhook: { configured: false } }) };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <SettingsDialog
+        isOpen
+        onClose={vi.fn()}
+        onTabVisibilityChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        tabVisibility={loadTabVisibility()}
+        appSettings={loadAppSettings()}
+      />
+    </QueryClientProvider>,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "Alerts & notifications" }));
+  const webhook = screen.getByPlaceholderText(/hooks\.slack\.com\/services/);
+  await userEvent.type(webhook, "https://hooks.slack.com/services/top-secret");
+  await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+  await waitFor(() => expect(webhook).toHaveValue(""));
+  expect(localStorage.getItem("coc-app-settings") ?? "").not.toContain("top-secret");
+});
+
+it("implements modal semantics, focus trapping, Escape, outside close, and focus restore", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({}),
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  function Harness() {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>Open settings</button>
+        <QueryClientProvider client={client}>
+          <SettingsDialog
+            isOpen={open}
+            onClose={() => setOpen(false)}
+            onTabVisibilityChange={vi.fn()}
+            onSettingsChange={vi.fn()}
+            tabVisibility={loadTabVisibility()}
+            appSettings={loadAppSettings()}
+          />
+        </QueryClientProvider>
+      </>
+    );
+  }
+
+  render(<Harness />);
+  const trigger = screen.getByRole("button", { name: "Open settings" });
+  await userEvent.click(trigger);
+  const dialog = screen.getByRole("dialog", { name: "Settings" });
+  expect(dialog).toHaveAttribute("aria-modal", "true");
+  const close = screen.getByRole("button", { name: "Close settings" });
+  await waitFor(() => expect(close).toHaveFocus());
+
+  await userEvent.tab({ shift: true });
+  expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  await waitFor(() => expect(trigger).toHaveFocus());
+
+  await userEvent.click(trigger);
+  const reopened = screen.getByRole("dialog", { name: "Settings" });
+  fireEvent.click(reopened.parentElement!);
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  await waitFor(() => expect(trigger).toHaveFocus());
 });

@@ -55,6 +55,13 @@ export function warehouseHealthPollInterval(
   return status === "warming_up" || status === undefined ? 5_000 : 15_000;
 }
 
+export function shouldShowDbuSkeleton(
+  warehouseQueriesAllowed: boolean,
+  bundleLoading: boolean,
+): boolean {
+  return !warehouseQueriesAllowed || bundleLoading;
+}
+
 function normalizeWarehouseSize(size: string | null | undefined): string {
   return (size ?? "").trim().toUpperCase().replace(/[\s_-]+/g, "");
 }

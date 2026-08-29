@@ -7,6 +7,7 @@ import os
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Optional
 
@@ -40,6 +41,33 @@ _TABLES_CACHE_TTL = 15 * 60  # 15 minutes — prewarm fills this at startup; 5 m
 _refresh_log_lock = threading.RLock()
 _refresh_log_persistence_error: str | None = None
 _refresh_log_restore_error: str | None = None
+_settings_write_thread_lock = threading.RLock()
+
+
+@contextmanager
+def _settings_write_lock(name: str):
+    """Serialize read-merge-overwrite settings operations across workers."""
+    import fcntl
+
+    os.makedirs(SETTINGS_DIR, exist_ok=True)
+    lock_path = os.path.join(SETTINGS_DIR, f"{name}.lock")
+    with _settings_write_thread_lock:
+        with open(lock_path, "a+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def _atomic_json_write(path: str, data: Any) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp_path = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
+    with open(temp_path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp_path, path)
 
 # Separate long-lived cache for table owner lookups (SDK REST call per table).
 # Owners rarely change — 1-hour TTL means re-checks after the tables cache expires
@@ -1302,6 +1330,14 @@ async def check_mv_source_freshness(request: Request, label: str) -> dict:
             }
 
     result = await asyncio.to_thread(_check)
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "Shared source check failed; the existing routing configuration remains active.",
+                "result": result,
+            },
+        )
     _invalidate_mv_caches()
     return result
 
@@ -1340,9 +1376,11 @@ async def add_mv_source(request: Request, body: dict) -> dict:
 
     def _add() -> tuple[list[dict], dict]:
         from datetime import datetime, timezone
+        from server.db import save_unified_view_tables
 
         with unified_views_rebuild_lock():
-            sources = [s for s in get_mv_sources() if s.get("label") != label]
+            previous_sources = get_mv_sources()
+            sources = [s for s in previous_sources if s.get("label") != label]
             entry = {
                 "label": label,
                 "catalog": catalog,
@@ -1355,8 +1393,43 @@ async def add_mv_source(request: Request, body: dict) -> dict:
             if cloud:
                 entry["cloud"] = cloud
             sources.append(entry)
-            save_mv_sources(sources)
-            summary = _rebuild_unified_views_locked(cat, sch)
+            summary = _rebuild_unified_views_locked(
+                cat,
+                sch,
+                sources_override=sources,
+                persist_registry=False,
+            )
+            if not summary.get("ok"):
+                _rebuild_unified_views_locked(
+                    cat, sch, sources_override=previous_sources
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "message": "Shared source was not activated because unified-view validation failed.",
+                        "build": summary,
+                    },
+                )
+            try:
+                save_mv_sources(sources)
+                save_unified_view_tables(
+                    summary.get("routed_tables") or [], strict=True
+                )
+            except Exception as exc:
+                try:
+                    save_mv_sources(previous_sources)
+                except Exception as rollback_exc:
+                    logger.error(
+                        "Could not roll back shared-source configuration: %s",
+                        rollback_exc,
+                    )
+                _rebuild_unified_views_locked(
+                    cat, sch, sources_override=previous_sources
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="Shared source was not activated because configuration persistence failed.",
+                ) from exc
             return sources, summary
 
     sources, summary = await asyncio.to_thread(_add)
@@ -1374,7 +1447,7 @@ async def add_mv_source(request: Request, body: dict) -> dict:
 async def remove_mv_source(request: Request, label: str = None) -> dict:
     """Remove an additional MV source by label and rebuild unified views."""
     _require_admin(request)
-    from server.db import get_mv_sources, save_mv_sources
+    from server.db import get_mv_sources, save_mv_sources, get_catalog_schema
     from server.materialized_views import (
         _rebuild_unified_views_locked,
         unified_views_rebuild_lock,
@@ -1383,10 +1456,49 @@ async def remove_mv_source(request: Request, label: str = None) -> dict:
     if not label:
         raise HTTPException(status_code=400, detail="label query param is required")
     def _remove() -> tuple[list[dict], dict]:
+        from server.db import save_unified_view_tables
+
         with unified_views_rebuild_lock():
-            sources = [s for s in get_mv_sources() if s.get("label") != label]
-            save_mv_sources(sources)
-            summary = _rebuild_unified_views_locked()
+            previous_sources = get_mv_sources()
+            sources = [s for s in previous_sources if s.get("label") != label]
+            cat, sch = get_catalog_schema()
+            summary = _rebuild_unified_views_locked(
+                cat,
+                sch,
+                sources_override=sources,
+                persist_registry=False,
+            )
+            if not summary.get("ok"):
+                _rebuild_unified_views_locked(
+                    cat, sch, sources_override=previous_sources
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "message": "Shared source was not removed because unified-view validation failed.",
+                        "build": summary,
+                    },
+                )
+            try:
+                save_mv_sources(sources)
+                save_unified_view_tables(
+                    summary.get("routed_tables") or [], strict=True
+                )
+            except Exception as exc:
+                try:
+                    save_mv_sources(previous_sources)
+                except Exception as rollback_exc:
+                    logger.error(
+                        "Could not roll back shared-source configuration: %s",
+                        rollback_exc,
+                    )
+                _rebuild_unified_views_locked(
+                    cat, sch, sources_override=previous_sources
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="Shared source was not removed because configuration persistence failed.",
+                ) from exc
             return sources, summary
 
     sources, summary = await asyncio.to_thread(_remove)
@@ -1398,8 +1510,9 @@ async def remove_mv_source(request: Request, label: str = None) -> dict:
 
 
 @router.post("/catalog")
-async def save_catalog_settings(body: dict):
+async def save_catalog_settings(request: Request, body: dict):
     """Save catalog/schema override from the Setup Wizard."""
+    _require_admin(request)
     import asyncio as _asyncio
     from fastapi import HTTPException
     from server.db import save_catalog_schema, StorageConfigurationError
@@ -1424,13 +1537,19 @@ async def save_catalog_settings(body: dict):
 
 
 @router.post("/refresh-mvs")
-async def trigger_mv_refresh(background_tasks: BackgroundTasks, lookback_days: int = 180, force_full: bool = True):
+async def trigger_mv_refresh(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    lookback_days: int = 180,
+    force_full: bool = True,
+):
     """Kick off an MV rebuild in the background and return immediately.
 
     lookback_days: how many days of history to include (default 180 = 6 months).
     force_full: when True (default for UI-triggered rebuilds), bypass incremental MERGE
                 and always run full CREATE OR REPLACE for every table.
     """
+    _require_admin(request)
     global _tables_cache, _tables_cache_ts
     from server.app import _run_mv_refresh
     def _run_manual_locked() -> dict:
@@ -1746,10 +1865,10 @@ async def create_cloud_connection(request: Request, conn: CloudConnectionCreate)
 
 # Keep legacy endpoint for backward compatibility
 @router.post("/azure-connections")
-async def create_azure_connection(conn: CloudConnectionCreate):
+async def create_azure_connection(request: Request, conn: CloudConnectionCreate):
     """Create an Azure connection (legacy endpoint)."""
     conn.provider = "azure"
-    return await create_cloud_connection(conn)
+    return await create_cloud_connection(request, conn)
 
 
 @router.delete("/cloud-connections/{connection_id}")
@@ -1774,9 +1893,9 @@ async def delete_cloud_connection(request: Request, connection_id: str):
 
 # Keep legacy endpoint for backward compatibility
 @router.delete("/azure-connections/{connection_id}")
-async def delete_azure_connection(connection_id: str):
+async def delete_azure_connection(request: Request, connection_id: str):
     """Delete an Azure connection (legacy endpoint)."""
-    return await delete_cloud_connection(connection_id)
+    return await delete_cloud_connection(request, connection_id)
 
 
 # ── Webhook Settings ─────────────────────────────────────────────────────
@@ -1894,8 +2013,11 @@ async def test_webhook(request: Request) -> dict[str, Any]:
 
 
 @router.post("/webhook/send-alert")
-async def send_webhook_alert(alert_data: dict[str, Any]) -> dict[str, Any]:
+async def send_webhook_alert(
+    request: Request, alert_data: dict[str, Any]
+) -> dict[str, Any]:
     """Send an alert notification to the configured Slack webhook."""
+    _require_admin(request)
     settings = _load_webhook_settings()
     url = settings.get("slack_webhook_url", "")
     if not url:
@@ -1994,20 +2116,27 @@ def _load_user_permissions() -> dict:
 
 
 def _save_user_permissions_to_table(admins: list[str], consumers: list[str]) -> None:
-    """Write permissions to Delta table (replaces all rows)."""
+    """Atomically replace permissions without exposing a zero-admin state."""
     from server.db import execute_write, clear_query_cache
+    if not admins:
+        raise ValueError("At least one administrator is required.")
     # Ensure the table exists before writing. If this raises, the SP lacks
     # CREATE TABLE permission — propagate so the caller gets a clear error.
     _ensure_permissions_table()
     table = _permissions_table()
-    execute_write(f"DELETE FROM {table}", None)
     rows = [("admin", e) for e in admins] + [("consumer", e) for e in consumers]
-    if rows:
-        for role, email in rows:
-            execute_write(
-                f"INSERT INTO {table} (role, email) VALUES (:role, :email)",
-                {"role": role, "email": email},
-            )
+    params: dict[str, str] = {}
+    values: list[str] = []
+    for index, (role, email) in enumerate(rows):
+        values.append(f"(:role_{index}, :email_{index})")
+        params[f"role_{index}"] = role
+        params[f"email_{index}"] = email
+    execute_write(
+        f"INSERT OVERWRITE {table} "
+        "SELECT source.role, source.email, current_timestamp() AS updated_at "
+        f"FROM VALUES {', '.join(values)} AS source(role, email)",
+        params,
+    )
     # Invalidate cached permission reads so the change is visible immediately
     clear_query_cache("perms")
     logger.info(f"Saved user permissions to Delta table ({len(admins)} admins, {len(consumers)} consumers)")
@@ -2032,6 +2161,22 @@ async def get_user_permissions(request: Request) -> dict:
 async def save_user_permissions(request: Request, data: UserPermissionsModel) -> dict:
     """Save permissions to Delta table."""
     _require_admin(request)
+    # An empty permissions table is the fresh-deploy bootstrap state, where every
+    # authenticated user is temporarily treated as an admin. Once an administrator
+    # explicitly configures roles, never allow a write to recreate that bootstrap
+    # state or leave the app with no administrator able to repair access.
+    normalized_admins = list(dict.fromkeys(
+        email.strip() for email in data.admins if email.strip()
+    ))
+    normalized_consumers = list(dict.fromkeys(
+        email.strip() for email in data.consumers
+        if email.strip() and email.strip() not in normalized_admins
+    ))
+    if not normalized_admins:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one explicit admin must remain once permissions are configured.",
+        )
     try:
         from server.db import get_catalog_schema
         catalog, schema = get_catalog_schema()
@@ -2048,8 +2193,12 @@ async def save_user_permissions(request: Request, data: UserPermissionsModel) ->
             detail="App storage location not configured — complete the Setup Wizard before managing permissions.",
         )
     try:
-        _save_user_permissions_to_table(data.admins, data.consumers)
-        logger.info(f"Permissions saved to Delta table ({len(data.admins)} admins, {len(data.consumers)} consumers)")
+        _save_user_permissions_to_table(normalized_admins, normalized_consumers)
+        logger.info(
+            "Permissions saved to Delta table (%s admins, %s consumers)",
+            len(normalized_admins),
+            len(normalized_consumers),
+        )
         return {"status": "ok"}
     except Exception as e:
         logger.error(f"Failed to save permissions: {e}")
@@ -2119,29 +2268,32 @@ async def get_schedule_settings() -> dict:
 @router.post("/schedule")
 async def save_schedule_endpoint(request: Request, data: dict) -> dict:
     _require_admin(request)
-    current = load_schedule_settings()
-    merged = {**current, **{
-        key: data[key]
-        for key in ("enabled", "frequency", "hour_utc", "lookback_days")
-        if key in data
-    }}
-    settings = {
-        "enabled": bool(merged.get("enabled", True)),
-        "frequency": merged.get("frequency", "nightly"),
-        "hour_utc": max(0, min(23, int(merged.get("hour_utc", 5)))),
-        "lookback_days": int(merged.get("lookback_days", 180)),
-    }
-    if settings["frequency"] not in ("nightly", "weekly", "monthly"):
-        settings["frequency"] = "nightly"
-    if settings["lookback_days"] not in (180, 365, 730, 1095):
-        settings["lookback_days"] = 180
-    try:
-        _save_schedule_to_table(settings)
-    except Exception as e:
-        logger.warning("Could not save schedule settings to Delta: %s", e)
-    os.makedirs(SETTINGS_DIR, exist_ok=True)
-    with open(SCHEDULE_SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+    with _settings_write_lock("schedule-settings"):
+        current = load_schedule_settings()
+        merged = {**current, **{
+            key: data[key]
+            for key in ("enabled", "frequency", "hour_utc", "lookback_days")
+            if key in data
+        }}
+        settings = {
+            "enabled": bool(merged.get("enabled", True)),
+            "frequency": merged.get("frequency", "nightly"),
+            "hour_utc": max(0, min(23, int(merged.get("hour_utc", 5)))),
+            "lookback_days": int(merged.get("lookback_days", 180)),
+        }
+        if settings["frequency"] not in ("nightly", "weekly", "monthly"):
+            settings["frequency"] = "nightly"
+        if settings["lookback_days"] not in (180, 365, 730, 1095):
+            settings["lookback_days"] = 180
+        try:
+            _save_schedule_to_table(settings)
+        except Exception as e:
+            logger.warning("Could not save schedule settings to Delta: %s", e)
+            raise HTTPException(
+                status_code=503,
+                detail="Schedule settings were not saved durably because Delta storage is unavailable.",
+            ) from e
+        _atomic_json_write(SCHEDULE_SETTINGS_FILE, settings)
     logger.info("Schedule settings saved: %s", settings)
     return settings
 
@@ -2393,8 +2545,9 @@ async def get_pricing_mode() -> dict[str, Any]:
 
 
 @router.put("/pricing-mode")
-async def set_pricing_mode(data: dict) -> dict[str, Any]:
+async def set_pricing_mode(request: Request, data: dict) -> dict[str, Any]:
     """Save the pricing mode setting."""
+    _require_admin(request)
     use_account_prices = bool(data.get("use_account_prices", False))
     try:
         _save_pricing_settings({"use_account_prices": use_account_prices})
@@ -2568,48 +2721,47 @@ def get_app_settings() -> dict:
 
 def save_app_settings(partial: dict) -> dict:
     """Merge and persist app settings, failing if the durable Delta write does not land."""
-    current = get_app_settings()
-    clean = {k: v for k, v in (partial or {}).items() if k in _APP_SETTINGS_ALLOWED}
-    if isinstance(clean.get("tab_visibility"), dict):
-        current_visibility = current.get("tab_visibility")
-        if not isinstance(current_visibility, dict):
-            current_visibility = _DEFAULT_TAB_VISIBILITY
-        merged_visibility = {
-            **_DEFAULT_TAB_VISIBILITY,
-            **{k: bool(v) for k, v in current_visibility.items() if k in _DEFAULT_TAB_VISIBILITY},
-            **{k: bool(v) for k, v in clean["tab_visibility"].items() if k in _DEFAULT_TAB_VISIBILITY},
-        }
-        if not any(merged_visibility.values()):
-            raise ValueError("At least one dashboard tab must remain visible.")
-        clean["tab_visibility"] = merged_visibility
-    merged = {**current, **clean}
-    delta_error: Exception | None = None
-    try:
-        from server.db import execute_write
-        _ensure_app_settings_table()
-        table = _config_table("app_settings")
-        execute_write(
-            f"INSERT OVERWRITE {table} "
-            f"SELECT 'app' AS id, :s AS settings_json, current_timestamp() AS updated_at",
-            {"s": json.dumps(merged)},
-        )
-    except Exception as e:
-        delta_error = e
-        logger.warning("Could not persist app_settings to Delta: %s", e)
-    local_saved = False
-    try:
-        os.makedirs(SETTINGS_DIR, exist_ok=True)
-        with open(APP_SETTINGS_FILE, "w") as f:
-            json.dump(merged, f, indent=2)
-        local_saved = True
-    except OSError as e:
-        logger.warning("Could not persist app_settings local fallback: %s", e)
-    if delta_error is not None:
-        fallback = " A local fallback was written." if local_saved else ""
-        raise AppSettingsDurabilityError(
-            f"Settings were not saved durably because Delta storage is unavailable.{fallback}"
-        ) from delta_error
-    return merged
+    with _settings_write_lock("app-settings"):
+        current = get_app_settings()
+        clean = {k: v for k, v in (partial or {}).items() if k in _APP_SETTINGS_ALLOWED}
+        if isinstance(clean.get("tab_visibility"), dict):
+            current_visibility = current.get("tab_visibility")
+            if not isinstance(current_visibility, dict):
+                current_visibility = _DEFAULT_TAB_VISIBILITY
+            merged_visibility = {
+                **_DEFAULT_TAB_VISIBILITY,
+                **{k: bool(v) for k, v in current_visibility.items() if k in _DEFAULT_TAB_VISIBILITY},
+                **{k: bool(v) for k, v in clean["tab_visibility"].items() if k in _DEFAULT_TAB_VISIBILITY},
+            }
+            if not any(merged_visibility.values()):
+                raise ValueError("At least one dashboard tab must remain visible.")
+            clean["tab_visibility"] = merged_visibility
+        merged = {**current, **clean}
+        delta_error: Exception | None = None
+        try:
+            from server.db import execute_write
+            _ensure_app_settings_table()
+            table = _config_table("app_settings")
+            execute_write(
+                f"INSERT OVERWRITE {table} "
+                f"SELECT 'app' AS id, :s AS settings_json, current_timestamp() AS updated_at",
+                {"s": json.dumps(merged)},
+            )
+        except Exception as e:
+            delta_error = e
+            logger.warning("Could not persist app_settings to Delta: %s", e)
+        local_saved = False
+        try:
+            _atomic_json_write(APP_SETTINGS_FILE, merged)
+            local_saved = True
+        except OSError as e:
+            logger.warning("Could not persist app_settings local fallback: %s", e)
+        if delta_error is not None:
+            fallback = " A local fallback was written." if local_saved else ""
+            raise AppSettingsDurabilityError(
+                f"Settings were not saved durably because Delta storage is unavailable.{fallback}"
+            ) from delta_error
+        return merged
 
 
 def workspace_names_enabled() -> bool:
@@ -2720,6 +2872,17 @@ async def put_unified_settings(request: Request) -> dict:
         # app_settings-backed groups (general prefs, tab visibility, experimental, sensitivity)
         app_partial: dict = {}
         updated_count = 0
+        app_updated_count = 0
+        domain_results: dict[str, dict[str, Any]] = {}
+
+        def _run_domain(name: str, operation) -> bool:
+            try:
+                operation()
+                domain_results[name] = {"ok": True}
+                return True
+            except Exception as exc:
+                domain_results[name] = {"ok": False, "error": str(exc)}
+                return False
         general = body.get("general")
         if isinstance(general, dict):
             for k in (
@@ -2729,91 +2892,118 @@ async def put_unified_settings(request: Request) -> dict:
             ):
                 if k in general:
                     app_partial[k] = general[k]
-                    updated_count += 1
+                    app_updated_count += 1
         exp = body.get("experimental")
         if isinstance(exp, dict):
             for k in ("exp_setup_wizard_link", "exp_debugger_link", "enable_architecture_view"):
                 if k in exp:
                     app_partial[k] = bool(exp[k])
-                    updated_count += 1
+                    app_updated_count += 1
         tv = body.get("tab_visibility")
         if isinstance(tv, dict):
             changed_tv = {k: bool(v) for k, v in tv.items() if k in _DEFAULT_TAB_VISIBILITY}
             if changed_tv:
                 app_partial["tab_visibility"] = changed_tv
-                updated_count += len(changed_tv)
+                app_updated_count += len(changed_tv)
 
         thresholds = body.get("thresholds")
         if isinstance(thresholds, dict):
             if "anomaly_sensitivity" in thresholds:
                 s = str(thresholds["anomaly_sensitivity"]).lower()
                 app_partial["anomaly_sensitivity"] = s if s in _ANOMALY_MULTIPLIER else "medium"
-                updated_count += 1
+                app_updated_count += 1
             threshold_keys = {
                 k for k in ("spike_threshold_percent", "daily_budget", "workspace_budget")
                 if k in thresholds
             }
             if threshold_keys:
                 cur = _load_alert_thresholds()
-                _save_alert_thresholds({
+                threshold_payload = {
                     "spike_threshold_percent": max(1.0, min(500.0, float(thresholds.get("spike_threshold_percent", cur.get("spike_threshold_percent", 20))))),
                     "daily_budget": max(0.0, float(thresholds.get("daily_budget", cur.get("daily_budget", 50000)))),
                     "workspace_budget": max(0.0, float(thresholds.get("workspace_budget", cur.get("workspace_budget", 10000)))),
-                })
-                updated_count += len(threshold_keys)
+                }
+                if _run_domain(
+                    "thresholds",
+                    lambda: _save_alert_thresholds(threshold_payload),
+                ):
+                    updated_count += len(threshold_keys)
 
         if app_partial:
-            try:
-                save_app_settings(app_partial)
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e)) from e
-            except AppSettingsDurabilityError as e:
-                raise HTTPException(status_code=503, detail=str(e)) from e
+            if _run_domain("app", lambda: save_app_settings(app_partial)):
+                updated_count += app_updated_count
 
         webhook = body.get("webhook")
         if isinstance(webhook, dict) and "slack_webhook_url" in webhook:
-            _save_webhook_settings({"slack_webhook_url": webhook["slack_webhook_url"]})
-            updated_count += 1
+            if _run_domain(
+                "webhook",
+                lambda: _save_webhook_settings(
+                    {"slack_webhook_url": webhook["slack_webhook_url"]}
+                ),
+            ):
+                updated_count += 1
 
         pricing = body.get("pricing")
         if isinstance(pricing, dict) and "use_account_prices" in pricing:
-            _save_pricing_settings({"use_account_prices": bool(pricing["use_account_prices"])})
-            updated_count += 1
+            if _run_domain(
+                "pricing",
+                lambda: _save_pricing_settings(
+                    {"use_account_prices": bool(pricing["use_account_prices"])}
+                ),
+            ):
+                updated_count += 1
 
         schedule = body.get("schedule")
         if isinstance(schedule, dict):
-            current_schedule = load_schedule_settings()
-            merged_schedule = {
-                **current_schedule,
-                **{
-                    key: schedule[key]
-                    for key in ("enabled", "frequency", "hour_utc", "lookback_days")
-                    if key in schedule
-                },
-            }
-            sched = {
-                "enabled": bool(merged_schedule.get("enabled", True)),
-                "frequency": merged_schedule.get("frequency", "nightly")
-                if merged_schedule.get("frequency") in ("nightly", "weekly", "monthly")
-                else "nightly",
-                "hour_utc": max(0, min(23, int(merged_schedule.get("hour_utc", 5)))),
-                "lookback_days": int(merged_schedule.get("lookback_days", 180))
-                if int(merged_schedule.get("lookback_days", 180)) in (180, 365, 730, 1095)
-                else 180,
-            }
-            _save_schedule_to_table(sched)
-            try:
-                os.makedirs(SETTINGS_DIR, exist_ok=True)
-                with open(SCHEDULE_SETTINGS_FILE, "w") as f:
-                    json.dump(sched, f, indent=2)
-            except OSError:
-                pass
-            updated_count += len({
-                k for k in ("enabled", "frequency", "hour_utc", "lookback_days")
-                if k in schedule
-            })
+            def _save_schedule_domain() -> None:
+                with _settings_write_lock("schedule-settings"):
+                    # Read and merge after taking the cross-process lock. Otherwise
+                    # two partial unified-settings requests can both read the same
+                    # old row and the later overwrite discards the earlier update.
+                    current_schedule = load_schedule_settings()
+                    merged_schedule = {
+                        **current_schedule,
+                        **{
+                            key: schedule[key]
+                            for key in ("enabled", "frequency", "hour_utc", "lookback_days")
+                            if key in schedule
+                        },
+                    }
+                    lookback_days = int(merged_schedule.get("lookback_days", 180))
+                    sched = {
+                        "enabled": bool(merged_schedule.get("enabled", True)),
+                        "frequency": merged_schedule.get("frequency", "nightly")
+                        if merged_schedule.get("frequency") in ("nightly", "weekly", "monthly")
+                        else "nightly",
+                        "hour_utc": max(0, min(23, int(merged_schedule.get("hour_utc", 5)))),
+                        "lookback_days": lookback_days
+                        if lookback_days in (180, 365, 730, 1095)
+                        else 180,
+                    }
+                    _save_schedule_to_table(sched)
+                    _atomic_json_write(SCHEDULE_SETTINGS_FILE, sched)
 
-        return {"status": "saved", "updated_count": updated_count}
+            if _run_domain("schedule", _save_schedule_domain):
+                updated_count += len({
+                    k for k in ("enabled", "frequency", "hour_utc", "lookback_days")
+                    if k in schedule
+                })
+
+        response = {
+            "status": "saved",
+            "updated_count": updated_count,
+            "domains": domain_results,
+        }
+        failures = [
+            name for name, result in domain_results.items() if not result["ok"]
+        ]
+        if failures:
+            response["status"] = "partial_failure"
+            raise HTTPException(
+                status_code=503,
+                detail=response,
+            )
+        return response
 
     try:
         return await asyncio.to_thread(_apply)

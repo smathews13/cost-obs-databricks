@@ -94,7 +94,10 @@ export async function refreshSourceScopeData(
     predicate: (query) => isDashboardQuery(query.queryKey),
     refetchType: "none",
   });
-  await queryClient.refetchQueries({ type: "active", predicate: activePredicate });
+  await queryClient.refetchQueries(
+    { type: "active", predicate: activePredicate },
+    { throwOnError: true },
+  );
 }
 
 export async function refreshTabData(
@@ -107,5 +110,8 @@ export async function refreshTabData(
   const response = await fetcher(`/api/cache/clear?tab=${encodeURIComponent(tab)}`, { method: "POST" });
   if (!response.ok) throw new Error(`Failed to clear ${tab} cache (${response.status})`);
   await queryClient.invalidateQueries({ predicate, refetchType: "none" });
-  await queryClient.refetchQueries({ type: "active", predicate });
+  await queryClient.refetchQueries(
+    { type: "active", predicate },
+    { throwOnError: true },
+  );
 }
