@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:fast": "vitest run src/utils/__tests__/exportPrivacy.test.ts src/utils/__tests__/bundleBoundaries.test.ts && vitest run src/components/__tests__/SettingsDialog.test.tsx -t \"clears a saved webhook draft\"",
     "test:unit": "vitest run",
     "typecheck": "tsc -b --pretty false",
     "test:watch": "vitest"

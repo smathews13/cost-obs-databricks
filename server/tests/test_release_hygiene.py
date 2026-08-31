@@ -52,12 +52,12 @@ def test_customer_manifests_never_default_to_forbidden_storage():
         r"COST_OBS_SCHEMA[^\n]*\n\s*value:\s*cost_obs\b",
         re.DOTALL,
     )
-    for relative in (
+    required_manifests = (
         "app.yaml.example",
-        "app." + "azure-" + "field-eng.yaml",
         ".env.example",
         "jobs/mv_refresh_job.json.template",
-    ):
+    )
+    for relative in required_manifests:
         text = (ROOT / relative).read_text()
         assert not forbidden_pair.search(text), relative
 
@@ -69,16 +69,20 @@ def test_customer_manifests_never_default_to_forbidden_storage():
     assert "COST_OBS_COMMIT_SHA" in example
     assert not (ROOT / "release-metadata.json").exists()
 
-    azure_example = (ROOT / ("app." + "azure-" + "field-eng.yaml")).read_text()
-    assert "<your-dedicated-catalog>" in azure_example
-    assert "<your-dedicated-schema>" in azure_example
-    assert not re.search(r"\b\d{12,16}\b", azure_example)
-    assert not re.search(
-        r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
-        r"[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
-        azure_example,
-        re.IGNORECASE,
-    )
+    # This ignored local target manifest is intentionally absent in clean clones.
+    azure_path = ROOT / ("app." + "azure-" + "field-eng.yaml")
+    if azure_path.exists():
+        azure_example = azure_path.read_text()
+        assert not forbidden_pair.search(azure_example)
+        assert "<your-dedicated-catalog>" in azure_example
+        assert "<your-dedicated-schema>" in azure_example
+        assert not re.search(r"\b\d{12,16}\b", azure_example)
+        assert not re.search(
+            r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
+            r"[89ab][0-9a-f]{3}-[0-9a-f]{12}\b",
+            azure_example,
+            re.IGNORECASE,
+        )
 
     job = json.loads((ROOT / "jobs/mv_refresh_job.json.template").read_text())
     parameters = job["tasks"][0]["notebook_task"]["base_parameters"]
@@ -169,7 +173,7 @@ def test_sync_script_uses_committed_origin_and_never_force_pushes():
     assert '--commit-sha "$ORIGIN_SHA"' in script
     assert 'git show -s --format=%cI "$ORIGIN_SHA"' in script
     assert '--exclude-from="$SOURCE_TREE/mirror/publish-exclude.txt"' in script
-    assert "scripts/release-check.sh" in script
+    assert 'scripts/release-check.sh" --fast --skip-public-tree' in script
     assert "validate_public_tree.py" in script
     assert "trap restore_internal_account EXIT INT TERM HUP" in script
     assert "gh auth switch --user \"$INTERNAL_ACCOUNT\"" in script
@@ -179,6 +183,63 @@ def test_sync_script_uses_committed_origin_and_never_force_pushes():
     assert "push origin HEAD:main" in script
     assert "--force" not in script
     assert '"$ROOT/"' not in script
+
+
+def test_fast_gate_allowlist_is_bounded_and_release_critical():
+    release_script = (ROOT / "scripts" / "release-check.sh").read_text()
+    package = json.loads((ROOT / "client" / "package.json").read_text())
+    fast_client = package["scripts"]["test:fast"]
+    backend_match = re.search(
+        r"FAST_BACKEND_TESTS=\(\n(?P<body>.*?)\n\s*\)",
+        release_script,
+        re.DOTALL,
+    )
+
+    assert backend_match
+    backend_tests = {
+        line.strip()
+        for line in backend_match.group("body").splitlines()
+        if line.strip()
+    }
+    assert backend_tests == {
+        "server/tests/test_release_hygiene.py",
+        "server/tests/test_deployment_configuration.py",
+        "server/tests/test_release1_audit_remediation.py",
+    }
+    assert len(backend_tests) <= 3
+
+    client_tests = set(re.findall(r"[\w/]+\.test\.tsx?", fast_client))
+    assert client_tests == {
+        "src/utils/__tests__/exportPrivacy.test.ts",
+        "src/utils/__tests__/bundleBoundaries.test.ts",
+        "src/components/__tests__/SettingsDialog.test.tsx",
+    }
+    assert len(client_tests) <= 3
+    assert "clears a saved webhook draft" in fast_client
+
+    assert "bun run test:fast" in release_script
+    assert 'compare_trees "$ROOT/static" "$BUILD_OUT"' in release_script
+    assert "validate_public_tree.py" in release_script
+    assert "test:unit" not in fast_client
+    assert "bun run lint" not in fast_client
+    assert "bun run typecheck" not in fast_client
+    assert "server/tests " not in fast_client
+
+
+def test_mirror_and_deploy_use_fast_gate_without_repeating_full_suites():
+    mirror = (ROOT / "sync-mirror.sh").read_text()
+    deploy = (ROOT / "dba_deploy.sh").read_text()
+    deploy_preflight = (ROOT / "scripts" / "deploy-preflight.sh").read_text()
+
+    assert 'scripts/release-check.sh" --fast --skip-public-tree' in mirror
+    assert mirror.count("validate_public_tree.py") == 1
+    assert 'scripts/release-check.sh" --fast' in deploy_preflight
+    assert "scripts/deploy-preflight.sh" in deploy
+    assert "COST_OBS_DEPLOY_PREFLIGHT_DONE" in deploy
+    assert "bun run build" not in deploy
+    assert "npm run build" not in deploy
+    assert "uv pip compile" not in deploy
+    assert not (ROOT / "sync-mirror-v2.sh").exists()
 
 
 def test_release_metadata_writer_is_deterministic_and_skips_noop_rewrites(tmp_path):
@@ -273,6 +334,7 @@ def test_release_gate_runs_complete_deterministic_suites_and_bun_only():
         "bun run lint",
         "bun run typecheck",
         "bun run test:unit",
+        "uv run --extra dev ruff check server/",
         '-m "not (external or integration)"',
         "server/tests",
         "uv lock --check",
@@ -284,6 +346,8 @@ def test_release_gate_runs_complete_deterministic_suites_and_bun_only():
     for command in required_commands:
         assert command in script
 
+    assert 'MODE="full"' in script
+    assert "--fast|--full" in script
     assert "command -v npm" not in script
     assert "npm run" not in script
     assert "RUNNER=(npm)" not in script

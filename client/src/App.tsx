@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from "react";
-import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useIsFetching,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { TabRefreshRegion } from "@/components/TabRefreshRegion";
 import { SetupWizard } from "@/components/SetupWizard";
 import { SummaryCards } from "@/components/SummaryCards";
@@ -141,6 +147,29 @@ function useKeepAlive() {
 }
 
 type ViewTab = keyof TabVisibility;
+
+function useTabFetchingMap(): Record<ViewTab, boolean> {
+  const dbu = useIsFetching({ predicate: (query) => isQueryOwnedByTab("dbu", query.queryKey) });
+  const sql = useIsFetching({ predicate: (query) => isQueryOwnedByTab("sql", query.queryKey) });
+  const aiml = useIsFetching({ predicate: (query) => isQueryOwnedByTab("aiml", query.queryKey) });
+  const apps = useIsFetching({ predicate: (query) => isQueryOwnedByTab("apps", query.queryKey) });
+  const tagging = useIsFetching({ predicate: (query) => isQueryOwnedByTab("tagging", query.queryKey) });
+  const users = useIsFetching({ predicate: (query) => isQueryOwnedByTab("users-groups", query.queryKey) });
+  const kpis = useIsFetching({ predicate: (query) => isQueryOwnedByTab("kpis", query.queryKey) });
+  const infra = useIsFetching({ predicate: (query) => isQueryOwnedByTab("infra", query.queryKey) });
+  const optimizer = useIsFetching({ predicate: (query) => isQueryOwnedByTab("optimizer", query.queryKey) });
+  return {
+    dbu: dbu > 0,
+    sql: sql > 0,
+    aiml: aiml > 0,
+    apps: apps > 0,
+    tagging: tagging > 0,
+    "users-groups": users > 0,
+    kpis: kpis > 0,
+    infra: infra > 0,
+    optimizer: optimizer > 0,
+  };
+}
 
 const DASHBOARD_TABS: Array<{ id: ViewTab; label: string; icon: React.ReactNode }> = [
   {
@@ -431,6 +460,7 @@ function SpGrantsBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
 
 function Dashboard() {
   useKeepAlive();
+  const tabFetching = useTabFetchingMap();
   const [appSettings, setAppSettings] = useState<AppSettings>(loadAppSettings);
   const { data: runtimeSettings } = useQuery<UnifiedSettings | null>({
     queryKey: ["unified-settings"],
@@ -1560,7 +1590,7 @@ function Dashboard() {
             activeTab={activeTab}
             visibility={tabVisibility}
             loading={{
-              ...tabLoading,
+              ...tabFetching,
               ...(explicitRefreshingTab ? { [explicitRefreshingTab]: true } : {}),
             }}
             onChange={setActiveTab}

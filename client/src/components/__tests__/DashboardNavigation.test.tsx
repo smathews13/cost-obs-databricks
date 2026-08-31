@@ -93,4 +93,24 @@ describe("dashboard tab navigation", () => {
     expect(dbu).not.toHaveAttribute("aria-busy");
     expect(dbu.querySelector(".co-arc-spin")).not.toBeInTheDocument();
   });
+
+  it("supports loading indicators on every displayed tab", () => {
+    const loading = Object.fromEntries(
+      Object.keys(visibility).map((tab) => [tab, true]),
+    ) as Record<keyof TabVisibility, boolean>;
+    render(
+      <DashboardTabNavigation
+        activeTab="dbu"
+        visibility={visibility}
+        loading={loading}
+        onChange={() => {}}
+      />,
+    );
+
+    for (const label of ["DBU Overview", "SQL", "Apps", "Users", "KPIs & Trends", "Cloud Costs", "Optimize"]) {
+      const tab = screen.getByRole("tab", { name: label });
+      expect(tab).toHaveAttribute("aria-busy", "true");
+      expect(tab.querySelector(".co-arc-spin")).toBeInTheDocument();
+    }
+  });
 });
