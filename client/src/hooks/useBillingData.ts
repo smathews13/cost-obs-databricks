@@ -274,18 +274,28 @@ export function useEtlBreakdown(dateRange?: DateRange, enabled: boolean = true) 
 export function usePipelineObjects(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<PipelineObjectsResponse>({
     queryKey: scopedQueryKey("billing", "pipeline-objects", dateRange, getWorkspaceScopeKey(workspaceIds)),
-    queryFn: () => fetchJson(buildUrlWithWs("/api/billing/pipeline-objects", dateRange, workspaceIds)),
+    queryFn: ({ signal }) => fetchJson(
+      buildUrlWithWs("/api/billing/pipeline-objects", dateRange, workspaceIds),
+      signal,
+      35_000,
+    ),
     staleTime: STALE_TIME,
     enabled,
+    retry: false,
   });
 }
 
 export function useInteractiveBreakdown(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<InteractiveBreakdownResponse>({
     queryKey: scopedQueryKey("billing", "interactive-breakdown", dateRange, getWorkspaceScopeKey(workspaceIds)),
-    queryFn: () => fetchJson(buildUrlWithWs("/api/billing/interactive-breakdown", dateRange, workspaceIds)),
+    queryFn: ({ signal }) => fetchJson(
+      buildUrlWithWs("/api/billing/interactive-breakdown", dateRange, workspaceIds),
+      signal,
+      35_000,
+    ),
     staleTime: STALE_TIME,
     enabled,
+    retry: false,
   });
 }
 

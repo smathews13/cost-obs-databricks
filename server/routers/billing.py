@@ -653,10 +653,19 @@ async def get_pipeline_objects(
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     try:
-        raw = await asyncio.to_thread(execute_query, _inject_ws_filter(PIPELINE_OBJECTS, ws_clause), params)
+        raw = await asyncio.to_thread(
+            execute_query,
+            _inject_ws_filter(PIPELINE_OBJECTS, ws_clause),
+            params,
+            timeout=25,
+            max_rows=200,
+        )
         raw_copy = [dict(r) for r in (raw or [])]
         try:
-            results = await asyncio.wait_for(asyncio.to_thread(_enrich_pipeline_results, raw_copy), timeout=20.0)
+            results = await asyncio.wait_for(
+                asyncio.to_thread(_enrich_pipeline_results, raw_copy),
+                timeout=5.0,
+            )
         except asyncio.TimeoutError:
             logger.warning("Pipeline name enrichment timed out; serving raw results")
             results = raw
@@ -723,7 +732,13 @@ async def get_interactive_breakdown(
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     try:
-        results = await asyncio.to_thread(execute_query, _inject_ws_filter(INTERACTIVE_BREAKDOWN, ws_clause), params)
+        results = await asyncio.to_thread(
+            execute_query,
+            _inject_ws_filter(INTERACTIVE_BREAKDOWN, ws_clause),
+            params,
+            timeout=30,
+            max_rows=100,
+        )
 
         items = []
         total_spend = 0
@@ -2379,7 +2394,7 @@ async def get_dashboard_bundle_fast(
             _run_bundle_parallel,
             queries,
             required={"summary", "products", "timeseries"},
-            timeout=35.0,
+            timeout=20.0,
         )
 
         # Format responses

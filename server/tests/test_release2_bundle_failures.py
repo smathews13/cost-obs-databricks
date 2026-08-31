@@ -352,7 +352,7 @@ def test_billing_fast_bounds_optional_queries_without_delaying_core_results():
     assert response["availability"] == "available"
     assert observed == {
         "required": {"summary", "products", "timeseries"},
-        "timeout": 35.0,
+        "timeout": 20.0,
     }
     assert execute.call_count == 3
     for call in execute.call_args_list:
