@@ -53,12 +53,26 @@ env:
   #   value: https://github.com/<owner>/<repository>/issues/new
   # - name: COST_OBS_FEEDBACK_EMAIL
   #   value: <feedback-email>
+  # Preferred: one safe Slack user target. Supports slack://user?... deep links
+  # and HTTPS workspace profile links; webhook URLs are rejected.
+  # - name: COST_OBS_FEEDBACK_SLACK_URL
+  #   value: https://<workspace>.slack.com/team/<slack-member-id>
+  # Legacy split target (runtime configuration only; never commit real IDs):
   # - name: COST_OBS_FEEDBACK_SLACK_TEAM_ID
   #   value: <slack-team-id>
   # - name: COST_OBS_FEEDBACK_SLACK_MEMBER_ID
   #   value: <slack-member-id>
   # - name: COST_OBS_FEEDBACK_SLACK_WEB_URL
   #   value: <slack-member-web-url>
+
+  # Optional provenance fallback if the Databricks Apps deployment API is not
+  # available to this runtime. Values are displayed as supplied; omit unknowns.
+  # - name: COST_OBS_DEPLOYED_AT
+  #   value: <iso-8601-deployment-time>
+  # - name: COST_OBS_DEPLOYER
+  #   value: <deployer-display-name>
+  # - name: COST_OBS_COMMIT_SHA
+  #   value: <source-commit-sha>
 
   # AWS / Azure actual cost tables (defaults: billing.aws / billing.azure)
   # - name: AWS_COST_CATALOG

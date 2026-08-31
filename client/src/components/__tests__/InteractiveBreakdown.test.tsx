@@ -30,6 +30,23 @@ function data(items: InteractiveItem[]): InteractiveBreakdownResponse {
 }
 
 describe("InteractiveBreakdown transformations", () => {
+  it("uses the compact collision-safe methodology popover", () => {
+    render(
+      <InteractiveBreakdown
+        data={data([item({})])}
+        isLoading={false}
+        host={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", {
+      name: "About Interactive Compute Leaderboard",
+    }));
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip).toHaveClass("w-64", "max-w-[calc(100vw-1rem)]", "px-2", "py-1.5", "text-[11px]", "leading-snug");
+    expect(tooltip).toHaveTextContent("Does not include automated jobs or streaming pipelines");
+  });
+
   it("keeps grouping, historical filtering, searching, and totals stable across rerenders", () => {
     const rows = [
       item({ total_dbus: 5, total_spend: 10, days_active: 2 }),

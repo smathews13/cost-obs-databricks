@@ -11,6 +11,7 @@ interface InfoPopoverProps {
   panelClassName?: string;
   placement?: "top" | "bottom";
   stopClick?: boolean;
+  size?: "default" | "compact";
 }
 
 export function InfoPopover({
@@ -23,6 +24,7 @@ export function InfoPopover({
   panelClassName = "w-72",
   placement = "top",
   stopClick = false,
+  size = "default",
 }: InfoPopoverProps) {
   const id = useId();
   const rootRef = useRef<HTMLSpanElement>(null);
@@ -46,13 +48,20 @@ export function InfoPopover({
     if (!panel) return;
     const trigger = triggerRef.current?.getBoundingClientRect();
     if (!trigger) return;
-    const halfWidth = panel.getBoundingClientRect().width / 2;
+    const panelRect = panel.getBoundingClientRect();
+    const halfWidth = panelRect.width / 2;
     const left = Math.min(
       Math.max(8 + halfWidth, trigger.left + trigger.width / 2),
       Math.max(8 + halfWidth, window.innerWidth - 8 - halfWidth),
     );
-    panel.style.top = `${placement === "bottom" ? trigger.bottom + 8 : Math.max(8, trigger.top - 8)}px`;
+    const fitsAbove = trigger.top - 8 - panelRect.height >= 8;
+    const fitsBelow = trigger.bottom + 8 + panelRect.height <= window.innerHeight - 8;
+    const renderBelow = placement === "bottom"
+      ? fitsBelow || !fitsAbove
+      : !fitsAbove && fitsBelow;
+    panel.style.top = `${renderBelow ? trigger.bottom + 8 : trigger.top - 8}px`;
     panel.style.left = `${left}px`;
+    panel.style.transform = renderBelow ? "translateX(-50%)" : "translate(-50%, -100%)";
   };
 
   useEffect(() => {
@@ -118,7 +127,11 @@ export function InfoPopover({
           ref={positionPanel}
           id={id}
           role="tooltip"
-          className={`pointer-events-none fixed z-[10000] -translate-x-1/2 rounded-lg bg-gray-900 px-3 py-2 text-xs font-normal normal-case leading-relaxed text-white shadow-lg ${placement === "top" ? "-translate-y-full" : ""} ${panelClassName}`}
+          className={`pointer-events-none fixed z-[10000] max-w-[calc(100vw-1rem)] whitespace-normal rounded-lg bg-gray-900 font-normal normal-case text-white shadow-lg ${
+            size === "compact"
+              ? "px-2 py-1.5 text-[11px] leading-snug"
+              : "px-3 py-2 text-xs leading-relaxed"
+          } ${panelClassName}`}
           style={{ top: position.top, left: position.left }}
         >
           {content ?? text}

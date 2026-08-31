@@ -6,7 +6,7 @@ import os
 import re
 import time
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 from fastapi import APIRouter, Request
 
@@ -98,6 +98,38 @@ def _safe_slack_web_url(value: str) -> str | None:
     return candidate
 
 
+def _safe_slack_deep_link(value: str) -> str | None:
+    candidate = value.strip()
+    if not candidate:
+        return None
+    parsed = urlparse(candidate)
+    if (
+        parsed.scheme != "slack"
+        or parsed.netloc != "user"
+        or parsed.path not in ("", "/")
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+    ):
+        return None
+    try:
+        query = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        return None
+    if set(query) != {"team", "id"}:
+        return None
+    team_id = query["team"]
+    member_id = query["id"]
+    if (
+        len(team_id) != 1
+        or len(member_id) != 1
+        or not _SLACK_TEAM_PATTERN.fullmatch(team_id[0])
+        or not _SLACK_MEMBER_PATTERN.fullmatch(member_id[0])
+    ):
+        return None
+    return f"slack://user?{urlencode({'team': team_id[0], 'id': member_id[0]})}"
+
+
 def _feedback_targets_from_env() -> dict[str, Any]:
     """Return public feedback destinations only; never return webhook credentials."""
     configured_issue_url = _safe_https_url(
@@ -116,16 +148,32 @@ def _feedback_targets_from_env() -> dict[str, Any]:
     slack_web_url = _safe_slack_web_url(
         os.getenv("COST_OBS_FEEDBACK_SLACK_WEB_URL", "")
     )
+    configured_slack_url = os.getenv("COST_OBS_FEEDBACK_SLACK_URL", "")
+    slack_deep_link = _safe_slack_deep_link(configured_slack_url)
+    configured_slack_web_url = _safe_slack_web_url(configured_slack_url)
     slack = None
-    if (
+    if slack_deep_link:
+        slack = {
+            "url": slack_deep_link,
+            "fallback_url": slack_web_url,
+        }
+    elif configured_slack_web_url:
+        slack = {
+            "url": configured_slack_web_url,
+            "fallback_url": None,
+        }
+    elif (
         _SLACK_TEAM_PATTERN.fullmatch(team_id)
         and _SLACK_MEMBER_PATTERN.fullmatch(member_id)
-        and slack_web_url
     ):
         slack = {
-            "team_id": team_id,
-            "member_id": member_id,
-            "web_url": slack_web_url,
+            "url": f"slack://user?{urlencode({'team': team_id, 'id': member_id})}",
+            "fallback_url": slack_web_url,
+        }
+    elif slack_web_url:
+        slack = {
+            "url": slack_web_url,
+            "fallback_url": None,
         }
 
     return {

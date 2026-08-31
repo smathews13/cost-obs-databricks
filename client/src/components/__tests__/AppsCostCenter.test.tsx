@@ -1,9 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AppsApp, AppsDashboardBundle } from "@/types/billing";
 import { getAppFallbackColor } from "@/utils/apps";
 import { AppsCostCenter } from "../AppsCostCenter";
+
+vi.mock("../KPITrendModal", () => ({
+  KPITrendModal: ({ kpi }: { kpi: string }) => <div data-testid="apps-selected-kpi">{kpi}</div>,
+}));
 
 const metadataApp: AppsApp = {
   app_id: "app-123",
@@ -137,6 +141,21 @@ function renderApps(apps: AppsApp[]) {
 }
 
 describe("AppsCostCenter metadata detail", () => {
+  it.each([
+    ["Total App Spend", "apps_spend"],
+    ["Total App DBUs", "apps_dbus"],
+    ["Active Apps", "apps_count"],
+    ["Per-App Spend", "apps_avg_cost_per_app"],
+  ])("opens the %s trend from the full KPI card", (title, kpi) => {
+    renderApps([metadataApp]);
+
+    const card = screen.getByRole("button", { name: `See ${title} trend` });
+    expect(card).toHaveClass("co-kpi-card");
+    expect(card.querySelector("button")).toBeNull();
+    fireEvent.click(card);
+    expect(screen.getByTestId("apps-selected-kpi")).toHaveTextContent(kpi);
+  });
+
   it("uses the same active count contract for the KPI and status breakdown", () => {
     renderApps([metadataApp, historicalApp]);
 
@@ -230,7 +249,7 @@ describe("AppsCostCenter metadata detail", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("no longer available in the current date, workspace, or source scope");
   });
 
-  it("labels connected resources as registry-wide metadata", () => {
+  it("keeps the Connected Resources header compact and relies on table columns", () => {
     const data = bundle([metadataApp]);
     data.connected_artifacts = [{
       app_id: "app-123",
@@ -246,7 +265,11 @@ describe("AppsCostCenter metadata detail", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText(/account-wide, not filtered by date, workspace, or source/i)).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Connected Resources" })).toBeVisible();
+    expect(screen.queryByText(/account-wide, not filtered by date, workspace, or source/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Resource" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "Resource Name" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "Resource Type" })).toBeVisible();
   });
 
   it("links a service principal only when the server supplies its workspace object ID", () => {

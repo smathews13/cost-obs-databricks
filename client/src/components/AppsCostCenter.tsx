@@ -21,7 +21,7 @@ import { getAppFallbackColor, getAppInitials } from "@/utils/apps";
 import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { InfoPopover } from "@/components/ui/InfoPopover";
-import { TrendAction } from "@/components/ui/TrendAction";
+import { KPICard } from "@/components/ui/KPICard";
 import {
   buildFilteredUrl,
   getActiveSourceScopeKey,
@@ -513,83 +513,40 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
 
       {/* Summary Cards with click-to-trend */}
       <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total App Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.total_spend)}</p>
-              <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
-              <TrendAction
-                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_spend", label: "Daily App Spend"}) : undefined}
-                ariaLabel="See Total App Spend trend"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total App DBUs</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatNumber(summary.total_dbus)}</p>
-              <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
-              <TrendAction
-                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_dbus", label: "Daily App DBUs"}) : undefined}
-                ariaLabel="See Total App DBUs trend"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500 flex items-center gap-1">Active Apps<InfoPopover text={`Currently registered apps with positive Apps compute usage from ${appsData.active_window.start_date} through ${appsData.active_window.end_date}. This is the same scoped population used by App Status Breakdown.`} /></p>
-              <p data-testid="active-apps-kpi-value" className="text-2xl font-semibold text-gray-900">{formatNumber(summary.active_app_count)}</p>
-              <p className="mt-1 text-xs text-gray-500">
-                last {appsData.active_window.days} days · {summary.workspace_count} {summary.workspace_count === 1 ? "workspace" : "workspaces"}
-              </p>
-              <TrendAction
-                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_count", label: "Daily Active Apps"}) : undefined}
-                ariaLabel="See Active Apps trend"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Per-App Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.avg_cost_per_app ?? 0)}</p>
-              <p className="mt-1 text-xs text-gray-500">daily average</p>
-              <TrendAction
-                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_avg_cost_per_app", label: "Daily Per-App Spend"}) : undefined}
-                ariaLabel="See Per-App Spend trend"
-              />
-            </div>
-          </div>
-        </div>
+        <KPICard
+          title="Total App Spend"
+          value={formatKpiCurrency(summary.total_spend)}
+          subtitle={`over ${summary.days_in_range} days`}
+          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_spend", label: "Daily App Spend"}) : undefined}
+          ariaLabel="See Total App Spend trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+        />
+        <KPICard
+          title="Total App DBUs"
+          value={formatNumber(summary.total_dbus)}
+          subtitle={`over ${summary.days_in_range} days`}
+          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_dbus", label: "Daily App DBUs"}) : undefined}
+          ariaLabel="See Total App DBUs trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>}
+        />
+        <KPICard
+          title="Active Apps"
+          value={formatNumber(summary.active_app_count)}
+          valueTestId="active-apps-kpi-value"
+          subtitle={`last ${appsData.active_window.days} days · ${summary.workspace_count} ${summary.workspace_count === 1 ? "workspace" : "workspaces"}`}
+          infoText={`Currently registered apps with positive Apps compute usage from ${appsData.active_window.start_date} through ${appsData.active_window.end_date}. This is the same scoped population used by App Status Breakdown.`}
+          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_count", label: "Daily Active Apps"}) : undefined}
+          ariaLabel="See Active Apps trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>}
+        />
+        <KPICard
+          title="Per-App Spend"
+          value={formatKpiCurrency(summary.avg_cost_per_app ?? 0)}
+          subtitle="daily average"
+          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_avg_cost_per_app", label: "Daily Per-App Spend"}) : undefined}
+          ariaLabel="See Per-App Spend trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>}
+        />
       </div>
 
       {selectedKPI && startDate && endDate && (
@@ -1201,7 +1158,6 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <div className="mr-2 shrink-0">
                 <h3 className="text-lg font-semibold text-gray-900">Connected Resources</h3>
-                <p className="text-[11px] text-gray-500">Current Apps registry metadata · account-wide, not filtered by date, workspace, or source</p>
               </div>
 
               <div className="ml-auto flex shrink-0 items-center gap-2">

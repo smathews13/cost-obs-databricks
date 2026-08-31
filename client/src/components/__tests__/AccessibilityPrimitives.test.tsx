@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Dialog } from "../ui/Dialog";
 import { InfoPopover } from "../ui/InfoPopover";
+import { KPICard } from "../ui/KPICard";
 import { SortableHeader } from "../ui/SortableHeader";
-import { TrendAction } from "../ui/TrendAction";
 
 function DialogHarness() {
   const [open, setOpen] = useState(false);
@@ -107,6 +107,29 @@ describe("shared accessibility primitives", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("How this metric is calculated");
   });
 
+  it("moves an above-placement popover below when the viewport would clip it", async () => {
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        top: 4,
+        bottom: 20,
+        left: 100,
+        right: 116,
+        width: 16,
+        height: 80,
+        x: 100,
+        y: 4,
+        toJSON: () => ({}),
+      });
+    render(<InfoPopover size="compact" text="Compact methodology" />);
+
+    await userEvent.click(screen.getByRole("button", { name: "More information" }));
+    expect(screen.getByRole("tooltip")).toHaveStyle({
+      top: "28px",
+      transform: "translateX(-50%)",
+    });
+    rectSpy.mockRestore();
+  });
+
   it("sorts from a real header button and reports aria-sort", async () => {
     const user = userEvent.setup();
     const onSort = vi.fn();
@@ -153,20 +176,33 @@ describe("shared accessibility primitives", () => {
       .toHaveAttribute("aria-sort", "ascending");
   });
 
-  it("exposes trend activation only as a native button", async () => {
+  it("makes the full KPI card the only trend button", async () => {
     const user = userEvent.setup();
     const activate = vi.fn();
     const { rerender } = render(
-      <TrendAction onActivate={activate} ariaLabel="See Total Spend trend" />,
+      <KPICard
+        title="Total Spend"
+        value="$100"
+        subtitle="over 30 days"
+        infoText="List-price spend in the selected period."
+        onActivate={activate}
+        ariaLabel="See Total Spend trend"
+      />,
     );
 
-    await user.tab();
-    expect(screen.getByRole("button", { name: "See Total Spend trend" }))
-      .toHaveTextContent("See trend");
-    await user.keyboard(" ");
-    expect(activate).toHaveBeenCalledOnce();
+    const card = screen.getByRole("button", { name: "See Total Spend trend" });
+    expect(card).toHaveClass("co-kpi-card", "co-kpi-card--interactive");
+    expect(card).toHaveTextContent("See trend");
+    expect(card.querySelector("button")).toBeNull();
 
-    rerender(<TrendAction ariaLabel="See Total Spend trend" />);
+    card.focus();
+    await user.keyboard("{Enter}");
+    await user.keyboard(" ");
+    expect(activate).toHaveBeenCalledTimes(2);
+
+    rerender(<KPICard title="Total Spend" value="$100" />);
     expect(screen.queryByRole("button", { name: "See Total Spend trend" })).not.toBeInTheDocument();
+    expect(screen.getByText("Total Spend").closest(".co-kpi-card")?.tagName).toBe("DIV");
+    expect(screen.queryByText("See trend")).not.toBeInTheDocument();
   });
 });

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import importlib.util
 import hashlib
+import importlib.util
 import json
 import re
 import shutil
@@ -65,6 +65,9 @@ def test_customer_manifests_never_default_to_forbidden_storage():
     assert "<your-dedicated-catalog>" in example
     assert "<your-dedicated-schema>" in example
     assert "COST_OBS_FEEDBACK_GITHUB_URL" in example
+    assert "COST_OBS_FEEDBACK_SLACK_URL" in example
+    assert "COST_OBS_COMMIT_SHA" in example
+    assert not (ROOT / "release-metadata.json").exists()
 
     azure_example = (ROOT / ("app." + "azure-" + "field-eng.yaml")).read_text()
     assert "<your-dedicated-catalog>" in azure_example
@@ -162,6 +165,9 @@ def test_sync_script_uses_committed_origin_and_never_force_pushes():
     assert 'HEAD_SHA" == "$ORIGIN_SHA' in script
     assert 'SOURCE_TREE="$WORK_DIR/source"' in script
     assert 'STAGE_TREE="$WORK_DIR/stage"' in script
+    assert "scripts/write_release_metadata.py" in script
+    assert '--commit-sha "$ORIGIN_SHA"' in script
+    assert 'git show -s --format=%cI "$ORIGIN_SHA"' in script
     assert '--exclude-from="$SOURCE_TREE/mirror/publish-exclude.txt"' in script
     assert "scripts/release-check.sh" in script
     assert "validate_public_tree.py" in script
@@ -173,6 +179,38 @@ def test_sync_script_uses_committed_origin_and_never_force_pushes():
     assert "push origin HEAD:main" in script
     assert "--force" not in script
     assert '"$ROOT/"' not in script
+
+
+def test_release_metadata_writer_is_deterministic_and_skips_noop_rewrites(tmp_path):
+    path = ROOT / "scripts" / "write_release_metadata.py"
+    spec = importlib.util.spec_from_file_location("write_release_metadata", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    output = tmp_path / "release-metadata.json"
+    first = module.render_metadata(
+        "abc123",
+        "2026-08-31T17:00:00+00:00",
+        "Release Author <release@example.com>",
+    )
+    assert module.write_if_changed(output, first) is True
+    first_mtime = output.stat().st_mtime_ns
+    assert module.write_if_changed(output, first) is False
+    assert output.stat().st_mtime_ns == first_mtime
+    assert json.loads(output.read_text()) == {
+        "commit_sha": "abc123",
+        "deployed_at": "2026-08-31T17:00:00+00:00",
+        "deployer": "Release Author",
+    }
+
+    second = module.render_metadata(
+        "def456",
+        "2026-08-31T18:00:00+00:00",
+        "Release Author <release@example.com>",
+    )
+    assert module.write_if_changed(output, second) is True
+    assert json.loads(output.read_text())["commit_sha"] == "def456"
 
 
 def test_release_versions_locks_and_requirements_are_consistent():

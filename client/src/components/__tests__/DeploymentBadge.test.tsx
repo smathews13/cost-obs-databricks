@@ -84,4 +84,19 @@ describe("DeploymentBadge", () => {
     expect(screen.queryByText(/\bby\b/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\bcommit\b/)).not.toBeInTheDocument();
   });
+
+  it("labels process start as an approximation rather than deployment time", () => {
+    render(<DeploymentBadge metadata={{
+      ...metadata,
+      deployer: null,
+      commit_sha: null,
+      source: "process_start_approximate_restart",
+    }} />);
+
+    act(() => screen.getByRole("button", { name: /deployment information/i }).focus());
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      /server process started approximately.*may reflect a restart, not deployment/i,
+    );
+    expect(screen.getByRole("tooltip")).not.toHaveTextContent(/^Deployed /);
+  });
 });

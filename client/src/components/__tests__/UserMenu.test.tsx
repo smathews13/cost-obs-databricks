@@ -129,9 +129,8 @@ describe("UserMenu", () => {
       github_issue_url: "https://github.com/example/project/issues/new",
       email_href: "mailto:feedback@example.com?subject=cost-obs%20feedback",
       slack: {
-        team_id: `T${"1".repeat(8)}`,
-        member_id: `U${"2".repeat(8)}`,
-        web_url: "https://example.slack.com/team/member",
+        url: `slack://user?team=T${"1".repeat(8)}&id=U${"2".repeat(8)}`,
+        fallback_url: "https://example.slack.com/team/member",
       },
     }));
     const user = userEvent.setup();
@@ -144,10 +143,32 @@ describe("UserMenu", () => {
     await user.click(screen.getByRole("button", { name: /user@example\.com/i }));
     await user.click(screen.getByRole("menuitem", { name: "Report Feedback" }));
 
-    expect(await screen.findByRole("menuitem", { name: "Slack DM" })).toBeInTheDocument();
+    expect(await screen.findByRole("menuitem", {
+      name: "Message Sam Mathews on Slack",
+    })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Email" })).toHaveAttribute(
       "href",
       "mailto:feedback@example.com?subject=cost-obs%20feedback",
     );
+  });
+
+  it("omits an unsafe Slack target returned by a compromised backend", async () => {
+    vi.mocked(fetch).mockResolvedValue(Response.json({
+      github_issue_url: "https://github.com/example/project/issues/new",
+      email_href: null,
+      slack: {
+        url: "javascript:alert(1)",
+        fallback_url: null,
+      },
+    }));
+    const user = userEvent.setup();
+    render(<UserMenu {...props} />);
+
+    await user.click(screen.getByRole("button", { name: /user@example\.com/i }));
+    await user.click(screen.getByRole("menuitem", { name: "Report Feedback" }));
+
+    expect(screen.queryByRole("menuitem", {
+      name: "Message Sam Mathews on Slack",
+    })).not.toBeInTheDocument();
   });
 });

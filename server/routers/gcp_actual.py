@@ -193,9 +193,14 @@ async def get_gcp_status() -> dict[str, Any]:
                 cache_tag="gcp-actual",
             )
             available = len(results) > 0
-        except Exception as e:
-            logger.warning(f"GCP billing tables not available: {e}")
-            available = False
+        except Exception as exc:
+            # Permission, network, timeout, and capacity failures are transient;
+            # only a successful empty existence query establishes absence.
+            logger.warning(
+                "GCP billing availability query failed transiently: %s",
+                exc,
+            )
+            raise
         _gcp_status_cache["available"] = available
         _gcp_status_cache["checked_at"] = time.time()
 
@@ -443,21 +448,38 @@ async def get_gcp_actual_dashboard_bundle(
             "end_date": end_date,
         }
 
-    summary, by_service, by_project, by_sku, timeseries = await asyncio.gather(
-        get_gcp_actual_summary(start_date, end_date),
-        get_gcp_costs_by_service(start_date, end_date),
-        get_gcp_costs_by_project(start_date, end_date),
-        get_gcp_costs_by_sku(start_date, end_date),
-        get_gcp_costs_timeseries(start_date, end_date),
+    # Establish the authoritative total first, then admit at most two optional
+    # detail queries at a time. A large GCP export must not consume the whole
+    # process executor or turn one detail failure into a full Cloud-tab failure.
+    summary = await get_gcp_actual_summary(start_date, end_date)
+    semaphore = asyncio.Semaphore(2)
+
+    async def optional(name: str, call):
+        async with semaphore:
+            try:
+                return name, await call(), None
+            except Exception as exc:
+                logger.warning("Optional GCP actual-cost section %s failed: %s", name, exc)
+                return name, None, getattr(exc, "code", "QUERY_FAILED")
+
+    outcomes = await asyncio.gather(
+        optional("by_service", lambda: get_gcp_costs_by_service(start_date, end_date)),
+        optional("by_project", lambda: get_gcp_costs_by_project(start_date, end_date)),
+        optional("by_sku", lambda: get_gcp_costs_by_sku(start_date, end_date)),
+        optional("timeseries", lambda: get_gcp_costs_timeseries(start_date, end_date)),
     )
+    sections = {name: value for name, value, _error in outcomes}
+    failures = {name: error for name, _value, error in outcomes if error}
 
     return {
         "available": True,
+        "availability": "partial" if failures else "available",
+        "partial_reasons": failures,
         "summary": summary,
-        "by_service": by_service,
-        "by_project": by_project,
-        "by_sku": by_sku,
-        "timeseries": timeseries,
+        "by_service": sections["by_service"],
+        "by_project": sections["by_project"],
+        "by_sku": sections["by_sku"],
+        "timeseries": sections["timeseries"],
         "start_date": start_date,
         "end_date": end_date,
     }

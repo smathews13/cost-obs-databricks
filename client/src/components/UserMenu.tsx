@@ -23,7 +23,7 @@ type MenuItemElement = HTMLAnchorElement | HTMLButtonElement;
 interface FeedbackTargets {
   github_issue_url: string;
   email_href: string | null;
-  slack: { team_id: string; member_id: string; web_url: string } | null;
+  slack: { url: string; fallback_url: string | null } | null;
 }
 
 const DEFAULT_FEEDBACK_TARGETS: FeedbackTargets = {
@@ -39,6 +39,38 @@ function workspaceBaseUrl(host: string | null | undefined): string | null {
     ? trimmed
     : `https://${trimmed}`
   ).replace(/\/+$/, "");
+}
+
+function safeSlackTarget(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (
+      parsed.protocol === "slack:"
+      && parsed.hostname === "user"
+      && parsed.pathname.replaceAll("/", "") === ""
+      && /^T[A-Z0-9]{8,}$/.test(parsed.searchParams.get("team") ?? "")
+      && /^[UW][A-Z0-9]{8,}$/.test(parsed.searchParams.get("id") ?? "")
+      && [...parsed.searchParams.keys()].every((key) => key === "team" || key === "id")
+    ) {
+      return value;
+    }
+    if (
+      parsed.protocol === "https:"
+      && parsed.hostname.endsWith(".slack.com")
+      && parsed.hostname !== "hooks.slack.com"
+      && parsed.pathname.startsWith("/team/")
+      && !parsed.username
+      && !parsed.password
+      && !parsed.search
+      && !parsed.hash
+    ) {
+      return value;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function readableUserName(name: string, email: string): string {
@@ -119,10 +151,12 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
     void fetch("/api/user/feedback-targets", { signal: controller.signal })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error("feedback config unavailable")))
       .then((targets: FeedbackTargets) => {
+        const slackUrl = safeSlackTarget(targets.slack?.url);
+        const fallbackUrl = safeSlackTarget(targets.slack?.fallback_url);
         setFeedbackTargets({
           github_issue_url: targets.github_issue_url || DEFAULT_FEEDBACK_TARGETS.github_issue_url,
           email_href: targets.email_href || null,
-          slack: targets.slack || null,
+          slack: slackUrl ? { url: slackUrl, fallback_url: fallbackUrl } : null,
         });
       })
       .catch(() => undefined);
@@ -209,17 +243,21 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
 
   const openSlack = () => {
     if (!feedbackTargets.slack) return;
-    const { team_id: teamId, member_id: memberId, web_url: webUrl } = feedbackTargets.slack;
+    const { url, fallback_url: fallbackUrl } = feedbackTargets.slack;
+    if (url.startsWith("https://")) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
     let blurred = false;
     const onBlur = () => {
       blurred = true;
     };
     window.addEventListener("blur", onBlur, { once: true });
-    window.location.href = `slack://user?team=${teamId}&id=${memberId}`;
+    window.location.href = url;
     window.setTimeout(() => {
       window.removeEventListener("blur", onBlur);
-      if (!blurred && document.hasFocus()) {
-        window.open(webUrl, "_blank", "noopener,noreferrer");
+      if (fallbackUrl && !blurred && document.hasFocus()) {
+        window.open(fallbackUrl, "_blank", "noopener,noreferrer");
       }
     }, 800);
   };
@@ -337,7 +375,7 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
                 aria-label="Send via"
                 onKeyDown={onChooserKeyDown}
                 onMouseEnter={() => openChooser(false)}
-                className={`user-menu-panel animate-fade-in absolute top-0 z-60 w-[186px] rounded-[10px] border border-[#E4E2DD] bg-white p-[8px] shadow-[0_8px_28px_rgba(11,32,38,.16)] ${chooserSide === "left" ? "right-full mr-[8px]" : "left-full ml-[8px]"}`}
+                className={`user-menu-panel animate-fade-in absolute top-0 z-60 w-[250px] rounded-[10px] border border-[#E4E2DD] bg-white p-[8px] shadow-[0_8px_28px_rgba(11,32,38,.16)] ${chooserSide === "left" ? "right-full mr-[8px]" : "left-full ml-[8px]"}`}
               >
                 <div className="user-menu-secondary px-[10px] pb-[5px] pt-[3px] text-[10.5px] font-bold tracking-[.07em] text-[#618794]">
                   SEND VIA
@@ -364,7 +402,7 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
                     className="user-menu-item flex h-[36px] w-full items-center gap-[10px] rounded-[6px] px-[10px] text-[13px] font-medium text-[#1B3139] hover:bg-[#FBF9F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
                   >
                     <Slack size={14} className="text-[#618794]" aria-hidden="true" />
-                    Slack DM
+                    Message Sam Mathews on Slack
                   </button>
                 )}
                 {feedbackTargets.email_href && (

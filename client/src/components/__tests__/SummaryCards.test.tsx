@@ -92,5 +92,38 @@ describe("SummaryCards KPI formatting", () => {
     );
 
     expect(screen.queryByRole("button", { name: /trend$/ })).not.toBeInTheDocument();
+    for (const title of ["Total Spend", "Total DBUs", "Average Daily Spend", "Workspaces"]) {
+      expect(screen.getByText(title).closest(".co-kpi-card")?.tagName).toBe("DIV");
+    }
+  });
+
+  it("gives every interactive summary card a metric-specific full-card label", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SummaryCards
+          data={{
+            total_dbus: 10,
+            total_spend: 20,
+            workspace_count: 1,
+            days_in_range: 30,
+            avg_daily_spend: 0.67,
+            start_date: "2026-08-01",
+            end_date: "2026-08-30",
+            first_date: "2026-08-01",
+            last_date: "2026-08-30",
+          }}
+          isLoading={false}
+          startDate="2026-08-01"
+          endDate="2026-08-30"
+        />
+      </QueryClientProvider>,
+    );
+
+    for (const title of ["Total Spend", "Total DBUs", "Average Daily Spend", "Workspaces"]) {
+      const card = screen.getByRole("button", { name: `See ${title} trend` });
+      expect(card).toHaveClass("co-kpi-card");
+      expect(card.querySelector("button")).toBeNull();
+    }
   });
 });

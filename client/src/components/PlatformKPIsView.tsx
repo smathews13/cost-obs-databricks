@@ -1,4 +1,4 @@
-import { useState, useEffect, memo } from "react";
+import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { PlatformKPIsResponse, SpendAnomaliesResponse } from "@/types/billing";
 import { SpendAnomalies } from "@/components/SpendAnomalies";
@@ -7,9 +7,8 @@ import { formatNumber, formatBytesNoDecimal, formatRowCount, formatDurationSecon
 import { useFeatureAvailability } from "@/hooks/useFeatureAvailability";
 import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
-import { LoadingPanels, Spinner } from "@/components/Spinner";
-import { InfoPopover } from "@/components/ui/InfoPopover";
-import { TrendAction } from "@/components/ui/TrendAction";
+import { LoadingPanels } from "@/components/Spinner";
+import { KPICard as SharedKPICard } from "@/components/ui/KPICard";
 import {
   buildFilteredUrl,
   getActiveSourceScopeKey,
@@ -42,64 +41,22 @@ interface KPICardProps {
   unavailableReason?: string;
 }
 
-// Memoize KPICard to prevent unnecessary re-renders when parent state changes
-const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, icon, color, onClick, isLoading, titleNoWrap, unavailableReason }: KPICardProps) {
-  if (unavailableReason) {
-    return (
-      <div
-        className="co-kpi-card rounded-lg bg-white p-6 border"
-        style={{ borderColor: C.hairline }}
-        title={unavailableReason}
-      >
-        <div className="flex items-center">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gray-100">
-            <div className="opacity-30">{icon}</div>
-          </div>
-          <div className="ml-4 flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-500">{title}</p>
-            <p className="mt-1 text-2xl font-semibold text-gray-300">N/A</p>
-            <p className="mt-0.5 text-xs text-gray-500">Unavailable: {unavailableReason}</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+function KPICard({ title, value, subtitle, infoTooltip, icon, onClick, isLoading, titleNoWrap, unavailableReason }: KPICardProps) {
   return (
-    <div
-      className={`co-kpi-card rounded-lg bg-white p-6 border transition-all ${
-        onClick ? "shadow-sm" : ""
-      }`}
-      style={{ borderColor: C.hairline }}
-    >
-      <div className="flex items-center">
-        <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg ${color}`}>
-          {icon}
-        </div>
-        <div className="ml-4 flex-1 min-w-0">
-          <p className={`flex items-center text-sm font-medium text-gray-500 ${titleNoWrap ? "justify-between gap-2" : ""}`}>
-            <span className={titleNoWrap ? "whitespace-nowrap" : undefined}>{title}</span>
-            {infoTooltip && <InfoPopover text={infoTooltip} />}
-          </p>
-          {isLoading ? (
-            <div className="mt-2 h-6 w-6">
-              <Spinner size="sm" className="h-6! w-6!" />
-            </div>
-          ) : (
-            <p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p>
-          )}
-          {!isLoading && subtitle && (
-            <p className="mt-0.5 text-sm text-gray-500">{subtitle}</p>
-          )}
-          <TrendAction
-            onActivate={onClick}
-            ariaLabel={`See ${title} trend`}
-          />
-        </div>
-      </div>
-    </div>
+    <SharedKPICard
+      title={title}
+      value={value}
+      subtitle={subtitle}
+      infoText={infoTooltip}
+      icon={icon}
+      onActivate={onClick}
+      ariaLabel={`See ${title} trend`}
+      isLoading={isLoading}
+      titleNoWrap={titleNoWrap}
+      unavailableReason={unavailableReason}
+    />
   );
-});
+}
 
 export const PLATFORM_KPI_TREND_KEYS = [
   "total_queries", "total_rows_read", "total_bytes_read", "total_compute_seconds",

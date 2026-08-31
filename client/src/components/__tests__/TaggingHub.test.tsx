@@ -5,6 +5,10 @@ import { expect, it, vi } from "vitest";
 import type { TaggingDashboardBundle } from "@/types/billing";
 import { TaggingHub } from "../TaggingHub";
 
+vi.mock("../KPITrendModal", () => ({
+  KPITrendModal: ({ kpi }: { kpi: string }) => <div data-testid="tagging-selected-kpi">{kpi}</div>,
+}));
+
 const emptyGroup = { items: [], total_spend: 0, count: 0 };
 const DATA: TaggingDashboardBundle = {
   summary: {
@@ -42,7 +46,34 @@ const DATA: TaggingDashboardBundle = {
   timeseries: { timeseries: [], categories: [], start_date: "2026-08-01", end_date: "2026-08-28" },
   start_date: "2026-08-01",
   end_date: "2026-08-28",
+  avg_cost_per_tag: 5,
+  total_tag_count: 2,
 };
+
+it.each([
+  ["Tagged Spend", "tagged_spend"],
+  ["Untagged Spend", "untagged_spend"],
+  ["Cost Per-Tag", "cost_per_tag"],
+  ["Total Tags", "total_tags"],
+])("opens the %s trend from the full KPI card", async (title, kpi) => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <TaggingHub
+        data={DATA}
+        isLoading={false}
+        startDate="2026-08-01"
+        endDate="2026-08-28"
+      />
+    </QueryClientProvider>,
+  );
+
+  const card = screen.getByRole("button", { name: `See ${title} trend` });
+  expect(card).toHaveClass("co-kpi-card");
+  expect(card.querySelector("button")).toBeNull();
+  await userEvent.click(card);
+  expect(screen.getByTestId("tagging-selected-kpi")).toHaveTextContent(kpi);
+});
 
 it("opens a key-wide drilldown when a Spend by Key row is clicked", async () => {
   const fetchMock = vi.fn().mockResolvedValue({

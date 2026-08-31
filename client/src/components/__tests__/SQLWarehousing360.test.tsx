@@ -28,6 +28,9 @@ vi.mock("@/hooks/useFeatureAvailability", () => ({
   useFeatureAvailability: vi.fn(),
   READINESS_QUERY_KEY: ["setup-readiness"],
 }));
+vi.mock("../KPITrendModal", () => ({
+  KPITrendModal: ({ kpi }: { kpi: string }) => <div data-testid="sql-selected-kpi">{kpi}</div>,
+}));
 
 import { useFeatureAvailability } from "@/hooks/useFeatureAvailability";
 
@@ -216,6 +219,24 @@ describe("SQLWarehousing360: available=true with zero-value summary renders $0",
       screen.queryByText(/query-level cost attribution not available/i)
     ).not.toBeInTheDocument();
   });
+
+  it.each([
+    ["Total Query Spend", "sql_spend"],
+    ["Total Queries", "sql_queries"],
+    ["Unique SQL Users", "sql_users"],
+    ["Query Duration", "avg_query_duration"],
+  ])("opens the %s trend from the full KPI card", async (title, kpi) => {
+    renderSQLView(zeroSummary, {
+      startDate: "2026-01-01",
+      endDate: "2026-01-31",
+    });
+
+    const card = screen.getByRole("button", { name: `See ${title} trend` });
+    expect(card).toHaveClass("co-kpi-card");
+    expect(card.querySelector("button")).toBeNull();
+    await userEvent.click(card);
+    expect(screen.getByTestId("sql-selected-kpi")).toHaveTextContent(kpi);
+  });
 });
 
 describe("SQLWarehousing360: magnitude-aware KPI formatting", () => {
@@ -237,7 +258,7 @@ describe("SQLWarehousing360: magnitude-aware KPI formatting", () => {
     });
 
     const value = screen.getByText("$1.69M");
-    expect(value).toHaveClass("text-2xl", "font-semibold");
+    expect(value).toHaveClass("co-kpi-card__value");
     expect(value.closest(".co-kpi-grid")).not.toBeNull();
     expect(screen.queryByText("$1,687,075.63")).not.toBeInTheDocument();
   });

@@ -7,6 +7,7 @@ def test_feedback_targets_default_to_public_issue_tracker(monkeypatch):
     for name in (
         "COST_OBS_FEEDBACK_GITHUB_URL",
         "COST_OBS_FEEDBACK_EMAIL",
+        "COST_OBS_FEEDBACK_SLACK_URL",
         "COST_OBS_FEEDBACK_SLACK_TEAM_ID",
         "COST_OBS_FEEDBACK_SLACK_MEMBER_ID",
         "COST_OBS_FEEDBACK_SLACK_WEB_URL",
@@ -45,9 +46,35 @@ def test_feedback_targets_accept_valid_optional_destinations(monkeypatch):
         "mailto:feedback@example.com?subject=cost-obs%20v1.2%20feedback"
     )
     assert targets["slack"] == {
-        "team_id": team_id,
-        "member_id": member_id,
-        "web_url": "https://example.slack.com/team/member",
+        "url": f"slack://user?team={team_id}&id={member_id}",
+        "fallback_url": "https://example.slack.com/team/member",
+    }
+
+
+def test_feedback_targets_accept_direct_deep_link_or_https_profile(monkeypatch):
+    team_id = "T" + ("5" * 8)
+    member_id = "W" + ("6" * 8)
+    monkeypatch.setenv(
+        "COST_OBS_FEEDBACK_SLACK_URL",
+        f"slack://user?id={member_id}&team={team_id}",
+    )
+    monkeypatch.setenv(
+        "COST_OBS_FEEDBACK_SLACK_WEB_URL",
+        "https://example.slack.com/team/member",
+    )
+
+    assert user._feedback_targets_from_env()["slack"] == {
+        "url": f"slack://user?team={team_id}&id={member_id}",
+        "fallback_url": "https://example.slack.com/team/member",
+    }
+
+    monkeypatch.setenv(
+        "COST_OBS_FEEDBACK_SLACK_URL",
+        "https://example.slack.com/team/member",
+    )
+    assert user._feedback_targets_from_env()["slack"] == {
+        "url": "https://example.slack.com/team/member",
+        "fallback_url": None,
     }
 
 
@@ -59,6 +86,10 @@ def test_feedback_targets_reject_credentials_and_partial_slack(monkeypatch):
     monkeypatch.setenv("COST_OBS_FEEDBACK_EMAIL", "not-an-address")
     monkeypatch.setenv("COST_OBS_FEEDBACK_SLACK_TEAM_ID", "T" + ("3" * 8))
     monkeypatch.setenv("COST_OBS_FEEDBACK_SLACK_MEMBER_ID", "U" + ("4" * 8))
+    monkeypatch.setenv(
+        "COST_OBS_FEEDBACK_SLACK_URL",
+        "javascript:alert(1)",
+    )
     monkeypatch.setenv(
         "COST_OBS_FEEDBACK_SLACK_WEB_URL",
         "https://hooks.slack.com/services/do-not-return-this",

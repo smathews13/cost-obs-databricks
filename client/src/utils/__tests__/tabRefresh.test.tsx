@@ -19,6 +19,7 @@ describe("per-tab manual refresh", () => {
   it.each([
     ["dbu", ["billing", "dashboard-bundle-fast"]],
     ["sql", ["dbsql", "dashboard-bundle"]],
+    ["infra", ["billing", "cloud-costs-bundle"]],
     ["infra", ["azure-actual", "dashboard-bundle"]],
     ["optimizer", ["warehouse-idle-time", "2026-01-01"]],
     ["kpis", ["kpis-platform-kpi-trend", "total_queries"]],

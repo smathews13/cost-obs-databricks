@@ -1,9 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyInfraPricing, getCloudInstanceFamily } from "@/utils/cloudCosts";
 import { CloudCostsView } from "../CloudCostsView";
+
+vi.mock("../KPITrendModal", () => ({
+  KPITrendModal: ({ kpi }: { kpi: string }) => <div data-testid="cloud-selected-kpi">{kpi}</div>,
+}));
 
 const EMPTY_COSTS = {
   clusters: [],
@@ -65,6 +69,28 @@ describe("CloudCostsView empty-data controls", () => {
     }
   });
 
+  it("keeps an actual-cost total visible when optional detail is partial", async () => {
+    renderView({
+      gcpActualData: {
+        available: true,
+        availability: "partial",
+        partial_reasons: { by_service: "SQL_OVERLOADED" },
+        summary: {
+          available: true,
+          total_cost: 125,
+          start_date: "2026-08-01",
+          end_date: "2026-08-28",
+        },
+        start_date: "2026-08-01",
+        end_date: "2026-08-28",
+      },
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Actual Costs" }));
+    expect(screen.getByText(/Some actual-cost details are temporarily unavailable/i)).toBeInTheDocument();
+    expect(screen.getByText("$125")).toBeInTheDocument();
+  });
+
   it("loads only visible provider logos and uses the optimized Azure asset", () => {
     const { container } = renderView({
       actualData: { available: true, start_date: "2026-08-01", end_date: "2026-08-28" },
@@ -82,6 +108,53 @@ describe("CloudCostsView empty-data controls", () => {
     expect(getCloudInstanceFamily("n2-standard-4", "GCP")).toBe("n2");
     expect(getCloudInstanceFamily("Standard_D8s_v3", "AZURE")).toBe("Standard_D");
     expect(getCloudInstanceFamily("m6i.xlarge", "AWS")).toBe("m6i");
+  });
+
+  it.each([
+    ["Total Cluster DBUs", "infra_dbu_hours"],
+    ["Active Clusters", "infra_clusters"],
+  ])("opens the %s trend from the full card while static KPIs stay static", async (title, kpi) => {
+    const clusters = [{
+      cluster_id: "cluster-1",
+      cluster_name: "Cluster 1",
+      driver_instance_type: "m5.xlarge",
+      worker_instance_type: "m5.xlarge",
+      cluster_source: "UI",
+      workspace_id: "123",
+      state: null,
+      total_dbu_hours: 10,
+      databricks_spend: 15,
+      days_active: 1,
+      percentage: 100,
+    }];
+    const data = {
+      ...EMPTY_COSTS,
+      cloud: "AWS",
+      cloud_display_name: "AWS",
+      clusters,
+      total_dbu_hours: 10,
+      total_cluster_count: 1,
+      billing_summary: {
+        databricks_compute_spend: 15,
+        avg_clusters_per_day: 1,
+        avg_databricks_spend_per_cluster: 15,
+        days_in_range: 28,
+      },
+    };
+    renderView({
+      data,
+      infraData: { ...data, available: true, availability: "available" },
+      startDate: "2026-08-01",
+      endDate: "2026-08-28",
+    });
+
+    const card = screen.getByRole("button", { name: `See ${title} trend` });
+    expect(card).toHaveClass("co-kpi-card");
+    expect(card.querySelector("button")).toBeNull();
+    await userEvent.click(card);
+    expect(screen.getByTestId("cloud-selected-kpi")).toHaveTextContent(kpi);
+    expect(screen.getByText("Databricks Compute Spend").closest(".co-kpi-card")?.tagName).toBe("DIV");
+    expect(screen.getByText("Databricks Spend / Cluster").closest(".co-kpi-card")?.tagName).toBe("DIV");
   });
 
   it("applies account pricing to every DBU list-price spend value exactly once", () => {
@@ -132,6 +205,39 @@ describe("CloudCostsView empty-data controls", () => {
 
     expect(screen.getByText("Cloud cost permissions are missing")).toBeInTheDocument();
     expect(screen.queryByText("No classic cluster infrastructure to estimate")).not.toBeInTheDocument();
+  });
+
+  it("shows actionable full-tab recovery only after required retries fail", () => {
+    renderView({ data: undefined, infraData: undefined, loadError: "503: SQL capacity is full" });
+
+    expect(screen.getByText("Cloud cost data could not be loaded")).toBeInTheDocument();
+    expect(screen.getByText(/after automatic retries/i)).toBeInTheDocument();
+    expect(screen.getByText(/refresh Cloud Costs/i)).toBeInTheDocument();
+  });
+
+  it("keeps authoritative totals visible when optional cluster detail fails", () => {
+    const partial = {
+      ...EMPTY_COSTS,
+      cloud: "GCP",
+      cloud_display_name: "GCP",
+      available: true,
+      availability: "partial" as const,
+      reason: "cluster_detail_unavailable",
+      reason_detail: "DBU totals are available, but cluster detail is temporarily unavailable.",
+      billing_summary: {
+        databricks_compute_spend: 240,
+        total_dbu_hours: 120,
+        total_cluster_count: 40,
+        avg_clusters_per_day: 8,
+        avg_databricks_spend_per_cluster: 30,
+        days_in_range: 28,
+      },
+    };
+    renderView({ data: partial, infraData: partial });
+
+    expect(screen.getByText("Partial Cloud Costs data")).toBeInTheDocument();
+    expect(screen.getByText("$240")).toBeInTheDocument();
+    expect(screen.queryByText("Cloud cost data could not be loaded")).not.toBeInTheDocument();
   });
 
   it("shows the honest serverless-only empty state", () => {

@@ -4,9 +4,12 @@ import asyncio
 import json
 import logging
 import os
+import re
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from cachetools import TTLCache
@@ -36,6 +39,11 @@ _deployment_metadata_executor = ThreadPoolExecutor(
     thread_name_prefix="deployment-metadata",
 )
 _DEPLOYMENT_METADATA_TIMEOUT_SECONDS = 5.0
+_APP_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{1,29}$")
+_COMMITTED_DEPLOYMENT_METADATA_PATH = (
+    Path(__file__).resolve().parents[2] / "release-metadata.json"
+)
+_PROCESS_STARTED_AT = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _metadata_text(value: Any) -> str | None:
@@ -43,19 +51,63 @@ def _metadata_text(value: Any) -> str | None:
     return text or None
 
 
+def _metadata_attr(value: Any, name: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(name)
+    return getattr(value, name, None)
+
+
 def _deployment_metadata_from_app(app: Any) -> dict[str, Any]:
     """Select the current app deployment's public provenance fields."""
-    deployment = getattr(app, "active_deployment", None)
+    deployment = _metadata_attr(app, "active_deployment")
     git_source = (
-        getattr(deployment, "git_source", None)
-        or getattr(app, "git_source", None)
-        or getattr(app, "default_git_source", None)
+        _metadata_attr(deployment, "git_source")
+        or _metadata_attr(app, "git_source")
+        or _metadata_attr(app, "default_git_source")
+        or _metadata_attr(deployment, "git_repository")
+        or _metadata_attr(app, "git_repository")
     )
-    deployed_at = _metadata_text(getattr(deployment, "create_time", None))
-    deployer = _metadata_text(getattr(deployment, "creator", None))
+    deployed_at = _metadata_text(
+        _metadata_attr(deployment, "create_time")
+        or _metadata_attr(deployment, "update_time")
+        or _metadata_attr(app, "update_time")
+        or _metadata_attr(app, "create_time")
+    )
+    deployer = _metadata_text(
+        _metadata_attr(deployment, "creator")
+        or _metadata_attr(deployment, "updater")
+        or _metadata_attr(app, "updater")
+        or _metadata_attr(app, "creator")
+    )
     commit_sha = _metadata_text(
-        getattr(git_source, "resolved_commit", None)
-        or getattr(git_source, "commit", None)
+        _metadata_attr(git_source, "resolved_commit")
+        or _metadata_attr(git_source, "commit")
+    )
+    return {
+        "deployed_at": deployed_at,
+        "deployer": deployer,
+        "commit_sha": commit_sha,
+        "available": any((deployed_at, deployer, commit_sha)),
+        "source": "databricks_apps_api",
+    }
+
+
+def _deployment_metadata_from_deployment(deployment: Any) -> dict[str, Any]:
+    git_source = (
+        _metadata_attr(deployment, "git_source")
+        or _metadata_attr(deployment, "git_repository")
+    )
+    deployed_at = _metadata_text(
+        _metadata_attr(deployment, "create_time")
+        or _metadata_attr(deployment, "update_time")
+    )
+    deployer = _metadata_text(
+        _metadata_attr(deployment, "creator")
+        or _metadata_attr(deployment, "updater")
+    )
+    commit_sha = _metadata_text(
+        _metadata_attr(git_source, "resolved_commit")
+        or _metadata_attr(git_source, "commit")
     )
     return {
         "deployed_at": deployed_at,
@@ -80,15 +132,114 @@ def _deployment_metadata_from_env() -> dict[str, Any]:
     }
 
 
-def _fetch_deployment_metadata(app_name: str) -> dict[str, Any]:
+def _deployment_metadata_from_committed_file() -> dict[str, Any]:
+    """Read a customer-safe, optional metadata file shipped with the source tree."""
+    payload: dict[str, Any] = {}
+    try:
+        raw = json.loads(_COMMITTED_DEPLOYMENT_METADATA_PATH.read_text())
+        if isinstance(raw, dict):
+            payload = raw
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+    deployed_at = _metadata_text(payload.get("deployed_at"))
+    deployer = _metadata_text(payload.get("deployer"))
+    commit_sha = _metadata_text(payload.get("commit_sha"))
+    return {
+        "deployed_at": deployed_at,
+        "deployer": deployer,
+        "commit_sha": commit_sha,
+        "available": any((deployed_at, deployer, commit_sha)),
+        "source": "committed_release_metadata",
+    }
+
+
+def _deployment_metadata_from_process_start() -> dict[str, Any]:
+    """Last-resort date only; this is a restart approximation, not a deploy time."""
+    return {
+        "deployed_at": _PROCESS_STARTED_AT,
+        "deployer": None,
+        "commit_sha": None,
+        "available": True,
+        "source": "process_start_approximate_restart",
+    }
+
+
+def _merge_deployment_metadata(*sources: dict[str, Any]) -> dict[str, Any]:
+    fields = ("deployed_at", "deployer", "commit_sha")
+    merged = {field: None for field in fields}
+    used_sources: list[str] = []
+    for source in sources:
+        source_used = False
+        for field in fields:
+            if merged[field] is None:
+                value = _metadata_text(source.get(field))
+                if value is not None:
+                    merged[field] = value
+                    source_used = True
+        if source_used:
+            source_name = _metadata_text(source.get("source"))
+            if source_name and source_name not in used_sources:
+                used_sources.append(source_name)
+    merged["available"] = any(merged[field] for field in fields)
+    merged["source"] = "+".join(used_sources) if used_sources else "unavailable"
+    return merged
+
+
+def _runtime_app_name() -> str | None:
+    app_name = _metadata_text(os.getenv("DATABRICKS_APP_NAME"))
+    return app_name if app_name and _APP_NAME_PATTERN.fullmatch(app_name) else None
+
+
+def _resolve_app_name_from_runtime(apps_api: Any) -> str | None:
+    """Resolve this app from the runtime SP when a legacy runtime omits its name."""
+    client_id = _metadata_text(os.getenv("DATABRICKS_CLIENT_ID"))
+    if not client_id:
+        return None
+    matches: list[str] = []
+    for app in apps_api.list():
+        app_client_ids = {
+            _metadata_text(getattr(app, "service_principal_client_id", None)),
+            _metadata_text(getattr(app, "service_principal_name", None)),
+        }
+        name = _metadata_text(getattr(app, "name", None))
+        if (
+            client_id in app_client_ids
+            and name
+            and _APP_NAME_PATTERN.fullmatch(name)
+        ):
+            matches.append(name)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _fetch_deployment_metadata(app_name: str | None) -> dict[str, Any]:
     from server.db import get_workspace_client
 
-    app_detail = get_workspace_client().apps.get(app_name)
+    apps_api = get_workspace_client().apps
+    resolved_name = app_name or _resolve_app_name_from_runtime(apps_api)
+    if not resolved_name:
+        return _deployment_metadata_from_app(None)
+    app_detail = apps_api.get(resolved_name)
+    active_deployment = getattr(app_detail, "active_deployment", None)
+    deployment_id = _metadata_text(
+        getattr(active_deployment, "deployment_id", None)
+    )
+    if deployment_id and callable(getattr(apps_api, "get_deployment", None)):
+        try:
+            deployment = apps_api.get_deployment(resolved_name, deployment_id)
+            metadata = _deployment_metadata_from_deployment(deployment)
+            if metadata["available"]:
+                return metadata
+        except Exception as exc:
+            logger.debug(
+                "Active deployment detail unavailable for app %s: %s",
+                resolved_name,
+                exc,
+            )
     return _deployment_metadata_from_app(app_detail)
 
 
 def _finish_deployment_metadata_fetch(
-    app_name: str,
+    cache_key: str,
     future: Future[dict[str, Any]],
 ) -> None:
     try:
@@ -98,56 +249,54 @@ def _finish_deployment_metadata_fetch(
         metadata = None
     with _deployment_metadata_lock:
         if metadata and metadata["available"]:
-            _deployment_metadata_cache[app_name] = dict(metadata)
-        if _deployment_metadata_inflight.get(app_name) is future:
-            _deployment_metadata_inflight.pop(app_name, None)
+            _deployment_metadata_cache[cache_key] = dict(metadata)
+        if _deployment_metadata_inflight.get(cache_key) is future:
+            _deployment_metadata_inflight.pop(cache_key, None)
 
 
 @router.get("/deployment")
 async def deployment_metadata() -> dict[str, Any]:
     """Return authoritative metadata for the deployment currently serving the app."""
-    app_name = (os.getenv("DATABRICKS_APP_NAME") or "").strip()
-    if app_name:
+    app_name = _runtime_app_name()
+    runtime_identity = _metadata_text(os.getenv("DATABRICKS_CLIENT_ID"))
+    cache_key = app_name or runtime_identity
+    api_metadata: dict[str, Any] | None = None
+    if cache_key:
         started_fetch = False
         with _deployment_metadata_lock:
-            cached = _deployment_metadata_cache.get(app_name)
-            future = _deployment_metadata_inflight.get(app_name)
+            cached = _deployment_metadata_cache.get(cache_key)
+            future = _deployment_metadata_inflight.get(cache_key)
             if cached is not None:
-                return dict(cached)
-            if future is None:
+                api_metadata = dict(cached)
+            elif future is None:
                 future = _deployment_metadata_executor.submit(
                     _fetch_deployment_metadata,
                     app_name,
                 )
-                _deployment_metadata_inflight[app_name] = future
+                _deployment_metadata_inflight[cache_key] = future
                 started_fetch = True
-        if started_fetch:
+        if started_fetch and future is not None:
             future.add_done_callback(
-                lambda completed, name=app_name: _finish_deployment_metadata_fetch(
-                    name,
+                lambda completed, key=cache_key: _finish_deployment_metadata_fetch(
+                    key,
                     completed,
                 )
             )
-        try:
-            metadata = await asyncio.wait_for(
-                asyncio.shield(asyncio.wrap_future(future)),
-                timeout=_DEPLOYMENT_METADATA_TIMEOUT_SECONDS,
-            )
-            if metadata["available"]:
-                return metadata
-        except Exception as exc:
-            logger.debug("Current app deployment metadata is unavailable: %s", exc)
+        if api_metadata is None and future is not None:
+            try:
+                api_metadata = await asyncio.wait_for(
+                    asyncio.shield(asyncio.wrap_future(future)),
+                    timeout=_DEPLOYMENT_METADATA_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:
+                logger.debug("Current app deployment metadata is unavailable: %s", exc)
 
-    fallback = _deployment_metadata_from_env()
-    if fallback["available"]:
-        return fallback
-    return {
-        "deployed_at": None,
-        "deployer": None,
-        "commit_sha": None,
-        "available": False,
-        "source": "unavailable",
-    }
+    return _merge_deployment_metadata(
+        api_metadata or _deployment_metadata_from_app(None),
+        _deployment_metadata_from_env(),
+        _deployment_metadata_from_committed_file(),
+        _deployment_metadata_from_process_start(),
+    )
 
 
 def _read_shared_probe_result() -> tuple[float, dict[str, Any] | None]:
@@ -590,7 +739,12 @@ async def clear_cache(request: Request, tab: str | None = None) -> dict[str, Any
             "trend:dbu:",
         ],
         "kpis":         ["billing:kpis-bundle", "trend:kpis:"],
-        "infra":        ["billing:infra-bundle", "aws_actual/", "trend:infra:"],
+        "infra":        [
+            "billing:cloud-costs-bundle",
+            "billing:infra-bundle",
+            "aws_actual/",
+            "trend:infra:",
+        ],
         "aiml":         ["aiml:", "trend:aiml:"],
         "apps":         ["apps:", "trend:apps:"],
         "tagging":      ["tagging:", "trend:tagging:"],
@@ -606,9 +760,15 @@ async def clear_cache(request: Request, tab: str | None = None) -> dict[str, Any
             delta_cache_invalidate(pattern)
         if tab == "infra":
             from server.routers import aws_actual, azure_actual, gcp_actual
+            from server.routers.billing import (
+                _cloud_bundle_failures,
+                _cloud_bundle_failures_lock,
+            )
             aws_actual._cur_status_cache.update({"available": None, "checked_at": 0})
             azure_actual._azure_status_cache.update({"available": None, "checked_at": 0})
             gcp_actual._gcp_status_cache.update({"available": None, "checked_at": 0})
+            with _cloud_bundle_failures_lock:
+                _cloud_bundle_failures.clear()
         elif tab == "optimizer":
             from server.routers import warehouse_health
             warehouse_health._health_cache = None

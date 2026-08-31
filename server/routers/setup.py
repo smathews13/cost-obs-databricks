@@ -1829,6 +1829,7 @@ _WH_CHECK_TIMEOUT = 30  # seconds the caller blocks waiting for a warehouse resp
 # Table checks run as SP — result doesn't vary by user, 5-min cache is safe.
 _table_readiness_cache: dict[str, Any] | None = None
 _table_readiness_cache_ts: float = 0.0
+_table_readiness_verified_at: str | None = None
 _TABLE_CACHE_TTL = 300
 
 
@@ -2089,7 +2090,7 @@ def _check_readiness_sync(bypass_cache: bool = False) -> dict[str, Any]:
 
     from server.routers.permissions import REQUIRED_PERMISSIONS
 
-    global _table_readiness_cache, _table_readiness_cache_ts
+    global _table_readiness_cache, _table_readiness_cache_ts, _table_readiness_verified_at
 
     if bypass_cache:
         reset_readiness_caches()
@@ -2122,6 +2123,7 @@ def _check_readiness_sync(bypass_cache: bool = False) -> dict[str, Any]:
             "core": cached_tables["core"],  # type: ignore[index]
             "enhanced": cached_tables["enhanced"],  # type: ignore[index]
             "sp_client_id": sp_client_id,
+            "verified_at": _table_readiness_verified_at,
         }
 
     # Kick off the warehouse future before table checks so both run concurrently.
@@ -2169,6 +2171,9 @@ def _check_readiness_sync(bypass_cache: bool = False) -> dict[str, Any]:
             "sp_client_id": sp_client_id,
         }
         _table_readiness_cache_ts = time.monotonic()
+        from datetime import datetime, timezone
+
+        _table_readiness_verified_at = datetime.now(timezone.utc).isoformat()
     else:
         # cached_tables snapshot taken above — safe from concurrent reset
         core_checks = cached_tables["core"]  # type: ignore[index]
@@ -2189,6 +2194,7 @@ def _check_readiness_sync(bypass_cache: bool = False) -> dict[str, Any]:
         "core": core_checks,
         "enhanced": enhanced_checks,
         "sp_client_id": sp_client_id,
+        "verified_at": _table_readiness_verified_at,
     }
 
 
@@ -2206,10 +2212,11 @@ def shutdown_readiness_executor() -> None:
 
 def reset_readiness_caches() -> None:
     """Clear all readiness caches. Used in tests and forced re-check."""
-    global _table_readiness_cache, _table_readiness_cache_ts, _wh_check_cache, _wh_check_inflight
+    global _table_readiness_cache, _table_readiness_cache_ts, _table_readiness_verified_at, _wh_check_cache, _wh_check_inflight
     with _wh_check_lock:
         _table_readiness_cache = None
         _table_readiness_cache_ts = 0.0
+        _table_readiness_verified_at = None
         _wh_check_cache = None
         _wh_check_inflight = None
 

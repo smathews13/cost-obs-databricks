@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { readFileSync } from "node:fs";
 import { SettingsPermissions } from "../SettingsPermissions";
 
 // ---------------------------------------------------------------------------
@@ -31,6 +32,10 @@ const SP_AUTH_STATUS = {
   user_email: "cost-observer-sp@apps.databricks.com",
   sp_client_id: "0000-aaaa-bbbb-1234",
   sp_display_name: "cost-observer-app-sp",
+  sp_object_id: "123456789",
+  sp_identity_url: "https://dbc.example.com/api/2.0/preview/scim/v2/ServicePrincipals/123456789",
+  effective_oauth_scopes: ["all-apis"],
+  oauth_scope_source: "databricks_apps_oauth_m2m",
   catalog: "main",
   schema: "coc",
 };
@@ -41,6 +46,12 @@ function mockApis(authStatus: object, permissionsPayload?: object, userPermissio
     consumers: [],
     current_user: "alice@databricks.com",
     current_role: "admin",
+    owner: {
+      email: "alice@databricks.com",
+      source: "databricks_apps_api",
+      verified: true,
+      deployment_creator: "alice@databricks.com",
+    },
     role_capabilities: {
       admin: {
         summary: "Admin route capabilities.",
@@ -81,6 +92,29 @@ function mockApis(authStatus: object, permissionsPayload?: object, userPermissio
     if (url.includes("/api/settings/user-permissions")) {
       return Promise.resolve(
         new Response(JSON.stringify(userPermissions ?? defaultUserPermissions), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    }
+    if (url.includes("/api/settings/resources")) {
+      return Promise.resolve(
+        new Response(JSON.stringify({
+          service_principal: {
+            display_name: "cost-observer-app-sp",
+            client_id: "0000-aaaa-bbbb-1234",
+            object_id: "123456789",
+            identity_url: "https://dbc.example.com/api/2.0/preview/scim/v2/ServicePrincipals/123456789",
+            execution_explanation: "Queries and maintenance run as this service principal.",
+            effective_oauth_scopes: ["all-apis"],
+          },
+          warehouse: { id: "wh-1", name: "Main WH", size: "Medium", state: "RUNNING" },
+          storage: { permissions_table: "main.coc.app_user_permissions" },
+          inventory: {
+            aggregates: { count: 8, names: [] },
+            state: { count: 12, names: [] },
+          },
+        }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         })
@@ -149,22 +183,20 @@ describe("SettingsPermissions: SP identity panel", () => {
     });
   });
 
-  it("shows verified warehouse access and clearly marks unverified schema privileges", async () => {
+  it("shows verified warehouse access and keeps catalog/schema supporting", async () => {
     mockApis(SP_AUTH_STATUS);
     renderPermissions();
 
-    expect(await screen.findByText("SQL warehouse CAN USE")).toBeVisible();
-    expect(screen.getByText(/successfully querying the bound warehouse as the app service principal/i)).toBeVisible();
-    expect(screen.getByText("App catalog & schema")).toBeVisible();
-    expect(screen.getByText("Required · not verified")).toBeVisible();
-    expect(screen.getByText(/readiness probe does not independently verify them/i)).toBeVisible();
+    expect(await screen.findByText("SQL warehouse · CAN USE")).toBeVisible();
+    expect(screen.getByText("Catalog & schema")).toBeVisible();
+    expect(screen.getByText(/supporting write location/i)).toBeVisible();
   });
 
   it("renders role capabilities from the backend policy payload", async () => {
     mockApis(SP_AUTH_STATUS);
     renderPermissions();
 
-    expect(await screen.findByText("Role capabilities")).toBeVisible();
+    expect(await screen.findByText("Permission roles")).toBeVisible();
     expect(screen.getByText("Admin route capabilities.")).toBeVisible();
     expect(screen.getByText("Consumer route capabilities.")).toBeVisible();
     expect(screen.getByText("Your role")).toBeVisible();
@@ -318,10 +350,10 @@ describe("SettingsPermissions: polished access controls", () => {
 
     expect(addRow).toHaveClass("settings-access-user-grid");
     expect(addRow.style.getPropertyValue("--settings-access-grid-columns")).toBe(
-      "minmax(220px, 0.5fr) 180px 96px",
+      "minmax(210px, 1fr) 100px 170px 104px",
     );
     expect(addRow.style.minWidth).toBe("");
-    expect(addRow.children).toHaveLength(3);
+    expect(addRow.children).toHaveLength(4);
     expect(rows).toHaveLength(2);
     rows.forEach((row) => {
       expect(row).toHaveClass("settings-access-user-grid");
@@ -329,26 +361,82 @@ describe("SettingsPermissions: polished access controls", () => {
         addRow.style.getPropertyValue("--settings-access-grid-columns"),
       );
       expect(row.style.minWidth).toBe("");
-      expect(row.children).toHaveLength(3);
+      expect(row.children).toHaveLength(4);
     });
     expect(screen.getByRole("textbox", { name: "User email" })).toHaveStyle({ width: "100%" });
     expect(screen.getByRole("combobox", { name: "Role for new user" }).parentElement).toHaveClass("settings-role-select");
-    expect(screen.getByRole("button", { name: "Add user" }).parentElement).toHaveStyle({ display: "grid" });
+    expect(screen.getByRole("button", { name: "Add User" }).parentElement).toHaveStyle({ display: "grid" });
   });
 
-  it("shows the disabled metastore browser between Users and Query authentication", async () => {
+  it("puts Users first and the service principal immediately after it", async () => {
     mockApis(SP_AUTH_STATUS);
     renderPermissions();
 
-    const metastore = await screen.findByRole("group", { name: "Add a metastore" });
-    const queryAuthentication = screen.getByText("Query authentication");
+    const users = await screen.findByTestId("settings-users-section");
+    const servicePrincipal = screen.getByTestId("settings-service-principal-section");
 
-    expect(metastore).toBeDisabled();
-    expect(metastore).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText("Coming soon")).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "Metastore" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Browse" })).toBeDisabled();
-    expect(metastore.compareDocumentPosition(queryAuthentication) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(users.compareDocumentPosition(servicePrincipal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "Add a metastore" })).not.toBeInTheDocument();
+  });
+
+  it("separates Owner persona from Admin role and protects the verified deployer", async () => {
+    mockApis(SP_AUTH_STATUS, undefined, {
+      admins: ["owner@databricks.com", "backup@databricks.com"],
+      consumers: ["viewer@databricks.com"],
+      owner: {
+        email: "owner@databricks.com",
+        source: "databricks_apps_api",
+        verified: true,
+        deployment_creator: "owner@databricks.com",
+      },
+    });
+    renderPermissions();
+
+    const ownerRow = (await screen.findByText("owner@databricks.com")).closest("[data-testid='access-user-row']");
+    expect(ownerRow).toHaveTextContent("Owner");
+    expect(ownerRow).toHaveTextContent("Admin");
+    expect(screen.getByRole("combobox", { name: "Role for owner@databricks.com" })).toBeDisabled();
+    expect(ownerRow?.querySelector(".settings-user-action--remove")).toBeDisabled();
+    expect(screen.getByText("viewer@databricks.com").closest("[data-testid='access-user-row']")).toHaveTextContent("Member");
+  });
+
+  it("shows safe service-principal details without rendering credentials", async () => {
+    mockApis(SP_AUTH_STATUS);
+    renderPermissions();
+
+    const link = await screen.findByRole("link", { name: "Open Databricks identity" });
+    expect(link).toHaveAttribute(
+      "href",
+      "https://dbc.example.com/api/2.0/preview/scim/v2/ServicePrincipals/123456789",
+    );
+    expect(screen.getByText("all-apis")).toBeVisible();
+    expect(screen.getByText("123456789")).toBeVisible();
+    expect(screen.getByTestId("service-principal-grants")).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/secret-value|bearer\s+[A-Za-z0-9]/i);
+  });
+
+  it("keeps Add User and Remove actions visually comparable and accessible", async () => {
+    mockApis(SP_AUTH_STATUS, undefined, {
+      admins: ["owner@databricks.com", "backup@databricks.com"],
+      consumers: ["viewer@databricks.com"],
+      owner: { email: "owner@databricks.com", source: "permission_store", verified: false },
+    });
+    renderPermissions();
+
+    const add = await screen.findByRole("button", { name: "Add User" });
+    const remove = screen.getAllByRole("button", { name: "Remove" }).find((button) => !button.hasAttribute("disabled"));
+    expect(add).toHaveClass("settings-user-action", "settings-user-action--add");
+    expect(remove).toHaveClass("settings-user-action", "settings-user-action--remove");
+    expect(add).toBeDisabled();
+    await userEvent.type(screen.getByRole("textbox", { name: "User email" }), "new@example.com");
+    expect(add).toBeEnabled();
+    add.focus();
+    expect(add).toHaveFocus();
+
+    const css = readFileSync("src/components/settings/settings.css", "utf8");
+    expect(css).toMatch(/\.settings-user-action\s*\{[^}]*height:\s*32px[^}]*font-weight:\s*600/s);
+    expect(css).toMatch(/\.settings-user-action--remove\s*\{[^}]*danger/s);
+    expect(css).toMatch(/\.settings-user-action:focus-visible/);
   });
 
   it("disables removal and demotion of the last explicit admin", async () => {

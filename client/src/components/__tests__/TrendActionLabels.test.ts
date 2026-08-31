@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const KPI_SURFACES = [
@@ -12,15 +13,31 @@ const KPI_SURFACES = [
   "../TaggingHub.tsx",
 ] as const;
 
-describe("KPI trend action labels", () => {
-  it.each(KPI_SURFACES)("%s gives every trend action a metric-specific name", (path) => {
+describe("KPI card contracts", () => {
+  it.each(KPI_SURFACES)("%s uses full-card actions with metric-specific names", (path) => {
     const source = readFileSync(new URL(path, import.meta.url), "utf8");
-    const actions = source.match(/<TrendAction\b[\s\S]*?\/>/g) ?? [];
+    const actionCount = (source.match(/\bonActivate=/g) ?? []).length;
+    const labelCount = (source.match(/\bariaLabel=/g) ?? []).length;
+    const labels = source.match(/ariaLabel="([^"]+)"/g) ?? [];
 
-    expect(actions.length).toBeGreaterThan(0);
-    for (const action of actions) {
-      expect(action).toMatch(/\bariaLabel=/);
-      expect(action).not.toContain('ariaLabel="See trend"');
+    expect(source).toContain("KPICard");
+    expect(source).not.toContain("TrendAction");
+    expect(actionCount).toBeGreaterThan(0);
+    expect(labelCount).toBe(actionCount);
+    for (const label of labels) {
+      expect(label).toMatch(/ariaLabel="See .+ trend"/);
+      expect(label).not.toBe('ariaLabel="See trend"');
     }
+  });
+
+  it("uses shared responsive layout, hover, and focus-visible rules", () => {
+    const css = readFileSync(join(process.cwd(), "src/index.css"), "utf8");
+
+    expect(css).toContain(".co-kpi-card__layout");
+    expect(css).toContain("container-type: inline-size");
+    expect(css).toContain("@container (max-width: 205px)");
+    expect(css).toContain(".co-kpi-card--interactive:focus-visible");
+    expect(css).toContain(".co-kpi-card--interactive:hover");
+    expect(css).toMatch(/@container[\s\S]*?\.co-kpi-card__title--nowrap[\s\S]*?white-space: normal/);
   });
 });

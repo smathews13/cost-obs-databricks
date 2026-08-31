@@ -192,9 +192,13 @@ export interface InfraInstanceFamily {
 
 export interface InfraBillingSummary {
   databricks_compute_spend?: number;
+  total_dbu_hours?: number;
+  total_cluster_count?: number;
   avg_clusters_per_day?: number;
   avg_databricks_spend_per_cluster?: number;
   days_in_range?: number;
+  first_usage_date?: string | null;
+  last_usage_date?: string | null;
 }
 
 export type InfraAvailability = "available" | "partial" | "empty" | "unavailable";
@@ -332,8 +336,21 @@ export interface PlatformKPIsResponse {
 
 // Bundled responses for faster tab loading
 export interface InfraBundleResponse {
+  availability?: "available" | "partial" | "error";
+  partial_reasons?: Record<string, string>;
   infra_costs: InfraCostsResponse;
   infra_timeseries: InfraCostsTimeseriesResponse;
+}
+
+export interface CloudCostsBundleResponse {
+  availability: "available" | "partial";
+  partial_reasons: Record<string, string>;
+  infra_bundle: InfraBundleResponse;
+  aws_actual: AWSActualDashboardBundle;
+  azure_actual: AzureActualDashboardBundle;
+  gcp_actual: GCPActualDashboardBundle;
+  start_date: string;
+  end_date: string;
 }
 
 export interface KPIsBundleResponse {
@@ -807,6 +824,8 @@ export interface AWSActualTimeseriesResponse {
 
 export interface AWSActualDashboardBundle {
   available: boolean;
+  availability?: "available" | "partial" | "unavailable";
+  partial_reasons?: Record<string, string>;
   message?: string;
   summary?: AWSActualCostsSummary;
   by_cluster?: AWSActualByClusterResponse;
@@ -872,6 +891,8 @@ export interface AzureActualTimeseriesResponse {
 
 export interface AzureActualDashboardBundle {
   available: boolean;
+  availability?: "available" | "partial" | "unavailable";
+  partial_reasons?: Record<string, string>;
   message?: string;
   summary?: AzureActualCostsSummary;
   by_cluster?: AzureActualByClusterResponse;
@@ -949,6 +970,8 @@ export interface GCPActualTimeseriesResponse {
 
 export interface GCPActualDashboardBundle {
   available: boolean;
+  availability?: "available" | "partial" | "unavailable";
+  partial_reasons?: Record<string, string>;
   message?: string;
   summary?: GCPActualCostsSummary;
   by_service?: GCPActualByServiceResponse;

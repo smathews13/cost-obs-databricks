@@ -1177,46 +1177,21 @@ LIMIT 100
 # Derived from INFRA_COST_ESTIMATE results in Python — no separate query needed
 INFRA_COST_BY_INSTANCE_TYPE = None
 
-# Multi-cloud cost timeseries. Keep the same classic-cluster scope as the
-# detailed estimate and retain instance metadata so Python can omit unpriced
-# rows instead of presenting missing metadata as a valid estimate.
+# Multi-cloud DBU timeseries. Aggregate in SQL by day so large environments do
+# not materialize one row per date and instance-family combination.
 INFRA_COST_TIMESERIES = """
-WITH usage_filtered AS (
-  SELECT
-    u.usage_date,
-    u.workspace_id,
-    u.usage_metadata.cluster_id AS cluster_id,
-    u.cloud,
-    u.usage_quantity AS estimated_dbu_hours
-  FROM system.billing.usage u
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.usage_metadata.cluster_id IS NOT NULL
-    AND u.billing_origin_product <> 'SQL'
-    AND u.sku_name NOT LIKE '%SERVERLESS%'
-),
-cluster_ids AS (
-  SELECT DISTINCT cluster_id FROM usage_filtered
-),
-cluster_info AS (
-  SELECT
-    c.cluster_id,
-    MAX(c.driver_node_type) AS driver_instance_type,
-    MAX(c.worker_node_type) AS worker_instance_type
-  FROM system.compute.clusters c
-  INNER JOIN cluster_ids ci ON c.cluster_id = ci.cluster_id
-  GROUP BY c.cluster_id
-)
 SELECT
-  uf.usage_date,
-  MAX(uf.cloud) AS cloud,
-  ci.driver_instance_type,
-  ci.worker_instance_type,
-  SUM(uf.estimated_dbu_hours) AS total_dbu_hours
-FROM usage_filtered uf
-LEFT JOIN cluster_info ci ON uf.cluster_id = ci.cluster_id
-GROUP BY uf.usage_date, ci.driver_instance_type, ci.worker_instance_type
-ORDER BY uf.usage_date
+  u.usage_date,
+  MAX(u.cloud) AS cloud,
+  SUM(u.usage_quantity) AS total_dbu_hours
+FROM system.billing.usage u
+WHERE u.usage_date BETWEEN :start_date AND :end_date
+  AND u.usage_quantity > 0
+  AND u.usage_metadata.cluster_id IS NOT NULL
+  AND u.billing_origin_product <> 'SQL'
+  AND u.sku_name NOT LIKE '%SERVERLESS%'
+GROUP BY u.usage_date
+ORDER BY u.usage_date
 """
 
 # Fast Platform KPIs - single scan of billing.usage + separate lakeflow query

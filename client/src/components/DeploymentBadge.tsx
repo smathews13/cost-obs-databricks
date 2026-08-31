@@ -19,6 +19,7 @@ export function DeploymentBadge({
   const deployedAt = formatDeploymentTimestamp(metadata?.deployed_at ?? null);
   const commit = abbreviateCommit(metadata?.commit_sha ?? null);
   const triggerText = badgeDate ?? "Deploy info";
+  const processStartApproximation = metadata?.source.includes("process_start") ?? false;
 
   return (
     <span data-testid="deployment-badge" className="shrink-0">
@@ -32,7 +33,13 @@ export function DeploymentBadge({
           "Loading deployment details…"
         ) : (
           <>
-            <span>{deployedAt ? `Deployed ${deployedAt}` : "Deployment date unavailable"}</span>
+            <span>
+              {deployedAt
+                ? processStartApproximation
+                  ? `Server process started approximately ${deployedAt} (may reflect a restart, not deployment)`
+                  : `Deployed ${deployedAt}`
+                : "Deployment date unavailable"}
+            </span>
             {metadata?.deployer && <span> · by {metadata.deployer}</span>}
             {commit && <span> · commit {commit}</span>}
           </>

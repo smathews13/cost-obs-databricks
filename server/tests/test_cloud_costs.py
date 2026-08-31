@@ -1,9 +1,11 @@
 """Focused regressions for honest cloud infrastructure cost states."""
 
 import asyncio
-from unittest.mock import patch
+import threading
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from server.cloud_pricing import get_instance_family
 from server.queries import INFRA_COST_ESTIMATE
@@ -125,16 +127,7 @@ def test_infra_bundle_keeps_dbus_but_never_invents_vm_currency_cost():
                     {
                         "usage_date": "2026-08-01",
                         "cloud": "GCP",
-                        "driver_instance_type": "future-driver-type",
-                        "worker_instance_type": "future-worker-type",
-                        "total_dbu_hours": 10,
-                    },
-                    {
-                        "usage_date": "2026-08-01",
-                        "cloud": "GCP",
-                        "driver_instance_type": None,
-                        "worker_instance_type": "n2-standard-4",
-                        "total_dbu_hours": 5,
+                        "total_dbu_hours": 15,
                     },
                 ]
             ),
@@ -172,10 +165,10 @@ def test_infra_bundle_keeps_dbus_but_never_invents_vm_currency_cost():
 
     timeseries = result["infra_timeseries"]
     assert timeseries["available"] is True
-    assert timeseries["availability"] == "partial"
-    assert timeseries["reason"] == "metadata_partial"
+    assert timeseries["availability"] == "available"
+    assert timeseries["reason"] is None
     assert timeseries["timeseries"] == [
-        {"date": "2026-08-01", "total_dbu_hours": 15.0}
+        {"date": "2026-08-01", "total_dbu_hours": 15.0},
     ]
     assert timeseries["currency_estimate_available"] is False
     cache_put.assert_called_once()
@@ -201,8 +194,6 @@ def test_infra_bundle_keeps_cluster_dbus_when_instance_metadata_is_missing():
                     {
                         "usage_date": "2026-08-01",
                         "cloud": "GCP",
-                        "driver_instance_type": None,
-                        "worker_instance_type": None,
                         "total_dbu_hours": 8,
                     }
                 ]
@@ -227,9 +218,9 @@ def test_infra_bundle_keeps_cluster_dbus_when_instance_metadata_is_missing():
 
     timeseries = result["infra_timeseries"]
     assert timeseries["available"] is True
-    assert timeseries["availability"] == "partial"
-    assert timeseries["error_kind"] == "metadata"
-    assert timeseries["reason"] == "metadata_partial"
+    assert timeseries["availability"] == "available"
+    assert timeseries["error_kind"] is None
+    assert timeseries["reason"] is None
     assert timeseries["timeseries"] == [
         {"date": "2026-08-01", "total_dbu_hours": 8.0}
     ]
@@ -264,9 +255,7 @@ def test_infra_summary_detail_and_timeseries_share_classic_dlt_scope():
         )
 
     detail_query = next(query for query in captured_queries if "MAX(ci.cluster_name)" in query)
-    timeseries_query = next(
-        query for query in captured_queries if "GROUP BY uf.usage_date" in query
-    )
+    timeseries_query = next(query for query in captured_queries if "GROUP BY u.usage_date" in query)
     summary_query = next(query for query in captured_queries if "daily_stats AS" in query)
 
     assert "billing_origin_product = 'DLT'" in summary_query
@@ -276,6 +265,310 @@ def test_infra_summary_detail_and_timeseries_share_classic_dlt_scope():
         assert "billing_origin_product <> 'SQL'" in query
     for query in (summary_query, detail_query, timeseries_query):
         assert "sku_name NOT LIKE '%SERVERLESS%'" in query
+
+
+def test_cluster_detail_failure_keeps_authoritative_usage_totals():
+    result, cache_put = _run_bundle(
+        {
+            "clusters": None,
+            "timeseries": _ok(
+                [{"usage_date": "2026-08-01", "total_dbu_hours": 75}]
+            ),
+            "billing_summary": _ok(
+                [{
+                    "total_cost": 120,
+                    "total_dbu_hours": 75,
+                    "total_cluster_count": 42,
+                    "avg_clusters_per_day": 6,
+                    "avg_cost_per_cluster": 20,
+                    "days_in_range": 1,
+                }]
+            ),
+            "usage_scope": _ok(
+                [{"usage_rows": 1000, "cluster_usage_rows": 800, "serverless_usage_rows": 200}]
+            ),
+        }
+    )
+
+    costs = result["infra_costs"]
+    assert result["availability"] == "partial"
+    assert costs["available"] is True
+    assert costs["availability"] == "partial"
+    assert costs["reason"] == "cluster_detail_unavailable"
+    assert costs["total_databricks_spend"] == 120
+    assert costs["total_dbu_hours"] == 75
+    assert costs["total_cluster_count"] == 42
+    assert costs["clusters"] == []
+    cache_put.assert_not_called()
+
+
+def test_cloud_bundle_keeps_core_when_actual_provider_is_overloaded():
+    infra = {
+        "availability": "available",
+        "infra_costs": {"available": True},
+        "infra_timeseries": {"available": True},
+    }
+    unavailable = {
+        "available": False,
+        "start_date": "2026-08-01",
+        "end_date": "2026-08-28",
+    }
+    with (
+        patch.object(billing, "get_infra_bundle", new=AsyncMock(return_value=infra)),
+        patch.object(
+            aws_actual,
+            "get_aws_actual_dashboard_bundle",
+            new=AsyncMock(side_effect=billing.SQLExecutionError("capacity")),
+        ),
+        patch.object(
+            azure_actual,
+            "get_azure_actual_dashboard_bundle",
+            new=AsyncMock(return_value=unavailable),
+        ),
+        patch.object(
+            gcp_actual,
+            "get_gcp_actual_dashboard_bundle",
+            new=AsyncMock(return_value=unavailable),
+        ),
+    ):
+        result = asyncio.run(
+            billing._compute_cloud_costs_bundle(
+                {"start_date": "2026-08-01", "end_date": "2026-08-28"},
+                None,
+            )
+        )
+
+    assert result["availability"] == "partial"
+    assert result["infra_bundle"] is infra
+    assert result["partial_reasons"]["aws_actual"] == "SQL_EXECUTION_ERROR"
+    assert result["aws_actual"]["transient_error"] is True
+
+
+def test_gcp_status_does_not_cache_capacity_as_integration_absence():
+    gcp_actual._gcp_status_cache.update({"available": None, "checked_at": 0})
+    with patch.object(
+        gcp_actual,
+        "execute_query",
+        side_effect=billing.SQLExecutionError("SQL capacity is full"),
+    ):
+        with pytest.raises(billing.SQLExecutionError):
+            asyncio.run(gcp_actual.get_gcp_status())
+
+    assert gcp_actual._gcp_status_cache["available"] is None
+    assert gcp_actual._gcp_status_cache["checked_at"] == 0
+
+
+@pytest.mark.parametrize(
+    ("module", "endpoint_name", "cache_name", "availability_key"),
+    (
+        (aws_actual, "get_cur_status", "_cur_status_cache", "cur_available"),
+        (
+            azure_actual,
+            "get_azure_status",
+            "_azure_status_cache",
+            "azure_available",
+        ),
+        (gcp_actual, "get_gcp_status", "_gcp_status_cache", "gcp_available"),
+    ),
+)
+def test_provider_status_transient_errors_are_not_cached_and_retry_recovers(
+    module,
+    endpoint_name,
+    cache_name,
+    availability_key,
+):
+    status_cache = getattr(module, cache_name)
+    status_cache.update({"available": None, "checked_at": 0})
+    secret_error = RuntimeError(
+        "permission denied host=https://private.example SQL=SELECT secret_value"
+    )
+    with (
+        patch.object(module, "local_source_is_selected", return_value=True),
+        patch.object(module, "execute_query", side_effect=[secret_error, [{}]]) as query,
+    ):
+        with pytest.raises(RuntimeError):
+            asyncio.run(getattr(module, endpoint_name)())
+
+        assert status_cache == {"available": None, "checked_at": 0}
+        recovered = asyncio.run(getattr(module, endpoint_name)())
+
+    assert recovered[availability_key] is True
+    assert status_cache["available"] is True
+    assert status_cache["checked_at"] > 0
+    assert query.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("module", "endpoint_name", "cache_name", "availability_key"),
+    (
+        (aws_actual, "get_cur_status", "_cur_status_cache", "cur_available"),
+        (
+            azure_actual,
+            "get_azure_status",
+            "_azure_status_cache",
+            "azure_available",
+        ),
+        (gcp_actual, "get_gcp_status", "_gcp_status_cache", "gcp_available"),
+    ),
+)
+def test_provider_status_caches_absence_only_after_successful_existence_query(
+    module,
+    endpoint_name,
+    cache_name,
+    availability_key,
+):
+    status_cache = getattr(module, cache_name)
+    status_cache.update({"available": None, "checked_at": 0})
+    with (
+        patch.object(module, "local_source_is_selected", return_value=True),
+        patch.object(module, "execute_query", return_value=[]) as query,
+    ):
+        first = asyncio.run(getattr(module, endpoint_name)())
+        second = asyncio.run(getattr(module, endpoint_name)())
+
+    assert first[availability_key] is False
+    assert second[availability_key] is False
+    assert status_cache["available"] is False
+    query.assert_called_once()
+
+
+def test_gcp_actual_optional_detail_failure_is_partial():
+    summary = {
+        "available": True,
+        "total_cost": 100,
+        "start_date": "2026-08-01",
+        "end_date": "2026-08-28",
+    }
+    empty = {
+        "available": True,
+        "start_date": "2026-08-01",
+        "end_date": "2026-08-28",
+    }
+    with (
+        patch.object(
+            gcp_actual,
+            "get_gcp_status",
+            new=AsyncMock(return_value={"gcp_available": True}),
+        ),
+        patch.object(
+            gcp_actual,
+            "get_gcp_actual_summary",
+            new=AsyncMock(return_value=summary),
+        ),
+        patch.object(
+            gcp_actual,
+            "get_gcp_costs_by_service",
+            new=AsyncMock(side_effect=billing.SQLExecutionError("capacity")),
+        ),
+        patch.object(
+            gcp_actual,
+            "get_gcp_costs_by_project",
+            new=AsyncMock(return_value=empty),
+        ),
+        patch.object(
+            gcp_actual,
+            "get_gcp_costs_by_sku",
+            new=AsyncMock(return_value=empty),
+        ),
+        patch.object(
+            gcp_actual,
+            "get_gcp_costs_timeseries",
+            new=AsyncMock(return_value=empty),
+        ),
+    ):
+        result = asyncio.run(
+            gcp_actual.get_gcp_actual_dashboard_bundle(
+                start_date="2026-08-01",
+                end_date="2026-08-28",
+            )
+        )
+
+    assert result["available"] is True
+    assert result["availability"] == "partial"
+    assert result["summary"] is summary
+    assert result["by_service"] is None
+    assert result["partial_reasons"] == {"by_service": "SQL_EXECUTION_ERROR"}
+
+
+def test_cloud_poll_does_not_query_cache_while_producer_is_pending():
+    with (
+        patch.object(billing, "bundle_compute_is_pending", return_value=True),
+        patch.object(billing, "delta_cache_get") as cache_get,
+    ):
+        response = asyncio.run(
+            billing.get_cloud_costs_bundle(
+                start_date="2026-08-01",
+                end_date="2026-08-28",
+                workspace_ids=None,
+            )
+        )
+
+    assert response.status_code == 202
+    assert response.headers["retry-after"] == "1"
+    cache_get.assert_not_called()
+
+
+def test_cloud_producer_failure_returns_safe_typed_retryable_error(
+    caplog,
+):
+    raw_error = billing.SQLExecutionError(
+        "host=https://private.example SQL=SELECT secret_value token=super-secret"
+    )
+    with billing._cloud_bundle_failures_lock:
+        billing._cloud_bundle_failures.clear()
+
+    def run_inline(_key, operation, **_kwargs):
+        worker = threading.Thread(target=operation)
+        worker.start()
+        worker.join()
+
+    with (
+        patch.object(billing, "bundle_compute_is_pending", return_value=False),
+        patch.object(billing, "delta_cache_get", return_value=None),
+        patch.object(
+            billing,
+            "_compute_cloud_costs_bundle",
+            new=AsyncMock(side_effect=raw_error),
+        ),
+        patch.object(billing, "start_bundle_compute", side_effect=run_inline),
+        patch("server.app.current_request_id", return_value="request-123"),
+    ):
+        first = asyncio.run(
+            billing.get_cloud_costs_bundle(
+                start_date="2026-08-01",
+                end_date="2026-08-28",
+                workspace_ids=None,
+            )
+        )
+        assert first.status_code == 202
+
+        with pytest.raises(HTTPException) as raised:
+            asyncio.run(
+                billing.get_cloud_costs_bundle(
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    workspace_ids=None,
+                )
+            )
+
+    detail = raised.value.detail
+    assert detail == {
+        "message": "Cloud cost data is temporarily unavailable. Retry shortly.",
+        "error_code": "SQL_EXECUTION_ERROR",
+        "retryable": True,
+        "request_id": "request-123",
+    }
+    assert raised.value.headers == {"Retry-After": "2"}
+    exposed = repr(detail).lower()
+    assert "private.example" not in exposed
+    assert "select" not in exposed
+    assert "secret_value" not in exposed
+    assert "super-secret" not in exposed
+    assert "request_id=request-123" in caplog.text
+    assert "private.example" in caplog.text
+
+    with billing._cloud_bundle_failures_lock:
+        billing._cloud_bundle_failures.clear()
 
 
 def test_cluster_query_uses_billing_list_prices_for_dbu_spend_only():

@@ -12,9 +12,8 @@ import threading
 import time
 import uuid
 from concurrent.futures import (
-    ALL_COMPLETED,
+    FIRST_COMPLETED,
     Future,
-    as_completed,
 )
 from concurrent.futures import (
     TimeoutError as FutureTimeoutError,
@@ -257,7 +256,10 @@ _sql_metrics: dict[str, int] = {
     "timed_out": 0,
     "cancel_requested": 0,
     "result_limited": 0,
+    "coalesced": 0,
 }
+_query_inflight_lock = threading.Lock()
+_query_inflight: dict[str, Future] = {}
 
 
 @dataclass
@@ -665,6 +667,34 @@ def start_bundle_compute(
     future.add_done_callback(finish)
     logger.info("Started bounded %s producer", name)
     return True
+
+
+def bundle_compute_is_pending(cache_key: str) -> bool:
+    """Check local/cross-process bundle ownership without consuming SQL capacity."""
+    with _bundle_inflight_lock:
+        if cache_key in _bundle_inflight:
+            return True
+
+    key_hash = hashlib.sha256(cache_key.encode()).hexdigest()
+    state_path = Path(_BUNDLE_LEASE_DIR) / f"{key_hash}.json"
+    lock_path = Path(_BUNDLE_LEASE_DIR) / f"{key_hash}.lock"
+    try:
+        import fcntl
+
+        with _bundle_lease_thread_lock:
+            with open(lock_path, "a+") as lock_file:
+                fcntl.flock(lock_file, fcntl.LOCK_SH)
+                try:
+                    with open(state_path) as state_file:
+                        state = json.load(state_file)
+                    return bool(
+                        state.get("owner")
+                        and float(state.get("expires_at", 0)) > time.time()
+                    )
+                finally:
+                    fcntl.flock(lock_file, fcntl.LOCK_UN)
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError):
+        return False
 
 
 def get_bundle_executor_metrics() -> dict[str, int]:
@@ -2785,6 +2815,8 @@ def execute_query(
     )
     cache_key: str | None = None
     cache_generation: int | None = None
+    shared_future: Future | None = None
+    owns_shared_future = False
     # Cache synchronization is deliberately limited to the local TTLCache and
     # generation snapshot. The remote SQL query runs without this lock.
     if not no_cache:
@@ -2798,6 +2830,27 @@ def execute_query(
             if cache_key in _query_cache:
                 logger.info(f"Cache hit - returned in {(time.time() - start_time)*1000:.0f}ms")
                 return _query_cache[cache_key]
+        # Coalesce identical cache misses before SQL admission. Cloud-tab refreshes
+        # can overlap a slow request that the client has cancelled; followers wait
+        # on the original producer without consuming another SQL permit.
+        with _query_inflight_lock:
+            shared_future = _query_inflight.get(cache_key)
+            if shared_future is None:
+                shared_future = Future()
+                _query_inflight[cache_key] = shared_future
+                owns_shared_future = True
+            else:
+                with _sql_metrics_lock:
+                    _sql_metrics["coalesced"] += 1
+        if not owns_shared_future:
+            try:
+                return shared_future.result(
+                    timeout=(timeout or SQL_DEFAULT_TIMEOUT_SECONDS) + 1
+                )
+            except FutureTimeoutError as exc:
+                raise SQLTimeoutError(
+                    "Timed out waiting for an identical in-flight SQL query."
+                ) from exc
 
     def _run(force_sp: bool = False) -> list[dict[str, Any]]:
         """Execute the query. force_sp=True forces SP identity for this call."""
@@ -2841,22 +2894,34 @@ def execute_query(
                 return _run(force_sp=True)
             raise
 
-    result = _run_sql_bounded(
-        _execute,
-        timeout=timeout or SQL_DEFAULT_TIMEOUT_SECONDS,
-        label="query",
-    )
+    try:
+        result = _run_sql_bounded(
+            _execute,
+            timeout=timeout or SQL_DEFAULT_TIMEOUT_SECONDS,
+            label="query",
+        )
 
-    if cache_key is not None and cache_generation is not None:
-        with _query_cache_lock:
-            if _query_cache_generation_for_key(cache_key) == cache_generation:
-                _query_cache[cache_key] = result
-            else:
-                logger.info("Rejected stale in-process cache write after invalidation")
-    elapsed = time.time() - start_time
-    _sql_tag = " ".join(query.split())[:60]
-    logger.info(f"Query [{_sql_tag}] executed in {elapsed:.2f}s ({len(result)} rows)")
-    return result
+        if cache_key is not None and cache_generation is not None:
+            with _query_cache_lock:
+                if _query_cache_generation_for_key(cache_key) == cache_generation:
+                    _query_cache[cache_key] = result
+                else:
+                    logger.info("Rejected stale in-process cache write after invalidation")
+        if owns_shared_future and shared_future is not None:
+            shared_future.set_result(result)
+        elapsed = time.time() - start_time
+        _sql_tag = " ".join(query.split())[:60]
+        logger.info(f"Query [{_sql_tag}] executed in {elapsed:.2f}s ({len(result)} rows)")
+        return result
+    except BaseException as exc:
+        if owns_shared_future and shared_future is not None:
+            shared_future.set_exception(exc)
+        raise
+    finally:
+        if owns_shared_future and cache_key is not None:
+            with _query_inflight_lock:
+                if _query_inflight.get(cache_key) is shared_future:
+                    _query_inflight.pop(cache_key, None)
 
 
 def get_auth_status() -> dict:
@@ -2918,6 +2983,10 @@ def get_auth_status() -> dict:
 def execute_queries_parallel(
     query_funcs: list[tuple[str, Callable[[], list[dict[str, Any]]]]],
     timeout: float | None = 30.0,
+    *,
+    required_names: set[str] | None = None,
+    max_concurrency: int | None = None,
+    overload_retries: int = 3,
 ) -> dict[str, list[dict[str, Any]] | None]:
     """Execute queries through the bounded process-wide SQL executor.
 
@@ -2948,6 +3017,14 @@ def execute_queries_parallel(
         "[TABLE_OR_VIEW_NOT_FOUND]",
         "[SCHEMA_NOT_FOUND]",
     )
+    required = required_names or set()
+    ordered_query_funcs = [
+        query
+        for _index, query in sorted(
+            enumerate(query_funcs),
+            key=lambda item: (item[1][0] not in required, item[0]),
+        )
+    ]
 
     def _collect(future: Future, name: str) -> None:
         try:
@@ -2967,7 +3044,7 @@ def execute_queries_parallel(
     # worker. Run those serially in the same admitted slot to avoid executor
     # self-deadlock; the outer bundle deadline remains authoritative.
     if getattr(_sql_executor_local, "in_worker", False):
-        for name, func in query_funcs:
+        for name, func in ordered_query_funcs:
             try:
                 results[name] = _timed(name, func)()
             except SQLExecutionError as exc:
@@ -2982,42 +3059,83 @@ def execute_queries_parallel(
                 results[name] = None
         return results
 
+    pending = iter(ordered_query_funcs)
+    concurrency = max_concurrency
+    if concurrency is None:
+        # Keep one worker available even when a single bundle has a large fanout.
+        # This is especially important in deterministic two-worker deployments.
+        concurrency = max(1, min(4, SQL_EXECUTOR_MAX_WORKERS - 1))
+    concurrency = max(1, min(concurrency, len(query_funcs) or 1))
+    deadline = None if timeout is None else time.monotonic() + timeout
     futures_map: dict[Future, tuple[str, _SQLTaskControl]] = {}
-    for name, func in query_funcs:
-        try:
-            future, control = _submit_sql_future(_timed(name, func), label=name)
-            futures_map[future] = (name, control)
-        except SQLOverloadedError as exc:
-            logger.warning("✗ %s rejected by SQL admission: %s", name, exc)
-            results[name] = None
-            infrastructure_failures.append((name, exc))
+    exhausted = False
 
-    if timeout is not None:
-        done, not_done = futures_wait(
-            list(futures_map.keys()), timeout=timeout, return_when=ALL_COMPLETED
+    def _submit(name: str, func: Callable[[], list[dict[str, Any]]]) -> None:
+        last_error: SQLOverloadedError | None = None
+        for attempt in range(max(0, overload_retries) + 1):
+            try:
+                future, control = _submit_sql_future(_timed(name, func), label=name)
+                futures_map[future] = (name, control)
+                return
+            except SQLOverloadedError as exc:
+                last_error = exc
+                if attempt >= overload_retries:
+                    break
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    break
+                # Bounded exponential backoff with deterministic name-based jitter.
+                jitter = (sum(name.encode()) % 17) / 1000
+                delay = min(0.25, 0.025 * (2**attempt) + jitter)
+                if remaining is not None:
+                    delay = min(delay, max(0, remaining))
+                time.sleep(delay)
+        assert last_error is not None
+        logger.warning("✗ %s rejected by SQL admission: %s", name, last_error)
+        results[name] = None
+        infrastructure_failures.append((name, last_error))
+
+    def _fill_window() -> None:
+        nonlocal exhausted
+        while not exhausted and len(futures_map) < concurrency:
+            try:
+                name, func = next(pending)
+            except StopIteration:
+                exhausted = True
+                return
+            _submit(name, func)
+
+    _fill_window()
+    while futures_map:
+        remaining = None if deadline is None else max(0, deadline - time.monotonic())
+        done, _ = futures_wait(
+            list(futures_map),
+            timeout=remaining,
+            return_when=FIRST_COMPLETED,
         )
-        for future in not_done:
-            elapsed = time.time() - start_time
-            name, control = futures_map[future]
-            logger.error("✗ %s timed out after %.1fs; cancelling connector", name, elapsed)
-            with _sql_metrics_lock:
-                _sql_metrics["timed_out"] += 1
-            control.request_cancel()
-            future.cancel()
-            results[name] = None
-            infrastructure_failures.append(
-                (
-                    name,
-                    SQLTimeoutError(
-                        f"Parallel query {name!r} exceeded the {timeout:g}s bundle deadline."
-                    ),
+        if not done:
+            for future, (name, control) in list(futures_map.items()):
+                elapsed = time.time() - start_time
+                logger.error("✗ %s timed out after %.1fs; cancelling connector", name, elapsed)
+                with _sql_metrics_lock:
+                    _sql_metrics["timed_out"] += 1
+                control.request_cancel()
+                future.cancel()
+                results[name] = None
+                infrastructure_failures.append(
+                    (
+                        name,
+                        SQLTimeoutError(
+                            f"Parallel query {name!r} exceeded the {timeout:g}s bundle deadline."
+                        ),
+                    )
                 )
-            )
+                futures_map.pop(future, None)
+            break
         for future in done:
-            _collect(future, futures_map[future][0])
-    else:
-        for future in as_completed(futures_map):
-            _collect(future, futures_map[future][0])
+            name, _control = futures_map.pop(future)
+            _collect(future, name)
+        _fill_window()
 
     total_elapsed = time.time() - start_time
     logger.info("Parallel execution: %.2fs total (%d/%d queries completed)", total_elapsed, len(results), len(query_funcs))
@@ -3053,7 +3171,11 @@ def execute_bundle_queries(
     if unknown:
         raise ValueError(f"Required bundle queries are not present: {sorted(unknown)}")
     try:
-        return execute_queries_parallel(query_funcs, timeout), {}
+        return execute_queries_parallel(
+            query_funcs,
+            timeout,
+            required_names=required_names,
+        ), {}
     except SQLExecutionError as exc:
         partial_results = dict(getattr(exc, "partial_results", {}))
         failures = dict(

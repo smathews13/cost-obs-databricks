@@ -38,7 +38,7 @@ export const TAB_QUERY_KEY_PREDICATES: Record<DashboardTab, QueryKeyPredicate> =
     || keyStartsWith(key, "sql-kpi-trend")
     || keyStartsWith(key, "sql-platform-kpi-trend"),
   infra: (key) =>
-    billingKeys("infra-bundle", "infra-costs", "infra-costs-timeseries", "aws-costs", "aws-costs-timeseries")(key)
+    billingKeys("cloud-costs-bundle", "infra-bundle", "infra-costs", "infra-costs-timeseries", "aws-costs", "aws-costs-timeseries")(key)
     || keyStartsWith(key, "aws-actual")
     || keyStartsWith(key, "azure-actual")
     || keyStartsWith(key, "gcp-actual")

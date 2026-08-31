@@ -4,6 +4,7 @@ import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure-128.png";
 import gcpLogo from "@/assets/gcp.svg";
 import { C } from "@/theme";
+import { useDocumentScrollLock } from "@/utils/scrolling";
 
 export type CloudIntegration = { id: string; cloud: "azure" | "aws" | "gcp"; label: string };
 
@@ -34,6 +35,7 @@ export function CloudIntegrationWizard({
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  useDocumentScrollLock(show);
   const [checkedSteps, setCheckedSteps] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(localStorage.getItem(WIZARD_STEPS_KEY) || "{}"); } catch { return {}; }
   });
@@ -48,16 +50,13 @@ export function CloudIntegrationWizard({
 
   useEffect(() => {
     if (!show) return;
-    const previousOverflow = document.body.style.overflow;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
     document.addEventListener("keydown", handleKeyDown);
-    document.body.style.overflow = "hidden";
     dialogRef.current?.focus();
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = previousOverflow;
     };
   }, [show, onClose]);
 

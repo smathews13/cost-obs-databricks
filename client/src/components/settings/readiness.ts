@@ -34,6 +34,7 @@ export interface ReadinessResult {
   core: ReadinessCheck[];
   enhanced: ReadinessCheck[];
   sp_client_id: string;
+  verified_at?: string | null;
 }
 
 /** Guards against missing fields so the UI never crashes on a partial payload. */
@@ -65,5 +66,7 @@ export function normalizeReadinessResult(raw: unknown): ReadinessResult | null {
       ? (result.enhanced as ReadinessCheck[])
       : [],
     sp_client_id: String(result.sp_client_id ?? ""),
+    verified_at:
+      result.verified_at != null ? String(result.verified_at) : null,
   };
 }

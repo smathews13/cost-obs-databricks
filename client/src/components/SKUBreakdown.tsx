@@ -187,7 +187,7 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
           ? (selectedWorkspaceName || workspaceFilters[0])
           : isWorkspaceFilterActive
           ? `${workspaceFilters.length} Workspaces`
-          : "Workspaces"}
+          : "Workspace"}
         <svg className={`h-3 w-3 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>

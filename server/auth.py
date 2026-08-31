@@ -36,11 +36,13 @@ class PermissionSnapshot:
     admins: tuple[str, ...]
     consumers: tuple[str, ...]
     loaded_at: float
+    owner: str | None = None
 
-    def as_dict(self) -> dict[str, list[str]]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "admins": list(self.admins),
             "consumers": list(self.consumers),
+            "owner": self.owner,
         }
 
 
@@ -133,6 +135,7 @@ def _snapshot_from_rows(rows: list[dict[str, Any]]) -> PermissionSnapshot:
         admins=admins,
         consumers=consumers,
         loaded_at=time.monotonic(),
+        owner=owner_emails[0] if owner_emails else None,
     )
 
 

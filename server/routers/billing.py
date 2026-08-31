@@ -3,11 +3,13 @@
 import asyncio
 import logging
 import os
+import threading
 import time
 from typing import Any
 
 from cachetools import TTLCache
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from server import cache_ttls
 from server.cloud_pricing import (
@@ -15,9 +17,11 @@ from server.cloud_pricing import (
     get_instance_family,
 )
 from server.db import (
+    BundleOverloadedError,
     SQLExecutionError,
     apply_mv_overrides,
     bundle_cache_key,
+    bundle_compute_is_pending,
     capture_cache_generation,
     delta_cache_get,
     delta_cache_put,
@@ -29,6 +33,7 @@ from server.db import (
     recover_optional_bundle_queries,
     selected_source_labels,
     source_label_filter_clause,
+    start_bundle_compute,
 )
 from server.db import (
     execute_query as _execute_query,
@@ -83,6 +88,36 @@ def execute_query(sql: str, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
 # Stale fallback: stores the last successful non-zero kpis_response per exact
 # date/workspace/source scope so one source selection can never leak into another.
 _kpis_stale: TTLCache = TTLCache(maxsize=500, ttl=cache_ttls.STALE_KPI)
+_cloud_bundle_failures: TTLCache = TTLCache(maxsize=100, ttl=2)
+_cloud_bundle_failures_lock = threading.Lock()
+_CLOUD_FAILURE_MESSAGES = {
+    "SQL_OVERLOADED": "Cloud cost data is busy. Wait a moment and retry.",
+    "BUNDLE_OVERLOADED": "Cloud cost data is busy. Wait a moment and retry.",
+    "SQL_TIMEOUT": "Cloud cost data took too long to load. Retry shortly.",
+    "SQL_EXECUTION_ERROR": (
+        "Cloud cost data is temporarily unavailable. Retry shortly."
+    ),
+    "CLOUD_BUNDLE_FAILED": (
+        "Cloud cost data is temporarily unavailable. Retry shortly."
+    ),
+}
+
+
+def _safe_cloud_failure(
+    exc: BaseException,
+    *,
+    request_id: str,
+) -> dict[str, Any]:
+    raw_code = str(getattr(exc, "code", "CLOUD_BUNDLE_FAILED")).upper()
+    error_code = (
+        raw_code if raw_code in _CLOUD_FAILURE_MESSAGES else "CLOUD_BUNDLE_FAILED"
+    )
+    return {
+        "message": _CLOUD_FAILURE_MESSAGES[error_code],
+        "error_code": error_code,
+        "retryable": True,
+        "request_id": request_id,
+    }
 
 
 def _run_bundle_parallel(
@@ -91,8 +126,12 @@ def _run_bundle_parallel(
     required: set[str],
     timeout: float,
 ) -> tuple[dict[str, Any], dict[str, str]]:
+    ordered = [
+        *[(name, call) for name, call in queries if name in required],
+        *[(name, call) for name, call in queries if name not in required],
+    ]
     try:
-        return execute_queries_parallel(queries, timeout=timeout), {}
+        return execute_queries_parallel(ordered, timeout=timeout), {}
     except SQLExecutionError as exc:
         return recover_optional_bundle_queries(exc, required)
 
@@ -1134,16 +1173,26 @@ async def get_infra_bundle(
       SELECT
         usage_date,
         SUM(usage_quantity * price_per_dbu) as daily_cost,
+        SUM(usage_quantity) as daily_dbus,
         COUNT(DISTINCT cluster_id) as daily_clusters
       FROM usage_with_price
       GROUP BY usage_date
+    ),
+    summary_stats AS (
+      SELECT COUNT(DISTINCT cluster_id) AS total_cluster_count
+      FROM usage_with_price
     )
     SELECT
       SUM(daily_cost) as total_cost,
+      SUM(daily_dbus) as total_dbu_hours,
+      MAX(summary_stats.total_cluster_count) as total_cluster_count,
       AVG(daily_clusters) as avg_clusters_per_day,
       CASE WHEN AVG(daily_clusters) > 0 THEN AVG(daily_cost / daily_clusters) ELSE 0 END as avg_cost_per_cluster,
-      COUNT(*) as days_in_range
+      COUNT(*) as days_in_range,
+      MIN(usage_date) as first_usage_date,
+      MAX(usage_date) as last_usage_date
     FROM daily_stats
+    CROSS JOIN summary_stats
     """
     BILLING_INFRA_SCOPE = """
     SELECT
@@ -1177,7 +1226,9 @@ async def get_infra_bundle(
                 ("billing_summary", lambda: _run_infra_query(_infra_sql, params)),
                 ("usage_scope", lambda: _run_infra_query(_scope_sql, params)),
             ],
-            required={"clusters", "timeseries"},
+            # The billing aggregate is the Cloud tab's required core. Cluster
+            # detail, metadata, and history are optional enrichments.
+            required={"billing_summary"},
             timeout=90.0,
         )
 
@@ -1331,38 +1382,19 @@ async def get_infra_bundle(
             )
 
         # --- Build timeseries ---
-        # The timeseries query carries the same node metadata as the detail query,
-        # while preserving DBU usage from rows with incomplete metadata.
-        timeseries_by_date: dict[str, dict[str, Any]] = {}
-        timeseries_missing_rows = 0
-        timeseries_missing_dbu_hours = 0.0
-        timeseries_complete_rows = 0
-        for row in ts_results:
-            dbu_hours = float(row.get("total_dbu_hours") or 0)
-            driver_type = row.get("driver_instance_type")
-            worker_type = row.get("worker_instance_type")
-            if not (
-                str(driver_type or "").strip()
-                and str(worker_type or "").strip()
-            ):
-                timeseries_missing_rows += 1
-                timeseries_missing_dbu_hours += dbu_hours
-            else:
-                timeseries_complete_rows += 1
-            date_key = str(row.get("usage_date"))
-            daily = timeseries_by_date.setdefault(
-                date_key,
-                {"date": date_key, "total_dbu_hours": 0.0},
-            )
-            daily["total_dbu_hours"] += dbu_hours
+        # SQL already returns one authoritative aggregate row per date.
         timeseries = [
-            timeseries_by_date[date_key] for date_key in sorted(timeseries_by_date)
+            {
+                "date": str(row.get("usage_date")),
+                "total_dbu_hours": float(row.get("total_dbu_hours") or 0),
+            }
+            for row in ts_results
         ]
         timeseries_metadata_quality = {
             "total_rows": len(ts_results),
-            "complete_rows": timeseries_complete_rows,
-            "incomplete_rows": timeseries_missing_rows,
-            "incomplete_dbu_hours": timeseries_missing_dbu_hours,
+            "complete_rows": len(ts_results),
+            "incomplete_rows": 0,
+            "incomplete_dbu_hours": 0.0,
         }
         if not timeseries_status["available"]:
             timeseries_availability = "unavailable"
@@ -1370,24 +1402,10 @@ async def get_infra_bundle(
             timeseries_reason_detail = (
                 "Infrastructure cost history could not be queried."
             )
-        elif timeseries and timeseries_missing_rows:
-            timeseries_availability = "partial"
-            timeseries_reason = "metadata_partial"
-            timeseries_reason_detail = (
-                f"{timeseries_missing_rows} infrastructure timeseries rows had incomplete driver "
-                "or worker instance metadata. Their DBU usage is still included."
-            )
         elif timeseries:
             timeseries_availability = "available"
             timeseries_reason = None
             timeseries_reason_detail = None
-        elif timeseries_missing_rows:
-            timeseries_availability = "unavailable"
-            timeseries_reason = "metadata_unavailable"
-            timeseries_reason_detail = (
-                "Infrastructure billing history exists, but no rows had both driver and worker "
-                "instance metadata needed to identify VM families."
-            )
         else:
             timeseries_availability = "empty"
             timeseries_reason = reason
@@ -1399,13 +1417,37 @@ async def get_infra_bundle(
             bs = billing_summary_results[0]
             billing_summary = {
                 "databricks_compute_spend": float(bs.get("total_cost") or 0),
+                "total_dbu_hours": float(bs.get("total_dbu_hours") or 0),
+                "total_cluster_count": int(bs.get("total_cluster_count") or 0),
                 "avg_clusters_per_day": round(float(bs.get("avg_clusters_per_day") or 0)),
                 "avg_databricks_spend_per_cluster": float(bs.get("avg_cost_per_cluster") or 0),
                 "days_in_range": int(bs.get("days_in_range") or 0),
+                "first_usage_date": bs.get("first_usage_date"),
+                "last_usage_date": bs.get("last_usage_date"),
             }
+            if not cluster_status["available"]:
+                total_databricks_spend = billing_summary["databricks_compute_spend"]
+                total_dbu_hours = billing_summary["total_dbu_hours"]
+                total_cluster_count = billing_summary["total_cluster_count"]
+                detail_truncated = total_cluster_count > 0
+                availability = "partial"
+                reason = "cluster_detail_unavailable"
+                reason_detail = (
+                    "Databricks spend and DBU totals are available, but classic "
+                    "cluster detail is temporarily unavailable. Retry this tab shortly."
+                )
 
+        section_partial = bool(optional_failures) or not all(
+            status["available"]
+            for status in (
+                cluster_status,
+                timeseries_status,
+                billing_summary_status,
+                scope_status,
+            )
+        )
         _resp = {
-            "availability": "partial" if optional_failures else "available",
+            "availability": "partial" if section_partial else "available",
             "partial_reasons": optional_failures,
             "infra_costs": {
                 "cloud": cloud,
@@ -1426,7 +1468,8 @@ async def get_infra_bundle(
                     "cluster metadata but no authoritative node-hour and worker-count timeline."
                 ),
                 "billing_summary": billing_summary,
-                "available": cluster_status["available"] and availability != "unavailable",
+                "available": bool(billing_summary_results)
+                or (cluster_status["available"] and availability != "unavailable"),
                 "availability": availability,
                 "error": cluster_status["error"],
                 "error_kind": (
@@ -1477,16 +1520,14 @@ async def get_infra_bundle(
                 "end_date": params["end_date"],
             },
         }
-        if cluster_status["available"] and timeseries_status["available"]:
+        # Partial infrastructure responses remain retryable. In particular, never
+        # turn a capacity rejection into a durable successful empty response.
+        if not section_partial:
             delta_cache_put(
                 _dkey,
                 "billing:infra-bundle:v2",
                 _resp,
-                ttl_seconds=(
-                    60
-                    if optional_failures
-                    else cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE
-                ),
+                ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE,
                 generation=_cache_generation,
             )
         return _resp
@@ -1505,6 +1546,8 @@ async def get_infra_bundle(
             "start_date": params["start_date"], "end_date": params["end_date"],
         }
         return {
+            "availability": "error",
+            "error_code": getattr(e, "code", "SQL_EXECUTION_ERROR"),
             "infra_costs": {
                 **empty,
                 "clusters": [],
@@ -1530,6 +1573,160 @@ async def get_infra_bundle(
                 "reason": "query_failed",
             },
         }
+
+
+async def _compute_cloud_costs_bundle(
+    params: dict[str, str],
+    workspace_ids: list[str] | None,
+) -> dict[str, Any]:
+    """Compute Cloud Costs in bounded phases with infrastructure as the core."""
+    from server.routers import aws_actual, azure_actual, gcp_actual
+
+    workspace_scope = ",".join(workspace_ids) if workspace_ids else None
+    infra = await get_infra_bundle(
+        start_date=params["start_date"],
+        end_date=params["end_date"],
+        workspace_ids=workspace_scope,
+    )
+    if infra.get("availability") == "error":
+        error = SQLExecutionError(
+            str(
+                infra.get("infra_costs", {}).get("error")
+                or "Required Cloud billing aggregate failed."
+            )
+        )
+        error.code = str(infra.get("error_code") or error.code)
+        raise error
+
+    provider_calls = (
+        ("aws_actual", aws_actual.get_aws_actual_dashboard_bundle),
+        ("azure_actual", azure_actual.get_azure_actual_dashboard_bundle),
+        ("gcp_actual", gcp_actual.get_gcp_actual_dashboard_bundle),
+    )
+    providers: dict[str, Any] = {}
+    partial_reasons: dict[str, str] = (
+        {"infra_bundle": "OPTIONAL_SECTION_FAILED"}
+        if infra.get("availability") == "partial"
+        else {}
+    )
+    # Providers are deliberately sequenced. Each provider bounds its own optional
+    # detail fanout at two, so one large export cannot crowd out the core bundle.
+    for name, call in provider_calls:
+        try:
+            providers[name] = await call(params["start_date"], params["end_date"])
+            if providers[name].get("availability") == "partial":
+                partial_reasons[name] = "OPTIONAL_DETAIL_FAILED"
+        except Exception as exc:
+            logger.warning("Optional %s Cloud bundle failed: %s", name, exc)
+            code = str(getattr(exc, "code", "QUERY_FAILED"))
+            partial_reasons[name] = code
+            providers[name] = {
+                "available": False,
+                "availability": "unavailable",
+                "transient_error": True,
+                "error_code": code,
+                "message": (
+                    f"{name.replace('_', ' ').title()} is temporarily unavailable. "
+                    "Usage & Metadata remains available; retry Cloud Costs shortly."
+                ),
+                "start_date": params["start_date"],
+                "end_date": params["end_date"],
+            }
+
+    return {
+        "availability": "partial"
+        if partial_reasons or infra.get("availability") == "partial"
+        else "available",
+        "partial_reasons": partial_reasons,
+        "infra_bundle": infra,
+        **providers,
+        "start_date": params["start_date"],
+        "end_date": params["end_date"],
+    }
+
+
+@router.get("/cloud-costs-bundle")
+async def get_cloud_costs_bundle(
+    start_date: str = Query(default=None),
+    end_date: str = Query(default=None),
+    workspace_ids: str = Query(default=None),
+) -> dict[str, Any]:
+    """Submit/coalesce the complete Cloud Costs request and poll until ready."""
+    from server.app import current_request_id
+
+    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
+    producer_request_id = current_request_id()
+    cache_key = bundle_cache_key(
+        "billing:cloud-costs-bundle:v1",
+        params["start_date"],
+        params["end_date"],
+        id_list,
+    )
+
+    # Polling must not consume SQL slots while a producer owns the bundle lease.
+    if bundle_compute_is_pending(cache_key):
+        return JSONResponse(
+            status_code=202,
+            content={"status": "pending"},
+            headers={"Retry-After": "1"},
+        )
+    if (cached := await asyncio.to_thread(delta_cache_get, cache_key)) is not None:
+        return cached
+
+    with _cloud_bundle_failures_lock:
+        failure = _cloud_bundle_failures.get(cache_key)
+    if failure:
+        raise HTTPException(
+            status_code=503,
+            detail=failure,
+            headers={"Retry-After": "2"},
+        )
+
+    generation = capture_cache_generation("billing:cloud-costs-bundle:v1")
+
+    def produce() -> None:
+        try:
+            payload = asyncio.run(_compute_cloud_costs_bundle(params, id_list))
+            delta_cache_put(
+                cache_key,
+                "billing:cloud-costs-bundle:v1",
+                payload,
+                ttl_seconds=(
+                    60
+                    if payload.get("availability") == "partial"
+                    else cache_ttls.BUNDLE
+                ),
+                generation=generation,
+                wait_for_remote=True,
+            )
+        except Exception as exc:
+            logger.error(
+                "Cloud Costs bundle producer failed request_id=%s: %s",
+                producer_request_id,
+                exc,
+            )
+            with _cloud_bundle_failures_lock:
+                _cloud_bundle_failures[cache_key] = _safe_cloud_failure(
+                    exc,
+                    request_id=producer_request_id,
+                )
+
+    try:
+        start_bundle_compute(cache_key, produce, name="cloud-costs-bundle")
+    except BundleOverloadedError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=_safe_cloud_failure(
+                exc,
+                request_id=producer_request_id,
+            ),
+            headers={"Retry-After": "2"},
+        ) from exc
+    return JSONResponse(
+        status_code=202,
+        content={"status": "pending"},
+        headers={"Retry-After": "1"},
+    )
 
 
 @router.get("/aws-costs")

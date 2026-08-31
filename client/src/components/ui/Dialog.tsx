@@ -7,6 +7,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { useDocumentScrollLock } from "@/utils/scrolling";
 
 const FOCUSABLE = [
   "a[href]",
@@ -48,6 +49,7 @@ export function Dialog({
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   const initialFocusRefRef = useRef(initialFocusRef);
+  useDocumentScrollLock(open);
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -62,8 +64,6 @@ export function Dialog({
     const returnFocusTo = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
 
     (initialFocusRefRef.current?.current ?? closeRef.current ?? panelRef.current)?.focus();
 
@@ -97,7 +97,6 @@ export function Dialog({
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = previousOverflow;
       returnFocusTo?.focus();
     };
   }, [open]);

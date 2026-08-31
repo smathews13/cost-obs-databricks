@@ -6,7 +6,7 @@
  * NOT zero or a loading spinner.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlatformKPIsView } from "../PlatformKPIsView";
 import type { PlatformKPIsResponse } from "@/types/billing";
@@ -132,7 +132,11 @@ describe("PlatformKPIsView: denied dependency renders unavailable, not 0", () =>
   it("keeps the billing-backed compute resource KPI available when compute metadata is denied", () => {
     renderView({ "system.compute.clusters": false });
 
-    expect(screen.getByText("Total Compute Resources")).toHaveClass("whitespace-nowrap");
+    const title = screen.getByText("Total Compute Resources");
+    const card = title.closest(".co-kpi-card");
+    expect(title).toHaveClass("co-kpi-card__title--nowrap", "whitespace-nowrap");
+    expect(card?.querySelector(".co-kpi-card__layout")).not.toBeNull();
+    expect(card?.querySelector(".co-kpi-card__icon")).not.toBeNull();
     expect(screen.getByText("5 clusters · 2 SQL warehouses")).toBeInTheDocument();
     expect(screen.queryByText(/compute\.clusters grant required/i)).not.toBeInTheDocument();
   });
@@ -176,7 +180,7 @@ describe("PlatformKPIsView: successful run result-state availability", () => {
     const card = title.closest(".co-kpi-card");
     expect(card).toHaveTextContent("0");
     expect(card).toHaveTextContent("0.0% success rate");
-    expect(card?.querySelector(".bg-orange-100")).not.toBeNull();
+    expect(card?.querySelector(".co-kpi-card__icon")).not.toBeNull();
     expect(card?.querySelector(".text-lava")).not.toBeNull();
   });
 
@@ -221,9 +225,10 @@ describe("PlatformKPIsView: card trend mappings", () => {
     renderView({}, SAMPLE_DATA, true);
 
     const card = screen.getByText(title).closest(".co-kpi-card")!;
-    fireEvent.click(within(card as HTMLElement).getByRole("button", {
-      name: `See ${title} trend`,
-    }));
+    expect(card.tagName).toBe("BUTTON");
+    expect(card).toHaveAccessibleName(`See ${title} trend`);
+    expect(card.querySelector("button")).toBeNull();
+    fireEvent.click(card);
 
     expect(screen.getByTestId("selected-kpi")).toHaveTextContent(expectedKpi);
   });
@@ -269,8 +274,8 @@ describe("PlatformKPIsView: compact KPI values", () => {
     });
 
     const value = screen.getByText("21.9K days");
-    expect(value.tagName).toBe("P");
-    expect(value).toHaveClass("text-2xl", "font-semibold");
+    expect(value.tagName).toBe("SPAN");
+    expect(value).toHaveClass("co-kpi-card__value");
     expect(value.closest(".co-kpi-card")).toHaveTextContent("Compute Time");
   });
 });

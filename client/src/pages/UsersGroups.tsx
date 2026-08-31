@@ -21,7 +21,7 @@ import { C, productColor, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { Dialog } from "@/components/ui/Dialog";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
-import { TrendAction } from "@/components/ui/TrendAction";
+import { KPICard } from "@/components/ui/KPICard";
 
 // ── User Detail Modal ─────────────────────────────────────────────────────────
 
@@ -305,92 +305,43 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
       {<>
       {/* Summary Cards */}
       <div className="co-kpi-grid grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {/* Active users */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-lava">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500 flex items-center">
-                Unique Active Users
-                <InfoTooltip text="Distinct users (humans and service principals) with any DBU spend in the selected date range, across all products." />
-              </p>
-              <p className="text-2xl font-semibold text-gray-900">{summary?.user_count != null ? formatNumber(summary.user_count) : "N/A"}</p>
-              <p className="text-xs text-gray-500">across {summary?.workspace_count ?? "N/A"} workspaces</p>
-              <TrendAction
-                onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "total_users", label: "Daily Unique Active Users", variant: "platform"}) : undefined}
-                ariaLabel="See Unique Active Users trend"
-              />
-            </div>
-          </div>
-        </div>
-        {/* User Spend */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-lava">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500 flex items-center">
-                User Spend
-                <InfoTooltip text="Total list-price spend in the date range divided by the number of distinct active users. Includes all products." />
-              </p>
-              <p className="text-2xl font-semibold text-gray-900">{summary ? formatKpiCurrency(summary.avg_spend_per_user) : "N/A"}</p>
-              <p className="text-xs text-gray-500">Per-user spend over {daysDiff} days</p>
-              <TrendAction
-                onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "avg_spend_per_user", label: "Daily Per-User Spend"}) : undefined}
-                ariaLabel="See User Spend trend"
-              />
-            </div>
-          </div>
-        </div>
-        {/* Power Users */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-lava">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500 flex items-center">
-                Power Users
-                <InfoTooltip text="Users whose spend accounts for ≥10% of total spend in the selected period. These high-impact users drive the majority of platform costs." />
-              </p>
-              <p className="text-2xl font-semibold text-gray-900">{powerUsers.length}</p>
-              <p className="text-xs text-gray-500">{formatCurrency(powerUsersSpend)} spend over {daysDiff} days</p>
-              <TrendAction
-                onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "power_user_spend", label: "Power User Daily Spend"}) : undefined}
-                ariaLabel="See Power Users trend"
-              />
-            </div>
-          </div>
-        </div>
-        {/* User Spend Growth */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-lava">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm text-gray-500 flex items-center">
-                User Spend Growth
-                <InfoTooltip text="Compares total user spend in the first half of the selected date range to the second half. Positive = spend increased over the period." />
-              </p>
-              {summary?.spend_growth_pct != null ? (
-                <p className={`text-2xl font-semibold ${summary.spend_growth_pct >= 0 ? "text-red-600" : "text-green-600"}`}>
-                  {summary.spend_growth_pct >= 0 ? "+" : ""}{summary.spend_growth_pct}%
-                </p>
-              ) : (
-                <p className="text-2xl font-semibold" style={{ color: C.muted }}>N/A</p>
-              )}
-              <p className="text-[11px] text-gray-500">{summary?.user_count != null ? formatNumber(summary.user_count) : "N/A"} total users · {daysDiff} days</p>
-              <TrendAction
-                onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "user_spend", label: "Daily User Spend"}) : undefined}
-                ariaLabel="See User Spend Growth trend"
-              />
-            </div>
-          </div>
-        </div>
+        <KPICard
+          title="Unique Active Users"
+          value={summary?.user_count != null ? formatNumber(summary.user_count) : "N/A"}
+          subtitle={`across ${summary?.workspace_count ?? "N/A"} workspaces`}
+          infoText="Distinct users (humans and service principals) with any DBU spend in the selected date range, across all products."
+          onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "total_users", label: "Daily Unique Active Users", variant: "platform"}) : undefined}
+          ariaLabel="See Unique Active Users trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>}
+        />
+        <KPICard
+          title="User Spend"
+          value={summary ? formatKpiCurrency(summary.avg_spend_per_user) : "N/A"}
+          subtitle={`Per-user spend over ${daysDiff} days`}
+          infoText="Total list-price spend in the date range divided by the number of distinct active users. Includes all products."
+          onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "avg_spend_per_user", label: "Daily Per-User Spend"}) : undefined}
+          ariaLabel="See User Spend trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
+        />
+        <KPICard
+          title="Power Users"
+          value={powerUsers.length}
+          subtitle={`${formatCurrency(powerUsersSpend)} spend over ${daysDiff} days`}
+          infoText="Users whose spend accounts for ≥10% of total spend in the selected period. These high-impact users drive the majority of platform costs."
+          onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "power_user_spend", label: "Power User Daily Spend"}) : undefined}
+          ariaLabel="See Power Users trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>}
+        />
+        <KPICard
+          title="User Spend Growth"
+          value={summary?.spend_growth_pct != null ? `${summary.spend_growth_pct >= 0 ? "+" : ""}${summary.spend_growth_pct}%` : "N/A"}
+          valueClassName={summary?.spend_growth_pct != null ? (summary.spend_growth_pct >= 0 ? "text-red-600" : "text-green-600") : ""}
+          subtitle={`${summary?.user_count != null ? formatNumber(summary.user_count) : "N/A"} total users · ${daysDiff} days`}
+          infoText="Compares total user spend in the first half of the selected date range to the second half. Positive = spend increased over the period."
+          onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "user_spend", label: "Daily User Spend"}) : undefined}
+          ariaLabel="See User Spend Growth trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>}
+        />
       </div>
 
       {selectedKPI && startDate && endDate && (

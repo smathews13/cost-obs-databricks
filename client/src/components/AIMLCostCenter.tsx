@@ -23,7 +23,7 @@ import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatt
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
-import { TrendAction } from "@/components/ui/TrendAction";
+import { KPICard } from "@/components/ui/KPICard";
 import {
   buildFilteredUrl,
   getActiveSourceScopeKey,
@@ -467,81 +467,39 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
 
       {/* Summary Cards */}
       <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total AI/ML Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.total_spend)}</p>
-              <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
-              <TrendAction
-                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_spend", label: "Daily AI/ML Spend"}) : undefined}
-                ariaLabel="See Total AI/ML Spend trend"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total DBUs</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatNumber(summary.total_dbus)}</p>
-              <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
-              <TrendAction
-                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_dbus", label: "Daily AI/ML DBUs"}) : undefined}
-                ariaLabel="See Total DBUs trend"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="flex items-center text-sm font-medium text-gray-500">Active Endpoints<InfoTooltip text="Count of distinct model serving or inference endpoints that had billable usage on each day. An endpoint counts as active on any day it consumed DBUs." /></p>
-              <p className="text-2xl font-semibold text-gray-900">{formatNumber(summary.endpoint_count || 0)}</p>
-              <p className="mt-1 text-xs text-gray-500">avg. across {summary.workspace_count || 0} workspaces</p>
-              <TrendAction
-                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_endpoints", label: "Daily Active Endpoints"}) : undefined}
-                ariaLabel="See Active Endpoints trend"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Endpoint Cost</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.avg_cost_per_endpoint || 0)}</p>
-              <p className="mt-1 text-xs text-gray-500">daily per-endpoint</p>
-              <TrendAction
-                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_avg_endpoint_cost", label: "Average Daily Endpoint Cost"}) : undefined}
-                ariaLabel="See Endpoint Cost trend"
-              />
-            </div>
-          </div>
-        </div>
+        <KPICard
+          title="Total AI/ML Spend"
+          value={formatKpiCurrency(summary.total_spend)}
+          subtitle={`over ${summary.days_in_range} days`}
+          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_spend", label: "Daily AI/ML Spend"}) : undefined}
+          ariaLabel="See Total AI/ML Spend trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+        />
+        <KPICard
+          title="Total DBUs"
+          value={formatNumber(summary.total_dbus)}
+          subtitle={`over ${summary.days_in_range} days`}
+          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_dbus", label: "Daily AI/ML DBUs"}) : undefined}
+          ariaLabel="See Total DBUs trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>}
+        />
+        <KPICard
+          title="Active Endpoints"
+          value={formatNumber(summary.endpoint_count || 0)}
+          subtitle={`avg. across ${summary.workspace_count || 0} workspaces`}
+          infoText="Count of distinct model serving or inference endpoints that had billable usage on each day. An endpoint counts as active on any day it consumed DBUs."
+          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_endpoints", label: "Daily Active Endpoints"}) : undefined}
+          ariaLabel="See Active Endpoints trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>}
+        />
+        <KPICard
+          title="Endpoint Cost"
+          value={formatKpiCurrency(summary.avg_cost_per_endpoint || 0)}
+          subtitle="daily per-endpoint"
+          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_avg_endpoint_cost", label: "Average Daily Endpoint Cost"}) : undefined}
+          ariaLabel="See Endpoint Cost trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>}
+        />
       </div>
 
       {selectedKPI && startDate && endDate && (

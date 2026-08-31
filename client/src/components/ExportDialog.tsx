@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { TabVisibility } from "@/utils/settingsHydration";
 import { C } from "@/theme";
+import { useDocumentScrollLock } from "@/utils/scrolling";
 import { CostObsMark } from "@/components/brand";
 import { Spinner } from "@/components/Spinner";
 import {
@@ -92,6 +93,7 @@ export function ExportDialog({
   const [architectureBusy, setArchitectureBusy] = useState(false);
   const [architectureError, setArchitectureError] = useState<string | null>(null);
   const [retryingFailed, setRetryingFailed] = useState(false);
+  useDocumentScrollLock(isOpen);
 
   // Escape key handler
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -109,11 +111,9 @@ export function ExportDialog({
   useEffect(() => {
     if (isOpen) {
       document.addEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "hidden";
     }
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "";
     };
   }, [isOpen, handleKeyDown]);
 

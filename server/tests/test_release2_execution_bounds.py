@@ -156,6 +156,137 @@ def test_timeout_cancels_connector_and_capacity_recovers(monkeypatch):
     executor.shutdown(wait=True, cancel_futures=True)
 
 
+def test_identical_cache_misses_share_one_sql_producer(
+    monkeypatch, small_sql_executor
+):
+    started = threading.Event()
+    release = threading.Event()
+    executions = 0
+    state_lock = threading.Lock()
+
+    def execute(_cursor):
+        nonlocal executions
+        with state_lock:
+            executions += 1
+        started.set()
+        assert release.wait(timeout=2)
+
+    monkeypatch.setattr(db, "get_connection", lambda: _connection_factory(execute))
+    db.clear_query_cache("coalesce-cloud")
+    with ThreadPoolExecutor(max_workers=2) as callers:
+        first = callers.submit(
+            db.execute_query,
+            "SELECT 'coalesce-cloud'",
+            cache_tag="coalesce-cloud",
+        )
+        assert started.wait(timeout=1)
+        second = callers.submit(
+            db.execute_query,
+            "SELECT 'coalesce-cloud'",
+            cache_tag="coalesce-cloud",
+        )
+        deadline = time.monotonic() + 1
+        while (
+            db.get_sql_executor_metrics()["coalesced"] < 1
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+        release.set()
+        assert first.result(timeout=2) == [{"value": 1}]
+        assert second.result(timeout=2) == [{"value": 1}]
+
+    assert executions == 1
+    assert not db._query_inflight
+
+
+def test_two_worker_bundle_reserves_one_worker_for_fair_progress(
+    monkeypatch, small_sql_executor
+):
+    first_started = threading.Event()
+    release_first = threading.Event()
+    active = 0
+    peak = 0
+    state_lock = threading.Lock()
+
+    def query(index):
+        def run():
+            nonlocal active, peak
+            with state_lock:
+                active += 1
+                peak = max(peak, active)
+            if index == 0:
+                first_started.set()
+                assert release_first.wait(timeout=2)
+            with state_lock:
+                active -= 1
+            return [{"value": index}]
+
+        return run
+
+    with ThreadPoolExecutor(max_workers=1) as caller:
+        bundle = caller.submit(
+            db.execute_queries_parallel,
+            [(f"cloud-{index}", query(index)) for index in range(4)],
+            2,
+        )
+        assert first_started.wait(timeout=1)
+        # The bundle owns one slot; an unrelated query can use the reserved worker.
+        unrelated = db._submit_sql_future(
+            lambda: [{"value": "other"}],
+            label="unrelated",
+        )[0]
+        assert unrelated.result(timeout=1) == [{"value": "other"}]
+        release_first.set()
+        result = bundle.result(timeout=2)
+
+    assert len(result) == 4
+    assert peak == 1
+    assert db.get_sql_executor_metrics()["active"] == 0
+    assert db.get_sql_executor_metrics()["queued"] == 0
+
+
+def test_nested_execute_query_reuses_outer_admission(monkeypatch):
+    monkeypatch.setattr(db._sql_executor_local, "in_worker", True, raising=False)
+    monkeypatch.setattr(db, "_sql_admission", threading.BoundedSemaphore(0))
+    monkeypatch.setattr(
+        db,
+        "get_connection",
+        lambda: _connection_factory(lambda _cursor: None),
+    )
+
+    assert db.execute_query("SELECT nested", no_cache=True) == [{"value": 1}]
+
+
+def test_required_bundle_queries_run_before_optional_detail(monkeypatch):
+    monkeypatch.setattr(db._sql_executor_local, "in_worker", True, raising=False)
+    order = []
+    results, failures = db.execute_bundle_queries(
+        [
+            ("detail", lambda: order.append("detail") or []),
+            ("summary", lambda: order.append("summary") or [{"total": 1}]),
+        ],
+        required_names={"summary"},
+        timeout=1,
+    )
+
+    assert order == ["summary", "detail"]
+    assert results["summary"] == [{"total": 1}]
+    assert failures == {}
+
+
+def test_capacity_failure_is_not_cached_or_left_inflight(monkeypatch):
+    monkeypatch.setattr(db, "_sql_admission", threading.BoundedSemaphore(0))
+    db.clear_query_cache("capacity-not-cacheable")
+
+    for _ in range(2):
+        with pytest.raises(db.SQLOverloadedError):
+            db.execute_query(
+                "SELECT 'capacity-not-cacheable'",
+                cache_tag="capacity-not-cacheable",
+            )
+        assert not db._query_inflight
+
+
 def test_sql_row_and_byte_caps_fail_closed(monkeypatch):
     monkeypatch.setattr(
         db,

@@ -205,7 +205,9 @@ Keep the first deployment minimal. Add optional cloud-cost or advanced integrati
 | `AZURE_COST_CATALOG` / `AZURE_COST_SCHEMA` | `billing` / `azure` | Azure cost export tables |
 | `DATABRICKS_TOKEN` | — | Service principal token override; not needed when deployed as a Databricks App |
 | `COST_OBS_FEEDBACK_GITHUB_URL` | Public issue form | Optional HTTPS `github.com` issue-form override |
-| `COST_OBS_FEEDBACK_EMAIL` / `COST_OBS_FEEDBACK_SLACK_*` | — | Optional public feedback routes; incomplete or unsafe values are ignored |
+| `COST_OBS_FEEDBACK_EMAIL` / `COST_OBS_FEEDBACK_SLACK_URL` | — | Optional public feedback routes. Slack accepts a `slack://user?...` deep link or an HTTPS workspace member profile; unsafe or incomplete values are omitted |
+| `COST_OBS_FEEDBACK_SLACK_TEAM_ID` / `COST_OBS_FEEDBACK_SLACK_MEMBER_ID` / `COST_OBS_FEEDBACK_SLACK_WEB_URL` | — | Legacy split Slack target; configure only at runtime and never commit real team/member IDs |
+| `COST_OBS_DEPLOYED_AT` / `COST_OBS_DEPLOYER` / `COST_OBS_COMMIT_SHA` | — | Optional release provenance used only when the active Databricks Apps deployment API cannot supply a field |
 
 </details>
 

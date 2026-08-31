@@ -9,16 +9,44 @@ import { Group, Row, SecondaryButton, LinkButton, MonoChip, Callout, T, MONO } f
 import { useToast } from "./duboisToast";
 import { Spinner } from "@/components/Spinner";
 import "./settings.css";
+import type {
+  AuthStatusPayload,
+  SettingsResourcesPayload,
+  UserPermissionsPayload,
+  UserRole,
+} from "./resourceTypes";
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const USER_GRID_STYLE = {
-  "--settings-access-grid-columns": "minmax(220px, 0.5fr) 180px 96px",
+  "--settings-access-grid-columns": "minmax(210px, 1fr) 100px 170px 104px",
 } as React.CSSProperties;
 const ROLE_OPTIONS = [
   { value: "consumer", label: "Consumer" },
   { value: "admin", label: "Admin" },
 ] as const;
-type UserRole = (typeof ROLE_OPTIONS)[number]["value"];
+
+function safeIdentityUrl(value?: string): string | null {
+  try {
+    const url = new URL(value ?? "");
+    if (
+      url.protocol !== "https:"
+      || url.username
+      || url.password
+      || !url.pathname.includes("/ServicePrincipals/")
+    ) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function formatVerificationTime(value?: string | null): string {
+  if (!value) return "Not verified";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
 
 function RoleMenuSelect({
   value,
@@ -177,38 +205,6 @@ function RoleMenuSelect({
   );
 }
 
-interface UserPermissions {
-  admins: string[];
-  consumers: string[];
-  table_location?: string | null;
-  current_user?: string | null;
-  current_role?: UserRole;
-  role_capabilities?: Record<UserRole, {
-    summary: string;
-    can_view_dashboards: boolean;
-    can_view_settings: boolean;
-    can_manage_settings: boolean;
-    can_manage_users: boolean;
-    can_manage_data: boolean;
-  }>;
-}
-
-interface AuthStatus {
-  user_token_active: boolean;
-  identity: "user_oauth" | "service_principal";
-  locked_to_sp: boolean;
-  has_sql_scope: boolean | null;
-  auth_mode: "unknown" | "user" | "sp";
-  token_present: boolean;
-  token_scopes: string[];
-  user_email: string | null;
-  override_mode: "sp" | "auto" | null;
-  sp_client_id: string;
-  sp_display_name: string;
-  catalog: string;
-  schema: string;
-}
-
 function PermissionState({
   state,
   children,
@@ -239,7 +235,7 @@ export function SettingsPermissions() {
   const [grantsOpen, setGrantsOpen] = useState(true);
   const [sqlCopied, setSqlCopied] = useState(false);
 
-  const { data: permissions, isLoading } = useQuery<UserPermissions>({
+  const { data: permissions, isLoading } = useQuery<UserPermissionsPayload>({
     queryKey: ["user-permissions"],
     queryFn: async () => {
       const res = await fetch("/api/settings/user-permissions");
@@ -248,11 +244,16 @@ export function SettingsPermissions() {
     },
   });
 
-  const { data: authStatus } = useQuery<AuthStatus>({
+  const { data: authStatus } = useQuery<AuthStatusPayload>({
     queryKey: ["settings-auth-status"],
     queryFn: () => fetch("/api/settings/auth-status").then(r => r.json()),
     staleTime: 10 * 1000,
     refetchInterval: 30 * 1000,
+  });
+  const { data: resources } = useQuery<SettingsResourcesPayload | null>({
+    queryKey: ["settings-resources"],
+    queryFn: () => fetch("/api/settings/resources").then(r => r.ok ? r.json() : null).catch(() => null),
+    staleTime: 60 * 1000,
   });
 
   // Shared readiness query: same key as useFeatureAvailability so all components read one cache entry.
@@ -277,7 +278,7 @@ export function SettingsPermissions() {
   };
 
   const saveMutation = useMutation({
-    mutationFn: async (data: UserPermissions) => {
+    mutationFn: async (data: Pick<UserPermissionsPayload, "admins" | "consumers">) => {
       const res = await fetch("/api/settings/user-permissions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -300,10 +301,16 @@ export function SettingsPermissions() {
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserRole, setNewUserRole] = useState<UserRole>("consumer");
 
+  const ownerEmail = permissions?.owner?.email?.toLowerCase() ?? null;
   const allUsers = [
     ...(permissions?.admins ?? []).map(e => ({ email: e, role: "admin" as const })),
     ...(permissions?.consumers ?? []).map(e => ({ email: e, role: "consumer" as const })),
-  ].sort((a, b) => a.email.localeCompare(b.email));
+  ].sort((a, b) => {
+    const aOwner = a.email.toLowerCase() === ownerEmail;
+    const bOwner = b.email.toLowerCase() === ownerEmail;
+    if (aOwner !== bOwner) return aOwner ? -1 : 1;
+    return a.email.localeCompare(b.email);
+  });
   const explicitAdminCount = permissions?.admins?.length ?? 0;
 
   const addUser = () => {
@@ -371,7 +378,6 @@ export function SettingsPermissions() {
   const readinessChecks = [...(readiness?.core ?? []), ...(readiness?.enhanced ?? [])];
   const verifiedTableCount = readinessChecks.filter((check) => check.granted).length;
   const missingRequiredTables = readinessChecks.filter((check) => check.required && !check.granted);
-  const missingOptionalTables = readinessChecks.filter((check) => !check.required && !check.granted);
   const roleCapabilities = permissions?.role_capabilities;
   const adminSummary = roleCapabilities?.admin?.summary
     ?? "View dashboards and manage shared app settings, users, data sources, rebuilds, alerts, setup, and experimental features.";
@@ -433,104 +439,22 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
       <path d="M3.5 10.5H3A1.5 1.5 0 0 1 1.5 9V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
     </svg>
   );
+  const identityUrl = safeIdentityUrl(
+    resources?.service_principal?.identity_url || authStatus?.sp_identity_url,
+  );
+  const objectId = resources?.service_principal?.object_id || authStatus?.sp_object_id;
+  const effectiveScopes = resources?.service_principal?.effective_oauth_scopes
+    ?? authStatus?.effective_oauth_scopes
+    ?? [];
+  const boundWarehouse = resources?.warehouse;
+  const managedInventory = resources?.inventory;
+  const permissionTable = permissions?.table_location
+    || resources?.storage?.permissions_table;
 
   return (
     <div>
-      {/* ── Readiness banner ── */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ border: `1px solid ${bannerTone.border}`, backgroundColor: bannerTone.bg, borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: bannerTone.fg, flexShrink: 0 }} />
-            <span style={{ fontSize: 13, color: bannerTone.fg, fontWeight: 500 }}>{bannerLabel}</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-            <LinkButton onClick={handleReadinessRecheck}>Re-check</LinkButton>
-            <LinkButton onClick={() => setReadinessOpen(o => !o)}>{readinessOpen ? "Hide checks" : "View checks"}</LinkButton>
-          </div>
-        </div>
-        {readinessOpen && (
-          <div style={{ border: `1px solid ${T.borderGroup}`, borderTop: "none", borderRadius: "0 0 8px 8px", padding: "12px 14px" }}>
-            <ReadinessChecks
-              result={readiness ?? null}
-              loading={readinessLoading}
-              fetchError={readinessQueryError ? String(readinessQueryError) : null}
-              onRecheck={handleReadinessRecheck}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* ── Effective app identity and permissions ── */}
-      <Group label="App service principal">
-        <Row
-          first
-          label="Identity"
-          helper="Databricks Apps injects this identity. No credentials or secrets are exposed."
-          control={
-            <span className="inline-flex flex-wrap items-center justify-end gap-2">
-              <MonoChip>{authStatus?.sp_display_name || "Service principal"}</MonoChip>
-              {authStatus?.sp_client_id && authStatus.sp_client_id !== authStatus.sp_display_name && (
-                <MonoChip>{authStatus.sp_client_id}</MonoChip>
-              )}
-            </span>
-          }
-        />
-        <Row
-          label="SQL warehouse CAN USE"
-          helper={readiness
-            ? readiness.warehouse.granted
-              ? "Verified by successfully querying the bound warehouse as the app service principal."
-              : `Effective warehouse access is missing${readiness.warehouse.error ? `: ${readiness.warehouse.error}` : "."}`
-            : "Not verified yet. Re-check readiness to run the service-principal probe."}
-          control={
-            <PermissionState state={!readiness ? "unverified" : readiness.warehouse.granted ? "verified" : "missing"}>
-              {!readiness ? "Not verified" : readiness.warehouse.granted ? "Verified" : "Missing"}
-            </PermissionState>
-          }
-        />
-        <Row
-          label="System-table access"
-          helper={!readiness
-            ? "Not verified yet."
-            : missingRequiredTables.length > 0
-              ? `Missing required: ${missingRequiredTables.map((check) => check.table).join(", ")}.`
-              : missingOptionalTables.length > 0
-                ? `All required tables verified; optional access missing for ${missingOptionalTables.map((check) => check.table).join(", ")}.`
-                : "Every system table in the readiness probe is accessible to the app service principal."}
-          control={
-            <PermissionState state={!readiness ? "unverified" : missingRequiredTables.length > 0 ? "missing" : "verified"}>
-              {!readiness ? "Not verified" : `${verifiedTableCount} of ${readinessChecks.length} verified`}
-            </PermissionState>
-          }
-        />
-        <Row
-          label="App catalog & schema"
-          helper={`Rebuilds require USE CATALOG, USE SCHEMA, CREATE TABLE, and SELECT on ${cat}.${sch}. These DDL privileges are required and listed in the SQL below; the readiness probe does not independently verify them.`}
-          control={<PermissionState state="required">Required · not verified</PermissionState>}
-        />
-      </Group>
-
-      {/* ── Role capabilities ── */}
-      <div style={{ margin: "20px 0" }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 7 }}>Role capabilities</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 8 }}>
-          {([
-            ["admin", "Admin", adminSummary],
-            ["consumer", "Consumer", consumerSummary],
-          ] as const).map(([role, label, summary]) => (
-            <div key={role} style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, padding: "10px 12px", backgroundColor: T.navBg }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{label}</span>
-                {permissions?.current_role === role && <PermissionState state="verified">Your role</PermissionState>}
-              </div>
-              <div style={{ fontSize: 12, lineHeight: 1.45, color: T.textSecondary }}>{summary}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* ── Users ── */}
-      <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 4, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+      <div data-testid="settings-users-section" style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 4, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <span>Users</span>
         <span style={{ fontSize: 12, fontWeight: 400, color: T.textSecondary }}>
           {explicitAdminCount === 0
@@ -544,6 +468,12 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
         </p>
       )}
       <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflowX: "auto" }}>
+        <div className="settings-access-user-grid settings-access-user-header" style={{ ...USER_GRID_STYLE, padding: "7px 16px", backgroundColor: T.navBg, borderBottom: `1px solid ${T.borderRow}` }}>
+          <span>User</span>
+          <span>Persona</span>
+          <span>Permission role</span>
+          <span aria-hidden="true">Action</span>
+        </div>
         {allUsers.length === 0 ? (
           <div style={{ padding: "12px 16px", fontSize: 12, color: T.textSecondary, fontStyle: "italic" }}>
             No administrators are explicitly configured. The server currently treats every
@@ -555,31 +485,28 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           allUsers.map(({ email, role }, i) => (
             (() => {
               const isLastAdmin = role === "admin" && explicitAdminCount === 1;
+              const isOwner = email.toLowerCase() === ownerEmail;
+              const protectedAdmin = isLastAdmin || isOwner;
               return (
             <div data-testid="access-user-row" className="settings-access-user-grid" key={email} style={{ ...USER_GRID_STYLE, minHeight: 52, padding: "9px 16px", borderTop: i === 0 ? "none" : `1px solid ${T.borderRow}` }}>
               <span title={email} style={{ fontSize: 13, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email}</span>
+              <span className={`settings-persona settings-persona--${isOwner ? "owner" : "member"}`}>
+                {isOwner ? "Owner" : "Member"}
+              </span>
               <RoleMenuSelect
                 value={role}
                 onChange={(nextRole) => changeRole(email, nextRole)}
-                disabled={saveMutation.isPending || isLastAdmin}
+                disabled={saveMutation.isPending || protectedAdmin}
                 ariaLabel={`Role for ${email}`}
               />
               <span style={{ justifySelf: "end" }}>
                 <button
                   type="button"
                   onClick={() => removeUser(email)}
-                  disabled={saveMutation.isPending || isLastAdmin}
+                  disabled={saveMutation.isPending || protectedAdmin}
                   aria-describedby={isLastAdmin ? "last-admin-explanation" : undefined}
-                  title={isLastAdmin ? "Add another admin before removing this administrator." : undefined}
-                  style={{
-                    border: 0,
-                    padding: 0,
-                    background: "transparent",
-                    color: isLastAdmin ? T.textFaint : T.primary,
-                    cursor: isLastAdmin ? "not-allowed" : "pointer",
-                    fontSize: 12,
-                    fontWeight: 500,
-                  }}
+                  title={isOwner ? "The Owner must remain an administrator." : isLastAdmin ? "Add another admin before removing this administrator." : undefined}
+                  className="settings-user-action settings-user-action--remove"
                 >
                   Remove
                 </button>
@@ -599,114 +526,177 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
               style={{ width: "100%", height: 32, borderRadius: 4, border: `1px solid ${T.borderControl}`, padding: "0 10px", fontSize: 13, color: T.text, backgroundColor: T.surface }}
             />
           </div>
+          <span className="settings-persona settings-persona--member">Member</span>
           <RoleMenuSelect value={newUserRole} onChange={setNewUserRole} ariaLabel="Role for new user" />
           <span style={{ display: "grid" }}>
-            <SecondaryButton onClick={addUser} disabled={!newUserEmail.trim() || saveMutation.isPending}>
-              {saveMutation.isPending ? "Saving…" : "Add user"}
-            </SecondaryButton>
+            <button type="button" className="settings-user-action settings-user-action--add" onClick={addUser} disabled={!newUserEmail.trim() || saveMutation.isPending}>
+              {saveMutation.isPending ? "Saving…" : "Add User"}
+            </button>
           </span>
         </div>
       </div>
-      {permissions?.table_location && (
+      {permissionTable && (
         <p style={{ fontSize: 11, color: T.textSecondary, margin: "6px 2px 20px" }}>
-          Roles are stored in <MonoChip>{permissions.table_location}</MonoChip> and persist across deploys.
+          Roles are stored in <MonoChip>{permissionTable}</MonoChip> and persist across deploys.
+          {permissions?.owner?.verified && <> Owner is sourced from the current Databricks Apps deployment creator.</>}
         </p>
       )}
 
-      {/* ── Future metastore browser ── */}
-      <fieldset
-        disabled
-        aria-disabled="true"
-        aria-describedby="metastore-coming-soon"
-        style={{
-          position: "relative",
-          margin: permissions?.table_location ? "0 0 20px" : "20px 0",
-          padding: 0,
-          border: `1px solid ${T.borderGroup}`,
-          borderRadius: 8,
-          backgroundColor: T.navBg,
-          color: T.textSecondary,
-          filter: "grayscale(1)",
-          opacity: 0.68,
-          overflow: "hidden",
-        }}
-      >
-        <legend className="sr-only">Add a metastore</legend>
-        <div style={{ padding: "12px 16px", paddingRight: 108 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>Add a metastore</div>
-          <div id="metastore-coming-soon" style={{ marginTop: 2, fontSize: 12 }}>
-            Browse and connect another metastore.
+      {/* ── Service principal ── */}
+      <section data-testid="settings-service-principal-section" aria-label="App service principal">
+        <div style={{ border: `1px solid ${bannerTone.border}`, backgroundColor: bannerTone.bg, borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: bannerTone.fg, flexShrink: 0 }} />
+            <span style={{ fontSize: 13, color: bannerTone.fg, fontWeight: 500 }}>{bannerLabel}</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            <LinkButton onClick={handleReadinessRecheck}>Re-check</LinkButton>
+            <LinkButton onClick={() => setReadinessOpen(o => !o)}>{readinessOpen ? "Hide details" : "View details"}</LinkButton>
           </div>
         </div>
-        <span
-          aria-hidden="true"
-          style={{ position: "absolute", top: 12, right: 14, borderRadius: 999, padding: "2px 8px", backgroundColor: T.borderGroup, color: T.textSecondary, fontSize: 10, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase" }}
-        >
-          Coming soon
-        </span>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 10, padding: "12px 16px", borderTop: `1px solid ${T.borderRow}` }}>
-          <input
-            type="text"
-            disabled
-            aria-label="Metastore"
-            placeholder="Select a metastore"
-            style={{ height: 32, minWidth: 0, borderRadius: 4, border: `1px solid ${T.borderControl}`, padding: "0 10px", fontSize: 13, color: T.textSecondary, backgroundColor: T.codeBg, cursor: "not-allowed" }}
+        <Group label="App service principal">
+          <Row
+            first
+            label="Identity"
+            helper="Databricks Apps injects this identity. No credentials, OAuth tokens, or secrets are exposed."
+            control={
+              <span className="inline-flex max-w-107.5 flex-wrap items-center justify-end gap-2">
+                <MonoChip>{authStatus?.sp_display_name || "Service principal"}</MonoChip>
+                {authStatus?.sp_client_id && <MonoChip>{authStatus.sp_client_id}</MonoChip>}
+                {objectId && <MonoChip>{objectId}</MonoChip>}
+                {identityUrl && <LinkButton href={identityUrl}>Open Databricks identity</LinkButton>}
+              </span>
+            }
           />
-          <SecondaryButton disabled>Browse</SecondaryButton>
-        </div>
-      </fieldset>
-
-      {/* ── Query authentication ── */}
-      <div style={{ marginTop: 20 }}>
-        <Group label="Query authentication">
-          <Row first label="Mode" helper="How the app authenticates to the SQL warehouse."
-            control={<span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 999, backgroundColor: T.successBg, border: `1px solid ${T.successBorder}`, color: T.successFg, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}><span style={{ width: 6, height: 6, borderRadius: 999, backgroundColor: T.successFg }} />Service principal</span>} />
-          <Row label="Running as" helper="The service principal this app queries as."
-            control={<MonoChip>{authStatus?.sp_display_name || authStatus?.sp_client_id || "Service principal"}</MonoChip>} />
+          <Row
+            label="Execution identity"
+            helper={resources?.service_principal?.execution_explanation ?? "Dashboard queries and managed-data maintenance run as the app service principal."}
+            control={<PermissionState state="verified">Service principal</PermissionState>}
+          />
+          <Row
+            label="Effective OAuth scopes"
+            helper={authStatus?.oauth_scope_source === "databricks_apps_oauth_m2m" ? "Databricks Apps OAuth machine-to-machine runtime scope." : "Runtime scope metadata is unavailable."}
+            control={effectiveScopes.length
+              ? <span className="inline-flex gap-1.5">{effectiveScopes.map((scope) => <MonoChip key={scope}>{scope}</MonoChip>)}</span>
+              : <PermissionState state="unverified">Unavailable</PermissionState>}
+          />
+          <Row
+            label="Bound resources"
+            helper={[
+              boundWarehouse ? `${boundWarehouse.name || boundWarehouse.id} (${boundWarehouse.state})` : "Warehouse metadata unavailable",
+              permissionTable ? `roles: ${permissionTable}` : null,
+            ].filter(Boolean).join(" · ")}
+            control={<span style={{ fontSize: 12, color: T.textSecondary }}>
+              {managedInventory ? `${managedInventory.aggregates.count} aggregates · ${managedInventory.state.count} state tables` : "Inventory unavailable"}
+            </span>}
+          />
+          <Row
+            label="Managed-data responsibility"
+            helper="Owns scheduled aggregate rebuilds, shared-source routing views, durable app state, and response-cache maintenance."
+            control={<span style={{ fontSize: 12, color: T.textSecondary }}>App managed</span>}
+          />
+          <Row
+            label="Last grant verification"
+            helper="Timestamp of the most recent service-principal readiness probe."
+            control={<span style={{ fontSize: 12, color: T.textSecondary }}>{formatVerificationTime(readiness?.verified_at)}</span>}
+          />
+          <Row
+            label="Catalog & schema"
+            helper="Supporting write location; DDL grants remain listed in the remediation SQL."
+            control={<MonoChip>{cat && sch ? `${cat}.${sch}` : "Not configured"}</MonoChip>}
+          />
+          <div data-testid="service-principal-grants" style={{ borderTop: `1px solid ${T.borderRow}` }}>
+            <div style={{ padding: "10px 16px 7px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>Verified resource grants</span>
+              <PermissionState state={!readiness ? "unverified" : missingRequiredTables.length > 0 ? "missing" : "verified"}>
+                {!readiness ? "Not verified" : `${verifiedTableCount + (readiness.warehouse.granted ? 1 : 0)} of ${readinessChecks.length + 1} verified`}
+              </PermissionState>
+            </div>
+            {[
+              { key: "warehouse", label: "SQL warehouse · CAN USE", granted: readiness?.warehouse.granted },
+              ...readinessChecks.map((check) => ({ key: check.table || check.name, label: check.table || check.name, granted: check.granted })),
+            ].map((grant) => (
+              <div key={grant.key} className="settings-grant-row">
+                <span><MonoChip>{grant.label}</MonoChip></span>
+                <PermissionState state={grant.granted == null ? "unverified" : grant.granted ? "verified" : "missing"}>
+                  {grant.granted == null ? "Not verified" : grant.granted ? "Verified" : "Missing"}
+                </PermissionState>
+              </div>
+            ))}
+          </div>
         </Group>
+        {readinessOpen && (
+          <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, padding: "12px 14px", marginBottom: 20 }}>
+            <ReadinessChecks
+              result={readiness ?? null}
+              loading={readinessLoading}
+              fetchError={readinessQueryError ? String(readinessQueryError) : null}
+              onRecheck={handleReadinessRecheck}
+            />
+          </div>
+        )}
+      </section>
 
-        {(isSP || noToken) && authStatus && (
-          <>
-            {overall && overall !== "ready" && (
-              <div style={{ marginBottom: 12 }}>
-                <Callout tone="warning">
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>System-table grants pending</div>
-                  <div style={{ marginBottom: 8 }}>Each new app deploy gets a fresh service principal, so grants don't carry over. Until they run, affected metrics show <em>unavailable</em> (never $0.00). Run this as a metastore admin, then re-check.</div>
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-                    <SecondaryButton onClick={copyGrantSql}><span className="inline-flex items-center gap-1.5">{copyIcon}{sqlCopied ? "Copied" : "Copy SQL"}</span></SecondaryButton>
-                  </div>
-                  <pre style={preStyle}>{appGrants}</pre>
-                </Callout>
+      {/* ── Role capabilities ── */}
+      <div style={{ margin: "20px 0" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 7 }}>Permission roles</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 8 }}>
+          {([
+            ["admin", "Admin", adminSummary],
+            ["consumer", "Consumer", consumerSummary],
+          ] as const).map(([role, label, summary]) => (
+            <div key={role} style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, padding: "10px 12px", backgroundColor: T.navBg }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{label}</span>
+                {permissions?.current_role === role && <PermissionState state="verified">Your role</PermissionState>}
+              </div>
+              <div style={{ fontSize: 12, lineHeight: 1.45, color: T.textSecondary }}>{summary}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {(isSP || noToken) && authStatus && (
+        <>
+          {overall && overall !== "ready" && (
+            <div style={{ marginBottom: 12 }}>
+              <Callout tone="warning">
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>System-table grants pending</div>
+                <div style={{ marginBottom: 8 }}>Each new app deploy gets a fresh service principal, so grants don't carry over. Until they run, affected metrics show <em>unavailable</em> (never $0.00). Run this as a metastore admin, then re-check.</div>
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                  <SecondaryButton onClick={copyGrantSql}><span className="inline-flex items-center gap-1.5">{copyIcon}{sqlCopied ? "Copied" : "Copy SQL"}</span></SecondaryButton>
+                </div>
+                <pre style={preStyle}>{appGrants}</pre>
+              </Callout>
+            </div>
+          )}
+          <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflow: "hidden" }}>
+            <button type="button" onClick={() => setGrantsOpen(o => !o)} aria-expanded={grantsOpen}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500, color: T.text }}>
+              App runtime grants: exact SQL (run as metastore admin)
+              <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none"
+                style={{ color: T.textSecondary, flexShrink: 0, transform: grantsOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 140ms" }}>
+                <path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            {grantsOpen && (
+              <div style={{ borderTop: `1px solid ${T.borderRow}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 12, color: T.textSecondary }}>Target SP: <MonoChip>{spName}</MonoChip> · Warehouse <strong>CAN_USE</strong> is managed from SQL Warehouse permissions.</div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <SecondaryButton onClick={copyGrantSql}><span className="inline-flex items-center gap-1.5">{copyIcon}{sqlCopied ? "Copied" : "Copy SQL"}</span></SecondaryButton>
+                </div>
+                <pre style={preStyle}>{appGrants}</pre>
+                {userEmail && userEmail !== spName && (
+                  <>
+                    <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 4 }}>Optional: user read access for {userEmail}:</div>
+                    <pre style={preStyle}>{`GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${userEmail}\`;`}</pre>
+                  </>
+                )}
               </div>
             )}
-            <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflow: "hidden" }}>
-              <button type="button" onClick={() => setGrantsOpen(o => !o)} aria-expanded={grantsOpen}
-                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500, color: T.text }}>
-                App runtime grants: exact SQL (run as metastore admin)
-                <svg aria-hidden width="16" height="16" viewBox="0 0 16 16" fill="none"
-                  style={{ color: T.textSecondary, flexShrink: 0, transform: grantsOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 140ms" }}>
-                  <path d="m4 6 4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-              {grantsOpen && (
-                <div style={{ borderTop: `1px solid ${T.borderRow}`, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ fontSize: 12, color: T.textSecondary }}>Target SP: <MonoChip>{spName}</MonoChip> · Warehouse <strong>CAN_USE</strong> can't be granted via SQL: set it in SQL Warehouses → Permissions (the app also attempts this on startup).</div>
-                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                    <SecondaryButton onClick={copyGrantSql}><span className="inline-flex items-center gap-1.5">{copyIcon}{sqlCopied ? "Copied" : "Copy SQL"}</span></SecondaryButton>
-                  </div>
-                  <pre style={preStyle}>{appGrants}</pre>
-                  {userEmail && userEmail !== spName && (
-                    <>
-                      <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 4 }}>Optional: user read access for {userEmail}:</div>
-                      <pre style={preStyle}>{`GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${userEmail}\`;`}</pre>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

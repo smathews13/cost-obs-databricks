@@ -1,6 +1,7 @@
 """Deployment provenance exposed to the top-rail badge."""
 
 import asyncio
+import json
 import threading
 import time
 from types import SimpleNamespace
@@ -108,19 +109,203 @@ def test_endpoint_reads_current_app_from_databricks_runtime(monkeypatch):
     assert result["commit_sha"] == "ed86035f1234567890"
 
 
-def test_endpoint_labels_metadata_unavailable_in_local_runtime(monkeypatch):
+def test_gcp_app_detail_fallback_uses_observed_cli_shape_without_active_deployment(
+    monkeypatch,
+):
+    """GCP app get can omit active_deployment while retaining app-level provenance."""
+    observed_gcp_app = SimpleNamespace(
+        name="cost-obs-gcp",
+        update_time="2026-08-31T16:42:03Z",
+        updater="gcp-deployer@example.com",
+        creator="gcp-creator@example.com",
+        active_deployment=None,
+        git_source=None,
+        default_git_source=None,
+        git_repository=SimpleNamespace(
+            url="https://github.com/example/cost-obs",
+            commit="gcp-source-commit",
+        ),
+    )
+    monkeypatch.setenv("DATABRICKS_APP_NAME", "cost-obs-gcp")
+    monkeypatch.setattr(
+        db,
+        "get_workspace_client",
+        lambda: SimpleNamespace(
+            config=SimpleNamespace(
+                host="https://1234567890123456.7.gcp.databricks.com"
+            ),
+            apps=SimpleNamespace(get=lambda _name: observed_gcp_app),
+        ),
+    )
+
+    result = asyncio.run(health.deployment_metadata())
+
+    assert result == {
+        "deployed_at": "2026-08-31T16:42:03Z",
+        "deployer": "gcp-deployer@example.com",
+        "commit_sha": "gcp-source-commit",
+        "available": True,
+        "source": "databricks_apps_api",
+    }
+
+
+@pytest.mark.parametrize(
+    "workspace_host",
+    (
+        "https://dbc-example.cloud.databricks.com",
+        "https://1234567890123456.7.gcp.databricks.com",
+    ),
+)
+def test_endpoint_uses_active_deployment_api_on_aws_and_gcp(
+    monkeypatch,
+    workspace_host,
+):
+    calls: list[tuple[str, ...]] = []
+    active_summary = SimpleNamespace(
+        deployment_id="deployment-active",
+        create_time=None,
+        creator=None,
+        git_source=None,
+    )
+    apps_api = SimpleNamespace(
+        get=lambda name: (
+            calls.append(("get", name))
+            or SimpleNamespace(active_deployment=active_summary)
+        ),
+        get_deployment=lambda app_name, deployment_id: (
+            calls.append(("get_deployment", app_name, deployment_id))
+            or SimpleNamespace(
+                create_time="2026-08-30T21:29:46Z",
+                creator="deployer@example.com",
+                git_source=SimpleNamespace(resolved_commit="active-commit"),
+            )
+        ),
+    )
+    monkeypatch.setenv("DATABRICKS_APP_NAME", "cost-obs")
+    monkeypatch.setattr(
+        db,
+        "get_workspace_client",
+        lambda: SimpleNamespace(
+            config=SimpleNamespace(host=workspace_host),
+            apps=apps_api,
+        ),
+    )
+
+    result = asyncio.run(health.deployment_metadata())
+
+    assert result["source"] == "databricks_apps_api"
+    assert result["commit_sha"] == "active-commit"
+    assert calls == [
+        ("get", "cost-obs"),
+        ("get_deployment", "cost-obs", "deployment-active"),
+    ]
+
+
+def test_gcp_legacy_runtime_resolves_app_name_from_service_principal(monkeypatch):
+    client_id = "runtime-app-client"
+    calls: list[str] = []
+    app = SimpleNamespace(
+        name="cost-obs-gcp",
+        service_principal_client_id=client_id,
+        service_principal_name=None,
+    )
+    apps_api = SimpleNamespace(
+        list=lambda: iter([app]),
+        get=lambda name: (
+            calls.append(name)
+            or SimpleNamespace(
+                active_deployment=SimpleNamespace(
+                    create_time="2026-08-30T21:29:46Z",
+                    creator="deployer@example.com",
+                    git_source=SimpleNamespace(resolved_commit="gcp-commit"),
+                )
+            )
+        ),
+    )
     monkeypatch.delenv("DATABRICKS_APP_NAME", raising=False)
+    monkeypatch.setenv("DATABRICKS_CLIENT_ID", client_id)
+    monkeypatch.setattr(
+        db,
+        "get_workspace_client",
+        lambda: SimpleNamespace(
+            config=SimpleNamespace(
+                host="https://1234567890123456.7.gcp.databricks.com"
+            ),
+            apps=apps_api,
+        ),
+    )
+
+    result = asyncio.run(health.deployment_metadata())
+
+    assert result["commit_sha"] == "gcp-commit"
+    assert calls == ["cost-obs-gcp"]
+
+
+def test_endpoint_labels_process_start_as_approximate_restart_in_local_runtime(
+    monkeypatch,
+):
+    monkeypatch.delenv("DATABRICKS_APP_NAME", raising=False)
+    monkeypatch.delenv("DATABRICKS_CLIENT_ID", raising=False)
     monkeypatch.delenv("COST_OBS_DEPLOYED_AT", raising=False)
     monkeypatch.delenv("COST_OBS_DEPLOYER", raising=False)
     monkeypatch.delenv("COST_OBS_COMMIT_SHA", raising=False)
 
-    assert asyncio.run(health.deployment_metadata()) == {
-        "deployed_at": None,
+    result = asyncio.run(health.deployment_metadata())
+
+    assert result == {
+        "deployed_at": health._PROCESS_STARTED_AT,
         "deployer": None,
         "commit_sha": None,
-        "available": False,
-        "source": "unavailable",
+        "available": True,
+        "source": "process_start_approximate_restart",
     }
+
+
+def test_committed_release_metadata_is_last_safe_fallback(monkeypatch, tmp_path):
+    metadata_file = tmp_path / "release-metadata.json"
+    metadata_file.write_text(json.dumps({
+        "deployed_at": "2026-08-29T20:00:00Z",
+        "deployer": "release automation",
+        "commit_sha": "committed-fallback",
+    }))
+    monkeypatch.setattr(
+        health,
+        "_COMMITTED_DEPLOYMENT_METADATA_PATH",
+        metadata_file,
+    )
+    monkeypatch.delenv("DATABRICKS_APP_NAME", raising=False)
+    monkeypatch.delenv("DATABRICKS_CLIENT_ID", raising=False)
+    monkeypatch.delenv("COST_OBS_DEPLOYED_AT", raising=False)
+    monkeypatch.delenv("COST_OBS_DEPLOYER", raising=False)
+    monkeypatch.delenv("COST_OBS_COMMIT_SHA", raising=False)
+
+    result = asyncio.run(health.deployment_metadata())
+
+    assert result == {
+        "deployed_at": "2026-08-29T20:00:00Z",
+        "deployer": "release automation",
+        "commit_sha": "committed-fallback",
+        "available": True,
+        "source": "committed_release_metadata",
+    }
+
+
+def test_fallbacks_fill_missing_active_deployment_fields(monkeypatch):
+    monkeypatch.setenv("COST_OBS_COMMIT_SHA", "release-commit")
+    merged = health._merge_deployment_metadata(
+        {
+            "deployed_at": "2026-08-30T21:29:46Z",
+            "deployer": "deployer@example.com",
+            "commit_sha": None,
+            "source": "databricks_apps_api",
+        },
+        health._deployment_metadata_from_env(),
+    )
+
+    assert merged["deployed_at"] == "2026-08-30T21:29:46Z"
+    assert merged["deployer"] == "deployer@example.com"
+    assert merged["commit_sha"] == "release-commit"
+    assert merged["source"] == "databricks_apps_api+release_environment"
 
 
 def test_concurrent_endpoint_calls_share_one_sdk_fetch_and_reuse_cache(monkeypatch):
@@ -207,7 +392,11 @@ def test_timed_out_fetch_stays_single_flight_without_spawning_more_workers(monke
         results = asyncio.run(time_out_concurrently())
         assert started.is_set()
         assert calls == 1
-        assert all(result["source"] == "unavailable" for result in results)
+        assert all(
+            result["source"] == "process_start_approximate_restart"
+            for result in results
+        )
+        assert all(result["deployed_at"] == health._PROCESS_STARTED_AT for result in results)
         with health._deployment_metadata_lock:
             assert len(health._deployment_metadata_inflight) == 1
     finally:

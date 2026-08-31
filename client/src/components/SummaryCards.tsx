@@ -2,10 +2,7 @@ import { useState } from "react";
 import type { BillingSummary } from "@/types/billing";
 import { formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { KPITrendModal } from "./KPITrendModal";
-import { C, FONT_MONO } from "@/theme";
-import { Spinner } from "./Spinner";
-import { InfoPopover } from "./ui/InfoPopover";
-import { TrendAction } from "./ui/TrendAction";
+import { KPICard } from "./ui/KPICard";
 
 interface SummaryCardsProps {
   data: BillingSummary | undefined;
@@ -33,36 +30,17 @@ function isMutedValue(value: string) {
 function Card({ title, value, subtitle, infoTooltip, icon, isLoading, onClick }: CardProps) {
   const muted = !isLoading && isMutedValue(value);
   return (
-    <div className="co-card p-6 transition-shadow">
-      <div className="flex items-center">
-        <div
-          className="flex h-[42px] w-[42px] shrink-0 items-center justify-center"
-          style={{ background: C.coralTint, borderRadius: 8, color: C.lava }}
-        >
-          {icon}
-        </div>
-        <div className="ml-4 flex-1 min-w-0">
-          <p className="flex items-center text-[13px] font-medium" style={{ color: C.slate }}>{title}{infoTooltip && <InfoPopover text={infoTooltip} />}</p>
-          {isLoading ? (
-            <div className="mt-1 flex h-7 w-20 items-center">
-              <Spinner size="sm" />
-            </div>
-          ) : (
-            <p
-              className="mt-1 max-w-full whitespace-nowrap font-medium tracking-tight"
-              style={{ color: muted ? C.muted : C.ink, fontFamily: FONT_MONO, fontSize: "clamp(20px, 2vw, 28px)", lineHeight: 1.15, letterSpacing: "-0.02em" }}
-            >
-              {value}
-            </p>
-          )}
-          {subtitle && <p className="mt-0.5 text-xs" style={{ color: C.muted }}>{subtitle}</p>}
-          <TrendAction
-            onActivate={onClick}
-            ariaLabel={`See ${title} trend`}
-          />
-        </div>
-      </div>
-    </div>
+    <KPICard
+      title={title}
+      value={value}
+      subtitle={subtitle}
+      infoText={infoTooltip}
+      icon={icon}
+      isLoading={isLoading}
+      onActivate={onClick}
+      ariaLabel={`See ${title} trend`}
+      valueClassName={`whitespace-nowrap ${muted ? "text-muted-fg" : ""}`}
+    />
   );
 }
 

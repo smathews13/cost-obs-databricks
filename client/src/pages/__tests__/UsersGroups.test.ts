@@ -101,23 +101,25 @@ describe("user anonymization", () => {
     expect(leaderboardRow!.querySelector("td:first-child .rounded-full")?.textContent).toBe("1");
   });
 
-  it("routes every user trend through users-groups-owned cache keys", () => {
+  it("routes every full-card user trend through users-groups-owned cache keys", () => {
     render(createElement(UsersGroups, {
       startDate: "2026-08-01",
       endDate: "2026-08-28",
       dateRange: { startDate: "2026-08-01", endDate: "2026-08-28" },
     }));
 
-    fireEvent.click(screen.getByRole("button", { name: "See Unique Active Users trend" }));
-    expect(screen.getByTestId("users-trend-routing")).toHaveAttribute(
-      "data-prefix",
-      "users-groups-platform-kpi-trend",
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "See User Spend Growth trend" }));
-    expect(screen.getByTestId("users-trend-routing")).toHaveAttribute(
-      "data-prefix",
-      "users-groups-kpi-trend",
-    );
+    for (const [title, kpi, prefix] of [
+      ["Unique Active Users", "total_users", "users-groups-platform-kpi-trend"],
+      ["User Spend", "avg_spend_per_user", "users-groups-kpi-trend"],
+      ["Power Users", "power_user_spend", "users-groups-kpi-trend"],
+      ["User Spend Growth", "user_spend", "users-groups-kpi-trend"],
+    ]) {
+      const card = screen.getByRole("button", { name: `See ${title} trend` });
+      expect(card).toHaveClass("co-kpi-card");
+      expect(card.querySelector("button")).toBeNull();
+      fireEvent.click(card);
+      expect(screen.getByTestId("users-trend-routing")).toHaveAttribute("data-kpi", kpi);
+      expect(screen.getByTestId("users-trend-routing")).toHaveAttribute("data-prefix", prefix);
+    }
   });
 });

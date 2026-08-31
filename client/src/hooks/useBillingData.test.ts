@@ -3,11 +3,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  actionableErrorMessage,
   fetchSubmitAndPoll,
   getDefaultDateRange,
   responsePayloadIssue,
   setActiveSourceLabels,
   useAppsDashboardBundle,
+  useCloudCostsBundle,
   useDashboardBundleFast,
   useDBSQLQueryCosts,
   useDBSQLTopQueries,
@@ -122,6 +124,23 @@ describe("fetchSubmitAndPoll", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("maps typed cloud failures to actionable copy without exposing raw details", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(503, {
+      detail: {
+        message: "host=https://private.example SQL=SELECT secret_value",
+        error_code: "CLOUD_BUNDLE_FAILED",
+        retryable: true,
+      },
+    }, { "Retry-After": "2" }));
+
+    await expect(fetchSubmitAndPoll("/api/bundle")).rejects.toThrow(
+      "503: Cloud cost data is temporarily unavailable. Retry, or check the SQL warehouse in Settings.",
+    );
+    expect(actionableErrorMessage("SQL_TIMEOUT", "fallback")).toMatch(
+      /warehouse may still be starting/i,
+    );
+  });
+
   it.each(["error", "_error"])(
     "rejects HTTP 200 bundle payloads carrying %s",
     async (errorKey) => {
@@ -134,6 +153,100 @@ describe("fetchSubmitAndPoll", () => {
       );
     },
   );
+});
+
+describe("Cloud Costs recovery", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("uses one submit-and-poll request for the complete Cloud tab", async () => {
+    const payload = {
+      availability: "available",
+      partial_reasons: {},
+      infra_bundle: { infra_costs: {}, infra_timeseries: {} },
+      aws_actual: { available: false },
+      azure_actual: { available: false },
+      gcp_actual: { available: false },
+      start_date: "2026-08-01",
+      end_date: "2026-08-28",
+    };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(202, undefined, { "Retry-After": "1" }))
+      .mockResolvedValueOnce(jsonResponse(200, payload));
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    const hook = renderHook(
+      () => useCloudCostsBundle(
+        { startDate: "2026-08-01", endDate: "2026-08-28" },
+        ["2", "1"],
+        true,
+      ),
+      { wrapper },
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(hook.result.current.isSuccess).toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [request] of fetchMock.mock.calls) {
+      const url = new URL(String(request), "https://example.test");
+      expect(url.pathname).toBe("/api/billing/cloud-costs-bundle");
+      expect(url.searchParams.get("workspace_ids")).toBe("1,2");
+    }
+    hook.unmount();
+  });
+
+  it("retries explicit capacity overload using Retry-After", async () => {
+    const payload = {
+      availability: "partial",
+      partial_reasons: { gcp_actual: "SQL_OVERLOADED" },
+      infra_bundle: { infra_costs: {}, infra_timeseries: {} },
+      aws_actual: { available: false },
+      azure_actual: { available: false },
+      gcp_actual: { available: false },
+      start_date: "2026-08-01",
+      end_date: "2026-08-28",
+    };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(
+        503,
+        { detail: { message: "SQL capacity is full", error_code: "SQL_OVERLOADED" } },
+        { "Retry-After": "2" },
+      ))
+      .mockResolvedValueOnce(jsonResponse(200, payload));
+    const client = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    const hook = renderHook(() => useCloudCostsBundle(undefined, undefined, true), {
+      wrapper,
+    });
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(1999));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(hook.result.current.isSuccess).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    hook.unmount();
+  });
 });
 
 describe("report payload readiness", () => {

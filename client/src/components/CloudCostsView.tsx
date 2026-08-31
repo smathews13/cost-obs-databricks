@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import awsLogo from "@/assets/aws.png";
 // Downsampled from the official 3000x3000 PNG: 128x128, 10,539 bytes.
 import azureLogo from "@/assets/azure-128.png";
@@ -41,12 +40,7 @@ import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
 import { SortableHeader } from "@/components/ui/SortableHeader";
-import { TrendAction } from "@/components/ui/TrendAction";
-import {
-  buildFilteredUrl,
-  getActiveSourceScopeKey,
-  getWorkspaceScopeKey,
-} from "@/hooks/useBillingData";
+import { KPICard } from "@/components/ui/KPICard";
 
 type CostMode = "estimated" | "actual";
 const EMPTY_CLUSTERS: AWSCostsResponse["clusters"] = [];
@@ -74,6 +68,8 @@ interface CloudCostsViewProps {
   workspaceNameMap?: Record<string, string>;
   workspaceIds?: string[];
   accountPricingApplied?: boolean;
+  loadError?: string;
+  partialReasons?: Record<string, string>;
 }
 
 type SortField = "cluster_name" | "databricks_spend" | "total_dbu_hours" | "days_active";
@@ -183,6 +179,8 @@ export function CloudCostsView({
   workspaceNameMap,
   workspaceIds,
   accountPricingApplied = false,
+  loadError,
+  partialReasons,
 }: CloudCostsViewProps) {
   const [sortField, setSortField] = useState<SortField>("databricks_spend");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -263,26 +261,6 @@ export function CloudCostsView({
       document.removeEventListener("keydown", keyHandler);
     };
   }, [familyFilterOpen, workspaceFilterOpen]);
-
-  const queryClient = useQueryClient();
-  const wsKey = getWorkspaceScopeKey(workspaceIds);
-  const sourceKey = getActiveSourceScopeKey();
-  useEffect(() => {
-    if (!startDate || !endDate) return;
-    for (const kpi of ["infra_clusters", "infra_dbu_hours"]) {
-      queryClient.prefetchQuery({
-        queryKey: ["infra-kpi-trend", kpi, startDate, endDate, "daily", wsKey, sourceKey],
-        queryFn: async () => {
-          const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
-          params.set("tab", "infra");
-          const res = await fetch(buildFilteredUrl("/api/billing/kpi-trend", params, workspaceIds));
-          if (!res.ok) throw new Error("prefetch failed");
-          return res.json();
-        },
-        staleTime: 5 * 60 * 1000,
-      });
-    }
-  }, [startDate, endDate, wsKey, sourceKey, workspaceIds, queryClient]);
 
   const MINIMIZE_KEY = "cost-obs-minimize-infra-info";
   const [infoMinimized, setInfoMinimized] = useState(() => {
@@ -695,23 +673,82 @@ export function CloudCostsView({
     ]} />;
   }
 
+  if (loadError) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+          <h3 className="text-lg font-semibold" style={{ color: C.ink }}>
+            Cloud cost data could not be loaded
+          </h3>
+          <p className="mt-2 text-sm" style={{ color: C.body }}>
+            Required Databricks usage totals did not complete after automatic retries.
+            Wait for current SQL work to finish, then refresh Cloud Costs.
+          </p>
+          <p className="mt-3 rounded-lg px-3 py-2 text-xs" style={{ background: C.maroonTint, color: C.maroon }}>
+            {loadError}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const actualPartialNotice = (
+    <div
+      className="rounded-lg border px-4 py-3"
+      style={{ borderColor: C.amber, backgroundColor: C.amberTint }}
+      role="status"
+    >
+      <p className="text-sm font-semibold" style={{ color: C.amberInk }}>
+        Some actual-cost details are temporarily unavailable
+      </p>
+      <p className="mt-1 text-sm" style={{ color: C.body }}>
+        The authoritative total and available sections are shown. Refresh Cloud Costs
+        after current SQL work finishes to retry missing detail.
+      </p>
+    </div>
+  );
+
   if (costMode === "actual" && activeActualCloud === "AZURE" && azureActualData?.available) {
-    return <AzureActualView azureActualData={azureActualData} cloudTabSwitcher={CloudTabSwitcher} onSwitchToEstimated={() => setCostMode("estimated")} />;
+    return (
+      <div className="space-y-6">
+        {azureActualData.availability === "partial" && actualPartialNotice}
+        <AzureActualView azureActualData={azureActualData} cloudTabSwitcher={CloudTabSwitcher} onSwitchToEstimated={() => setCostMode("estimated")} />
+      </div>
+    );
   }
   if (costMode === "actual" && activeActualCloud === "GCP" && gcpActualData?.available) {
-    return <GCPActualView gcpActualData={gcpActualData} cloudTabSwitcher={CloudTabSwitcher} onSwitchToEstimated={() => setCostMode("estimated")} />;
+    return (
+      <div className="space-y-6">
+        {gcpActualData.availability === "partial" && actualPartialNotice}
+        <GCPActualView gcpActualData={gcpActualData} cloudTabSwitcher={CloudTabSwitcher} onSwitchToEstimated={() => setCostMode("estimated")} />
+      </div>
+    );
   }
   if (costMode === "actual" && activeActualCloud === "AWS" && actualData?.available) {
-    return <AWSActualView actualData={actualData} cloudTabSwitcher={CloudTabSwitcher} onSwitchToEstimated={() => setCostMode("estimated")} />;
+    return (
+      <div className="space-y-6">
+        {actualData.availability === "partial" && actualPartialNotice}
+        <AWSActualView actualData={actualData} cloudTabSwitcher={CloudTabSwitcher} onSwitchToEstimated={() => setCostMode("estimated")} />
+      </div>
+    );
   }
   if (costMode === "actual" && !actualAvailable) {
+    const transientActualFailure = Object.keys(partialReasons ?? {}).some(
+      (name) => name.endsWith("_actual"),
+    );
     return (
       <div className="space-y-6">
         {CurSetupBanner}
         <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-          <h3 className="text-lg font-semibold text-gray-900">Actual cloud costs are not connected yet</h3>
+          <h3 className="text-lg font-semibold text-gray-900">
+            {transientActualFailure
+              ? "Actual cloud costs are temporarily unavailable"
+              : "Actual cloud costs are not connected yet"}
+          </h3>
           <p className="mt-2 text-sm text-gray-500">
-            Add an AWS CUR, Azure Cost Management, or GCP Billing export integration to populate this view.
+            {transientActualFailure
+              ? "Usage & Metadata is still available. Switch back now and retry actual costs after current SQL work finishes."
+              : "Add an AWS CUR, Azure Cost Management, or GCP Billing export integration to populate this view."}
           </p>
         </div>
         {IntegrationWizard}
@@ -751,23 +788,27 @@ export function CloudCostsView({
       <div className="space-y-6">
         {ModeToggle}
         {CurSetupBanner}
+        {(infraData?.availability === "partial"
+          || Object.keys(partialReasons ?? {}).length > 0) && (
+          <div
+            className="rounded-lg border px-4 py-3"
+            style={{ borderColor: C.amber, backgroundColor: C.amberTint }}
+            role="status"
+          >
+            <p className="text-sm font-semibold" style={{ color: C.amberInk }}>
+              Partial Cloud Costs data
+            </p>
+            <p className="mt-1 text-sm" style={{ color: C.body }}>
+              {infraData?.reason_detail
+                || "Available usage and DBU totals are shown. Refresh Cloud Costs after current SQL work finishes to retry missing detail."}
+            </p>
+          </div>
+        )}
         {hasBillingSummary ? (
           <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-              <p className="text-sm font-medium text-gray-500">Databricks Compute Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(billingSummary.databricks_compute_spend ?? 0)}</p>
-              <p className="mt-1 text-xs text-gray-500">{billingSummary.days_in_range ?? 0} days (all-purpose + jobs + DLT)</p>
-            </div>
-            <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-              <p className="text-sm font-medium text-gray-500">Avg Active Clusters / Day</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatNumber(billingSummary.avg_clusters_per_day ?? 0)}</p>
-              <p className="mt-1 text-xs text-gray-500">daily average</p>
-            </div>
-            <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-              <p className="text-sm font-medium text-gray-500">Databricks Spend / Cluster</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(billingSummary.avg_databricks_spend_per_cluster ?? 0)}</p>
-              <p className="mt-1 text-xs text-gray-500">per cluster per day</p>
-            </div>
+            <KPICard title="Databricks Compute Spend" value={formatKpiCurrency(billingSummary.databricks_compute_spend ?? 0)} subtitle={`${billingSummary.days_in_range ?? 0} days (all-purpose + jobs + DLT)`} />
+            <KPICard title="Avg Active Clusters / Day" value={formatNumber(billingSummary.avg_clusters_per_day ?? 0)} subtitle="daily average" />
+            <KPICard title="Databricks Spend / Cluster" value={formatKpiCurrency(billingSummary.avg_databricks_spend_per_cluster ?? 0)} subtitle="per cluster per day" />
           </div>
         ) : (
           <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
@@ -815,6 +856,21 @@ export function CloudCostsView({
       />
       {ModeToggle}
       {CurSetupBanner}
+      {Object.keys(partialReasons ?? {}).length > 0 && (
+        <div
+          className="rounded-lg border px-4 py-3"
+          style={{ borderColor: C.amber, backgroundColor: C.amberTint }}
+          role="status"
+        >
+          <p className="text-sm font-semibold" style={{ color: C.amberInk }}>
+            Some cloud cost details are temporarily unavailable
+          </p>
+          <p className="mt-1 text-sm" style={{ color: C.body }}>
+            Available usage, DBU totals, and cluster metadata are shown. Refresh Cloud Costs
+            after current SQL work finishes to retry the missing sections.
+          </p>
+        </div>
+      )}
       {infraData?.availability === "partial" && (
         <div
           className="rounded-lg border px-4 py-3"
@@ -832,80 +888,40 @@ export function CloudCostsView({
       )}
 
       <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div
-          className="relative rounded-lg bg-white p-6 border shadow-sm"
-          style={{ borderColor: C.hairline }}
-        >
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Databricks Compute Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(cloudSummary.databricksSpend)}</p>
-              {startDate && endDate && (() => {
-                const days = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1;
-                const dailyAvg = cloudSummary.databricksSpend > 0 ? cloudSummary.databricksSpend / days : 0;
-                return <p className="mt-1 text-xs text-gray-500">{formatCurrency(dailyAvg)}/day avg · {days} days</p>;
-              })()}
-            </div>
-          </div>
-        </div>
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Cluster DBUs</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatNumber(cloudSummary.totalDBUHours)}</p>
-              <p className="mt-1 text-xs text-gray-500">across {cloudSummary.totalClusterCount} clusters</p>
-              <TrendAction
-                onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "infra_dbu_hours", label: "Daily Cluster DBUs" }) : undefined}
-                ariaLabel="See Total Cluster DBUs trend"
-              />
-            </div>
-          </div>
-        </div>
-        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Active Clusters<InfoTooltip text="Average number of distinct clusters with billing activity per day in the selected period. Includes all cluster types (job clusters, interactive clusters)." /></p>
-              <p className="text-2xl font-semibold text-gray-900">{formatNumber(cloudSummary.avgActiveClustersPerDay)}</p>
-              <p className="mt-1 text-xs text-gray-500">daily average</p>
-              <TrendAction
-                onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "infra_clusters", label: `Daily Active ${cloudDisplayName} Clusters` }) : undefined}
-                ariaLabel="See Active Clusters trend"
-              />
-            </div>
-          </div>
-        </div>
-        <div
-          className="relative rounded-lg bg-white p-6 border shadow-sm"
-          style={{ borderColor: C.hairline }}
-        >
-          <div className="flex items-center">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
-              <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Databricks Spend / Cluster<InfoTooltip text="Databricks DBU spend divided by active clusters. This is not a cloud VM cost estimate." /></p>
-              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(cloudSummary.avgDatabricksSpendPerCluster)}</p>
-              {startDate && endDate && <p className="mt-1 text-xs text-gray-500">average over {Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1} days</p>}
-            </div>
-          </div>
-        </div>
+        <KPICard
+          title="Databricks Compute Spend"
+          value={formatKpiCurrency(cloudSummary.databricksSpend)}
+          subtitle={startDate && endDate ? (() => {
+            const days = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1;
+            const dailyAvg = cloudSummary.databricksSpend > 0 ? cloudSummary.databricksSpend / days : 0;
+            return `${formatCurrency(dailyAvg)}/day avg · ${days} days`;
+          })() : undefined}
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+        />
+        <KPICard
+          title="Total Cluster DBUs"
+          value={formatNumber(cloudSummary.totalDBUHours)}
+          subtitle={`across ${cloudSummary.totalClusterCount} clusters`}
+          onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "infra_dbu_hours", label: "Daily Cluster DBUs" }) : undefined}
+          ariaLabel="See Total Cluster DBUs trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+        />
+        <KPICard
+          title="Active Clusters"
+          value={formatNumber(cloudSummary.avgActiveClustersPerDay)}
+          subtitle="daily average"
+          infoText="Average number of distinct clusters with billing activity per day in the selected period. Includes all cluster types (job clusters, interactive clusters)."
+          onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "infra_clusters", label: `Daily Active ${cloudDisplayName} Clusters` }) : undefined}
+          ariaLabel="See Active Clusters trend"
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>}
+        />
+        <KPICard
+          title="Databricks Spend / Cluster"
+          value={formatKpiCurrency(cloudSummary.avgDatabricksSpendPerCluster)}
+          subtitle={startDate && endDate ? `average over ${Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1} days` : undefined}
+          infoText="Databricks DBU spend divided by active clusters. This is not a cloud VM cost estimate."
+          icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
+        />
       </div>
 
       {selectedKPI && startDate && endDate && (

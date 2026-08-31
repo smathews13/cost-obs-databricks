@@ -241,7 +241,13 @@ export const InteractiveBreakdown = memo(function InteractiveBreakdown({ data, i
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-lg font-semibold text-gray-900 shrink-0 flex items-center gap-1.5">
             Interactive Compute Leaderboard
-            <InfoPopover className="" text={'Interactive compute (also known as "All Purpose" compute) usage from notebooks, IDEs, and interactive sessions. Does not include automated jobs or streaming pipelines: those are tracked in the ETL Leaderboard below.'} />
+            <InfoPopover
+              className=""
+              label="About Interactive Compute Leaderboard"
+              size="compact"
+              panelClassName="w-64"
+              text={'Interactive compute (also known as "All Purpose" compute) usage from notebooks, IDEs, and interactive sessions. Does not include automated jobs or streaming pipelines: those are tracked in the ETL Leaderboard below.'}
+            />
           </h3>
           <span className="text-sm text-gray-500 shrink-0">{uniqueUsers} users · {uniqueClusters} clusters · {uniqueNotebooks} notebooks</span>
           <div className="ml-auto flex shrink-0 items-center gap-2">

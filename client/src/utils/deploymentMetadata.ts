@@ -3,7 +3,7 @@ export interface DeploymentMetadata {
   deployer: string | null;
   commit_sha: string | null;
   available: boolean;
-  source: "databricks_apps_api" | "release_environment" | "unavailable";
+  source: string;
 }
 
 function parsedDate(value: string | null): Date | null {

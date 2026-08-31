@@ -182,9 +182,11 @@ async def get_cur_status() -> dict[str, Any]:
             query = CHECK_CUR_TABLES.format(catalog=catalog, schema=schema, table="actuals_gold")
             results = await asyncio.to_thread(execute_query, query, cache_tag="aws-actual")
             available = len(results) > 0
-        except Exception as e:
-            logger.warning(f"CUR tables not available: {e}")
-            available = False
+        except Exception as exc:
+            # A failed existence query is not evidence that the integration is
+            # absent. Do not cache permission, network, timeout, or capacity errors.
+            logger.warning("AWS CUR availability query failed transiently: %s", exc)
+            raise
         _cur_status_cache["available"] = available
         _cur_status_cache["checked_at"] = time.time()
 
@@ -444,25 +446,47 @@ async def get_aws_actual_dashboard_bundle(
         logger.debug("Delta cache read failed for aws_actual/dashboard-bundle: %s", _ce)
     _cache_generation = capture_cache_generation("aws_actual/dashboard-bundle")
 
-    # Fetch all data in parallel for 4x faster response
-    summary, by_cluster, by_charge_type, timeseries = await asyncio.gather(
-        get_aws_actual_summary(start_date, end_date),
-        get_aws_costs_by_cluster(start_date, end_date),
-        get_aws_costs_by_charge_type(start_date, end_date),
-        get_aws_costs_timeseries(start_date, end_date),
+    summary = await get_aws_actual_summary(start_date, end_date)
+    semaphore = asyncio.Semaphore(2)
+
+    async def optional(name: str, call):
+        async with semaphore:
+            try:
+                return name, await call(), None
+            except Exception as exc:
+                logger.warning("Optional AWS actual-cost section %s failed: %s", name, exc)
+                return name, None, getattr(exc, "code", "QUERY_FAILED")
+
+    outcomes = await asyncio.gather(
+        optional("by_cluster", lambda: get_aws_costs_by_cluster(start_date, end_date)),
+        optional(
+            "by_charge_type",
+            lambda: get_aws_costs_by_charge_type(start_date, end_date),
+        ),
+        optional("timeseries", lambda: get_aws_costs_timeseries(start_date, end_date)),
     )
+    sections = {name: value for name, value, _error in outcomes}
+    failures = {name: error for name, _value, error in outcomes if error}
 
     _resp = {
         "available": True,
+        "availability": "partial" if failures else "available",
+        "partial_reasons": failures,
         "summary": summary,
-        "by_cluster": by_cluster,
-        "by_charge_type": by_charge_type,
-        "timeseries": timeseries,
+        "by_cluster": sections["by_cluster"],
+        "by_charge_type": sections["by_charge_type"],
+        "timeseries": sections["timeseries"],
         "start_date": start_date,
         "end_date": end_date,
     }
     try:
-        delta_cache_put(_dkey, "aws_actual/dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE, generation=_cache_generation)
+        delta_cache_put(
+            _dkey,
+            "aws_actual/dashboard-bundle",
+            _resp,
+            ttl_seconds=60 if failures else cache_ttls.BUNDLE,
+            generation=_cache_generation,
+        )
     except Exception as _ce:
         logger.debug("Delta cache write failed for aws_actual/dashboard-bundle: %s", _ce)
     return _resp

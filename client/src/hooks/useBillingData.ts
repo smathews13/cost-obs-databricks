@@ -24,6 +24,7 @@ import type {
   InfraCostsResponse,
   InfraCostsTimeseriesResponse,
   InfraBundleResponse,
+  CloudCostsBundleResponse,
   KPIsBundleResponse,
 } from "@/types/billing";
 
@@ -66,15 +67,74 @@ export function responsePayloadIssue(
   return undefined;
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+class HttpRequestError extends Error {
+  readonly status: number;
+  readonly retryAfterMs?: number;
+  readonly errorCode?: string;
+
+  constructor(
+    message: string,
+    status: number,
+    retryAfterMs?: number,
+    errorCode?: string,
+  ) {
+    super(message);
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+    this.errorCode = errorCode;
+  }
+}
+
+function responseRetryAfterMs(response: Response): number | undefined {
+  const value = response.headers.get("Retry-After")?.trim();
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const retryAt = Date.parse(value);
+  return Number.isNaN(retryAt) ? undefined : Math.max(0, retryAt - Date.now());
+}
+
+const CLOUD_ERROR_COPY: Record<string, string> = {
+  SQL_OVERLOADED: "Cloud cost data is busy. Wait a moment and retry.",
+  BUNDLE_OVERLOADED: "Cloud cost data is busy. Wait a moment and retry.",
+  SQL_TIMEOUT: "Cloud cost data took too long to load. Retry; the SQL warehouse may still be starting.",
+  SQL_EXECUTION_ERROR: "Cloud cost data is temporarily unavailable. Retry, or check the SQL warehouse in Settings.",
+  CLOUD_BUNDLE_FAILED: "Cloud cost data is temporarily unavailable. Retry, or check the SQL warehouse in Settings.",
+};
+
+export function actionableErrorMessage(
+  errorCode: string | undefined,
+  fallback: string,
+): string {
+  return (errorCode && CLOUD_ERROR_COPY[errorCode]) || fallback;
+}
+
+async function responseError(response: Response): Promise<HttpRequestError> {
+  let detail = `${response.status} ${response.statusText}`;
+  let errorCode: string | undefined;
+  try {
+    const body = await response.json();
+    const payload = body?.detail;
+    if (typeof payload === "string") {
+      detail = payload;
+    } else if (payload && typeof payload === "object") {
+      detail = String(payload.message || detail);
+      errorCode = typeof payload.error_code === "string" ? payload.error_code : undefined;
+    }
+  } catch { /* ignore parse errors */ }
+  detail = actionableErrorMessage(errorCode, detail);
+  return new HttpRequestError(
+    `${response.status}: ${detail}`,
+    response.status,
+    responseRetryAfterMs(response),
+    errorCode,
+  );
+}
+
+async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(url, { signal });
   if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`;
-    try {
-      const body = await response.json();
-      if (body?.detail) detail = `${response.status}: ${body.detail}`;
-    } catch { /* ignore parse errors */ }
-    throw new Error(detail);
+    throw await responseError(response);
   }
   const data = await response.json() as T;
   const issue = responsePayloadIssue(data);
@@ -503,12 +563,7 @@ export async function fetchSubmitAndPoll<T>(
         continue;
       }
       if (!response.ok) {
-        let detail = `${response.status} ${response.statusText}`;
-        try {
-          const body = await response.json();
-          if (body?.detail) detail = `${response.status}: ${body.detail}`;
-        } catch { /* ignore parse errors */ }
-        throw new Error(detail);
+        throw await responseError(response);
       }
       const data = await response.json() as T;
       const issue = responsePayloadIssue(data);
@@ -603,6 +658,45 @@ export function useGCPActualCosts(dateRange?: DateRange, enabled: boolean = true
       fetchJson(buildUrl("/api/gcp-actual/dashboard-bundle", dateRange)),
     staleTime: 5 * 60 * 1000,
     enabled,
+  });
+}
+
+function isRetriableCloudFailure(error: Error): boolean {
+  return error instanceof HttpRequestError
+    ? error.status === 429
+      || error.status === 503
+      || error.errorCode === "SQL_OVERLOADED"
+      || error.errorCode === "BUNDLE_OVERLOADED"
+    : /capacity is full|retry the request|temporarily unavailable/i.test(error.message);
+}
+
+export function useCloudCostsBundle(
+  dateRange?: DateRange,
+  workspaceIds?: string[],
+  enabled: boolean = true,
+) {
+  return useQuery<CloudCostsBundleResponse>({
+    queryKey: scopedQueryKey(
+      "billing",
+      "cloud-costs-bundle",
+      dateRange,
+      getWorkspaceScopeKey(workspaceIds),
+    ),
+    queryFn: ({ signal }) =>
+      fetchSubmitAndPoll<CloudCostsBundleResponse>(
+        buildUrlWithWs("/api/billing/cloud-costs-bundle", dateRange, workspaceIds),
+        signal,
+      ),
+    enabled,
+    retry: (failureCount, error) =>
+      failureCount < 3 && isRetriableCloudFailure(error),
+    retryDelay: (attempt, error) => {
+      const retryAfter = error instanceof HttpRequestError
+        ? error.retryAfterMs
+        : undefined;
+      const base = retryAfter ?? Math.min(4000, 500 * (2 ** attempt));
+      return Math.min(5000, base + Math.floor(Math.random() * 200));
+    },
   });
 }
 

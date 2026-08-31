@@ -47,6 +47,8 @@ describe("account rail health polish", () => {
   it("exposes the full account ID with a keyboard-accessible tooltip", () => {
     expect(appSource).toContain('label="Show full account ID"');
     expect(appSource).toContain("<InfoPopover");
+    expect(appSource).toContain("max-w-[190px]");
+    expect(appSource).toContain("px-[5px] py-[2px] text-[9.5px]");
     expect(appSource).not.toContain('title={accountInfo?.account_id');
     expect(styles).not.toContain(".account-id-tooltip-content");
     expect(styles).not.toContain(".deployment-badge-tooltip");

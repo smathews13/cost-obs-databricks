@@ -65,9 +65,7 @@ const SettingsDialog = lazy(() => lazyWithRetry(() => import("@/components/Setti
 
 import {
   useAccountInfo,
-  useAWSActualCosts,
-  useAzureActualCosts,
-  useGCPActualCosts,
+  useCloudCostsBundle,
   useDashboardBundleFast,
   useSqlBreakdown,
   usePipelineObjects,
@@ -79,7 +77,6 @@ import {
   useTaggingDashboardBundle,
   useDBSQLQueryCosts,
   useDBSQLTopQueries,
-  useInfraBundle,
   useKPIsBundle,
   useUsersGroupsBundle,
   getActiveSourceLabels,
@@ -114,6 +111,7 @@ import {
   warehouseHealthPollInterval,
   type WarehouseHealth,
 } from "@/utils/warehouseGuidance";
+import { useTransientScrollbarBehavior } from "@/utils/scrolling";
 import {
   hydrateSettingsFromServer,
   loadAppSettings,
@@ -284,7 +282,7 @@ function AccountIdentifier({ value }: { value: string }) {
       className="mt-[3px] min-w-0"
       placement="bottom"
       panelClassName="w-max max-w-[calc(100vw-1rem)] break-all bg-[#0B2026] font-mono text-[11px]"
-      triggerClassName="block max-w-[150px] truncate rounded-[4px] bg-white/[.09] px-[7px] py-[3px] text-[11px] text-[#E9EFED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
+      triggerClassName="block max-w-[190px] truncate rounded-[4px] bg-white/[.09] px-[5px] py-[2px] text-[9.5px] leading-[13px] text-[#E9EFED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
       content={value}
     >
       <span className="block truncate" style={{ fontFamily: "var(--mono)" }}>
@@ -827,7 +825,13 @@ function Dashboard() {
   const { data: interactiveBreakdown, isLoading: interactiveLoading, isError: interactiveError } = useInteractiveBreakdown(dateRange, _wsIds, dbuRequested);
   const { data: skuBreakdown, isLoading: skuLoading, isError: skuError } = useSKUBreakdown(dateRange, _wsIds, dbuRequested);
 
-  const { data: infraBundle, isLoading: infraBundleLoading, isError: infraBundleError } = useInfraBundle(dateRange, _wsIds, infraRequested);
+  const {
+    data: cloudCostsBundle,
+    isLoading: infraBundleLoading,
+    isError: infraBundleError,
+    error: infraBundleErrorObject,
+  } = useCloudCostsBundle(dateRange, _wsIds, infraRequested);
+  const infraBundle = cloudCostsBundle?.infra_bundle;
   const infraCosts = infraBundle?.infra_costs;
   const infraCostsTimeseries = infraBundle?.infra_timeseries;
   const infraPricingMultiplier =
@@ -859,10 +863,12 @@ function Dashboard() {
   } = useAppsDashboardBundle(dateRange, _wsIds, appsRequested);
   const { data: taggingData, isLoading: taggingLoading, isError: taggingError } = useTaggingDashboardBundle(dateRange, _wsIds, taggingRequested);
 
-  // Cloud actual costs: no workspace filter
-  const { data: awsActualData, isLoading: awsActualLoading, isError: awsActualError } = useAWSActualCosts(dateRange, infraRequested);
-  const { data: azureActualData, isLoading: azureActualLoading, isError: azureActualError } = useAzureActualCosts(dateRange, infraRequested);
-  const { data: gcpActualData, isLoading: gcpActualLoading, isError: gcpActualError } = useGCPActualCosts(dateRange, infraRequested);
+  const awsActualData = cloudCostsBundle?.aws_actual;
+  const azureActualData = cloudCostsBundle?.azure_actual;
+  const gcpActualData = cloudCostsBundle?.gcp_actual;
+  const awsActualLoading = infraBundleLoading;
+  const azureActualLoading = infraBundleLoading;
+  const gcpActualLoading = infraBundleLoading;
 
   const { data: dbsqlData, isLoading: dbsqlLoading, isError: dbsqlError } = useDBSQLQueryCosts(dateRange, _wsIds, sqlRequested);
   const { data: dbsqlTopQueriesData, isLoading: dbsqlTopQueriesLoading, isError: dbsqlTopQueriesError } = useDBSQLTopQueries(dateRange, _wsIds, sqlRequested);
@@ -929,7 +935,7 @@ function Dashboard() {
   const tabLoading: Record<ViewTab, boolean> = {
     dbu: bundleLoading || skuLoading || pipelineLoading || interactiveLoading,
     sql: sqlLoading || dbsqlLoading || dbsqlTopQueriesLoading,
-    infra: infraBundleLoading || awsActualLoading || azureActualLoading || gcpActualLoading,
+    infra: infraBundleLoading,
     optimizer: optimizeRightsizingLoading || optimizeIdleLoading,
     kpis: kpisBundleLoading,
     aiml: aimlLoading,
@@ -964,7 +970,6 @@ function Dashboard() {
     infra: firstPayloadIssue(
       [infraBundle],
       [infraCosts, true],
-      [infraCostsTimeseries, true],
     ),
     optimizer: firstPayloadIssue(
       [optimizeRightsizingData, true],
@@ -983,7 +988,7 @@ function Dashboard() {
   const tabErrors: Partial<Record<ViewTab, string>> = {
     dbu: reportPayloadIssues.dbu || (bundleError || skuError || pipelineError || interactiveError ? "DBU Overview data failed to load." : undefined),
     sql: reportPayloadIssues.sql || (sqlError || dbsqlError || dbsqlTopQueriesError ? "SQL data failed to load." : undefined),
-    infra: reportPayloadIssues.infra || (infraBundleError || awsActualError || azureActualError || gcpActualError ? "Cloud Costs data failed to load." : undefined),
+    infra: reportPayloadIssues.infra || (infraBundleError ? "Cloud Costs data failed to load." : undefined),
     optimizer: reportPayloadIssues.optimizer || (optimizeRightsizingError || optimizeIdleError ? "Optimize data failed to load." : undefined),
     kpis: reportPayloadIssues.kpis || (kpisBundleError ? "Platform KPI data failed to load." : undefined),
     aiml: reportPayloadIssues.aiml || (aimlError ? "AI/ML data failed to load." : undefined),
@@ -1612,6 +1617,8 @@ function Dashboard() {
             workspaceNameMap={workspaceNameMap}
             workspaceIds={_wsIds}
             accountPricingApplied={useAccountPrices && accountPricesAvailable}
+            loadError={infraBundleErrorObject?.message}
+            partialReasons={cloudCostsBundle?.partial_reasons}
           />
           </TabErrorBoundary>
         ) : activeTab === "optimizer" ? (
@@ -1834,6 +1841,7 @@ class ErrorBoundary extends React.Component<
 }
 
 function App() {
+  useTransientScrollbarBehavior();
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>

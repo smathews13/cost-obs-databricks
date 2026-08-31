@@ -26,6 +26,7 @@ import {
   type TabVisibility,
   type UnifiedSettings,
 } from "@/utils/settingsHydration";
+import { useDocumentScrollLock } from "@/utils/scrolling";
 
 export {
   type AppSettings,
@@ -76,6 +77,7 @@ function useSettingsQueries() {
       settingsQuery(["settings-account-prices"], "/api/settings/account-prices"),
       settingsQuery(["settings-catalog"], "/api/settings/catalog"),
       settingsQuery(["settings-auth-status"], "/api/settings/auth-status"),
+      settingsQuery(["settings-resources"], "/api/settings/resources", 60 * 1000),
       settingsQuery(["settings-schedule"], "/api/settings/schedule"),
       settingsQuery(["setup-workspace-filter"], "/api/setup/workspace-filter"),
       settingsQuery(["billing", "account"], "/api/billing/account", Infinity),
@@ -94,6 +96,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
 }
 
 function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVisibility, appSettings }: SettingsDialogProps) {
+  useDocumentScrollLock(true);
   useSettingsQueries();
   const rqClient = useQueryClient();
   const toast = useToast();
@@ -191,8 +194,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") requestClose(); };
     document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
+    return () => { document.removeEventListener("keydown", onKey); };
   }, [requestClose]);
 
   useEffect(() => {
