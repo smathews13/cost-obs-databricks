@@ -13,6 +13,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_repository_has_no_github_workflows():
+    workflows = ROOT / ".github" / "workflows"
+    assert not workflows.exists() or not any(path.is_file() for path in workflows.rglob("*"))
+
+
 def _load_public_validator():
     path = ROOT / "scripts" / "validate_public_tree.py"
     spec = importlib.util.spec_from_file_location("validate_public_tree", path)
