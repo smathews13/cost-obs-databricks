@@ -167,6 +167,7 @@ def test_release_versions_locks_and_requirements_are_consistent():
 
     assert pyproject["project"]["version"] == "1.2.0"
     assert package["version"] == "1.2.0"
+    assert package["packageManager"] == "bun@1.3.5"
     assert "## v1.2" in (ROOT / "CHANGELOG.md").read_text()
     assert '<a id="release-v12"></a>' in (ROOT / "README.md").read_text()
 
@@ -189,6 +190,16 @@ def test_release_versions_locks_and_requirements_are_consistent():
         re.match(r"^[A-Za-z0-9_.-]+", dependency).group(0).lower().replace("_", "-")
         for dependency in pyproject["project"]["dependencies"]
     }
+    locked_project = next(
+        locked_package
+        for locked_package in uv_lock["package"]
+        if locked_package["name"] == pyproject["project"]["name"]
+    )
+    locked_direct_dependencies = {
+        dependency["name"].lower().replace("_", "-")
+        for dependency in locked_project["dependencies"]
+    }
+    assert locked_direct_dependencies == direct_python_dependencies
     assert direct_python_dependencies <= requirement_versions.keys()
 
     client_dependencies = {
@@ -197,3 +208,75 @@ def test_release_versions_locks_and_requirements_are_consistent():
     }
     for name, constraint in client_dependencies.items():
         assert f'"{name}": "{constraint}"' in bun_lock, name
+
+
+def test_release_gate_runs_complete_deterministic_suites_and_bun_only():
+    script = (ROOT / "scripts" / "release-check.sh").read_text()
+
+    required_commands = (
+        "bun install --frozen-lockfile --ignore-scripts",
+        "bun run lint",
+        "bun run typecheck",
+        "bun run test:unit",
+        '-m "not (external or integration)"',
+        "server/tests",
+        "uv lock --check",
+        "uv export",
+        'compare_requirements "$ROOT/requirements.txt" "$EXPORTED_REQUIREMENTS"',
+        "validate_public_tree.py",
+        "git -C \"$ROOT\" ls-files -z '*.sh'",
+    )
+    for command in required_commands:
+        assert command in script
+
+    assert "command -v npm" not in script
+    assert "npm run" not in script
+    assert "RUNNER=(npm)" not in script
+    assert "src/components/ExportDialog.tsx" not in script
+    assert "server/tests/test_deployment_metadata.py" not in script
+    assert 'python3 "$ROOT/scripts/run_with_timeout.py" "$@"' in script
+    assert 'python3 "$ROOT/scripts/run_with_timeout.py" --self-test' in script
+    assert "run_with_timeout 180" in script
+    assert "run_with_timeout 900" not in script
+    assert "run_with_timeout 300" not in script
+    assert "run_with_timeout 600" not in script
+    assert "COST_OBS_RELEASE_TESTING=1" in script
+    assert "COST_OBS_TEST_TIMEOUT_SECONDS" in script
+
+
+def test_release_gate_compares_isolated_build_to_clean_committed_static():
+    script = (ROOT / "scripts" / "release-check.sh").read_text()
+
+    assert 'status --porcelain --untracked-files=all -- static' in script
+    assert 'BUILD_OUT="$WORK_DIR/static"' in script
+    assert 'bun run build:release -- --outDir "$BUILD_OUT"' in script
+    assert 'compare_trees "$ROOT/static" "$BUILD_OUT"' in script
+    assert "expected_files[relative] != actual_files[relative]" in script
+    assert "git checkout" not in script
+    assert "git reset" not in script
+
+
+def test_external_backend_tests_are_marked_blocked_and_opt_in():
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    pytest_config = pyproject["tool"]["pytest"]["ini_options"]
+    markers = "\n".join(pytest_config["markers"])
+    conftest = (ROOT / "conftest.py").read_text()
+    external_test = (ROOT / "scripts" / "test_parallel.py").read_text()
+    release_script = (ROOT / "scripts" / "release-check.sh").read_text()
+
+    assert pytest_config["addopts"] == "--strict-markers"
+    assert "error::pytest.PytestUnhandledThreadExceptionWarning" in pytest_config["filterwarnings"]
+    assert "external:" in markers
+    assert "integration:" in markers
+    assert "pytest.mark.external" in external_test
+    assert "pytest.mark.integration" in external_test
+    assert "block_unmarked_network" in conftest
+    assert "socket.AF_INET" in conftest
+    assert "pytest_runtest_setup" in conftest
+    assert "pytest_runtest_call" in conftest
+    assert "pytest_runtest_teardown" in conftest
+    setup_router = (ROOT / "server" / "routers" / "setup.py").read_text()
+    assert 'os.getenv("COST_OBS_RELEASE_TESTING") == "1"' in setup_router
+    assert "--with-external" in release_script
+    assert '-m "external or integration"' in release_script
+    assert "scripts/test_parallel.py" in release_script

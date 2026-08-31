@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { normalizeReadinessResult } from "@/components/settings/ReadinessChecks";
-import type { ReadinessCheck } from "@/components/settings/ReadinessChecks";
+import {
+  normalizeReadinessResult,
+  type ReadinessCheck,
+} from "@/components/settings/readiness";
 
 /** Shared query key: import this whenever you need to invalidate readiness. */
 export const READINESS_QUERY_KEY = ["setup-readiness"] as const;

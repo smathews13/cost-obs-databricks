@@ -128,6 +128,10 @@ def test_kpis_bundle_preserves_true_zero_successful_runs():
         patch.object(billing, "delta_cache_put"),
         patch.object(billing, "_check_mv_available", return_value=False),
         patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+        patch.dict(
+            billing.get_kpis_bundle.__globals__,
+            {"_get_mv_query": lambda sql, *_args: sql},
+        ),
         patch.object(billing, "execute_queries_parallel", return_value=query_results),
     ):
         result = asyncio.run(billing.get_kpis_bundle(
@@ -151,6 +155,10 @@ def test_kpis_bundle_marks_missing_result_state_data_unavailable():
         patch.object(billing, "delta_cache_put"),
         patch.object(billing, "_check_mv_available", return_value=False),
         patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+        patch.dict(
+            billing.get_kpis_bundle.__globals__,
+            {"_get_mv_query": lambda sql, *_args: sql},
+        ),
         patch.object(billing, "execute_queries_parallel", return_value=query_results),
     ):
         result = asyncio.run(billing.get_kpis_bundle(
@@ -285,6 +293,10 @@ def test_every_clickable_platform_kpi_returns_daily_points(kpi):
             return_value=db.CacheGeneration("trend:kpis:platform-kpi", 0),
         ),
         patch.object(billing, "_check_mv_available", return_value=False),
+        patch.dict(
+            billing.get_platform_kpi_trend.__globals__,
+            {"_get_mv_query": lambda sql, *_args: sql},
+        ),
         patch.object(
             billing,
             "execute_query",

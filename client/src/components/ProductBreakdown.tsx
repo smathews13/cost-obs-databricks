@@ -22,6 +22,18 @@ const fmtTooltipLabel = (label: unknown) => `Product: ${label}`;
 const fmtYTick = (v: string) => (v.length > 18 ? v.substring(0, 18) + "..." : v);
 const TOOLTIP_STYLE = { backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" } as const;
 const LABEL_STYLE = { fontSize: 11, fill: C.slate } as const;
+const EMPTY_PRODUCT_DATA = {
+  products: [],
+  total_spend: 0,
+  start_date: "",
+  end_date: "",
+} as ProductBreakdownResponse;
+
+interface FilterResult {
+  key: string;
+  data?: ProductBreakdownResponse;
+  error: boolean;
+}
 
 interface WsRowProps {
   wsId: string;
@@ -77,40 +89,28 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
     () => (workspaces ?? []).map((w) => String(w.workspace_id)),
     [workspaces],
   );
-  const [selectedWorkspaces, setSelectedWorkspaces] = useState<string[]>([]);
-  const wsFilterInitialized = useRef(false);
-  const [filteredData, setFilteredData] = useState<ProductBreakdownResponse | undefined>(undefined);
-  const [filterLoading, setFilterLoading] = useState(false);
-  const [filterError, setFilterError] = useState(false);
+  const [workspaceSelection, setWorkspaceSelection] = useState<string[] | null>(null);
+  const selectedWorkspaces = workspaceSelection ?? allWsIds;
+  const [filterResult, setFilterResult] = useState<FilterResult>({
+    key: "",
+    error: false,
+  });
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [wsSearch, setWsSearch] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Seed with all workspaces on first data load
-  useEffect(() => {
-    if (wsFilterInitialized.current) return;
-    if (allWsIds.length > 0) {
-      setSelectedWorkspaces(allWsIds);
-      wsFilterInitialized.current = true;
-    }
-  }, [allWsIds]);
-
   const isAll = selectedWorkspaces.length === allWsIds.length && allWsIds.length > 0;
   const isPartial = selectedWorkspaces.length > 0 && selectedWorkspaces.length < allWsIds.length;
   const isEmpty = selectedWorkspaces.length === 0;
+  const needsFilteredData = !isAll && !isEmpty;
 
   const wsKey = useMemo(() => [...selectedWorkspaces].sort().join(','), [selectedWorkspaces]);
+  const filterKey = `${wsKey}|${dateRange?.startDate ?? ""}|${dateRange?.endDate ?? ""}`;
 
   useEffect(() => {
-    if (isAll || isEmpty) {
-      setFilteredData(undefined);
-      setFilterError(false);
-      return;
-    }
+    if (!needsFilteredData) return;
 
     let cancelled = false;
-    setFilterLoading(true);
-    setFilterError(false);
 
     const fetchOne = async (wsId: string) => {
       const params = new URLSearchParams();
@@ -124,8 +124,12 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
 
     if (selectedWorkspaces.length === 1) {
       fetchOne(selectedWorkspaces[0])
-        .then((json) => { if (!cancelled) { setFilteredData(json); setFilterLoading(false); } })
-        .catch(() => { if (!cancelled) { setFilterError(true); setFilterLoading(false); } });
+        .then((json: ProductBreakdownResponse) => {
+          if (!cancelled) setFilterResult({ key: filterKey, data: json, error: false });
+        })
+        .catch(() => {
+          if (!cancelled) setFilterResult({ key: filterKey, error: true });
+        });
     } else {
       // Merge per-workspace results by product category
       Promise.all(selectedWorkspaces.map(fetchOne))
@@ -142,7 +146,7 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
             }
           }
           const total = Object.values(merged).reduce((s, x) => s + x.total_spend, 0);
-          setFilteredData({
+          setFilterResult({ key: filterKey, error: false, data: {
             products: Object.entries(merged).map(([category, v]) => ({
               category,
               total_spend: v.total_spend,
@@ -153,35 +157,40 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
             total_spend: total,
             start_date: "",
             end_date: "",
-          } as ProductBreakdownResponse);
-          setFilterLoading(false);
+          } as ProductBreakdownResponse });
         })
-        .catch(() => { if (!cancelled) { setFilterError(true); setFilterLoading(false); } });
+        .catch(() => {
+          if (!cancelled) setFilterResult({ key: filterKey, error: true });
+        });
     }
 
     return () => { cancelled = true; };
-  }, [wsKey, dateRange?.startDate, dateRange?.endDate, isAll, isEmpty, selectedWorkspaces]);
+  }, [dateRange?.startDate, dateRange?.endDate, filterKey, needsFilteredData, selectedWorkspaces]);
 
   // Close dropdown on outside click; reset search on close so reopening starts fresh
+  const closeDropdown = useCallback(() => {
+    setDropdownOpen(false);
+    setWsSearch("");
+  }, []);
+
   useEffect(() => {
-    if (!dropdownOpen) {
-      setWsSearch("");
-      return;
-    }
+    if (!dropdownOpen) return;
     const handleClick = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
+        closeDropdown();
       }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [dropdownOpen]);
+  }, [closeDropdown, dropdownOpen]);
 
-  const displayData = isEmpty
-    ? ({ products: [], total_spend: 0, start_date: "", end_date: "" } as ProductBreakdownResponse)
-    : isAll
-    ? data
-    : filteredData;
+  const filteredData = filterResult.key === filterKey ? filterResult.data : undefined;
+  const filterLoading = needsFilteredData && filterResult.key !== filterKey;
+  const filterError = needsFilteredData && filterResult.key === filterKey && filterResult.error;
+  const displayData = useMemo(
+    () => (isEmpty ? EMPTY_PRODUCT_DATA : isAll ? data : filteredData),
+    [data, filteredData, isAll, isEmpty],
+  );
   const showLoading = isLoading || filterLoading;
 
   const selectedWorkspaceName = useMemo(() => {
@@ -192,8 +201,13 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
   }, [selectedWorkspaces, workspaces, workspaceNameMap]);
 
   const toggleWs = useCallback((wsId: string) => {
-    setSelectedWorkspaces((prev) => (prev.includes(wsId) ? prev.filter((x) => x !== wsId) : [...prev, wsId]));
-  }, []);
+    setWorkspaceSelection((current) => {
+      const previous = current ?? allWsIds;
+      return previous.includes(wsId)
+        ? previous.filter((id) => id !== wsId)
+        : [...previous, wsId];
+    });
+  }, [allWsIds]);
   const selectedSet = useMemo(() => new Set(selectedWorkspaces), [selectedWorkspaces]);
   const wsItems = useMemo(
     () => (workspaces || []).map((ws) => {
@@ -216,7 +230,10 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
   const workspaceSelector = workspaces && workspaces.length > 1 ? (
     <div className="relative" ref={dropdownRef}>
       <button
-        onClick={() => setDropdownOpen(!dropdownOpen)}
+        onClick={() => {
+          if (dropdownOpen) closeDropdown();
+          else setDropdownOpen(true);
+        }}
         className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isPartial ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
       >
         {selectedWorkspaceName
@@ -233,9 +250,9 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
           <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Workspace</span>
             <div className="flex items-center gap-2 text-xs">
-              <button onClick={(e) => { e.stopPropagation(); setSelectedWorkspaces([...allWsIds]); }} className="text-gray-500 hover:text-gray-800">All</button>
+              <button onClick={(e) => { e.stopPropagation(); setWorkspaceSelection([...allWsIds]); }} className="text-gray-500 hover:text-gray-800">All</button>
               <span className="text-gray-300">·</span>
-              <button onClick={(e) => { e.stopPropagation(); setSelectedWorkspaces([]); }} className="text-gray-500 hover:text-gray-800">Clear</button>
+              <button onClick={(e) => { e.stopPropagation(); setWorkspaceSelection([]); }} className="text-gray-500 hover:text-gray-800">Clear</button>
             </div>
           </div>
           <div className="border-b border-gray-100 p-2">

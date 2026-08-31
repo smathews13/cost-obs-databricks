@@ -5,11 +5,14 @@ command: ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000", "-
 # =============================================================================
 #
 # 1. App resources → + Add resource → SQL warehouse
-#    Pick your existing Serverless Pro warehouse, set permission to "Can use",
+#    Pick an existing SQL warehouse, set permission to "Can use",
 #    leave the resource key as "sql-warehouse".
 #    The app reads DATABRICKS_WAREHOUSE_ID (injected automatically) to connect.
 #
-# Query and rebuild access stays service-principal-only. Grant the app service
+# 2. Deploy, then use the first-run setup wizard to select and validate a
+#    dedicated Unity Catalog catalog and schema for app-managed tables.
+#
+# Query, setup, and rebuild execution stays service-principal-only. Grant the app service
 # principal CAN_USE on this warehouse and the required Unity Catalog privileges.
 #
 # =============================================================================
@@ -33,10 +36,6 @@ env:
   #   value: <your-dedicated-catalog>
   # - name: COST_OBS_SCHEMA
   #   value: <your-dedicated-schema>
-
-  # Optional: uncomment to point at a specific warehouse instead of the resource above
-  # - name: DATABRICKS_HTTP_PATH
-  #   value: /sql/1.0/warehouses/<id>
 
   # Azure subscription ID (shown in account banner on Azure workspaces)
   # - name: AZURE_SUBSCRIPTION_ID

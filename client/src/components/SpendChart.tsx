@@ -14,7 +14,8 @@ import { Spinner } from "./Spinner";
 import type { TimeseriesResponse } from "@/types/billing";
 import { formatCurrencyCompact as formatCurrency } from "@/utils/formatters";
 import { C, productColor } from "@/theme";
-import { InkTooltip, axisTick, gridStroke, baselineStroke } from "@/components/chartTheme";
+import { InkTooltip } from "@/components/chartTheme";
+import { axisTick, gridStroke, baselineStroke } from "@/components/chartConstants";
 
 interface SpendChartProps {
   data: TimeseriesResponse | undefined;

@@ -63,19 +63,19 @@ The app reads the warehouse ID from a managed resource — this avoids hardcodin
 
 ---
 
-## Step 3 — Configure Environment Variables
+## Step 3 — Review Optional Environment Variables
 
-In the app configuration screen, open **Environment variables** and set these **required** values:
+The bound warehouse is the only required deployment-time resource. Leave the app-managed table location unset unless you deliberately need to preconfigure it; the first-run setup wizard collects and validates the catalog and schema.
 
 | Variable | Required | Description |
 |---|---|---|
-| `COST_OBS_CATALOG` | **Yes** | Unity Catalog catalog for materialized views — must be a dedicated catalog, not `main` |
-| `COST_OBS_SCHEMA` | **Yes** | Schema name for materialized views (e.g. `cost_obs_app`) |
+| `COST_OBS_CATALOG` | No | Optional preconfigured Unity Catalog catalog for managed tables — must be dedicated, not `main` |
+| `COST_OBS_SCHEMA` | No | Optional preconfigured schema for managed tables (for example, `cost_obs_app`) |
 | `COST_OBS_WORKSPACES` | No | Comma-separated workspace IDs to restrict the dashboard |
 
 > **Important:** Do not use `main` as the catalog or `cost_obs` as the schema with the `main` catalog. These are reserved defaults. The app will refuse to create tables there. Use a dedicated catalog (e.g. `my_company_catalog`) and a descriptive schema name.
 
-The catalog and schema will be created automatically during the setup wizard if they don't exist and your identity has the necessary permissions. No manual DDL is required.
+The setup wizard validates the selected location and creates the catalog/schema when the app service principal has the necessary permissions. Otherwise it provides administrator remediation. Do not add a SQL user-authorization scope: SQL execution is service-principal-only.
 
 ---
 
@@ -84,8 +84,8 @@ The catalog and schema will be created automatically during the setup wizard if 
 Click **Deploy** in the top-right corner. Databricks will:
 
 - Install Python dependencies
-- Build the frontend
 - Start the application server
+- Serve the committed `static/` frontend artifact
 
 Deployment typically takes 2–4 minutes. When the status shows **Running**, click the app URL to open it.
 
@@ -99,7 +99,7 @@ On first open, the app will show a **Setup Wizard** that walks through everythin
 
 #### Step 1 — Grant system table access
 
-The wizard generates the exact SQL required to give the app's service principal access to Databricks system tables. It shows you the grant bundle and a **Re-check** button.
+The wizard generates the exact SQL required to give the app's service principal access to Databricks system tables, the selected catalog/schema, and the bound warehouse. It shows you the grant bundle and a **Re-check** button.
 
 1. Copy the SQL displayed in the wizard.
 2. Run it in a notebook or the SQL editor **as a Metastore Admin** (system table grants require metastore-level privileges).
@@ -113,7 +113,7 @@ Once grants pass, the wizard will prompt you to build the pre-aggregated tables 
 
 The dashboard will show live data as soon as the build completes. You do not need to leave the wizard open — you can close the browser and return when the build is done.
 
-> **Re-running after initial setup:** If you ever need to re-apply grants or rebuild tables (for example, after adding a new workspace), use **Settings → Permissions** and **Settings → Config** respectively. These are the management surfaces for ongoing operations — the wizard is only shown on first run.
+> **Re-running after initial setup:** If you ever need to re-apply grants or rebuild tables (for example, after adding a new workspace), use **Settings → Permissions & Access** and **Settings → Data & tables** respectively. These are the management surfaces for ongoing operations — the wizard is only shown on first run.
 
 ---
 
@@ -123,17 +123,17 @@ Open the main dashboard. You should see:
 
 - **DBU Overview** tab loading spend data for the last 30 days
 - **Billing** tab showing SKU-level breakdown
-- A green "Ready" status in Settings → Config
+- A green ready state in **Settings → Data & tables**
 
-If any tab shows a warning, go to **Settings → Debugger** and click **Run Diagnostics** for a detailed check with fix instructions.
+If any tab shows a warning, use **Settings → Permissions & Access** for warehouse/system-table access or **Settings → Data & tables** for managed-table status and rebuilds.
 
 ---
 
 ## Minimum access for end users
 
-By default, only Workspace Admins can see all data. To give other users access:
+Databricks Apps authenticates the browser session, while all SQL runs as the app service principal. To manage app-level viewer and administrator roles:
 
-1. Go to **Settings → Permissions**.
+1. Go to **Settings → Permissions & Access**.
 2. Add users or groups.
 
 ---
@@ -142,10 +142,12 @@ By default, only Workspace Admins can see all data. To give other users access:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Dashboard shows no data | System table grants not applied | Settings → Permissions → Re-run SP Grants |
-| "Warehouse not found" on load | Warehouse resource not configured | Settings → Config, verify warehouse ID |
+| Dashboard shows no data | System table grants not applied | **Settings → Permissions & Access** → re-run SP grants |
+| "Warehouse not found" on load | Warehouse resource not configured | Verify the `sql-warehouse` app resource binding |
 | Materialized view build fails | SP missing `CREATE SCHEMA` / `CREATE TABLE` on catalog | Grant `CREATE SCHEMA` and `CREATE TABLE` on your catalog to the SP |
-| SQL Warehousing tab missing | `system.query.history` not granted | Run the optional query history grant shown in Settings → Permissions |
+| SQL Warehousing tab missing | `system.query.history` not granted | Run the optional query history grant shown in **Settings → Permissions & Access** |
 | Setup wizard loops | Stale browser cache | Hard-refresh (`Cmd+Shift+R` / `Ctrl+Shift+R`) |
 
-For additional diagnostics, use **Settings → Debugger → Run Diagnostics**, which checks every dependency and surfaces specific fix SQL for any failure.
+## Release source flow
+
+The internal repository is the source of truth. A release first lands on internal `origin/main` with the committed `static/` artifact, then `sync-mirror.sh` derives, validates, and normally pushes the customer-safe public repository. Do not build the frontend during public synchronization or push `external` directly.

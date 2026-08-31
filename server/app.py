@@ -5,26 +5,72 @@ import concurrent.futures
 import concurrent.futures.thread as _fut_thread
 import logging
 import os
+import re
 import threading
 import time
 import uuid
 import weakref
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta, timezone
+from contextvars import ContextVar
+from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.middleware.base import BaseHTTPMiddleware
 
-from server.routers import aiml, apps, aws_actual, azure_actual, gcp_actual, billing, dbsql, debug, health, permissions, settings, setup, tagging, user, users_groups, warehouse_health
+from server.routers import (
+    aiml,
+    apps,
+    aws_actual,
+    azure_actual,
+    billing,
+    dbsql,
+    debug,
+    gcp_actual,
+    health,
+    permissions,
+    settings,
+    setup,
+    tagging,
+    user,
+    users_groups,
+    warehouse_health,
+)
 from server.version import APP_VERSION
+
+_request_id: ContextVar[str] = ContextVar("request_id", default="-")
+
+
+def current_request_id() -> str:
+    """Return the correlation ID for the current request context."""
+    return _request_id.get()
+
+
+def _install_request_id_record_factory() -> None:
+    """Attach the current request ID to every log record."""
+    current_factory = logging.getLogRecordFactory()
+    if getattr(current_factory, "_cost_obs_request_id_factory", False):
+        return
+
+    def record_factory(*args, **kwargs):
+        record = current_factory(*args, **kwargs)
+        record.request_id = current_request_id()
+        return record
+
+    record_factory._cost_obs_request_id_factory = True
+    logging.setLogRecordFactory(record_factory)
+
+
+_install_request_id_record_factory()
 
 # Configure structured logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format=(
+        "%(asctime)s - %(name)s - %(levelname)s "
+        "[request_id=%(request_id)s] - %(message)s"
+    ),
 )
 
 logger = logging.getLogger(__name__)
@@ -38,16 +84,8 @@ logger = logging.getLogger(__name__)
 # REST-only, and real dashboard queries take over once the probe succeeds.
 
 
-class UserAuthMiddleware:
-    """Propagate x-forwarded-access-token into the db layer's ContextVar.
-
-    When Databricks Apps user authorization (Public Preview) is enabled, the
-    platform injects the end-user's OAuth token via this header on every request.
-    We store it in a ContextVar so get_connection() can use it instead of the SP
-    token, giving the user their own UC identity for all SQL queries.
-
-    If the header is absent the ContextVar stays at its default (""), and
-    get_connection() falls back to the service-principal path as before.
+class RequestContextMiddleware:
+    """Set request-scoped database context while enforcing SP-only SQL.
 
     Implemented as a pure ASGI middleware (not BaseHTTPMiddleware) because
     BaseHTTPMiddleware runs call_next in a separate task context, which breaks
@@ -91,18 +129,15 @@ class UserAuthMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
             from server.db import (
-                _auth_mode,
                 _request_cache_tag,
                 _user_token,
                 reset_source_labels,
                 set_source_labels,
             )
-            headers = {k.lower(): v for k, v in scope.get("headers", [])}
-            raw_token = headers.get(b"x-forwarded-access-token", b"").decode()
-            # If auth mode is locked to SP, never use the user token — every query
-            # in every request uses the service principal identity consistently.
-            token = "" if _auth_mode == "sp" else raw_token
-            ctx_token = _user_token.set(token)
+            # SQL execution is service-principal-only. Forwarded user identity is
+            # still read by route authorization, but OAuth credentials never enter
+            # the database context.
+            ctx_token = _user_token.set("")
             # Propagate the MV source-label selection (?source_labels=a,b) so MV
             # reads can be narrowed to the chosen sources. Absent/blank = all.
             sl_token = None
@@ -132,48 +167,87 @@ class UserAuthMiddleware:
             await self.app(scope, receive, send)
 
 
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Middleware for request/response logging with correlation IDs."""
+_SENSITIVE_EXCEPTION_VALUE = re.compile(
+    r"(?i)\b(authorization|token|password|secret|api[_-]?key)"
+    r"(\s*[:=]\s*)([^\s,;]+)"
+)
+_BEARER_VALUE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+")
+_URL_VALUE = re.compile(r"https?://[^\s]+", re.IGNORECASE)
 
-    # Paths that must never trigger on-demand warehouse warming. These are polled
-    # by the frontend on a fixed timer regardless of user activity, so warming on
-    # them would pin the warehouse online exactly like the old keepalive loop did.
-    # /api/health/sql-warehouse is polled every 5-15s while any tab is open.
-    _SILENT_PATHS = {"/api/ping", "/api/health", "/api/health/sql-warehouse"}
 
-    async def dispatch(self, request: Request, call_next):
-        # Skip logging for high-frequency keepalive / health endpoints
-        if request.url.path in self._SILENT_PATHS:
-            return await call_next(request)
+def _safe_exception_detail(exc: BaseException) -> str:
+    """Return useful exception context with common credential shapes removed."""
+    detail = str(exc).replace("\r", " ").replace("\n", " ")
+    detail = _SENSITIVE_EXCEPTION_VALUE.sub(r"\1\2[redacted]", detail)
+    detail = _BEARER_VALUE.sub("Bearer [redacted]", detail)
+    detail = _URL_VALUE.sub("[redacted-url]", detail)
+    return detail[:300] or "(no message)"
 
-        # No implicit warehouse warming here. The only synthetic recovery query is
-        # the explicit, client-throttled probe on /api/health/sql-warehouse.
 
-        # Generate request ID for correlation
-        request_id = str(uuid.uuid4())[:8]
-        start_time = time.time()
+class RequestLoggingMiddleware:
+    """Pure ASGI request logging with correlation IDs and unchanged errors."""
 
-        # Log incoming request
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request_id = uuid.uuid4().hex
+        request_id_token = _request_id.set(request_id)
+        started_at = time.monotonic()
+        status_code: int | None = None
+
+        async def send_with_request_id(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = int(message["status"])
+                headers = [
+                    (name, value)
+                    for name, value in message.get("headers", [])
+                    if name.lower() != b"x-request-id"
+                ]
+                headers.append((b"x-request-id", request_id.encode("ascii")))
+                message = {**message, "headers": headers}
+            await send(message)
+
+        method = scope.get("method", "UNKNOWN")
+        path = scope.get("path", "")
+        client = scope.get("client")
+        client_host = client[0] if client else "unknown"
         logger.info(
-            f"[{request_id}] → {request.method} {request.url.path} "
-            f"(client: {request.client.host if request.client else 'unknown'})"
+            "Request started method=%s path=%s client=%s",
+            method,
+            path,
+            client_host,
         )
-
-        # Process request
-        response = await call_next(request)
-
-        # Calculate duration
-        duration_ms = (time.time() - start_time) * 1000
-
-        # Log response
-        logger.info(
-            f"[{request_id}] ← {response.status_code} in {duration_ms:.0f}ms"
-        )
-
-        # Add request ID to response headers for debugging
-        response.headers["X-Request-ID"] = request_id
-
-        return response
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        except BaseException as exc:
+            duration_ms = (time.monotonic() - started_at) * 1000
+            logger.error(
+                "Request failed method=%s path=%s duration_ms=%.1f "
+                "exception_type=%s exception=%s",
+                method,
+                path,
+                duration_ms,
+                type(exc).__name__,
+                _safe_exception_detail(exc),
+            )
+            raise
+        else:
+            duration_ms = (time.monotonic() - started_at) * 1000
+            logger.info(
+                "Request completed method=%s path=%s status=%s duration_ms=%.1f",
+                method,
+                path,
+                status_code if status_code is not None else "unknown",
+                duration_ms,
+            )
+        finally:
+            _request_id.reset(request_id_token)
 
 
 def setup_and_check_warehouse():
@@ -185,7 +259,7 @@ def setup_and_check_warehouse():
     3. Logs the warehouse configuration for verification
     """
     try:
-        from server.db import setup_warehouse_connection, get_workspace_client
+        from server.db import get_workspace_client, setup_warehouse_connection
 
         # Set up the warehouse connection (creates dedicated warehouse if needed)
         http_path = setup_warehouse_connection()
@@ -239,9 +313,9 @@ def setup_and_check_warehouse():
 def setup_system_table_grants():
     """Grant the active identity access to all required system tables.
 
-    Runs at startup as a non-fatal step. Assumes the first user to deploy
-    the app is a workspace admin. If user auth (sql scope) is active the
-    grants run as the workspace admin user; otherwise they run as the SP.
+    Runs at startup as a non-fatal service-principal operation. If the app
+    principal cannot grant the required privileges, the setup wizard provides
+    administrator remediation.
 
     Grants cover every system table the app queries so no manual GRANT
     statements are ever needed after deployment.
@@ -301,9 +375,12 @@ def setup_system_table_grants():
         logger.info(f"System table grants complete: {succeeded} ok, {failed} failed")
 
         # Also grant the current identity permission to create the app schema.
-        # Needed when sql scope is not configured and the SP runs DDL.
         # Fails silently if the SP isn't a catalog owner/metastore admin.
-        from server.db import get_catalog_schema, validate_app_storage_target, StorageConfigurationError
+        from server.db import (
+            StorageConfigurationError,
+            get_catalog_schema,
+            validate_app_storage_target,
+        )
         catalog, schema = get_catalog_schema()
         try:
             validate_app_storage_target(catalog, schema)
@@ -324,9 +401,8 @@ def setup_system_table_grants():
                 else:
                     logger.debug(f"Catalog grant failed (non-fatal — SP may not own catalog): {e}")
 
-        # If running under user OAuth (workspace admin), also pre-grant the SP identity
-        # the UC permissions it needs on the app schema so scheduled nightly refresh works
-        # without manual grants. Non-fatal — skipped if DATABRICKS_CLIENT_ID is not set.
+        # If the current SDK principal and injected app client ID differ, also
+        # pre-grant the injected SP identity. Non-fatal and skipped when absent.
         sp_client_id = os.getenv("DATABRICKS_CLIENT_ID", "")
         if sp_client_id and sp_client_id != principal:
             http_path = os.getenv("DATABRICKS_HTTP_PATH", "")
@@ -479,7 +555,12 @@ def setup_materialized_views():
     — the wizard or a configuration fix is required before any writes happen.
     """
     try:
-        from server.db import get_catalog_schema, validate_app_storage_target, StorageConfigurationError, execute_query
+        from server.db import (
+            StorageConfigurationError,
+            execute_query,
+            get_catalog_schema,
+            validate_app_storage_target,
+        )
         from server.materialized_views import check_materialized_views_exist
 
         catalog, schema = get_catalog_schema()
@@ -641,14 +722,14 @@ def _run_mv_refresh(
     """Run CREATE OR REPLACE TABLE for all MV tables. Returns results dict."""
     import time
     from datetime import datetime, timezone
+
+    from server.db import _user_token as _db_user_token
+    from server.db import get_catalog_schema_status
     from server.materialized_views import refresh_materialized_views
-    from server.db import get_catalog_schema_status, _user_token as _db_user_token
     from server.routers.settings import load_refresh_log, persist_refresh_log
 
-    # Always run DDL as the service principal regardless of whether a user token
-    # is present.  The forwarded OAuth token (sql scope) grants SELECT access but
-    # does NOT guarantee CAN_USE on the warehouse or CREATE TABLE on the schema —
-    # both of which are required for a rebuild.  The SP owns both by design.
+    # Always run DDL as the service principal. The SP owns managed tables and
+    # scheduled maintenance by design.
     ctx_tok = _db_user_token.set("")
     logger.info("MV refresh running as service principal (forced for DDL)")
 
@@ -799,8 +880,8 @@ def startup_tasks():
 
     # Step 0c: Grant the active identity access to all required system tables
     # Only run on first setup — grants are persistent, no need to re-run every restart.
-    from server.routers.setup import SETUP_DONE_FILE
     from server.db import read_dbfs_setup_complete
+    from server.routers.setup import SETUP_DONE_FILE
     _setup_complete = os.path.exists(SETUP_DONE_FILE) or read_dbfs_setup_complete()
     if not _setup_complete:
         setup_system_table_grants()
@@ -825,10 +906,6 @@ def startup_tasks():
     except Exception as e:
         logger.warning(f"Workspace filter restore failed (non-fatal): {e}")
 
-    # prewarm_cache_sync() disabled — 7 parallel billing queries at startup compete with
-    # first-user DBSQL bundle requests. Re-enable once the 202+poll pattern is proven stable.
-    logger.info("Startup cache prewarm skipped (disabled for stability)")
-
     # Step 6: Pre-warm permissions check (warms SDK auth + caches result for wizard)
     try:
         from server.routers.permissions import _check_permissions_sync
@@ -837,10 +914,6 @@ def startup_tasks():
         logger.info("Permissions pre-warm complete")
     except Exception as e:
         logger.warning(f"Permissions pre-warm failed (non-fatal): {e}")
-
-    # prewarm_all_tabs() disabled — 9 tagging + 5 AI/ML queries in parallel saturate the
-    # warehouse exactly when the first user's DBSQL bundle request arrives. Re-enable once stable.
-    logger.info("All-tabs prewarm skipped (disabled for stability)")
 
     # Step 8: Pre-warm tables status cache so Settings panel loads instantly on first open.
     # Runs last — by this point the warehouse is warm and billing queries are cached.
@@ -1204,13 +1277,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Request logging middleware
-app.add_middleware(RequestLoggingMiddleware)
-
-# User authorization middleware — runs inside logging so requests show correct identity.
-# Reads x-forwarded-access-token injected by Databricks Apps when user authorization
-# is enabled (Public Preview). No-op when the header is absent.
-app.add_middleware(UserAuthMiddleware)
+# Request database context — SQL credentials remain service-principal-only.
+app.add_middleware(RequestContextMiddleware)
 
 # CORS configuration - externalized for production
 # Set CORS_ORIGINS env var for production (comma-separated list of origins)
@@ -1221,7 +1289,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-Forwarded-Email"],
+    expose_headers=["X-Request-ID"],
 )
+
+# Added last so it wraps CORS responses as well as routed requests.
+app.add_middleware(RequestLoggingMiddleware)
 
 # Include routers
 app.include_router(health.router, prefix="/api", tags=["health"])

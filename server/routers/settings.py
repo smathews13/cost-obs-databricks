@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Captured at module load time — proxy for "when this app process started",
 # which in Databricks Apps corresponds to the most recent deployment.
-_SERVER_START_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M") + " UTC"
+_SERVER_START_TIME = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M") + " UTC"
 
 
 def _require_admin(request: Request) -> str:
@@ -110,7 +110,7 @@ def _prewarm_tables_cache() -> None:
     """Populate the tables status cache proactively at startup.
 
     Called from startup_tasks() after the warehouse is warm so that the first
-    user to open the Config tab sees instant results instead of a 10-30s spinner.
+    user to open Data & tables sees instant results instead of a 10-30s spinner.
     Runs in a background thread — creates its own event loop to call the async
     endpoint, which is safe for non-main threads.
     """
@@ -147,7 +147,7 @@ AZURE_CONNECTIONS_FILE = os.path.join(SETTINGS_DIR, "azure_connections.json")
 # ── Delta table helpers (config tables that survive deploys) ──────────────────
 
 def _config_table(name: str) -> str:
-    from server.db import get_catalog_schema, validate_app_storage_target, StorageConfigurationError
+    from server.db import StorageConfigurationError, get_catalog_schema, validate_app_storage_target
     catalog, schema = get_catalog_schema()
     try:
         validate_app_storage_target(catalog, schema)
@@ -228,6 +228,7 @@ def _ensure_workspace_filter_table() -> None:
 def save_workspace_filter_to_table(workspace_ids: list) -> None:
     """Persist workspace filter pool to the app Delta config table."""
     import json as _json
+
     from server.db import execute_write
     _ensure_workspace_filter_table()
     table = _config_table("app_workspace_filter")
@@ -282,6 +283,7 @@ def save_refresh_log_to_delta(log_data: dict) -> None:
     """
     global _refresh_log_persistence_error
     import json as _json
+
     from server.db import execute_write
     try:
         _ensure_refresh_log_table()
@@ -521,7 +523,8 @@ def get_refresh_log_status(*, block_reason: str | None = None) -> dict | None:
     hours_since: float | None = None
     if last_refresh:
         try:
-            from datetime import datetime as _dt, timezone as _tz
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
             last = _dt.strptime(last_refresh, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_tz.utc)
             hours_since = round((_dt.now(_tz.utc) - last).total_seconds() / 3600, 1)
         except (TypeError, ValueError):
@@ -768,6 +771,7 @@ _warehouse_cache: dict | None = None  # in-process cache; cleared on server rest
 async def get_app_config():
     """Return current app configuration. Warehouse name fetched from SDK; other fields are instant from env vars."""
     import asyncio as _asyncio
+
     from server.db import get_catalog_schema
 
     # Warehouse: resolve ID from env vars, then look up name/state via SDK.
@@ -877,7 +881,7 @@ async def get_tables_status(request: Request, no_cache: bool = False):
 
 async def _get_tables_status_inner(request: Request):
     global _tables_cache, _tables_cache_ts
-    from server.db import get_catalog_schema_status, execute_query, _user_token
+    from server.db import _user_token, execute_query, get_catalog_schema_status
 
     # Read the raw forwarded token directly — _auth_mode may be locked to "sp"
     # (e.g. warehouse was cold on startup and the scope check failed), which forces
@@ -929,7 +933,6 @@ async def _get_tables_status_inner(request: Request):
         _tables_cache_ts = time.time()
         return result
 
-    from datetime import date
 
     # Tables that don't have a usage_date column — use an alternate date expression or skip date
     date_expr_overrides = {
@@ -980,7 +983,9 @@ async def _get_tables_status_inner(request: Request):
         # Use "TABLE_OR_VIEW_NOT_FOUND" and "table or view" as not-found signals;
         # do NOT use the generic "not found" which also matches COLUMN_NOT_FOUND
         # and would incorrectly mark an existing table with schema drift as absent.
-        _table_not_found = lambda e: ("TABLE_OR_VIEW_NOT_FOUND" in e or "table or view" in e.lower())
+        def _table_not_found(error: str) -> bool:
+            return "TABLE_OR_VIEW_NOT_FOUND" in error or "table or view" in error.lower()
+
         try:
             max_expr = date_expr_overrides.get(table_name, "MAX(usage_date)")
             min_expr = min_date_expr_overrides.get(table_name, "MIN(usage_date)")
@@ -1241,6 +1246,7 @@ def _detect_source_cloud(catalog: str) -> str | None:
 def _share_last_updated(catalog: str, schema: str, tables: list[str] | None) -> str | None:
     """Best-effort latest lastModified across the source's shared tables (ISO string)."""
     from datetime import datetime, timezone
+
     from server.db import execute_query
     from server.materialized_views import _MV_TABLES
 
@@ -1300,7 +1306,7 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
     `detail=1` (used by the settings modal, not the top-nav filter) adds each
     source's `share_last_updated` via a DESCRIBE DETAIL probe — kept off the default
     path so the frequently-polled nav filter stays fast."""
-    from server.db import get_mv_sources, get_local_source_label, save_mv_sources
+    from server.db import get_local_source_label, get_mv_sources, save_mv_sources
     sources = get_mv_sources()
     if detail:
         def _enrich():
@@ -1388,7 +1394,8 @@ async def check_mv_source_freshness(request: Request, label: str) -> dict:
     """
     await _require_admin_async(request)
     from datetime import datetime, timezone
-    from server.db import get_mv_sources, get_catalog_schema
+
+    from server.db import get_catalog_schema, get_mv_sources
     from server.materialized_views import (
         _MV_TABLES,
         _rebuild_unified_views_locked,
@@ -1447,7 +1454,7 @@ async def add_mv_source(request: Request, body: dict) -> dict:
     The source list and dependent view rebuild are one admin-only ordered
     operation across every server worker."""
     await _require_admin_async(request)
-    from server.db import get_mv_sources, save_mv_sources, get_catalog_schema
+    from server.db import get_catalog_schema, get_mv_sources, save_mv_sources
     from server.materialized_views import (
         _MV_TABLES,
         _rebuild_unified_views_locked,
@@ -1473,6 +1480,7 @@ async def add_mv_source(request: Request, body: dict) -> dict:
 
     def _add() -> tuple[list[dict], dict]:
         from datetime import datetime, timezone
+
         from server.db import save_unified_view_tables
 
         with unified_views_rebuild_lock():
@@ -1545,7 +1553,7 @@ async def add_mv_source(request: Request, body: dict) -> dict:
 async def remove_mv_source(request: Request, label: str = None) -> dict:
     """Remove an additional MV source by label and rebuild unified views."""
     await _require_admin_async(request)
-    from server.db import get_mv_sources, save_mv_sources, get_catalog_schema
+    from server.db import get_catalog_schema, get_mv_sources, save_mv_sources
     from server.materialized_views import (
         _rebuild_unified_views_locked,
         unified_views_rebuild_lock,
@@ -1614,8 +1622,10 @@ async def save_catalog_settings(request: Request, body: dict):
     """Save catalog/schema override from the Setup Wizard."""
     await _require_admin_async(request)
     import asyncio as _asyncio
+
     from fastapi import HTTPException
-    from server.db import save_catalog_schema, StorageConfigurationError
+
+    from server.db import StorageConfigurationError, save_catalog_schema
     catalog = (body.get("catalog") or "").strip()
     schema = (body.get("schema") or "").strip()
     if not catalog or not schema:
@@ -1687,8 +1697,9 @@ async def trigger_mv_refresh(
 @router.get("/auth-status")
 async def get_auth_status_endpoint():
     """Return current auth mode for the settings UI indicator."""
-    import os as _os
     import asyncio as _asyncio
+    import os as _os
+
     from server.db import get_auth_status, get_workspace_client
     status = get_auth_status()
     # Add SP identity and catalog/schema so the UI renders accurate GRANT SQL without placeholders
@@ -1729,6 +1740,7 @@ async def check_billing_access():
     Includes warehouse_id so the frontend can show the exact grant command.
     """
     import os as _os
+
     from server.db import _user_token, execute_query
     tok = _user_token.set("")
     try:
@@ -1929,7 +1941,7 @@ async def create_cloud_connection(request: Request, conn: CloudConnectionCreate)
         "id": str(uuid.uuid4())[:8],
         "name": conn.name,
         "provider": conn.provider,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
     if conn.provider == "azure":
@@ -2196,7 +2208,7 @@ def _load_user_permissions() -> dict:
 
 def _save_user_permissions_to_table(admins: list[str], consumers: list[str]) -> None:
     """Atomically replace permissions without exposing a zero-admin state."""
-    from server.db import execute_write, clear_query_cache
+    from server.db import clear_query_cache, execute_write
     if not admins:
         raise ValueError("At least one administrator is required.")
     # Ensure the table exists before writing. If this raises, the SP lacks

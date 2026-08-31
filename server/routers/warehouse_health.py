@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from server.db import execute_query, execute_queries_parallel
+from server.db import execute_queries_parallel, execute_query
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -505,8 +505,8 @@ async def get_warehouse_idle_time(
 ) -> dict[str, Any]:
     """Idle time per warehouse: uptime from warehouse_events (with 7-day lookback) minus active query time."""
     global _idle_time_cache, _idle_time_cache_ts
-    from server.routers.billing import get_default_start_date, get_default_end_date
     from server import workspace_filter as wf
+    from server.routers.billing import get_default_end_date, get_default_start_date
 
     sd = start_date or get_default_start_date()
     ed = end_date or get_default_end_date()
@@ -521,7 +521,8 @@ async def get_warehouse_idle_time(
     ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
     ws_clause_wh = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
 
-    from datetime import date as _date, timedelta as _timedelta
+    from datetime import date as _date
+    from datetime import timedelta as _timedelta
     _ed_dt = _date.fromisoformat(ed)
     params = {
         "start_ts": f"{sd} 00:00:00",

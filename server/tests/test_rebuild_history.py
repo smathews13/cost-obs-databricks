@@ -340,7 +340,10 @@ def test_delta_restore_merges_concurrent_snapshots_without_duplicates(tmp_path, 
 def test_append_refresh_history_appends_once_and_invalidates_tables_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "SETTINGS_DIR", str(tmp_path))
     monkeypatch.setattr(settings, "_tables_cache", {"stale": True})
-    with patch.object(settings, "save_refresh_log_to_delta") as save:
+    with (
+        patch.object(settings, "restore_refresh_log_from_delta", return_value=None),
+        patch.object(settings, "save_refresh_log_to_delta") as save,
+    ):
         settings.append_refresh_history(
             "skipped",
             "scheduled",

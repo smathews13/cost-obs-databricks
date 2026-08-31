@@ -1,10 +1,12 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ReadinessChecks, normalizeReadinessResult } from "./ReadinessChecks";
-import type { ReadinessResult } from "./ReadinessChecks";
+import { ReadinessChecks } from "./ReadinessChecks";
+import { normalizeReadinessResult } from "./readiness";
+import type { ReadinessResult } from "./readiness";
 import { READINESS_QUERY_KEY } from "@/hooks/useFeatureAvailability";
-import { Group, Row, SecondaryButton, LinkButton, MonoChip, Callout, useToast, T, MONO } from "./dubois";
+import { Group, Row, SecondaryButton, LinkButton, MonoChip, Callout, T, MONO } from "./dubois";
+import { useToast } from "./duboisToast";
 import { Spinner } from "@/components/Spinner";
 import "./settings.css";
 

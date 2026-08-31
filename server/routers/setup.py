@@ -4,11 +4,19 @@ import asyncio
 import json
 import logging
 import os
+import re as _re
+import threading
+import time
+from concurrent.futures import Future as _Future
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 
+from server.db import _user_token as _db_user_token
+from server.db import get_workspace_client
 from server.materialized_views import (
     _MV_TABLES,
     check_materialized_views_exist,
@@ -17,7 +25,6 @@ from server.materialized_views import (
     get_catalog_schema,
     refresh_materialized_views,
 )
-from server.db import get_workspace_client, _user_token as _db_user_token
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -69,6 +76,11 @@ def _restore_task_state() -> None:
         with open(_TASK_STATE_FILE) as fh:
             saved = json.load(fh)
     except FileNotFoundError:
+        # The deterministic release suite must not perform credential discovery
+        # or a DBFS request while pytest is still collecting modules. Network
+        # blocking fixtures and per-test deadlines are not active at that point.
+        if os.getenv("COST_OBS_RELEASE_TESTING") == "1":
+            return
         try:
             from server.db import read_dbfs_build_state
             saved = read_dbfs_build_state()
@@ -268,7 +280,8 @@ def _grant_sp_schema_access(catalog: str, schema: str) -> dict:
     ok = failed = 0
     errors: list[str] = []
 
-    from server.db import execute_query as _exec, _user_token as _exec_tok
+    from server.db import _user_token as _exec_tok
+    from server.db import execute_query as _exec
     for sql_stmt, label in grant_stmts:
         ctx = _exec_tok.set("")  # force SP auth for sql scope
         try:
@@ -863,7 +876,7 @@ def _clean_sdk_error(msg: str) -> str:
 
 def _execute_as_sp(sql: str) -> list[dict]:
     """Execute a query as the SP — explicitly clears the user token from context."""
-    from server.db import execute_query, _user_token
+    from server.db import _user_token, execute_query
     tok = _user_token.set("")
     try:
         return execute_query(sql, no_cache=True) or []
@@ -1073,8 +1086,8 @@ def _create_tables_task(catalog: str, schema: str, user_token: str = ""):
         from server.db import _ensure_response_cache_table
         from server.materialized_views import _ensure_refresh_state_table
         from server.routers.settings import (
-            _ensure_permissions_table,
             _ensure_app_settings_table,
+            _ensure_permissions_table,
             _ensure_refresh_log_table,
             _ensure_schedule_table,
             _ensure_workspace_filter_table,
@@ -1343,7 +1356,7 @@ async def refresh_aws_cur_tables(
     the silver and gold tables.
     """
     await _require_setup_admin(request)
-    from server.aws_cur_setup import refresh_cur_tables, get_catalog_schema
+    from server.aws_cur_setup import get_catalog_schema, refresh_cur_tables
 
     cat, sch = get_catalog_schema()
     target_catalog = catalog or cat
@@ -1432,7 +1445,8 @@ def _grant_user_catalog_visibility(
         user_email = me.user_name or ""
         if not user_email:
             return
-        from server.db import execute_query as _exec, _user_token as _exec_tok
+        from server.db import _user_token as _exec_tok
+        from server.db import execute_query as _exec
         ctx = _exec_tok.set("")  # clear user token → SP M2M auth (has sql scope + owns objects)
         try:
             _exec(f"GRANT USE CATALOG ON CATALOG `{catalog}` TO `{user_email}`", no_cache=True)
@@ -1453,8 +1467,8 @@ def _grant_user_catalog_visibility(
         finally:
             _exec_tok.reset(ctx)
         logger.info(
-            f"Granted USE CATALOG + MANAGE ON CATALOG"
-            + (f" + USE SCHEMA + SELECT ON SCHEMA + MANAGE ON SCHEMA" if schema else "")
+            "Granted USE CATALOG + MANAGE ON CATALOG"
+            + (" + USE SCHEMA + SELECT ON SCHEMA + MANAGE ON SCHEMA" if schema else "")
             + f" on `{catalog}`" + (f".`{schema}`" if schema else "")
             + f" to {user_email}"
         )
@@ -1495,7 +1509,8 @@ async def ensure_catalog(request: Request) -> dict[str, Any]:
         if not user_token or not sp_id:
             return False
         try:
-            from server.db import execute_query as _exec, _user_token as _exec_tok
+            from server.db import _user_token as _exec_tok
+            from server.db import execute_query as _exec
             # Run the GRANT as the calling user (catalog owner). The user token is
             # set directly in the ContextVar so get_connection() uses it for auth.
             ctx = _exec_tok.set(user_token)
@@ -1520,7 +1535,8 @@ async def ensure_catalog(request: Request) -> dict[str, Any]:
         if not user_token or not sp_id:
             return False
         try:
-            from server.db import execute_query as _exec, _user_token as _exec_tok
+            from server.db import _user_token as _exec_tok
+            from server.db import execute_query as _exec
             ctx = _exec_tok.set(user_token)
             try:
                 _exec(f"GRANT CREATE CATALOG ON METASTORE TO `{sp_id}`", no_cache=True)
@@ -1695,8 +1711,9 @@ async def grant_catalog_access(request: Request) -> dict[str, Any]:
     user_email = request.headers.get("X-Forwarded-Email", "")
 
     try:
-        from server.db import get_user_workspace_client
         from databricks.sdk.service.catalog import SecurableType
+
+        from server.db import get_user_workspace_client
 
         loop = _asyncio.get_running_loop()
 
@@ -1764,14 +1781,6 @@ async def grant_catalog_access(request: Request) -> dict[str, Any]:
 # ============================================================================
 # Readiness Checks
 # ============================================================================
-
-import re as _re
-import threading
-import time
-from concurrent.futures import Future as _Future
-from dataclasses import dataclass
-from enum import Enum
-
 
 class CheckStatus(str, Enum):
     HEALTHY = "healthy"
@@ -1845,7 +1854,7 @@ def _run_blocking_warehouse_check() -> WarehouseCheckResult:
     if no warehouse is resolvable, instead of letting execute_query fail
     with an unhelpful connection error.
     """
-    from server.db import execute_query, _user_token
+    from server.db import _user_token, execute_query
     source, warehouse_id = _resolve_warehouse_config()
     if source == "none":
         return WarehouseCheckResult(
@@ -1996,8 +2005,8 @@ def _build_fix_sql(table: str, sp_client_id: str) -> str:
 
 def _check_table_as_sp(table: str) -> tuple[bool, str]:
     """Run check_table_access with the user token cleared (forces SP auth)."""
-    from server.routers.permissions import check_table_access
     from server.db import _user_token
+    from server.routers.permissions import check_table_access
     tok = _user_token.set("")
     try:
         return check_table_access(table)
@@ -2077,6 +2086,7 @@ def _calc_overall(
 def _check_readiness_sync(bypass_cache: bool = False) -> dict[str, Any]:
     """Run all readiness checks as the SP and return a categorized result."""
     from concurrent.futures import as_completed
+
     from server.routers.permissions import REQUIRED_PERMISSIONS
 
     global _table_readiness_cache, _table_readiness_cache_ts
@@ -2375,7 +2385,7 @@ async def get_workspace_filter() -> dict:
     try:
         from server.db import execute_query, get_catalog_schema
         catalog, schema = get_catalog_schema()
-        rows = await asyncio.to_thread(execute_query, 
+        rows = await asyncio.to_thread(execute_query,
             f"SELECT workspace_ids FROM `{catalog}`.`{schema}`.app_workspace_filter LIMIT 1",
             no_cache=True,
         )
@@ -2425,8 +2435,8 @@ def restore_workspace_filter_from_delta() -> None:
 @router.post("/save-workspace-filter")
 async def save_workspace_filter(request: Request) -> dict:
     """Persist selected workspace IDs to .settings/workspace_filter.json and Delta. Admin only."""
-    import time as _time
     import re as _re
+    import time as _time
     t0 = _time.monotonic()
 
     user_email = await _require_setup_admin(request)
@@ -2441,7 +2451,7 @@ async def save_workspace_filter(request: Request) -> dict:
     try:
         from server.db import execute_query, get_catalog_schema
         _catalog, _schema = get_catalog_schema()
-        _rows = await asyncio.to_thread(execute_query, 
+        _rows = await asyncio.to_thread(execute_query,
             f"SELECT COUNT(*) as cnt FROM `{_catalog}`.`{_schema}`.app_workspace_filter",
             no_cache=True,
         )
@@ -2557,7 +2567,7 @@ async def drop_mvs(request: Request) -> dict:
 @router.get("/mv-overrides")
 async def get_mv_overrides() -> dict:
     """Return current MV table name overrides and the default table names."""
-    from server.db import get_mv_table_overrides, get_catalog_schema
+    from server.db import get_catalog_schema, get_mv_table_overrides
     catalog, schema = get_catalog_schema()
     overrides = get_mv_table_overrides()
     tables = []

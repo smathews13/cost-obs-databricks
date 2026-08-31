@@ -6,31 +6,8 @@
  * system.billing.account_prices. All spend values in the UI are scaled by
  * this multiplier, reflecting the customer's negotiated rates.
  */
-import React, { createContext, useContext, useEffect, useState } from "react";
-
-interface PricingState {
-  useAccountPrices: boolean;
-  multiplier: number;
-  discountPercent: number;
-  skuCount: number;
-  available: boolean;
-  loading: boolean;
-  /** Scale a spend amount by the active pricing multiplier */
-  applyPricing: (amount: number) => number;
-  /** Toggle the setting and reload multiplier */
-  setUseAccountPrices: (enabled: boolean) => Promise<void>;
-}
-
-const PricingContext = createContext<PricingState>({
-  useAccountPrices: false,
-  multiplier: 1.0,
-  discountPercent: 0,
-  skuCount: 0,
-  available: false,
-  loading: true,
-  applyPricing: (x) => x,
-  setUseAccountPrices: async () => {},
-});
+import React, { useEffect, useState } from "react";
+import { PricingContext } from "./pricingState";
 
 export function PricingProvider({ children }: { children: React.ReactNode }) {
   const [useAccountPrices, setUseAccountPricesState] = useState(false);
@@ -103,8 +80,4 @@ export function PricingProvider({ children }: { children: React.ReactNode }) {
       {children}
     </PricingContext.Provider>
   );
-}
-
-export function usePricing() {
-  return useContext(PricingContext);
 }

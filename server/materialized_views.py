@@ -1513,7 +1513,7 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
         schema = schema or sch
 
     # Hard safety gate — never touch forbidden or unconfigured locations
-    from server.db import validate_app_storage_target, StorageConfigurationError
+    from server.db import StorageConfigurationError, validate_app_storage_target
     try:
         validate_app_storage_target(catalog, schema)
     except StorageConfigurationError as e:
@@ -1597,17 +1597,17 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
         err_str = str(e)
         err_lower = err_str.lower()
         if any(kw in err_lower for kw in ("insufficient_privileges", "does not have", "permission", "unauthorized", "error during request")):
-            from server.db import get_workspace_client, _user_token
+            from server.db import _user_token, get_workspace_client
             # Identify who actually ran the query so the error message is accurate
             running_as_user = bool(_user_token.get())
             try:
                 if running_as_user:
                     from server.db import get_user_workspace_client
                     identity = get_user_workspace_client().current_user.me().user_name or "your user account"
-                    grant_note = f"As a metastore admin, run:"
+                    grant_note = "As a metastore admin, run:"
                 else:
                     identity = get_workspace_client().current_user.me().user_name or "<app-service-principal>"
-                    grant_note = f"A catalog owner or metastore admin must run:"
+                    grant_note = "A catalog owner or metastore admin must run:"
             except Exception:
                 identity = "your user account" if running_as_user else "<app-service-principal>"
                 grant_note = "A catalog owner or metastore admin must run:"
@@ -1643,9 +1643,8 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
     ]
 
     # Create all tables in parallel — none depend on each other
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
     import time as _time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def _create_table(table_name: str, create_sql: str) -> tuple[str, str, float]:
         from datetime import timedelta as _td
@@ -2067,7 +2066,12 @@ def _drop_unified_views_locked(
     persist_registry: bool = True,
 ) -> None:
     """Drop unified views while the caller holds ``unified_views_rebuild_lock``."""
-    from server.db import execute_query, get_catalog_schema, save_unified_view_tables, MV_UNIFIED_SUFFIX
+    from server.db import (
+        MV_UNIFIED_SUFFIX,
+        execute_query,
+        get_catalog_schema,
+        save_unified_view_tables,
+    )
 
     if catalog is None or schema is None:
         c, s = get_catalog_schema()
@@ -2114,7 +2118,7 @@ def check_materialized_views_exist(catalog: str | None = None, schema: str | Non
     # their own tables), then fall back to the SP client. Never fall back to SQL — a
     # schema-not-found error from the UC API means the tables simply don't exist yet,
     # and SQL connections would hang for minutes against a warehouse the SP can't use.
-    from server.db import get_workspace_client, get_user_workspace_client
+    from server.db import get_user_workspace_client, get_workspace_client
     clients_to_try = []
     try:
         user_client = get_user_workspace_client()

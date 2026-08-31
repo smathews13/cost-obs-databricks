@@ -55,18 +55,17 @@ echo $DATABRICKS_CLIENT_ID   # e.g. 0000-aaaa-bbbb-1234
 2. Navigate to the **Platform KPIs** section.
 3. Verify:
    - Job count, query count, cluster count, and model serving counts show real values (not `0` or `—`).
-   - If any card shows `—` with a reason like "query.history grant required", the corresponding SP grant is missing — apply the grant bundle from **Settings → Permissions**.
+   - If any card shows `—` with a reason like "query.history grant required", the corresponding SP grant is missing — apply the grant bundle from **Settings → Permissions & Access**.
    - No card shows `$0.00` when the date range has activity.
 
 **Fail signal:** A KPI shows `0` for a metric that historically had data → fake-zero regression. Check `system.query.history` and `system.lakeflow.pipelines` grants.
 
 ---
 
-## 4. Settings → Debugger
+## 4. Diagnostics API
 
-1. Open **Settings → Debugger**.
-2. Click **Run Diagnostics**.
-3. Verify all checks pass (green). 
+1. Call `GET /api/debug/run` as an app administrator.
+2. Verify all core checks report a passing status.
 
 **Acceptable:** Enhanced table checks in amber if optional grants not applied.
 
@@ -76,7 +75,7 @@ echo $DATABRICKS_CLIENT_ID   # e.g. 0000-aaaa-bbbb-1234
 
 ## 5. Cache invalidation after grant apply
 
-1. In **Settings → Permissions**, click **Run SP Grants**.
+1. In **Settings → Permissions & Access**, click **Run SP Grants**.
 2. After the grant completes, verify the Readiness section updates within 5 seconds (no manual refresh required).
 
 **Fail signal:** Readiness section still shows stale state after grant → `queryClient.invalidateQueries` is not firing; check the `READINESS_QUERY_KEY` import in `SettingsPermissions.tsx`.
@@ -85,7 +84,7 @@ echo $DATABRICKS_CLIENT_ID   # e.g. 0000-aaaa-bbbb-1234
 
 ## 6. Drop Tables safety gate
 
-1. Open **Settings → Config**.
+1. Open **Settings → Data & tables**.
 2. Verify the **Drop Tables** button is present.
 3. If all tables exist (healthy), click it — a CONFIRM input must appear.
 4. Type `con` (lowercase partial) — **Confirm Drop** button must remain disabled.
@@ -98,10 +97,10 @@ echo $DATABRICKS_CLIENT_ID   # e.g. 0000-aaaa-bbbb-1234
 
 ## 7. Auth mode displayed correctly
 
-Open **Settings → Debugger** → **Deployment Info** section:
+Call `GET /api/settings/auth-status`:
 
-- `Auth mode` must show `"service_principal"` (not `"user"` when running as SP)
-- Source must be from `/api/settings/auth-status`, not a hardcoded fallback
+- `Auth mode` must show `"service_principal"`.
+- Forwarded user credentials must not be active for SQL.
 
 ---
 
@@ -112,6 +111,6 @@ Open **Settings → Debugger** → **Deployment Info** section:
 | Readiness `overall` | `ready` / `core_ready` | Re-apply SP grant bundle |
 | `sp_client_id` matches env var | Match | Update grants to new SP client ID |
 | Platform KPIs show real values | Non-zero values | Apply missing table grants |
-| Diagnostics all green | All pass | Apply fix from Debugger fix button |
+| Diagnostics all green | All pass | Apply the endpoint's remediation guidance |
 | Cache refreshes after grant | Auto-refresh | Check READINESS_QUERY_KEY import |
 | Drop Tables requires CONFIRM | Gated | Regression — revert SettingsConfig change |

@@ -49,8 +49,6 @@ idna==3.11
     #   anyio
     #   httpx
     #   requests
-lxml==6.0.2
-    # via python-docx
 lz4==4.4.5
     # via databricks-sql-connector
 numpy==2.4.1
@@ -64,9 +62,7 @@ openpyxl==3.1.5
 pandas==2.2.3
     # via databricks-sql-connector
 protobuf==5.29.6
-    # via
-    #   cost-observability-control
-    #   databricks-sdk
+    # via databricks-sdk
 pyarrow==23.0.0
     # via databricks-sql-connector
 pyasn1==0.6.2
@@ -79,18 +75,10 @@ pydantic==2.12.5
     # via fastapi
 pydantic-core==2.41.5
     # via pydantic
-pymupdf==1.27.2
-    # via cost-observability-control
 python-dateutil==2.9.0.post0
     # via pandas
-python-docx==1.2.0
-    # via cost-observability-control
 python-dotenv==1.2.1
-    # via
-    #   cost-observability-control
-    #   uvicorn
-python-multipart==0.0.22
-    # via cost-observability-control
+    # via uvicorn
 pytz==2025.2
     # via pandas
 pyyaml==6.0.3
@@ -115,7 +103,6 @@ typing-extensions==4.15.0
     #   fastapi
     #   pydantic
     #   pydantic-core
-    #   python-docx
     #   starlette
     #   typing-inspection
 typing-inspection==0.4.2
@@ -133,6 +120,4 @@ uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'c
 watchfiles==1.1.1
     # via uvicorn
 websockets==12.0
-    # via
-    #   cost-observability-control
-    #   uvicorn
+    # via uvicorn

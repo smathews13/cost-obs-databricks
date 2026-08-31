@@ -11,10 +11,10 @@ One-page incident reference. Start at the symptom that matches; follow the steps
 **Steps:**
 1. Check `GET /api/setup/readiness` → look at `overall` and `warehouse.granted`.
 2. If `warehouse.granted: false` → the SP needs CAN_USE on the SQL warehouse. Grant via: SQL Warehouses → [warehouse name] → Permissions → Add the SP (cannot be done via SQL).
-3. If any `core[]` item has `granted: false` → open **Settings → Permissions**, copy the **Section 1 grant bundle**, run it as a metastore admin. The SP client ID rotates on each git deploy; grants from the previous deploy are orphaned.
-4. After applying grants, click **Run Diagnostics** in **Settings → Debugger** to confirm all checks pass.
+3. If any `core[]` item has `granted: false` → open **Settings → Permissions & Access**, copy the **Section 1 grant bundle**, and run it as a metastore admin.
+4. After applying grants, call `GET /api/debug/run` as an app administrator to confirm all core checks pass.
 
-**Key fact:** SP client ID rotates on every git deploy. Grants must be re-applied after every deploy.
+**Key fact:** All SQL runs as the app service principal. Apply grants to the service principal ID reported by the current deployment.
 
 ---
 
@@ -24,7 +24,7 @@ One-page incident reference. Start at the symptom that matches; follow the steps
 
 **Steps:**
 1. Hover over the "—" card — the tooltip shows which table is missing (e.g. `query.history grant required`).
-2. Go to **Settings → Permissions** → copy the Section 1 grant bundle.
+2. Go to **Settings → Permissions & Access** → copy the Section 1 grant bundle.
 3. Run the grant as a metastore admin.
 4. After ~30 seconds the card will refresh automatically (cache invalidation fires on grant apply).
 
@@ -35,7 +35,7 @@ One-page incident reference. Start at the symptom that matches; follow the steps
 **Root cause:** Readiness cache has not been invalidated, or the grant targeted the wrong SP.
 
 **Steps:**
-1. In **Settings → Permissions**, verify `SP Client ID` matches `DATABRICKS_CLIENT_ID` in the Apps UI → Environment Variables. If they differ, grants were applied to the old SP — re-apply to the current one.
+1. In **Settings → Permissions & Access**, verify `SP Client ID` matches `DATABRICKS_CLIENT_ID` in the Apps UI → Environment Variables. If they differ, grants were applied to the wrong SP — re-apply to the current one.
 2. Click **Re-check Readiness** (or **Run SP Grants** which also invalidates the cache).
 3. If still stuck: call `GET /api/setup/readiness?refresh=true` to force a bypass-cache check.
 
@@ -46,17 +46,17 @@ One-page incident reference. Start at the symptom that matches; follow the steps
 **Root cause:** The system is in a degraded state — one or more required tables have `exists: false`. This is intentional safety gate.
 
 **Resolution:**
-1. Go to **Settings → Debugger** → **Run Diagnostics** to identify which tables are missing.
+1. Call `GET /api/debug/run` as an app administrator to identify which tables are missing.
 2. Fix the underlying issue (grant missing tables, rebuild) before dropping.
 3. If you must drop in a degraded state (emergency recovery), note: the button is disabled to prevent deepening an existing outage. Use the API directly with caution: `DELETE /api/setup/tables` — this requires a separate service account token.
 
 ---
 
-## Symptom: Settings → Debugger shows "Auth mode: user" but should be SP
+## Symptom: Authentication status is not service principal
 
-**Root cause:** A user OAuth token is in the request context (user is accessing via browser), which overrides SP identity for the permissions display.
+**Root cause:** The deployment is inconsistent with the supported service-principal-only execution model.
 
-**This is expected behavior** — the debugger shows the requesting user's identity. To see the SP's identity, call the endpoint from a context without a forwarded token (e.g. curl with a PAT, not a browser session).
+**Resolution:** Call `GET /api/settings/auth-status` and verify the app reports service-principal mode. Confirm the bound warehouse resource and app service principal configuration; forwarded browser credentials must not be used for SQL.
 
 ---
 
@@ -65,10 +65,10 @@ One-page incident reference. Start at the symptom that matches; follow the steps
 **Root cause:** SP identity mismatch, or warehouse is in STOPPED state.
 
 **Steps:**
-1. In **Settings → Config**, check the warehouse source: `app_resource` (managed by Apps) vs. `http_path` (configured manually).
-2. If `http_path`, verify the warehouse is running and the SP has CAN_USE.
-3. If `app_resource`, verify the Apps environment has `DATABRICKS_WAREHOUSE_ID` set correctly.
-4. Click the **Grant SQL** button in the Debugger for the failing warehouse check to get the exact fix SQL.
+1. Verify the app has a SQL warehouse resource bound with key `sql-warehouse`.
+2. Confirm the Apps environment receives `DATABRICKS_WAREHOUSE_ID` from that resource.
+3. Verify the warehouse is running and the app service principal has `CAN_USE`.
+4. Use **Settings → Permissions & Access** for the generated remediation guidance.
 
 ---
 

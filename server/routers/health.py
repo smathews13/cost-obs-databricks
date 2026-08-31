@@ -10,7 +10,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
 from cachetools import TTLCache
-from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi import APIRouter, Request
 
 from server import cache_ttls
 
@@ -499,7 +499,7 @@ async def _check_database() -> dict[str, Any]:
 def _get_cache_stats() -> dict[str, Any]:
     """Get query cache statistics."""
     try:
-        from server.db import _query_cache, _CACHE_MAX_SIZE, _CACHE_TTL
+        from server.db import _CACHE_MAX_SIZE, _CACHE_TTL, _query_cache
 
         current_size = len(_query_cache)
 
@@ -538,14 +538,6 @@ def _get_memory_info() -> dict[str, Any]:
             "status": "unknown",
             "error": str(e),
         }
-
-
-def _run_prewarm():
-    """Run cache prewarm in background."""
-    # prewarm_cache_sync() disabled — 7 parallel billing queries compete with first user request
-    logger.info("Cache prewarm skipped (disabled for stability)")
-    # prewarm_all_tabs() disabled — 9 tagging + 5 AI/ML queries saturate the warehouse at startup
-    logger.info("All-tabs prewarm skipped (disabled for stability)")
 
 
 @router.post("/cache/clear")
@@ -640,26 +632,6 @@ async def clear_cache(request: Request, tab: str | None = None) -> dict[str, Any
         except Exception:
             pass
         return {"status": "ok", "tab": "all", "cleared": cleared}
-
-
-@router.post("/prewarm")
-async def trigger_cache_prewarm(
-    request: Request,
-    background_tasks: BackgroundTasks,
-) -> dict[str, Any]:
-    """Trigger cache pre-warming for all dashboard queries.
-
-    This runs in the background and returns immediately.
-    Use /api/health/detailed to check cache status.
-    """
-    from server.auth import require_admin
-
-    await require_admin(request)
-    background_tasks.add_task(_run_prewarm)
-    return {
-        "status": "started",
-        "message": "Cache pre-warming started in background. Check /api/health/detailed for cache stats."
-    }
 
 
 @router.get("/query-diag")
@@ -799,11 +771,14 @@ async def billing_diagnostics(request: Request) -> dict[str, Any]:
 
     def _run_billing_tests() -> tuple[dict, dict]:
         from server.materialized_views import (
-            MV_BILLING_SUMMARY, MV_BILLING_BY_PRODUCT, MV_BILLING_BY_WORKSPACE,
-            MV_BILLING_TIMESERIES, MV_ETL_BREAKDOWN,
+            MV_BILLING_BY_PRODUCT,
+            MV_BILLING_BY_WORKSPACE,
+            MV_BILLING_SUMMARY,
+            MV_BILLING_TIMESERIES,
+            MV_ETL_BREAKDOWN,
         )
+        from server.queries import BILLING_BY_PRODUCT_FAST, BILLING_BY_WORKSPACE, BILLING_SUMMARY
         from server.routers.billing import _exec_mv
-        from server.queries import BILLING_SUMMARY, BILLING_BY_PRODUCT_FAST, BILLING_BY_WORKSPACE
 
         mv_tests: dict[str, str] = {}
         fallback_tests: dict[str, str] = {}

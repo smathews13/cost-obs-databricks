@@ -12,8 +12,9 @@ import {
 import { useKPITrend, usePlatformKPITrend, useAppsKPITrend } from "@/hooks/useKPITrend";
 import { formatCurrency, formatNumber, formatBytesNoDecimal, formatRowCount, formatComputeSecondsCompact } from "@/utils/formatters";
 import { C, FONT_MONO } from "@/theme";
-import { changeTone } from "@/components/brand";
-import { InkTooltip, axisTick, gridStroke, baselineStroke } from "@/components/chartTheme";
+import { changeTone } from "@/components/brandHelpers";
+import { InkTooltip } from "@/components/chartTheme";
+import { axisTick, gridStroke, baselineStroke } from "@/components/chartConstants";
 import { Spinner } from "@/components/Spinner";
 import { Dialog } from "@/components/ui/Dialog";
 

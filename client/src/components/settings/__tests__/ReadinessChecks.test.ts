@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { normalizeReadinessResult } from "../ReadinessChecks";
-import type { ReadinessResult } from "../ReadinessChecks";
+import { normalizeReadinessResult } from "../readiness";
+import type { ReadinessResult } from "../readiness";
 
 // ---------------------------------------------------------------------------
 // normalizeReadinessResult: pure function, no DOM needed
@@ -34,7 +34,8 @@ describe("normalizeReadinessResult", () => {
   });
 
   it("returns null when warehouse field is missing", () => {
-    const { warehouse: _omit, ...noWarehouse } = validPayload;
+    const noWarehouse: Partial<typeof validPayload> = { ...validPayload };
+    delete noWarehouse.warehouse;
     expect(normalizeReadinessResult(noWarehouse)).toBeNull();
   });
 
@@ -53,14 +54,17 @@ describe("normalizeReadinessResult", () => {
   });
 
   it("defaults overall to 'not_ready' when field is missing", () => {
-    const { overall: _omit, ...noOverall } = validPayload;
+    const noOverall: Partial<typeof validPayload> = { ...validPayload };
+    delete noOverall.overall;
     const result = normalizeReadinessResult(noOverall) as ReadinessResult;
     expect(result).not.toBeNull();
     expect(result.overall).toBe("not_ready");
   });
 
   it("defaults core and enhanced to empty arrays when missing", () => {
-    const { core: _c, enhanced: _e, ...noCoreEnhanced } = validPayload;
+    const noCoreEnhanced: Partial<typeof validPayload> = { ...validPayload };
+    delete noCoreEnhanced.core;
+    delete noCoreEnhanced.enhanced;
     const result = normalizeReadinessResult(noCoreEnhanced) as ReadinessResult;
     expect(result).not.toBeNull();
     expect(result.core).toEqual([]);
@@ -68,7 +72,10 @@ describe("normalizeReadinessResult", () => {
   });
 
   it("defaults warehouse source to 'none' when missing", () => {
-    const { source: _omit, ...noSource } = validPayload.warehouse;
+    const noSource: Partial<typeof validPayload.warehouse> = {
+      ...validPayload.warehouse,
+    };
+    delete noSource.source;
     const result = normalizeReadinessResult({ ...validPayload, warehouse: noSource }) as ReadinessResult;
     expect(result).not.toBeNull();
     expect(result.warehouse.source).toBe("none");

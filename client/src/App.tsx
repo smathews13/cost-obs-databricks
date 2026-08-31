@@ -19,7 +19,8 @@ import {
   getRequiredExportTabs,
   type ExportSections,
 } from "@/utils/exportDemand";
-import { PricingProvider, usePricing } from "@/context/PricingContext";
+import { PricingProvider } from "@/context/PricingContext";
+import { usePricing } from "@/context/pricingState";
 import { SpNameMapContext } from "@/utils/identity";
 import { Footer } from "@/components/Footer";
 import { UserMenu } from "@/components/UserMenu";

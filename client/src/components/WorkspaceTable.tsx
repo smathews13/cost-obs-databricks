@@ -1,4 +1,4 @@
-import { Fragment, useState, useRef, useEffect, useMemo, memo } from "react";
+import { Fragment, useState, useRef, useEffect, useMemo, memo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { WorkspaceBreakdownResponse } from "@/types/billing";
 import { formatCurrency, formatNumber, workspaceUrl } from "@/utils/formatters";
@@ -67,17 +67,20 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
   const [userSearch, setUserSearch] = useState("");
   const productDropdownRef = useRef<HTMLDivElement>(null);
   const userDropdownRef = useRef<HTMLDivElement>(null);
+  const closeUserDropdown = useCallback(() => {
+    setUserDropdownOpen(false);
+    setUserSearch("");
+  }, []);
+
   useEffect(() => {
-    // Reset user search when its dropdown closes so reopening starts fresh
-    if (!userDropdownOpen) setUserSearch("");
     if (!productDropdownOpen && !userDropdownOpen) return;
     const handler = (e: MouseEvent) => {
       if (productDropdownOpen && productDropdownRef.current && !productDropdownRef.current.contains(e.target as Node)) setProductDropdownOpen(false);
-      if (userDropdownOpen && userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) setUserDropdownOpen(false);
+      if (userDropdownOpen && userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) closeUserDropdown();
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [productDropdownOpen, userDropdownOpen]);
+  }, [closeUserDropdown, productDropdownOpen, userDropdownOpen]);
 
   const workspaces = data?.workspaces;
   const allProducts = useMemo(
@@ -208,7 +211,10 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
           {allProducts.length > 0 && (
             <div className="relative" ref={productDropdownRef}>
               <button
-                onClick={() => { setProductDropdownOpen((o) => !o); setUserDropdownOpen(false); }}
+                onClick={() => {
+                  setProductDropdownOpen((open) => !open);
+                  closeUserDropdown();
+                }}
                 className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isProductFilterActive ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
               >
                 {productFilters.length === 1 ? formatProductName(productFilters[0]) : isProductFilterActive ? `${productFilters.length} Products` : "Products"}
@@ -247,7 +253,11 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
           {allUsers.length > 0 && (
             <div className="relative" ref={userDropdownRef}>
               <button
-                onClick={() => { setUserDropdownOpen((o) => !o); setProductDropdownOpen(false); }}
+                onClick={() => {
+                  if (userDropdownOpen) closeUserDropdown();
+                  else setUserDropdownOpen(true);
+                  setProductDropdownOpen(false);
+                }}
                 className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isUserFilterActive ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
               >
                 {userFilters.length === 1 ? formatIdentity(userFilters[0], spNameMap) : isUserFilterActive ? `${userFilters.length} Users` : "Users"}

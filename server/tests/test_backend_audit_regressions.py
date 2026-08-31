@@ -866,6 +866,7 @@ def test_successful_runs_trend_filters_lakeflow_by_workspace():
     with (
         patch.object(billing, "delta_cache_get", return_value=None),
         patch.object(billing, "delta_cache_put") as cache_put,
+        patch.object(billing, "_check_mv_available", return_value=True),
         patch.object(
             billing,
             "capture_cache_generation",

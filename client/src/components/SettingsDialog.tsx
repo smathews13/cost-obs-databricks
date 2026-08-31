@@ -5,8 +5,9 @@ import { SettingsDebugger } from "./settings";
 import { READINESS_QUERY_KEY } from "@/hooks/useFeatureAvailability";
 import { SetupWizard } from "./SetupWizard";
 import {
-  ToastProvider, useToast, Badge, T,
+  ToastProvider, Badge, T,
 } from "./settings/dubois";
+import { useToast } from "./settings/duboisToast";
 import {
   GeneralSection, DashboardTabsSection, AlertsSection, DataTablesSection,
   AccessSection, ResourcesSection, ExperimentalSection,

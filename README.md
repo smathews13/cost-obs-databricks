@@ -59,9 +59,9 @@ Optional grants enable richer SQL, compute, Lakeflow, model-serving, and workspa
 
 1. Create a Databricks App from this Git repository and the `main` branch.
 2. Bind a SQL warehouse resource with **Can use** permission and resource key `sql-warehouse`.
-3. Add the `sql` user authorization scope.
-4. Deploy the app and wait for **Running**.
-5. Open the app and complete the guided setup: choose a dedicated catalog/schema, apply grants, and build the managed aggregate tables.
+3. Deploy the app and wait for **Running**; the committed `static/` artifact is served directly, so deployment does not build the frontend.
+4. Open the app and use the setup wizard to choose and validate a dedicated catalog/schema.
+5. Apply the service-principal grants and build the managed aggregate tables from the wizard.
 6. Confirm the DBU Overview loads; then enable optional source grants or cloud billing exports as needed.
 
 Deploy from Git is the supported path. See the [detailed deployment guide](#detailed-deployment) for screenshots-equivalent navigation, environment overrides, first-run checks, and troubleshooting.
@@ -159,7 +159,7 @@ These are not required for the initial deployment, but they unlock additional pa
 
 ---
 
-### Step 2 — Bind the SQL warehouse resource and add SQL scope
+### Step 2 — Bind the SQL warehouse resource
 
 Bind a SQL warehouse resource in the Apps UI so the warehouse ID is injected automatically. This is the recommended pattern for Databricks Apps and avoids manual warehouse wiring.
 
@@ -169,8 +169,9 @@ Bind a SQL warehouse resource in the Apps UI so the warehouse ID is injected aut
 4. Select the warehouse you want the app to use
 5. Set the permission to **Can use**
 6. Leave the resource key as `sql-warehouse`
-7. Under **User authorization**, click **Add scope** and add the `sql` scope
-8. Save the configuration
+7. Save the configuration
+
+Do not add a SQL user-authorization scope. Dashboard queries, setup operations, and managed-table maintenance all execute as the app service principal; forwarded user identity is used only for app-role checks.
 
 ---
 
@@ -216,7 +217,7 @@ Keep the first deployment minimal. Add optional cloud-cost or advanced integrati
 2. Wait for the app status to show **Running**
 3. Open the app URL
 
-The deployment installs dependencies, starts the backend, and serves the frontend. Once the app is running, the first-run setup flow begins.
+The deployment installs Python dependencies, starts the backend, and serves the committed `static/` frontend artifact. It does not run a frontend package install or build. Once the app is running, the first-run setup flow begins.
 
 ---
 
@@ -232,13 +233,13 @@ The app shows whether the warehouse, core system tables, and optional feature de
 
 The built-in Setup Wizard handles grants and table creation on first run. You do not need to navigate into Settings manually for initial setup.
 
-- **Grants:** The wizard attempts the required grants automatically using the permissions of the logged-in user. Click the grant button, then click **Re-check** to confirm they applied. If the automatic grant fails due to insufficient privileges, the wizard displays the SQL to copy and run manually as the appropriate admin.
+- **Grants:** The wizard verifies and applies grants for the app service principal. If the service principal cannot grant itself the required privileges, the wizard displays SQL for the appropriate metastore or workspace administrator to run, then **Re-check** confirms the result.
 
 - **Table build:** Once grants pass, the wizard prompts you to build the pre-aggregated tables used by the dashboard. Click **Build**. This runs in the background on your warehouse and typically takes 3–8 minutes.
 
 - **Workspace filter:** If `COST_OBS_WORKSPACES` was not set at deploy time, the wizard prompts you to choose workspace scope before completion. If workspace IDs were set as an environment variable, this step is skipped.
 
-If you need to re-apply grants or rebuild tables later, use **Settings → Access** and **Settings → Data & tables**. These are the ongoing management surfaces after initial setup.
+If you need to re-apply grants or rebuild tables later, use **Settings → Permissions & Access** and **Settings → Data & tables**. These are the ongoing management surfaces after initial setup.
 
 ---
 
@@ -251,7 +252,7 @@ After setup completes, confirm:
 - Optional areas only show as unavailable if their supporting system tables were not granted
 - No dashboard tile is blocked by a missing warehouse or system table grant
 
-If anything is degraded, go to **Settings → Access** or **Settings → Data & tables** to identify whether the issue is warehouse access, missing system table grants, missing app-managed tables, or a schema mismatch.
+If anything is degraded, go to **Settings → Permissions & Access** or **Settings → Data & tables** to identify whether the issue is warehouse access, missing system table grants, missing app-managed tables, or a schema mismatch.
 
 ---
 
@@ -259,7 +260,7 @@ If anything is degraded, go to **Settings → Access** or **Settings → Data & 
 
 This deployment path uses the **app service principal** for SQL execution. End users do not need any additional authentication for normal app usage.
 
-Use **Settings → Access** to manage who can administer or view the app.
+Use **Settings → Permissions & Access** to manage who can administer or view the app.
 
 ---
 
@@ -268,7 +269,7 @@ Use **Settings → Access** to manage who can administer or view the app.
 | Symptom | Likely cause | Recommended action |
 |---|---|---|
 | Warehouse access failure after deploy | Warehouse resource missing, wrong warehouse selected, or access drift | Verify the bound SQL warehouse resource; rerun the warehouse-related remediation SQL if prompted |
-| Billing tabs show no data | Core system table grants not applied | Run the required runtime grants from **Settings → Access**, then click **Re-check** |
+| Billing tabs show no data | Core system table grants not applied | Run the required runtime grants from **Settings → Permissions & Access**, then click **Re-check** |
 | Optional tabs are unavailable | Optional system tables (`system.query.history`, `system.compute.clusters`, etc.) were not granted | Grant the optional dependencies you want to enable, then re-check readiness |
 | Rebuild required or schema mismatch | App-managed tables are missing or out of sync | Rebuild from **Settings → Data & tables** |
 | Deploy from Git option not visible | Workspace preview not enabled | Enable the Git deployment preview in **Settings → Workspace Previews** |
@@ -359,7 +360,7 @@ Use **Settings → Access** to manage who can administer or view the app.
 | **Dashboard tabs** | Visible-tab selection and default landing tab |
 | **Data & tables** | Managed-table status, refresh controls, and rebuild |
 | **Alerts & notifications** | Budget thresholds, anomaly alerts, and delivery settings |
-| **Access** | System-table readiness, service principal grants, and app user roles |
+| **Permissions & Access** | System-table readiness, service principal grants, and app user roles |
 | **Resources** | Bound resources and account-pricing configuration |
 | **Experimental** | Opt-in preview controls for administrators |
 
@@ -379,7 +380,7 @@ flowchart LR
     Warehouse -->|Optional actual-cost reads| Cloud["AWS / Azure / GCP<br/>billing exports"]
     System -->|Scheduled incremental refresh<br/>or administrator rebuild| Delta
 
-    Session["Databricks Apps session"] -.->|Forwarded identity| API
+    Session["Databricks Apps session"] -.->|Forwarded identity for app roles| API
     Role["App role checks"] -.-> API
     Principal["App service principal"] -.->|Normal SQL and managed writes| Warehouse
     Governance["Unity Catalog grants<br/>and Warehouse CAN USE"] -.-> Warehouse
@@ -393,7 +394,7 @@ The solid left-to-right path is the interactive read flow. Dashed lines show aut
 
 ### Authentication
 
-All dashboard queries run as the app's **service principal** (SP). The SP is automatically granted access to the required system tables during the setup wizard's Permissions step. End users do not need any additional authentication for normal app usage.
+All SQL—including dashboard queries, setup operations, managed-table writes, and scheduled maintenance—runs as the app's **service principal** (SP). The Databricks Apps session supplies user identity for application role checks only; no forwarded user OAuth credential is used for SQL. The setup wizard verifies the SP's system-table, catalog/schema, and warehouse access. End users do not need a SQL authorization scope.
 
 The catalog and schema created during setup are owned by the SP. The installing user receives `USE CATALOG`, `USE SCHEMA`, `SELECT`, and `MANAGE` grants automatically — giving them full visibility in the Unity Catalog browser and the ability to re-grant the SP on future redeploys.
 
@@ -590,3 +591,7 @@ Full interactive API docs at `http://localhost:8000/docs` (FastAPI Swagger UI).
 | Persistence | App-managed Delta aggregates, settings, refresh state, and shared response cache |
 | Deployment | Databricks Apps (service principal auth, serverless compute), multi-cloud (AWS, Azure, and GCP) |
 | Caching | TTLCache (2h query cache), Delta response cache, SDK metadata caches, React Query (30min stale time) |
+
+### Release and public mirror flow
+
+The internal repository is the source of truth. Release changes are committed and pushed to internal `origin/main`, including the built `static/` artifact. The repository's `sync-mirror.sh` then derives and validates the customer-safe public tree and pushes it normally. Do not rebuild at mirror time or push the public `external` remote by hand.

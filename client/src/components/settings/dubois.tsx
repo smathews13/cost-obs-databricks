@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { ToastContext } from "./duboisToast";
 
 // DuBois product-UI tokens (spec §3). Scoped to the Settings modal only: the rest of
 // the app keeps its marketing-brand orange. Red means danger only; toggles are blue.
@@ -276,9 +277,6 @@ export function Callout({ tone, children }: { tone: "success" | "warning" | "dan
 }
 
 // ── Toast ────────────────────────────────────────────────────────────────────
-const ToastCtx = createContext<(msg: string) => void>(() => {});
-export const useToast = () => useContext(ToastCtx);
-
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [msg, setMsg] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -289,13 +287,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   return (
-    <ToastCtx.Provider value={toast}>
+    <ToastContext.Provider value={toast}>
       {children}
       {msg && (
         <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", zIndex: 10000 }}>
           <div style={{ backgroundColor: T.navy, color: "#FFFFFF", borderRadius: 999, padding: "8px 16px", fontSize: 13, boxShadow: "0 4px 12px rgba(0,0,0,0.25)" }}>{msg}</div>
         </div>
       )}
-    </ToastCtx.Provider>
+    </ToastContext.Provider>
   );
 }

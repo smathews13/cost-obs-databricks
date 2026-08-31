@@ -6,12 +6,12 @@ import type { AppConfigInfo } from "./SettingsConfig";
 import { SettingsPermissions } from "./SettingsPermissions";
 import {
   SectionTitle, Group, Row, Toggle, Select, TextInput, UnitInput, Badge, MonoChip,
-  SecondaryButton, LinkButton, Callout, useToast, T, MONO,
+  SecondaryButton, LinkButton, Callout, T, MONO,
 } from "./dubois";
+import { useToast } from "./duboisToast";
 
 // Tab labels for landing-tab select + visibility list (spec §6 order).
-// eslint-disable-next-line react-refresh/only-export-components
-export const TAB_LABELS: Record<keyof TabVisibility, string> = {
+const TAB_LABELS: Record<keyof TabVisibility, string> = {
   dbu: "DBU Overview", sql: "SQL", aiml: "AI/ML", apps: "Apps", tagging: "Tagging",
   "users-groups": "Users", kpis: "Platform KPIs & Trends", infra: "Cloud Costs",
   optimizer: "Optimize",

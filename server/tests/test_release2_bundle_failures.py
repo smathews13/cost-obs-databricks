@@ -47,6 +47,7 @@ def test_apps_required_failure_is_not_cached():
     }
     with (
         patch.object(apps, "_get_app_registry", return_value={}),
+        patch.object(apps, "_check_mv_available", return_value=False),
         patch.object(
             apps,
             "execute_queries_parallel",
@@ -76,6 +77,7 @@ def test_apps_optional_failure_is_partial_and_short_cached():
     }
     with (
         patch.object(apps, "_get_app_registry", return_value={}),
+        patch.object(apps, "_check_mv_available", return_value=False),
         patch.object(
             apps,
             "execute_queries_parallel",

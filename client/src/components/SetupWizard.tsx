@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { Spinner } from "./Spinner";
-import { ReadinessChecks, normalizeReadinessResult } from "./settings/ReadinessChecks";
-import type { ReadinessResult } from "./settings/ReadinessChecks";
+import { ReadinessChecks } from "./settings/ReadinessChecks";
+import { normalizeReadinessResult } from "./settings/readiness";
+import type { ReadinessResult } from "./settings/readiness";
 import { VirtualizedList } from "./VirtualizedList";
 import { C } from "@/theme";
 
@@ -498,7 +499,11 @@ export function SetupWizard({ onComplete, onClose, embedded }: SetupWizardProps)
               selectedIds={selectedWsIds}
               onToggle={(id) => setSelectedWsIds((prev) => {
                 const next = new Set(prev);
-                next.has(id) ? next.delete(id) : next.add(id);
+                if (next.has(id)) {
+                  next.delete(id);
+                } else {
+                  next.add(id);
+                }
                 return next;
               })}
               onSelectAll={() => setSelectedWsIds(new Set(allWorkspaces.map((w) => w.id)))}

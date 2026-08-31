@@ -25,7 +25,7 @@ Browser / React 19          FastAPI application          Databricks SQL Warehous
                                               └────────────────────────────────────┘
 ```
 
-- **Authentication + governance:** Databricks Apps session → FastAPI role checks → app service principal / setup user → Warehouse `CAN USE` + Unity Catalog grants.
+- **Authentication + governance:** Databricks Apps session → FastAPI role checks → app service principal for every SQL operation → Warehouse `CAN USE` + Unity Catalog grants.
 - **Scheduled refresh:** scheduler → service principal → incremental Delta `MERGE`s → refresh state & history → cache invalidation.
 - **On-demand refresh:** tab refresh → scoped cache clear → active refetch; administrator rebuild → full aggregate recreation.
 
@@ -34,7 +34,7 @@ Browser / React 19          FastAPI application          Databricks SQL Warehous
 | Component | Role |
 |---|---|
 | React browser interface | Interactive cost views, filters, settings, customer-facing report downloads |
-| FastAPI application | Authenticated API layer: validates requests, coordinates queries, shapes dashboard responses |
+| FastAPI application | Authenticated API layer: assigns request IDs, validates requests, coordinates queries, shapes dashboard responses |
 | Databricks SQL Warehouse | Governed SQL execution plane for system-table reads, aggregates, app-managed tables |
 | Databricks system tables | Account-level billing, query, compute, Lakeflow, serving, audit, workspace metadata |
 | App-managed Delta layer | Pre-aggregated cost tables, durable settings + refresh state, shared response cache |
@@ -43,7 +43,7 @@ Browser / React 19          FastAPI application          Databricks SQL Warehous
 ## Request & data flow
 
 1. A signed-in user opens the React interface in Databricks Apps and selects dates, workspaces, or report options.
-2. The browser sends same-origin requests to tab-specific FastAPI routes.
+2. The browser sends same-origin requests to tab-specific FastAPI routes. Middleware assigns `X-Request-ID`, carries it through log records, and records status/duration or redacted failure details.
 3. FastAPI serves a valid cached bundle when possible; otherwise it submits governed SQL through the bound SQL Warehouse.
 4. Queries use app-managed Delta aggregates for supported summaries and live system-table queries for detailed, specialized, or fallback views.
 5. Configured AWS / Azure / GCP billing exports are queried only for the optional actual-cloud-cost views.
@@ -52,17 +52,25 @@ Browser / React 19          FastAPI application          Databricks SQL Warehous
 ## Authentication & governance
 
 - Databricks Apps authenticates the browser session and forwards user identity to the application.
-- FastAPI uses the forwarded identity for app roles; settings mutations and rebuild actions require the app administrator role. User-scoped credentials are used only for setup operations that require the caller's privileges.
-- The app service principal performs dashboard SQL and owns managed-table creation, scheduled refreshes, and cache writes.
+- FastAPI uses the forwarded identity only for app roles; settings mutations and rebuild actions require the app administrator role.
+- The app service principal performs every SQL operation, including dashboard reads, setup and managed-table creation, scheduled refreshes, and cache writes. No forwarded user OAuth credential is used for SQL.
 - Unity Catalog privileges govern system-table and managed-table access (verified by the setup flow); the bound SQL Warehouse separately enforces `CAN USE` and executes all table reads and writes.
 
 ## Refresh paths
 
 **Scheduled aggregate refresh** — nightly by default (weekly/monthly selectable): scheduler acquires the shared refresh lock → the service principal incrementally `MERGE`s recent source partitions into the eight Delta aggregates → watermarks & history persist, unified source views rebuild, response caches invalidate.
 
-**Administrator full rebuild** — Settings → Config → Rebuild: admin check → locked background rebuild queued → every aggregate recreated from the configured history window → progress written to refresh state/history; all query & response caches cleared on completion.
+**Administrator full rebuild** — Settings → Data & tables → Rebuild: admin check → locked background rebuild queued → every aggregate recreated from the configured history window → progress written to refresh state/history; all query & response caches cleared on completion.
 
 **On-demand tab refresh** — React posts the tab name to `/api/cache/clear` → FastAPI invalidates only that tab's in-process and shared Delta response-cache entries → React Query refetches the active tab routes. Aggregate tables are not rebuilt.
+
+There is no generic prewarm endpoint or periodic warehouse keepalive. The only synthetic SQL recovery is the bounded, administrator-only warehouse probe used by the initial cold gate; normal health polling is REST-only.
+
+## Deployment and release flow
+
+Databricks Apps installs Python dependencies, starts FastAPI, and serves the committed `static/` artifact. It does not build the frontend at deployment time. The SQL warehouse is a bound app resource (`sql-warehouse`), and the setup wizard collects and validates the app-managed catalog/schema.
+
+The internal repository is the source of truth. A release lands on internal `origin/main` with the static artifact, then `sync-mirror.sh` derives and validates the customer-safe public tree before a normal public push.
 
 ## Tab-by-tab data lineage
 

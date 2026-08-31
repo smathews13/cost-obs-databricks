@@ -10,8 +10,7 @@ Covers:
 
 Run with: pytest server/tests/test_feature_gating.py -v
 """
-from concurrent.futures import Future
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -164,10 +163,14 @@ class TestCheckReadinessSyncRouting:
             warehouse_id="wh-1", source="app_resource",
         )
 
-        with (
-            patch.object(setup_mod, "_resolve_warehouse_config", return_value=("app_resource", "wh-1")),
-            patch.object(setup_mod, "check_warehouse_readiness", return_value=healthy_wh),
-            patch.object(setup_mod, "_check_table_as_sp", return_value=(True, "")),
+        with patch.dict(
+            setup_mod._check_readiness_sync.__globals__,
+            {
+                "_resolve_warehouse_config": lambda: ("app_resource", "wh-1"),
+                "_get_or_start_warehouse_check_future": lambda: None,
+                "check_warehouse_readiness": lambda: healthy_wh,
+                "_check_table_as_sp": lambda _table: (True, ""),
+            },
         ):
             result = setup_mod._check_readiness_sync(bypass_cache=True)
 
@@ -185,10 +188,14 @@ class TestCheckReadinessSyncRouting:
             warehouse_id="wh-1", source="app_resource",
         )
 
-        with (
-            patch.object(setup_mod, "_resolve_warehouse_config", return_value=("app_resource", "wh-1")),
-            patch.object(setup_mod, "check_warehouse_readiness", return_value=healthy_wh),
-            patch.object(setup_mod, "_check_table_as_sp", return_value=(True, "")),
+        with patch.dict(
+            setup_mod._check_readiness_sync.__globals__,
+            {
+                "_resolve_warehouse_config": lambda: ("app_resource", "wh-1"),
+                "_get_or_start_warehouse_check_future": lambda: None,
+                "check_warehouse_readiness": lambda: healthy_wh,
+                "_check_table_as_sp": lambda _table: (True, ""),
+            },
         ):
             result = setup_mod._check_readiness_sync(bypass_cache=True)
 
@@ -211,10 +218,14 @@ class TestCheckReadinessSyncRouting:
                 return (False, "PERMISSION_DENIED")
             return (True, "")
 
-        with (
-            patch.object(setup_mod, "_resolve_warehouse_config", return_value=("app_resource", "wh-1")),
-            patch.object(setup_mod, "check_warehouse_readiness", return_value=healthy_wh),
-            patch.object(setup_mod, "_check_table_as_sp", side_effect=denied_check),
+        with patch.dict(
+            setup_mod._check_readiness_sync.__globals__,
+            {
+                "_resolve_warehouse_config": lambda: ("app_resource", "wh-1"),
+                "_get_or_start_warehouse_check_future": lambda: None,
+                "check_warehouse_readiness": lambda: healthy_wh,
+                "_check_table_as_sp": denied_check,
+            },
         ):
             result = setup_mod._check_readiness_sync(bypass_cache=True)
 
@@ -232,10 +243,14 @@ class TestCheckReadinessSyncRouting:
             message="No access to warehouse",
         )
 
-        with (
-            patch.object(setup_mod, "_resolve_warehouse_config", return_value=("app_resource", "wh-1")),
-            patch.object(setup_mod, "check_warehouse_readiness", return_value=denied_wh),
-            patch.object(setup_mod, "_check_table_as_sp", return_value=(False, "PERMISSION_DENIED")),
+        with patch.dict(
+            setup_mod._check_readiness_sync.__globals__,
+            {
+                "_resolve_warehouse_config": lambda: ("app_resource", "wh-1"),
+                "_get_or_start_warehouse_check_future": lambda: None,
+                "check_warehouse_readiness": lambda: denied_wh,
+                "_check_table_as_sp": lambda _table: (False, "PERMISSION_DENIED"),
+            },
         ):
             result = setup_mod._check_readiness_sync(bypass_cache=True)
 
@@ -257,10 +272,14 @@ class TestCheckReadinessSyncRouting:
                 return (True, "")
             return (False, "PERMISSION_DENIED")
 
-        with (
-            patch.object(setup_mod, "_resolve_warehouse_config", return_value=("app_resource", "wh-1")),
-            patch.object(setup_mod, "check_warehouse_readiness", return_value=healthy_wh),
-            patch.object(setup_mod, "_check_table_as_sp", side_effect=selective_check),
+        with patch.dict(
+            setup_mod._check_readiness_sync.__globals__,
+            {
+                "_resolve_warehouse_config": lambda: ("app_resource", "wh-1"),
+                "_get_or_start_warehouse_check_future": lambda: None,
+                "check_warehouse_readiness": lambda: healthy_wh,
+                "_check_table_as_sp": selective_check,
+            },
         ):
             result = setup_mod._check_readiness_sync(bypass_cache=True)
 

@@ -3,7 +3,8 @@
 Run with: pytest server/tests/test_setup_readiness.py -v
 """
 import time
-from concurrent.futures import Future, TimeoutError as FutureTimeoutError
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -91,6 +92,10 @@ def test_blocking_warehouse_check_internal_error():
     with (
         patch("server.db.execute_query", side_effect=RuntimeError("unexpected crash")),
         patch("server.db._user_token", _mock_token()),
+        patch.dict(
+            setup_mod._run_blocking_warehouse_check.__globals__,
+            {"_resolve_warehouse_config": lambda: ("app_resource", "wh-test")},
+        ),
     ):
         result = setup_mod._run_blocking_warehouse_check()
 

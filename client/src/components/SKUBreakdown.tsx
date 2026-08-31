@@ -30,6 +30,12 @@ const fmtYTick = (v: string) => (v.length > 22 ? v.substring(0, 20) + "…" : v)
 const TOOLTIP_STYLE = { backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" } as const;
 const LABEL_STYLE = { fontSize: 11, fill: C.slate } as const;
 
+interface FilterResult {
+  key: string;
+  data?: SKUBreakdownResponse;
+  error: boolean;
+}
+
 interface WsRowProps {
   wsId: string;
   wsName: string;
@@ -57,12 +63,12 @@ const WsRow = memo(function WsRow({ wsId, wsName, selected, onToggle, historical
 });
 
 export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspaceNameMap }: SKUBreakdownProps) {
-  const [selectedWorkspace, setSelectedWorkspace] = useState<string>("all");
   const [workspaceFilters, setWorkspaceFilters] = useState<string[]>([]);
   const workspaceFiltersSeen = useRef<Set<string>>(new Set());
-  const [filteredData, setFilteredData] = useState<SKUBreakdownResponse | undefined>(undefined);
-  const [filterLoading, setFilterLoading] = useState(false);
-  const [filterError, setFilterError] = useState(false);
+  const [filterResult, setFilterResult] = useState<FilterResult>({
+    key: "",
+    error: false,
+  });
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [wsSearch, setWsSearch] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -86,23 +92,15 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
   // otherwise (empty or partial multi-select) we show the account-wide view. So
   // an empty selection is functionally "all": don't flag it as an active filter.
   const isWorkspaceFilterActive = workspaceFilters.length > 0 && workspaceFilters.length < allWorkspaceIds.length;
-
-  // Sync workspaceFilters → selectedWorkspace for the existing fetch logic.
-  // Only route through the workspace-scoped endpoint when the user has selected exactly one;
-  // "all selected" (default) and any partial multi-selection use the account-wide payload.
-  useEffect(() => {
-    setSelectedWorkspace(workspaceFilters.length === 1 ? workspaceFilters[0] : "all");
-  }, [workspaceFilters]);
+  // Only route through the workspace-scoped endpoint when exactly one workspace
+  // is selected. All, clear, and partial multi-select use the account-wide payload.
+  const selectedWorkspace = workspaceFilters.length === 1 ? workspaceFilters[0] : "all";
+  const filterKey = `${selectedWorkspace}|${dateRange?.startDate ?? ""}|${dateRange?.endDate ?? ""}`;
 
   useEffect(() => {
-    if (selectedWorkspace === "all") {
-      setFilteredData(undefined);
-      setFilterError(false);
-      return;
-    }
+    if (selectedWorkspace === "all") return;
 
-    setFilterLoading(true);
-    setFilterError(false);
+    let cancelled = false;
     const params = new URLSearchParams();
     if (dateRange?.startDate) params.set("start_date", dateRange.startDate);
     if (dateRange?.endDate) params.set("end_date", dateRange.endDate);
@@ -113,30 +111,39 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
         if (!res.ok) throw new Error(`SKU spend request failed with ${res.status}`);
         return res.json();
       })
-      .then((json) => {
-        setFilteredData(json);
-        setFilterLoading(false);
+      .then((json: SKUBreakdownResponse) => {
+        if (!cancelled) {
+          setFilterResult({ key: filterKey, data: json, error: false });
+        }
       })
       .catch(() => {
-        setFilterError(true);
-        setFilterLoading(false);
+        if (!cancelled) setFilterResult({ key: filterKey, error: true });
       });
-  }, [selectedWorkspace, dateRange?.startDate, dateRange?.endDate]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWorkspace, dateRange?.startDate, dateRange?.endDate, filterKey]);
+
+  const closeDropdown = useCallback(() => {
+    setDropdownOpen(false);
+    setWsSearch("");
+  }, []);
 
   useEffect(() => {
-    if (!dropdownOpen) {
-      setWsSearch("");
-      return;
-    }
+    if (!dropdownOpen) return;
     const handleClick = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
+        closeDropdown();
       }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [dropdownOpen]);
+  }, [closeDropdown, dropdownOpen]);
 
+  const filteredData = filterResult.key === filterKey ? filterResult.data : undefined;
+  const filterLoading = selectedWorkspace !== "all" && filterResult.key !== filterKey;
+  const filterError = selectedWorkspace !== "all" && filterResult.key === filterKey && filterResult.error;
   const displayData = selectedWorkspace === "all" ? data : filteredData;
   const showLoading = isLoading || filterLoading;
 
@@ -170,7 +177,10 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
   const workspaceSelector = workspaces && workspaces.length > 1 ? (
     <div className="relative" ref={dropdownRef}>
       <button
-        onClick={() => setDropdownOpen(!dropdownOpen)}
+        onClick={() => {
+          if (dropdownOpen) closeDropdown();
+          else setDropdownOpen(true);
+        }}
         className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${isWorkspaceFilterActive ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
       >
         {workspaceFilters.length === 1

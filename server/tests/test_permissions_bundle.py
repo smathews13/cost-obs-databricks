@@ -15,9 +15,9 @@ import pytest
 
 import server.routers.permissions as perms_mod
 from server.routers.permissions import (
+    REQUIRED_PERMISSIONS,
     _check_permissions_sync,
     _get_sp_info,
-    REQUIRED_PERMISSIONS,
 )
 
 

@@ -9,14 +9,8 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     "databricks-sdk>=0.38.0",
     "databricks-sql-connector>=3.6.0,<4.0.0",
-    "python-dotenv>=1.0.0",
     "httpx>=0.27.0",
     "cachetools>=5.0.0,<6.0.0",
-    "protobuf>=3.20.0,<6.0.0",
-    "websockets>=10.0,<13.0",
-    "python-multipart>=0.0.9",
-    "pymupdf>=1.25.0",
-    "python-docx>=1.1.0",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +23,14 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["server/tests"]
 asyncio_mode = "auto"
+addopts = "--strict-markers"
+filterwarnings = [
+    "error::pytest.PytestUnhandledThreadExceptionWarning",
+]
+markers = [
+    "external: contacts a live service and is opt-in",
+    "integration: requires external infrastructure or credentials and is opt-in",
+]
 
 [tool.ruff]
 line-length = 100

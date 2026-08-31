@@ -4,7 +4,6 @@ import asyncio
 import logging
 import threading as _threading
 import time as _time
-from datetime import date, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Query
