@@ -2,6 +2,7 @@
 
 import asyncio
 import contextvars
+import hashlib
 import logging
 import re
 import threading
@@ -13,7 +14,7 @@ from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 import httpx
 from cachetools import TTLCache
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
 from server import cache_ttls
@@ -1631,6 +1632,30 @@ _THUMBNAIL_PATHS = [
 ]
 
 
+def _thumbnail_error(status_code: int) -> Response:
+    return Response(status_code=status_code, headers={"Cache-Control": "no-store"})
+
+
+def _thumbnail_response(
+    content: bytes,
+    content_type: str | None,
+    if_none_match: str | None,
+) -> Response:
+    etag = f'"{hashlib.sha256(content).hexdigest()}"'
+    headers = {
+        "Cache-Control": f"private, max-age={cache_ttls.THUMBNAIL}",
+        "ETag": etag,
+    }
+    requested_etags = if_none_match.split(",") if isinstance(if_none_match, str) else []
+    if any(candidate.strip().removeprefix("W/") in {"*", etag} for candidate in requested_etags):
+        return Response(status_code=304, headers=headers)
+    return Response(
+        content=content,
+        media_type=content_type or "image/png",
+        headers=headers,
+    )
+
+
 def _normalized_https_origin(url: str) -> tuple[str, str, int] | None:
     """Return an exact normalized HTTPS origin, including effective port."""
     parsed = urlsplit(url)
@@ -1651,22 +1676,23 @@ def _normalized_https_origin(url: str) -> tuple[str, str, int] | None:
 @router.get("/thumbnail")
 async def get_app_thumbnail(
     app_id: str = Query(..., description="App UUID"),
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
 ) -> Response:
     """Proxy a trusted app thumbnail without exposing workspace credentials."""
     if not _THUMBNAIL_APP_ID_RE.fullmatch(app_id):
-        return Response(status_code=400)
+        return _thumbnail_error(400)
 
     registry = _get_app_registry()
     entry = registry.get(app_id)
     if not entry:
-        return Response(status_code=404)
+        return _thumbnail_error(404)
 
     cached = _thumbnail_cache.get(app_id)
     if cached is not None:
         data, content_type = cached
         if data:
-            return Response(content=data, media_type=content_type or "image/png")
-        return Response(status_code=404)
+            return _thumbnail_response(data, content_type, if_none_match)
+        return _thumbnail_error(404)
 
     app_url = str(entry["url"]).strip()
     if app_url and "://" not in app_url:
@@ -1769,7 +1795,7 @@ async def get_app_thumbnail(
                         content = b"".join(chunks)
                         _thumbnail_cache[app_id] = (content, content_type)
                         logger.info("Thumbnail found for app %s", entry.get("name"))
-                        return Response(content=content, media_type=content_type)
+                        return _thumbnail_response(content, content_type, if_none_match)
                 except (TypeError, ValueError):
                     continue
                 except Exception as e:
@@ -1781,7 +1807,7 @@ async def get_app_thumbnail(
     # identity-colored initials. Returning one generated blue image here made
     # every app without a platform thumbnail look identical.
     _thumbnail_cache[app_id] = (None, None)
-    return Response(status_code=404)
+    return _thumbnail_error(404)
 
 
 # ── Connected artifacts ──────────────────────────────────────────────

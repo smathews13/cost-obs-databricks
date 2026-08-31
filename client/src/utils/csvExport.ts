@@ -1,4 +1,4 @@
-import type { ExportSections } from "@/components/ExportDialog";
+import type { ExportSections } from "@/utils/exportDemand";
 import {
   anonymizeExportPayload,
   type CostExportContext,

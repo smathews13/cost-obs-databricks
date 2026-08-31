@@ -1,10 +1,12 @@
-import { Fragment, useState, useRef, useEffect } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import type { InteractiveBreakdownResponse } from "@/types/billing";
 import { formatCurrency, workspaceUrl } from "@/utils/formatters";
 import { StatusIndicator } from "./StatusIndicator";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { C } from "@/theme";
 import { Spinner } from "./Spinner";
+import { InfoPopover } from "./ui/InfoPopover";
+import { SortableHeader } from "./ui/SortableHeader";
 
 interface InteractiveBreakdownProps {
   data: InteractiveBreakdownResponse | undefined;
@@ -35,7 +37,25 @@ type SortField = "user" | "notebook_path" | "cluster_id" | "total_spend" | "tota
 type SortDirection = "asc" | "desc";
 type ViewMode = "by-user" | "by-cluster" | "by-notebook";
 
-export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreakdownProps) {
+interface AggregatedInteractiveItem {
+  key: string;
+  workspace_id: string;
+  cluster_state: string | null;
+  cluster_name: string | null;
+  user: string | null;
+  total_dbus: number;
+  total_spend: number;
+  days_active: number;
+  count: number;
+  _topUserSpend: number;
+  percentage: number;
+}
+
+function isHistoricalItem(item: AggregatedInteractiveItem): boolean {
+  return !item.cluster_name;
+}
+
+export const InteractiveBreakdown = memo(function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreakdownProps) {
   const spNameMap = useSpNameMap();
   const [sortField, setSortField] = useState<SortField>("total_spend");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -68,39 +88,8 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
     setCurrentPage(1);
   };
 
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) {
-      return <span className="ml-1 text-gray-300">↕</span>;
-    }
-    return <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>;
-  };
-
-  if (isLoading) {
-    return (
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
-        <div className="flex h-48 flex-col items-center justify-center gap-3">
-          <Spinner size="lg" />
-          <p className="text-sm text-gray-500">Loading interactive compute...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (data?.error) {
-    return (
-      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
-        <h3 className="mb-4 text-lg font-semibold text-gray-900">Interactive Compute Leaderboard</h3>
-        <p className="text-sm text-amber-600">{data.error}</p>
-      </div>
-    );
-  }
-
-  if (!data || data.items.length === 0) {
-    return null;
-  }
-
-  // Aggregate data based on view mode
-  const aggregatedData = (() => {
+  const derived = useMemo(() => {
+    const items = data?.items ?? [];
     const grouped = new Map<string, {
       key: string;
       workspace_id: string;
@@ -114,7 +103,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
       _topUserSpend: number;
     }>();
 
-    for (const item of data.items) {
+    for (const item of items) {
       let key: string;
       if (viewMode === "by-user") {
         key = item.user || "(Unknown User)";
@@ -157,49 +146,94 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
       }
     }
 
-    return Array.from(grouped.values()).map((g) => ({
+    const aggregatedData: AggregatedInteractiveItem[] = Array.from(grouped.values()).map((g) => ({
       ...g,
-      percentage: data.total_spend > 0 ? (g.total_spend / data.total_spend) * 100 : 0,
+      percentage: (data?.total_spend ?? 0) > 0
+        ? (g.total_spend / (data?.total_spend ?? 0)) * 100
+        : 0,
     }));
-  })();
 
-  // Filter out unknown/no data entries and optionally historical (only in by-cluster view)
-  const isHistoricalItem = (item: typeof aggregatedData[0]) => !item.cluster_name;
-  const historicalCount = viewMode === "by-cluster" ? aggregatedData.filter((item) => isHistoricalItem(item)).length : 0;
-  const baseFiltered = aggregatedData.filter(
-    (item) => (item.key !== "(Unknown User)" && item.key !== "(Unknown Cluster)" && item.key !== "(No Notebook)") &&
-      (viewMode !== "by-cluster" || showHistorical || !isHistoricalItem(item))
-  );
+    const historicalCount = viewMode === "by-cluster"
+      ? aggregatedData.filter(isHistoricalItem).length
+      : 0;
+    const baseFiltered = aggregatedData.filter(
+      (item) => (
+        item.key !== "(Unknown User)"
+        && item.key !== "(Unknown Cluster)"
+        && item.key !== "(No Notebook)"
+      ) && (viewMode !== "by-cluster" || showHistorical || !isHistoricalItem(item)),
+    );
+    const searchLower = search.toLowerCase();
+    const filteredData = search
+      ? baseFiltered.filter((item) =>
+          item.key.toLowerCase().includes(searchLower)
+          || (item.cluster_name || "").toLowerCase().includes(searchLower)
+          || (item.user || "").toLowerCase().includes(searchLower)
+        )
+      : baseFiltered;
+    const sortedData = [...filteredData].sort((a, b) => {
+      const modifier = sortDirection === "asc" ? 1 : -1;
+      if (sortField === "user" || sortField === "notebook_path" || sortField === "cluster_id") {
+        return a.key.localeCompare(b.key) * modifier;
+      }
+      const aVal = sortField === "total_spend" ? a.total_spend :
+                   sortField === "total_dbus" ? a.total_dbus : a.days_active;
+      const bVal = sortField === "total_spend" ? b.total_spend :
+                   sortField === "total_dbus" ? b.total_dbus : b.days_active;
+      return (aVal - bVal) * modifier;
+    });
 
-  const searchLower = search.toLowerCase();
-  const filteredData = search
-    ? baseFiltered.filter((item) =>
-        item.key.toLowerCase().includes(searchLower) ||
-        (item.cluster_name || "").toLowerCase().includes(searchLower) ||
-        (item.user || "").toLowerCase().includes(searchLower)
-      )
-    : baseFiltered;
+    return {
+      historicalCount,
+      sortedData,
+      totalDbu: filteredData.reduce((sum, item) => sum + item.total_dbus, 0),
+      totalSpend: filteredData.reduce((sum, item) => sum + item.total_spend, 0),
+      uniqueUsers: new Set(items.map((item) => item.user).filter(Boolean)).size,
+      uniqueClusters: new Set(items.map((item) => item.cluster_id).filter(Boolean)).size,
+      uniqueNotebooks: new Set(items.map((item) => item.notebook_path).filter(Boolean)).size,
+    };
+  }, [data, search, showHistorical, sortDirection, sortField, viewMode]);
 
-  const sortedData = [...filteredData].sort((a, b) => {
-    const modifier = sortDirection === "asc" ? 1 : -1;
-    if (sortField === "user" || sortField === "notebook_path" || sortField === "cluster_id") {
-      return a.key.localeCompare(b.key) * modifier;
-    }
-    const aVal = sortField === "total_spend" ? a.total_spend :
-                 sortField === "total_dbus" ? a.total_dbus : a.days_active;
-    const bVal = sortField === "total_spend" ? b.total_spend :
-                 sortField === "total_dbus" ? b.total_dbus : b.days_active;
-    return (aVal - bVal) * modifier;
-  });
-
+  const {
+    historicalCount,
+    sortedData,
+    totalDbu,
+    totalSpend,
+    uniqueClusters,
+    uniqueNotebooks,
+    uniqueUsers,
+  } = derived;
   const totalPages = Math.ceil(sortedData.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const paginatedData = sortedData.slice(startIndex, endIndex);
+  const paginatedData = useMemo(
+    () => sortedData.slice(startIndex, endIndex),
+    [endIndex, sortedData, startIndex],
+  );
 
-  const uniqueUsers = new Set(data.items.map((i) => i.user).filter(Boolean)).size;
-  const uniqueClusters = new Set(data.items.map((i) => i.cluster_id).filter(Boolean)).size;
-  const uniqueNotebooks = new Set(data.items.map((i) => i.notebook_path).filter(Boolean)).size;
+  if (isLoading) {
+    return (
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
+        <div className="flex h-48 flex-col items-center justify-center gap-3">
+          <Spinner size="lg" />
+          <p className="text-sm text-gray-500">Loading interactive compute...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (data?.error) {
+    return (
+      <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
+        <h3 className="mb-4 text-lg font-semibold text-gray-900">Interactive Compute Leaderboard</h3>
+        <p className="text-sm text-amber-600">{data.error}</p>
+      </div>
+    );
+  }
+
+  if (!data || data.items.length === 0) {
+    return null;
+  }
 
   return (
     <div className="animate-fade-in rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
@@ -207,14 +241,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-lg font-semibold text-gray-900 shrink-0 flex items-center gap-1.5">
             Interactive Compute Leaderboard
-            <span className="relative group">
-              <svg className="h-4 w-4 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-72 rounded-lg bg-gray-900 px-3 py-2 text-xs text-white shadow-lg z-20">
-                Interactive compute (also known as "All Purpose" compute) usage from notebooks, IDEs, and interactive sessions. Does not include automated jobs or streaming pipelines: those are tracked in the ETL Leaderboard below.
-              </span>
-            </span>
+            <InfoPopover className="" text={'Interactive compute (also known as "All Purpose" compute) usage from notebooks, IDEs, and interactive sessions. Does not include automated jobs or streaming pipelines: those are tracked in the ETL Leaderboard below.'} />
           </h3>
           <span className="text-sm text-gray-500 shrink-0">{uniqueUsers} users · {uniqueClusters} clusters · {uniqueNotebooks} notebooks</span>
           <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -260,10 +287,7 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
                   className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
                 />
                 Show historical ({historicalCount})
-                <span className="relative group ml-0.5">
-                  <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Clusters whose names could not be resolved: likely terminated or from inaccessible workspaces</span>
-                </span>
+                <InfoPopover className="ml-0.5" label="About historical clusters" text="Clusters whose names could not be resolved: likely terminated or from inaccessible workspaces" />
               </label>
             )}
             <div className="relative w-44 shrink-0">
@@ -286,36 +310,23 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th
-                className="cursor-pointer px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700"
-                onClick={() => handleSort(viewMode === "by-user" ? "user" : viewMode === "by-cluster" ? "cluster_id" : "notebook_path")}
+              <SortableHeader
+                field={viewMode === "by-user" ? "user" : viewMode === "by-cluster" ? "cluster_id" : "notebook_path"}
+                activeField={sortField}
+                direction={sortDirection}
+                onSort={(field) => handleSort(field as SortField)}
+                className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
               >
                 {viewMode === "by-user" ? "User" : viewMode === "by-cluster" ? "Cluster" : "Notebook"}
-                <SortIcon field={viewMode === "by-user" ? "user" : viewMode === "by-cluster" ? "cluster_id" : "notebook_path"} />
-              </th>
+              </SortableHeader>
               {viewMode === "by-notebook" && (
                 <th className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                   User
                 </th>
               )}
-              <th
-                className="cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700"
-                onClick={() => handleSort("total_spend")}
-              >
-                Spend <SortIcon field="total_spend" />
-              </th>
-              <th
-                className="cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700"
-                onClick={() => handleSort("total_dbus")}
-              >
-                DBUs <SortIcon field="total_dbus" />
-              </th>
-              <th
-                className="cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700"
-                onClick={() => handleSort("days_active")}
-              >
-                Days <SortIcon field="days_active" />
-              </th>
+              <SortableHeader field="total_spend" activeField={sortField} direction={sortDirection} onSort={(field) => handleSort(field as SortField)} align="right" className="px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Spend</SortableHeader>
+              <SortableHeader field="total_dbus" activeField={sortField} direction={sortDirection} onSort={(field) => handleSort(field as SortField)} align="right" className="px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">DBUs</SortableHeader>
+              <SortableHeader field="days_active" activeField={sortField} direction={sortDirection} onSort={(field) => handleSort(field as SortField)} align="right" className="px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Days</SortableHeader>
               <th className="px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
                 %
               </th>
@@ -420,10 +431,10 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
                 Total ({sortedData.length} {viewMode === "by-user" ? "users" : viewMode === "by-cluster" ? "clusters" : "notebooks"})
               </td>
               <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-bold text-gray-900">
-                {formatCurrency(filteredData.reduce((sum, i) => sum + i.total_spend, 0))}
+                {formatCurrency(totalSpend)}
               </td>
               <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-medium text-gray-700">
-                {formatNumber(filteredData.reduce((sum, i) => sum + i.total_dbus, 0))}
+                {formatNumber(totalDbu)}
               </td>
               <td colSpan={2}></td>
             </tr>
@@ -488,4 +499,4 @@ export function InteractiveBreakdown({ data, isLoading, host }: InteractiveBreak
       </div>
     </div>
   );
-}
+});

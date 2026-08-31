@@ -25,11 +25,41 @@ describe("ExportDialog report data loading", () => {
         onExport={vi.fn()}
         tabVisibility={visibility}
         dataLoading
+        requiredTabs={["dbu", "apps"]}
+        tabLoading={{ dbu: true, apps: true }}
+        onPrepare={vi.fn()}
       />,
     );
 
-    const button = screen.getByRole("button", { name: "Preparing report data" });
+    const button = screen.getByRole("button", { name: "Preparing report data: 0 of 2 tabs ready" });
     expect(button).toBeDisabled();
+  });
+
+  it("waits for an explicit prepare action and demands only selected section tabs", async () => {
+    const onPrepare = vi.fn();
+    render(
+      <ExportDialog
+        isOpen
+        onClose={vi.fn()}
+        onExport={vi.fn()}
+        tabVisibility={visibility}
+        onPrepare={onPrepare}
+      />,
+    );
+
+    expect(onPrepare).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Select none" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /Executive Summary/ }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /Apps/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Prepare report data" }));
+
+    expect(onPrepare).toHaveBeenCalledOnce();
+    expect(onPrepare.mock.calls[0][0]).toMatchObject({
+      summary: true,
+      apps: true,
+      query360: false,
+      awsCosts: false,
+    });
   });
 
   it("blocks failed selected sections, annotates them, and retries", async () => {
@@ -41,6 +71,8 @@ describe("ExportDialog report data loading", () => {
         onClose={vi.fn()}
         onExport={onExport}
         tabVisibility={visibility}
+        dataPrepared
+        requiredTabs={["apps"]}
         dataErrors={{ apps: "Apps data failed to load." }}
         onRetryFailed={onRetryFailed}
       />,
@@ -62,6 +94,7 @@ describe("ExportDialog report data loading", () => {
         onClose={vi.fn()}
         onExport={onExport}
         tabVisibility={visibility}
+        dataPrepared
         dataErrors={{ apps: "Apps data failed to load." }}
       />,
     );

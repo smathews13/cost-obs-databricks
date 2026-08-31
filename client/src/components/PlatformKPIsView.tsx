@@ -1,5 +1,4 @@
 import { useState, useEffect, memo } from "react";
-import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import type { PlatformKPIsResponse, SpendAnomaliesResponse } from "@/types/billing";
 import { SpendAnomalies } from "@/components/SpendAnomalies";
@@ -9,6 +8,8 @@ import { useFeatureAvailability } from "@/hooks/useFeatureAvailability";
 import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { LoadingPanels, Spinner } from "@/components/Spinner";
+import { InfoPopover } from "@/components/ui/InfoPopover";
+import { TrendAction } from "@/components/ui/TrendAction";
 import {
   buildFilteredUrl,
   getActiveSourceScopeKey,
@@ -25,29 +26,6 @@ interface PlatformKPIsViewProps {
   endDate?: string;
   workspaceIds?: string[];
   workspaceNameMap?: Record<string, string>;
-}
-
-function InfoTooltip({ text }: { text: string }) {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  return (
-    <span
-      className="ml-1.5 inline-flex cursor-help"
-      onMouseEnter={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseMove={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseLeave={() => setPos(null)}
-    >
-      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-semibold text-gray-500">i</span>
-      {pos && createPortal(
-        <div
-          className="pointer-events-none fixed z-[9999] w-64 rounded-lg bg-gray-900 px-3 py-2 text-xs font-normal leading-relaxed text-white shadow-lg"
-          style={{ top: pos.y - 12, transform: "translateY(-100%)", left: Math.min(pos.x + 14, window.innerWidth - 272) }}
-        >
-          {text}
-        </div>,
-        document.body
-      )}
-    </span>
-  );
 }
 
 interface KPICardProps {
@@ -90,10 +68,9 @@ const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, ico
   return (
     <div
       className={`co-kpi-card rounded-lg bg-white p-6 border transition-all ${
-        onClick ? "shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01]" : ""
+        onClick ? "shadow-sm" : ""
       }`}
       style={{ borderColor: C.hairline }}
-      onClick={onClick}
     >
       <div className="flex items-center">
         <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-lg ${color}`}>
@@ -102,7 +79,7 @@ const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, ico
         <div className="ml-4 flex-1 min-w-0">
           <p className={`flex items-center text-sm font-medium text-gray-500 ${titleNoWrap ? "justify-between gap-2" : ""}`}>
             <span className={titleNoWrap ? "whitespace-nowrap" : undefined}>{title}</span>
-            {infoTooltip && <InfoTooltip text={infoTooltip} />}
+            {infoTooltip && <InfoPopover text={infoTooltip} />}
           </p>
           {isLoading ? (
             <div className="mt-2 h-6 w-6">
@@ -114,9 +91,10 @@ const KPICard = memo(function KPICard({ title, value, subtitle, infoTooltip, ico
           {!isLoading && subtitle && (
             <p className="mt-0.5 text-sm text-gray-500">{subtitle}</p>
           )}
-          {onClick && (
-            <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
-          )}
+          <TrendAction
+            onActivate={onClick}
+            ariaLabel={`See ${title} trend`}
+          />
         </div>
       </div>
     </div>
@@ -242,7 +220,7 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
           <li><strong>Query and Data Processing</strong>: SQL execution, data scanned, and compute time across all warehouses</li>
           <li><strong>Jobs and Workflows</strong>: Automated job executions, success rates, and notebook usage</li>
           <li><strong>Platform Utilization</strong>: Active workspaces, model serving endpoints, user adoption, and usage stickiness (DAU/MAU)</li>
-          <li>Click any metric card to view historical trends and patterns</li>
+          <li>Use each metric card's See trend button to view historical trends and patterns</li>
         </ul>
       </InfoPanel>
 

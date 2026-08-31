@@ -10,6 +10,18 @@ vi.mock("@/hooks/useBillingData", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/hooks/useBillingData")>();
   return { ...actual, useUsersGroupsBundle: vi.fn() };
 });
+vi.mock("@/components/KPITrendModal", () => ({
+  KPITrendModal: (props: {
+    kpi: string;
+    queryKeyPrefix?: string;
+    variant?: string;
+  }) => createElement("div", {
+    "data-testid": "users-trend-routing",
+    "data-kpi": props.kpi,
+    "data-prefix": props.queryKeyPrefix,
+    "data-variant": props.variant,
+  }),
+}));
 
 const user = (user_email: string, total_spend: number): UserSpend => ({
   user_email,
@@ -87,5 +99,25 @@ describe("user anonymization", () => {
       .find((row): row is HTMLTableRowElement => row !== null);
     expect(leaderboardRow).toBeTruthy();
     expect(leaderboardRow!.querySelector("td:first-child .rounded-full")?.textContent).toBe("1");
+  });
+
+  it("routes every user trend through users-groups-owned cache keys", () => {
+    render(createElement(UsersGroups, {
+      startDate: "2026-08-01",
+      endDate: "2026-08-28",
+      dateRange: { startDate: "2026-08-01", endDate: "2026-08-28" },
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: "See Unique Active Users trend" }));
+    expect(screen.getByTestId("users-trend-routing")).toHaveAttribute(
+      "data-prefix",
+      "users-groups-platform-kpi-trend",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "See User Spend Growth trend" }));
+    expect(screen.getByTestId("users-trend-routing")).toHaveAttribute(
+      "data-prefix",
+      "users-groups-kpi-trend",
+    );
   });
 });

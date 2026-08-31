@@ -107,10 +107,13 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   };
 
   return (
-    <div className="relative">
+    <div className="relative w-full sm:w-80">
       <button
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="co-filter flex w-80 items-center gap-2 px-4"
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        className="co-filter flex w-full items-center gap-2 px-4"
       >
         {updating ? (
           <Spinner size="sm" />
@@ -133,7 +136,11 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             className="fixed inset-0 z-10"
             onClick={() => setIsOpen(false)}
           />
-          <div className="co-filter-menu absolute right-0 z-20 mt-2 w-80 p-4">
+          <div
+            role="dialog"
+            aria-label="Choose date range"
+            className="co-filter-menu absolute right-0 z-20 mt-2 w-[min(20rem,calc(100vw-2rem))] p-4"
+          >
             <div className="mb-4">
               <h4 className="mb-2 text-sm font-medium text-gray-700">Quick Select</h4>
               <div className="flex flex-wrap gap-2">

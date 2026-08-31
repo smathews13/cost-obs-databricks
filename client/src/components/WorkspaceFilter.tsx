@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useId } from "react";
 import { useUpdatingIndicator } from "@/hooks/useUpdatingIndicator";
 import { C } from "@/theme";
 import { Spinner } from "./Spinner";
@@ -34,18 +34,22 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
   // means "nothing selected" (Apply is disabled until at least one is checked).
   const [draftAll, setDraftAll] = useState(true);
   const [draftIds, setDraftIds] = useState<string[]>([]);
+  const menuId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const validWorkspaces = workspaces.filter((ws) => isValidWorkspaceId(ws.workspace_id));
 
-  // Sync draft from applied state each time the dropdown opens
   useEffect(() => {
-    if (isOpen) {
-      setDraftAll(selectedIds.length === 0);
-      setDraftIds(selectedIds);
-      setSearch("");
-      setTimeout(() => searchRef.current?.focus(), 0);
-    }
+    if (!isOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setIsOpen(false);
+      window.setTimeout(() => triggerRef.current?.focus(), 0);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
   }, [isOpen]);
 
   if (isLoading) {
@@ -67,6 +71,14 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
 
   const allSelected = selectedIds.length === 0;
   const applyEnabled = draftAll || draftIds.length > 0;
+
+  function openMenu() {
+    setDraftAll(selectedIds.length === 0);
+    setDraftIds(selectedIds);
+    setSearch("");
+    setIsOpen(true);
+    window.setTimeout(() => searchRef.current?.focus(), 0);
+  }
 
   function draftToggle(id: string) {
     if (draftAll) {
@@ -97,6 +109,17 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
     setIsOpen(false);
   }
 
+  function handleCancel() {
+    setIsOpen(false);
+    window.setTimeout(() => triggerRef.current?.focus(), 0);
+  }
+
+  function handleClearApplied() {
+    onChange([]);
+    arm();
+    setIsOpen(false);
+  }
+
   function label() {
     if (allSelected) {
       return "All Workspaces";
@@ -109,14 +132,28 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
   }
 
   return (
-    <div className={variant === "rail" ? "relative min-w-0 shrink" : "relative"}>
+    <div className={variant === "rail" ? "relative flex min-w-0 shrink items-center gap-1" : "relative flex items-center gap-1"}>
       {isOpen && (
         <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
       )}
 
       <button
-        onClick={() => setIsOpen((o) => !o)}
+        ref={triggerRef}
+        type="button"
+        onClick={() => {
+          if (isOpen) setIsOpen(false);
+          else openMenu();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            openMenu();
+          }
+        }}
         aria-label={updating ? "Updating workspaces" : label()}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        aria-controls={menuId}
         className={variant === "rail"
           ? "rail-workspace-filter rail-control-border flex h-[32px] max-w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
           : "co-filter flex items-center gap-2 whitespace-nowrap px-3"
@@ -139,20 +176,6 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
             </>
           )}
         </span>
-        {!allSelected && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onChange([]); }}
-            className={variant === "rail"
-              ? "ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-white/[.14] text-current opacity-70 hover:bg-white/[.22]"
-              : "ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-500 hover:bg-gray-300"
-            }
-            title="Clear filter"
-          >
-            <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        )}
         <svg
           className={`${variant === "rail" ? "h-[12px] w-[12px] opacity-70" : "ml-0.5 h-4 w-4 text-gray-500"} shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
           fill="none" viewBox="0 0 24 24" stroke="currentColor"
@@ -161,8 +184,30 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
         </svg>
       </button>
 
+      {!allSelected && (
+        <button
+          type="button"
+          onClick={handleClearApplied}
+          aria-label="Clear workspace filter"
+          className={variant === "rail"
+            ? "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/[.14] text-[#E9EFED] opacity-80 hover:bg-white/[.22] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
+            : "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-200 text-gray-600 hover:bg-gray-300 focus-visible:outline-none focus-visible:shadow-(--focus)"
+          }
+          title="Clear workspace filter"
+        >
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
+
       {isOpen && (
-        <div className="co-filter-menu absolute left-0 z-20 mt-2 min-w-[220px] p-3">
+        <div
+          id={menuId}
+          role="dialog"
+          aria-label="Filter workspaces"
+          className="co-filter-menu absolute left-0 top-full z-20 mt-2 w-[min(20rem,calc(100vw-2rem))] p-3"
+        >
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Workspaces</span>
             <div className="flex gap-2">
@@ -189,14 +234,15 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
               <input
                 ref={searchRef}
                 type="text"
+                aria-label="Search workspaces"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search workspaces…"
                 className="w-full bg-transparent text-xs text-gray-700 placeholder-gray-400 outline-none"
               />
               {search && (
-                <button onClick={() => setSearch("")} className="shrink-0 text-gray-500 hover:text-gray-700">
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <button type="button" aria-label="Clear workspace search" onClick={() => setSearch("")} className="shrink-0 text-gray-500 hover:text-gray-700">
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
@@ -271,18 +317,28 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
               );
             })()}
           </div>
-          <div className="mt-3 flex items-center justify-between border-t border-gray-100 pt-2">
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-gray-100 pt-2">
             <span className="text-[11px] text-gray-500">
               {draftAll ? `All ${validWorkspaces.length}` : `${draftIds.length} of ${validWorkspaces.length}`} selected
             </span>
-            <button
-              onClick={handleApply}
-              disabled={!applyEnabled}
-              className="rounded-md px-3 py-1.5 text-xs font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ backgroundColor: applyEnabled ? C.lava : C.busy }}
-            >
-              Apply
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="rounded-md px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleApply}
+                disabled={!applyEnabled}
+                className="rounded-md px-3 py-1.5 text-xs font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                style={{ backgroundColor: applyEnabled ? C.lava : C.busy }}
+              >
+                Apply
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from server import db
-from server.routers import health
+from server.routers import billing, health
 
 
 def _request():
@@ -56,7 +56,10 @@ async def test_infra_cache_clear_covers_all_actual_cost_providers():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("tab", ["dbu", "sql", "infra", "kpis", "aiml", "apps", "tagging"])
+@pytest.mark.parametrize(
+    "tab",
+    ["dbu", "sql", "infra", "kpis", "aiml", "apps", "tagging", "users-groups"],
+)
 async def test_tab_cache_clear_invalidates_only_its_owned_trends(tab):
     with (
         patch("server.db.clear_query_cache", return_value=0),
@@ -70,6 +73,78 @@ async def test_tab_cache_clear_invalidates_only_its_owned_trends(tab):
         not pattern.startswith("trend:") or pattern.startswith(f"trend:{tab}:")
         for pattern in patterns
     )
+
+
+@pytest.mark.asyncio
+async def test_user_trends_are_cleared_only_with_users_groups():
+    with (
+        patch("server.db.clear_query_cache", return_value=0) as clear_query_cache,
+        patch("server.db.delta_cache_invalidate") as delta_cache_invalidate,
+    ):
+        await health.clear_cache(_request(), "dbu")
+
+    assert "tab:users-groups" not in [
+        call.args[0] for call in clear_query_cache.call_args_list
+    ]
+    assert "trend:users-groups:" not in [
+        call.args[0] for call in delta_cache_invalidate.call_args_list
+    ]
+
+    with (
+        patch("server.db.clear_query_cache", return_value=0) as clear_query_cache,
+        patch("server.db.delta_cache_invalidate") as delta_cache_invalidate,
+    ):
+        await health.clear_cache(_request(), "users-groups")
+
+    assert "tab:users-groups" in [
+        call.args[0] for call in clear_query_cache.call_args_list
+    ]
+    assert "trend:users-groups:" in [
+        call.args[0] for call in delta_cache_invalidate.call_args_list
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("endpoint", "kpi", "cache_endpoint"),
+    [
+        (billing.get_kpi_trend, "user_spend", "trend:users-groups:billing-kpi"),
+        (
+            billing.get_platform_kpi_trend,
+            "total_queries",
+            "trend:users-groups:platform-kpi",
+        ),
+    ],
+)
+async def test_billing_trend_endpoints_honor_users_groups_owner(
+    endpoint, kpi, cache_endpoint
+):
+    with (
+        patch.object(billing, "delta_cache_get", return_value=None),
+        patch.object(billing, "delta_cache_put") as cache_put,
+        patch.object(
+            billing,
+            "capture_cache_generation",
+            return_value=db.CacheGeneration(cache_endpoint, 0),
+        ) as capture_generation,
+        patch.object(billing, "_check_mv_available", return_value=False),
+        patch.object(
+            billing,
+            "execute_query",
+            return_value=[{"date": "2026-08-01", "value": 1}],
+        ),
+    ):
+        await endpoint(
+            kpi=kpi,
+            start_date="2026-08-01",
+            end_date="2026-08-28",
+            granularity="daily",
+            workspace_ids=None,
+            tab="users-groups",
+        )
+
+    capture_generation.assert_called_once_with(cache_endpoint)
+    assert cache_put.call_args.args[1] == cache_endpoint
 
 
 @pytest.mark.asyncio

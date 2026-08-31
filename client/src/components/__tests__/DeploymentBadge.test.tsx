@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { DeploymentBadge } from "../DeploymentBadge";
 import {
@@ -46,18 +45,15 @@ describe("DeploymentBadge", () => {
     render(<DeploymentBadge metadata={metadata} />);
 
     const trigger = screen.getByRole("button", { name: /deployment information: aug 30/i });
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    fireEvent.mouseEnter(trigger);
     const tooltip = screen.getByRole("tooltip");
     expect(trigger).toHaveAttribute("aria-describedby", tooltip.id);
     expect(tooltip).toHaveTextContent("by deployer@example.com");
     expect(tooltip).toHaveTextContent("commit ed86035f");
 
-    fireEvent.mouseEnter(trigger);
-    trigger.focus();
+    act(() => trigger.focus());
     expect(trigger).toHaveFocus();
-
-    const css = readFileSync("src/index.css", "utf8");
-    expect(css).toContain(".deployment-badge:hover .deployment-badge-tooltip");
-    expect(css).toContain(".deployment-badge:focus-within .deployment-badge-tooltip");
   });
 
   it("keeps the full date on wide rails and collapses to an accessible icon trigger", () => {
@@ -67,7 +63,9 @@ describe("DeploymentBadge", () => {
     const date = screen.getByTestId("deployment-badge-date");
 
     expect(date).toHaveTextContent("Aug 30");
-    expect(date).toHaveClass("hidden", "xl:inline");
+    expect(date).toHaveClass("hidden", "lg:inline");
+    expect(trigger).not.toHaveAttribute("aria-describedby");
+    act(() => trigger.focus());
     expect(trigger).toHaveAttribute("aria-describedby", screen.getByRole("tooltip").id);
   });
 
@@ -80,8 +78,8 @@ describe("DeploymentBadge", () => {
       source: "unavailable",
     }} />);
 
-    expect(screen.getByRole("button", { name: /deployment information: deploy info/i }))
-      .toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: /deployment information: deploy info/i });
+    act(() => trigger.focus());
     expect(screen.getByRole("tooltip")).toHaveTextContent("Deployment date unavailable");
     expect(screen.queryByText(/\bby\b/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\bcommit\b/)).not.toBeInTheDocument();

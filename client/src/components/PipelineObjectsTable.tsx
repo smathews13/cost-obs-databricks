@@ -5,6 +5,8 @@ import { StatusIndicator } from "./StatusIndicator";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { C } from "@/theme";
 import { Spinner } from "./Spinner";
+import { InfoPopover } from "./ui/InfoPopover";
+import { SortableHeader } from "./ui/SortableHeader";
 
 interface PipelineObjectsTableProps {
   data: PipelineObjectsResponse | undefined;
@@ -19,7 +21,7 @@ function formatNumber(value: number): string {
   }).format(value);
 }
 
-function getObjectUrl(host: string | null | undefined, objectType: string, objectId: string, _workspaceId: string | null): string | null {
+function getObjectUrl(host: string | null | undefined, objectType: string, objectId: string): string | null {
   if (!host || !objectId) return null;
   if (objectType === "Job") {
     return workspaceUrl(host, `/jobs/${objectId}`);
@@ -63,13 +65,6 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
       setSortDirection("desc");
     }
     setCurrentPage(1);
-  };
-
-  const SortIcon = ({ field }: { field: SortField }) => {
-    if (sortField !== field) {
-      return <span className="ml-1 text-gray-300">↕</span>;
-    }
-    return <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>;
   };
 
   if (isLoading) {
@@ -138,24 +133,14 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <h3 className="text-lg font-semibold text-gray-900 shrink-0 flex items-center gap-1.5">
           ETL Leaderboard
-          <span className="relative group">
-            <svg className="h-4 w-4 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-80 rounded-lg bg-gray-900 px-3 py-2 text-xs text-white shadow-lg z-20">
-              All streaming and batch workloads across Spark Declarative Pipelines (SDP) and Jobs. Unlike Interactive Compute, these are automated scheduled or triggered workloads that run without user interaction. Shows the top 200 objects by spend.
-            </span>
-          </span>
+          <InfoPopover className="" panelClassName="w-80" text="All streaming and batch workloads across Spark Declarative Pipelines (SDP) and Jobs. Unlike Interactive Compute, these are automated scheduled or triggered workloads that run without user interaction. Shows the top 200 objects by spend." />
         </h3>
         <span className="text-sm text-gray-500 shrink-0">{activeObjects.length} objects by spend</span>
         {historicalCount > 0 && (
           <label className="flex shrink-0 items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
             <input type="checkbox" checked={showHistorical} onChange={(e) => { setShowHistorical(e.target.checked); setCurrentPage(1); }} className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
             Show historical ({historicalCount})
-            <span className="relative group ml-0.5">
-              <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Objects whose names could not be resolved: likely deleted or from inaccessible workspaces</span>
-            </span>
+            <InfoPopover className="ml-0.5" label="About historical objects" text="Objects whose names could not be resolved: likely deleted or from inaccessible workspaces" />
           </label>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -216,39 +201,14 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th
-                className="cursor-pointer px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700"
-                onClick={() => handleSort("object_type")}
-              >
-                Type <SortIcon field="object_type" />
-              </th>
-              <th
-                className="cursor-pointer px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700"
-                onClick={() => handleSort("object_name")}
-              >
-                Name <SortIcon field="object_name" />
-              </th>
+              <SortableHeader field="object_type" activeField={sortField} direction={sortDirection} onSort={(field) => handleSort(field as SortField)} className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Type</SortableHeader>
+              <SortableHeader field="object_name" activeField={sortField} direction={sortDirection} onSort={(field) => handleSort(field as SortField)} className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Name</SortableHeader>
               <th className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                 Owner
               </th>
-              <th
-                className="cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700"
-                onClick={() => handleSort("total_spend")}
-              >
-                Spend <SortIcon field="total_spend" />
-              </th>
-              <th
-                className="cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700"
-                onClick={() => handleSort("total_dbus")}
-              >
-                DBUs <SortIcon field="total_dbus" />
-              </th>
-              <th
-                className="cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700"
-                onClick={() => handleSort("total_runs")}
-              >
-                Runs <SortIcon field="total_runs" />
-              </th>
+              <SortableHeader field="total_spend" activeField={sortField} direction={sortDirection} onSort={(field) => handleSort(field as SortField)} align="right" className="px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Spend</SortableHeader>
+              <SortableHeader field="total_dbus" activeField={sortField} direction={sortDirection} onSort={(field) => handleSort(field as SortField)} align="right" className="px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">DBUs</SortableHeader>
+              <SortableHeader field="total_runs" activeField={sortField} direction={sortDirection} onSort={(field) => handleSort(field as SortField)} align="right" className="px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Runs</SortableHeader>
               <th className="px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
                 %
               </th>
@@ -263,7 +223,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
               </tr>
             )}
             {paginatedData.map((obj, idx) => {
-              const url = getObjectUrl(host, obj.object_type, obj.object_id, obj.workspace_id);
+              const url = getObjectUrl(host, obj.object_type, obj.object_id);
 
               return (
                 <tr key={`${obj.object_type}-${obj.object_id}-${idx}`} className="hover:bg-gray-50">

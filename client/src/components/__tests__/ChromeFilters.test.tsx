@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SourceLabelFilter } from "../SourceLabelFilter";
 import { WorkspaceFilter } from "../WorkspaceFilter";
@@ -52,6 +53,51 @@ describe("chrome filter variants", () => {
     expect(trigger.className).not.toContain("border-white");
     expect(screen.getByText("Workspaces")).toHaveClass("min-[1180px]:hidden");
     expect(trigger).not.toHaveClass("co-filter");
+  });
+
+  it("keeps the applied Clear action outside the trigger", async () => {
+    const onChange = vi.fn();
+    renderWithQueryClient(
+      <WorkspaceFilter
+        workspaces={workspaces}
+        selectedIds={["1"]}
+        onChange={onChange}
+        variant="rail"
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Workspace one" });
+    const clear = screen.getByRole("button", { name: "Clear workspace filter" });
+    expect(trigger).not.toContainElement(clear);
+    expect(trigger.querySelector("button")).toBeNull();
+
+    await userEvent.click(clear);
+    expect(onChange).toHaveBeenCalledWith([]);
+  });
+
+  it("cancels draft changes and closes with Escape without applying", async () => {
+    const onChange = vi.fn();
+    renderWithQueryClient(
+      <WorkspaceFilter
+        workspaces={workspaces}
+        selectedIds={["1"]}
+        onChange={onChange}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Workspace one" });
+    await userEvent.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Filter workspaces" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Workspace one" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Filter workspaces" })).not.toBeInTheDocument();
+
+    await userEvent.click(trigger);
+    expect(screen.getByRole("checkbox", { name: "Workspace one" })).toBeChecked();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Filter workspaces" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("uses the shared dark rail border while workspaces load", () => {

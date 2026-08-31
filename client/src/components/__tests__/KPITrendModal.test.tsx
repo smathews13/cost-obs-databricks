@@ -60,4 +60,74 @@ describe("KPITrendModal query routing", () => {
       expect(url.searchParams.get("tab")).toBe("kpis");
     },
   );
+
+  it.each([
+    {
+      variant: "billing" as const,
+      kpi: "user_spend",
+      queryKeyPrefix: "users-groups-kpi-trend",
+      endpoint: "/api/billing/kpi-trend",
+    },
+    {
+      variant: "platform" as const,
+      kpi: "total_users",
+      queryKeyPrefix: "users-groups-platform-kpi-trend",
+      endpoint: "/api/billing/platform-kpi-trend",
+    },
+  ])("assigns $kpi requests and cache keys to users-groups", async ({
+    variant,
+    kpi,
+    queryKeyPrefix,
+    endpoint,
+  }) => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      kpi,
+      granularity: "daily",
+      data_points: [],
+      summary: {
+        period_start_value: 0,
+        period_end_value: 0,
+        change_amount: 0,
+        change_percent: 0,
+        min_value: 0,
+        max_value: 0,
+        avg_value: 0,
+        trend: "flat",
+      },
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <KPITrendModal
+          variant={variant}
+          kpi={kpi}
+          kpiLabel={kpi}
+          isOpen
+          onClose={vi.fn()}
+          startDate="2026-08-01"
+          endDate="2026-08-28"
+          queryKeyPrefix={queryKeyPrefix}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const url = new URL(String(fetchMock.mock.calls[0][0]), "https://example.test");
+    expect(url.pathname).toBe(endpoint);
+    expect(url.searchParams.get("tab")).toBe("users-groups");
+    expect(client.getQueryCache().getAll().map((query) => query.queryKey))
+      .toContainEqual([
+        queryKeyPrefix,
+        kpi,
+        "2026-08-01",
+        "2026-08-28",
+        "daily",
+        "",
+        "",
+      ]);
+  });
 });

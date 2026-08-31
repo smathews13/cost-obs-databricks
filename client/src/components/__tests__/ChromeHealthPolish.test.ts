@@ -21,6 +21,18 @@ describe("account rail health polish", () => {
     expect(appSource).not.toContain('className="-ml-[8px]');
   });
 
+  it("wraps narrow chrome while keeping navigation horizontally controlled", () => {
+    expect(appSource).toContain(
+      'data-testid="account-rail" className="min-h-[52px] overflow-visible',
+    );
+    expect(appSource).toContain("min-w-0 flex-wrap items-center");
+    expect(appSource).toContain(
+      'className="order-last flex w-full min-w-0 items-center',
+    );
+    expect(appSource).toContain('className="flex flex-wrap items-center gap-4"');
+    expect(appSource).toContain("overflow-x-auto overflow-y-hidden");
+  });
+
   it("places deployment provenance beside the brand before account filters", () => {
     const badgeIndex = appSource.lastIndexOf("<DeploymentBadgeFromApi");
     const accountIndex = appSource.lastIndexOf("<AccountIdentifier");
@@ -33,10 +45,11 @@ describe("account rail health polish", () => {
   });
 
   it("exposes the full account ID with a keyboard-accessible tooltip", () => {
-    expect(appSource).toContain('role="tooltip"');
-    expect(appSource).toContain('aria-describedby={tooltipId}');
+    expect(appSource).toContain('label="Show full account ID"');
+    expect(appSource).toContain("<InfoPopover");
     expect(appSource).not.toContain('title={accountInfo?.account_id');
-    expect(styles).toContain(".account-id-tooltip:focus-within .account-id-tooltip-content");
+    expect(styles).not.toContain(".account-id-tooltip-content");
+    expect(styles).not.toContain(".deployment-badge-tooltip");
   });
 
   it("sets the app font before React renders and prevents late font swaps", () => {

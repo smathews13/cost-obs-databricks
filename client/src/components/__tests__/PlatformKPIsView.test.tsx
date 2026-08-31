@@ -6,7 +6,7 @@
  * NOT zero or a loading spinner.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlatformKPIsView } from "../PlatformKPIsView";
 import type { PlatformKPIsResponse } from "@/types/billing";
@@ -220,7 +220,10 @@ describe("PlatformKPIsView: card trend mappings", () => {
   ])("maps %s to %s", (title, expectedKpi) => {
     renderView({}, SAMPLE_DATA, true);
 
-    fireEvent.click(screen.getByText(title).closest(".co-kpi-card")!);
+    const card = screen.getByText(title).closest(".co-kpi-card")!;
+    fireEvent.click(within(card as HTMLElement).getByRole("button", {
+      name: `See ${title} trend`,
+    }));
 
     expect(screen.getByTestId("selected-kpi")).toHaveTextContent(expectedKpi);
   });

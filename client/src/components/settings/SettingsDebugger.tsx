@@ -34,6 +34,7 @@ let _persistedRunKey = 0;
 let _persistedHasRun = false;
 
 /** Reset persisted run state. Used only in tests to prevent cross-test pollution. */
+// eslint-disable-next-line react-refresh/only-export-components
 export function _resetDebuggerState() {
   _persistedRunKey = 0;
   _persistedHasRun = false;
@@ -270,7 +271,7 @@ export function SettingsDebugger({ onGoToConfig }: SettingsDebuggerProps) {
   const [hasRun, setHasRun] = useState(_persistedHasRun);
 
   const { data: installReport, isLoading: configLoading } = useQuery<InstallReport>({
-    queryKey: ["settings-install-report"],
+    queryKey: ["app-config"],
     queryFn: async () => {
       const res = await fetch("/api/settings/config");
       if (!res.ok) throw new Error("config fetch failed");

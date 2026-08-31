@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { UntaggedResourcesTable } from "./UntaggedResourcesTable";
 import type { UntaggedTab } from "./UntaggedResourcesTable";
@@ -22,6 +21,9 @@ import { VirtualizedList } from "./VirtualizedList";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { Dialog } from "@/components/ui/Dialog";
+import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
+import { TrendAction } from "@/components/ui/TrendAction";
 import {
   buildFilteredUrl,
   getActiveSourceScopeKey,
@@ -54,29 +56,6 @@ const COLORS = {
 };
 
 const TAG_PAGE_SIZE = 10;
-
-function InfoTooltip({ text }: { text: string }) {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  return (
-    <span
-      className="ml-1.5 inline-flex cursor-help"
-      onMouseEnter={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseMove={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseLeave={() => setPos(null)}
-    >
-      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-semibold text-gray-500">i</span>
-      {pos && createPortal(
-        <div
-          className="pointer-events-none fixed z-[9999] w-72 rounded-lg bg-gray-900 px-3 py-2 text-xs font-normal leading-relaxed text-white shadow-lg"
-          style={{ top: pos.y - 12, transform: "translateY(-100%)", left: Math.min(pos.x + 14, window.innerWidth - 296) }}
-        >
-          {text}
-        </div>,
-        document.body
-      )}
-    </span>
-  );
-}
 
 export function TaggingHub({ data, isLoading, host, startDate, endDate, workspaceIds, workspaceNameMap }: TaggingHubProps) {
   const [activeUntaggedTab, setActiveUntaggedTab] = useState<UntaggedTab>("all");
@@ -422,11 +401,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
 
       {/* Summary Cards */}
       <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => setSelectedKPI({ kpi: "tagged_spend", label: "Daily Tagged Spend" })}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -437,16 +412,15 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               <p className="text-sm font-medium text-gray-500">Tagged Spend</p>
               <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.tagged_spend)}</p>
               <p className="text-sm text-gray-500">{(summary.tagged_percentage ?? 0).toFixed(1)}% of {daysDiff}-day spend</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "tagged_spend", label: "Daily Tagged Spend" }) : undefined}
+                ariaLabel="See Tagged Spend trend"
+              />
             </div>
           </div>
         </div>
 
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => setSelectedKPI({ kpi: "untagged_spend", label: "Daily Untagged Spend" })}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -457,16 +431,15 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               <p className="text-sm font-medium text-gray-500">Untagged Spend</p>
               <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.untagged_spend)}</p>
               <p className="text-sm text-gray-500">{(summary.untagged_percentage ?? 0).toFixed(1)}% of {daysDiff}-day spend</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "untagged_spend", label: "Daily Untagged Spend" }) : undefined}
+                ariaLabel="See Untagged Spend trend"
+              />
             </div>
           </div>
         </div>
 
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => setSelectedKPI({ kpi: "cost_per_tag", label: "Daily Cost Per-Tag" })}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -479,16 +452,15 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                 {data?.avg_cost_per_tag != null ? formatKpiCurrency(data.avg_cost_per_tag) : "N/A"}
               </p>
               <p className="text-sm text-gray-500">avg. over {daysDiff} days</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={data.avg_cost_per_tag != null && startDate && endDate ? () => setSelectedKPI({ kpi: "cost_per_tag", label: "Daily Cost Per-Tag" }) : undefined}
+                ariaLabel="See Cost Per-Tag trend"
+              />
             </div>
           </div>
         </div>
 
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => setSelectedKPI({ kpi: "total_tags", label: "Daily Total Tags" })}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -502,7 +474,10 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               </p>
               <p className="text-2xl font-semibold text-gray-900">{data?.total_tag_count != null ? formatNumber(data.total_tag_count) : "N/A"}</p>
               <p className="text-sm text-gray-500">unique key:value pairs</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={data.total_tag_count != null && startDate && endDate ? () => setSelectedKPI({ kpi: "total_tags", label: "Daily Total Tags" }) : undefined}
+                ariaLabel="See Total Tags trend"
+              />
             </div>
           </div>
         </div>
@@ -731,9 +706,16 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                   </thead>
                   <tbody className="divide-y divide-gray-200 bg-white">
                     {pagedTags.map((tag, idx) => (
-                      <tr key={idx} className="cursor-pointer hover:bg-gray-50" onClick={() => handleTagClick(tag.tag_key, tag.tag_value)}>
+                      <tr key={idx} className="hover:bg-gray-50">
                         <td className="whitespace-nowrap px-2 py-2 text-xs font-medium text-gray-900" style={{ width: '100px', maxWidth: '100px' }}>
-                          <span className="inline-block max-w-full truncate rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-gray-700" title={tag.tag_key}>{tag.tag_key}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleTagClick(tag.tag_key, tag.tag_value)}
+                            className="inline-block max-w-full truncate rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-left text-gray-700 hover:text-gray-900 focus-visible:outline-none focus-visible:shadow-(--focus)"
+                            title={tag.tag_key}
+                          >
+                            {tag.tag_key}
+                          </button>
                         </td>
                         <td className="px-2 py-2 text-xs text-gray-500 max-w-28 truncate" title={tag.tag_value}>{tag.tag_value}</td>
                         <td className="whitespace-nowrap px-2 py-2 text-right text-xs font-medium text-gray-900">{formatCurrency(tag.total_spend)}</td>
@@ -890,9 +872,16 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                     {pagedKeys.map((entry, idx) => {
                       const pct = totalKeySpend > 0 ? (entry.total_spend / totalKeySpend) * 100 : 0;
                       return (
-                        <tr key={idx} className="cursor-pointer hover:bg-gray-50" onClick={() => handleTagClick(entry.tag_key)}>
+                        <tr key={idx} className="hover:bg-gray-50">
                           <td className="whitespace-nowrap px-2 py-2 text-xs font-medium text-gray-900" style={{ width: '100px', maxWidth: '100px' }}>
-                            <span className="inline-block max-w-full truncate rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-gray-700" title={entry.tag_key}>{entry.tag_key}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleTagClick(entry.tag_key)}
+                              className="inline-block max-w-full truncate rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-left text-gray-700 hover:text-gray-900 focus-visible:outline-none focus-visible:shadow-(--focus)"
+                              title={entry.tag_key}
+                            >
+                              {entry.tag_key}
+                            </button>
                           </td>
                           <td className="whitespace-nowrap px-2 py-2 text-right text-xs font-medium text-gray-900">{formatCurrency(entry.total_spend)}</td>
                           <td className="whitespace-nowrap px-2 py-2 text-right">
@@ -953,23 +942,15 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
       )}
 
       {/* Tag Drilldown Modal */}
-      {selectedTag && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" onClick={() => setSelectedTag(null)}>
-          <div className="mx-4 w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="rounded border border-gray-200 bg-gray-100 px-2 py-1 text-sm font-medium text-gray-700">{selectedTag.tag_key}</span>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {selectedTag.tag_value ? `Top 5 Objects: ${selectedTag.tag_value}` : "Top 5 Objects Across All Values"}
-                </h3>
-              </div>
-              <button onClick={() => setSelectedTag(null)} className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-600">
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
+      {selectedTag && (
+        <Dialog
+          open
+          onClose={() => setSelectedTag(null)}
+          title={selectedTag.tag_value ? `Top 5 Objects: ${selectedTag.tag_value}` : "Top 5 Objects Across All Values"}
+          subtitle={`Tag key: ${selectedTag.tag_key}`}
+          className="max-w-2xl"
+          closeLabel="Close tag drilldown"
+        >
             {tagObjectsLoading ? (
               <div className="flex h-40 items-center justify-center">
                 <Spinner size="md" />
@@ -1023,9 +1004,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                 No objects found for this tag
               </div>
             )}
-          </div>
-        </div>,
-        document.body
+        </Dialog>
       )}
     </div>
   );

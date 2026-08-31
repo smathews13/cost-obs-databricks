@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback, useId, lazy, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TabRefreshRegion } from "@/components/TabRefreshRegion";
 import { SetupWizard } from "@/components/SetupWizard";
@@ -11,13 +11,20 @@ import { DateRangePicker } from "@/components/DateRangePicker";
 import { WorkspaceFilter } from "@/components/WorkspaceFilter";
 import { SourceLabelFilter } from "@/components/SourceLabelFilter";
 import { SKUBreakdown } from "@/components/SKUBreakdown";
-import { ExportDialog, type ExportSections, type ExportFormat } from "@/components/ExportDialog";
-import { SettingsDialog } from "@/components/SettingsDialog";
+import {
+  ExportDialog,
+  type ExportFormat,
+} from "@/components/ExportDialog";
+import {
+  getRequiredExportTabs,
+  type ExportSections,
+} from "@/utils/exportDemand";
 import { PricingProvider, usePricing } from "@/context/PricingContext";
 import { SpNameMapContext } from "@/utils/identity";
 import { Footer } from "@/components/Footer";
 import { UserMenu } from "@/components/UserMenu";
 import { DeploymentBadgeFromApi } from "@/components/DeploymentBadge";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 import { applyInfraPricing } from "@/utils/cloudCosts";
 import {
   WarehouseGuidanceBanner,
@@ -53,6 +60,7 @@ const WarehouseRightsizingView = lazy(() => lazyWithRetry(() => import("@/compon
 const WarehouseIdleTimeView = lazy(() => lazyWithRetry(() => import("@/components/SQLWarehousing360").then(m => ({ default: m.WarehouseIdleTimeView }))));
 const OptimizeMethodologyPanel = lazy(() => lazyWithRetry(() => import("@/components/SQLWarehousing360").then(m => ({ default: m.OptimizeMethodologyPanel }))));
 const UsersGroups = lazy(() => lazyWithRetry(() => import("@/pages/UsersGroups")));
+const SettingsDialog = lazy(() => lazyWithRetry(() => import("@/components/SettingsDialog").then(m => ({ default: m.SettingsDialog }))));
 
 import {
   useAccountInfo,
@@ -77,8 +85,6 @@ import {
   responsePayloadIssue,
 } from "@/hooks/useBillingData";
 import type { DateRange, WorkspaceBreakdown } from "@/types/billing";
-import { generateArchitectureReport } from "@/utils/architectureReport";
-import { generateCostReport } from "@/utils/pdfExport";
 import { generateCostCSV } from "@/utils/csvExport";
 import { C } from "@/theme";
 import { CostObsLockup, VersionPill, PageHero, Chip, InfoPanel } from "@/components/brand";
@@ -89,7 +95,13 @@ import {
   cancelRunningSubmitAndPollForTab,
   isTabDataRequested,
 } from "@/utils/tabDemand";
-import { isDashboardQuery, refreshSourceScopeData, refreshTabData, TAB_LOADING_SECTIONS } from "@/utils/tabRefresh";
+import {
+  isQueryOwnedByTab,
+  refreshSourceScopeData,
+  refreshTabData,
+  startScopedAutoRefresh,
+  TAB_LOADING_SECTIONS,
+} from "@/utils/tabRefresh";
 import {
   WAREHOUSE_WARM_SESSION_KEY,
   fetchWarehouseHealth,
@@ -130,6 +142,121 @@ function useKeepAlive() {
 
 type ViewTab = keyof TabVisibility;
 
+const DASHBOARD_TABS: Array<{ id: ViewTab; label: string; icon: React.ReactNode }> = [
+  {
+    id: "dbu",
+    label: "DBU Overview",
+    icon: <span className="mr-1.5 -mt-0.5 inline-flex h-4 items-center justify-center font-mono text-base font-bold">$</span>,
+  },
+  {
+    id: "sql",
+    label: "SQL",
+    icon: <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>,
+  },
+  {
+    id: "aiml",
+    label: "AI/ML",
+    icon: <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>,
+  },
+  {
+    id: "apps",
+    label: "Apps",
+    icon: <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>,
+  },
+  {
+    id: "tagging",
+    label: "Tagging",
+    icon: <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>,
+  },
+  {
+    id: "users-groups",
+    label: "Users",
+    icon: <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656-.126-1.283-.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>,
+  },
+  {
+    id: "kpis",
+    label: "KPIs & Trends",
+    icon: <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
+  },
+  {
+    id: "infra",
+    label: "Cloud Costs",
+    icon: <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" /></svg>,
+  },
+  {
+    id: "optimizer",
+    label: "Optimize",
+    icon: <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>,
+  },
+];
+
+export function DashboardTabNavigation({
+  activeTab,
+  visibility,
+  onChange,
+}: {
+  activeTab: ViewTab;
+  visibility: TabVisibility;
+  onChange: (tab: ViewTab) => void;
+}) {
+  const tabRefs = useRef<Partial<Record<ViewTab, HTMLButtonElement | null>>>({});
+  const visibleTabs = DASHBOARD_TABS.filter(({ id }) => visibility[id]);
+
+  const moveFocus = (current: ViewTab, key: string) => {
+    const currentIndex = visibleTabs.findIndex(({ id }) => id === current);
+    if (currentIndex < 0) return;
+    let nextIndex: number;
+    if (key === "Home") nextIndex = 0;
+    else if (key === "End") nextIndex = visibleTabs.length - 1;
+    else if (key === "ArrowRight") nextIndex = (currentIndex + 1) % visibleTabs.length;
+    else if (key === "ArrowLeft") nextIndex = (currentIndex - 1 + visibleTabs.length) % visibleTabs.length;
+    else return;
+
+    const nextTab = visibleTabs[nextIndex].id;
+    onChange(nextTab);
+    tabRefs.current[nextTab]?.focus();
+  };
+
+  return (
+    <div className="mt-4 overflow-x-auto overflow-y-hidden" style={{ borderBottom: "1px solid var(--hairline)" }}>
+      <nav
+        role="tablist"
+        aria-label="Dashboard views"
+        className="-mb-px flex min-w-max justify-start space-x-7 px-1 sm:justify-center [&_svg]:h-3.75 [&_svg]:w-3.75"
+      >
+        {visibleTabs.map(({ id, label, icon }) => (
+          <button
+            key={id}
+            ref={(element) => { tabRefs.current[id] = element; }}
+            id={`dashboard-tab-${id}`}
+            type="button"
+            role="tab"
+            aria-label={label}
+            aria-selected={activeTab === id}
+            aria-controls={`dashboard-panel-${id}`}
+            tabIndex={activeTab === id ? 0 : -1}
+            onClick={() => onChange(id)}
+            onKeyDown={(event) => {
+              if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+                event.preventDefault();
+                moveFocus(id, event.key);
+              }
+            }}
+            className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
+              activeTab === id
+                ? "border-lava text-lava"
+                : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
+            }`}
+          >
+            {icon}
+            {label}
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -149,27 +276,19 @@ interface User {
 }
 
 function AccountIdentifier({ value }: { value: string }) {
-  const tooltipId = useId();
-
   return (
-    <span className="account-id-tooltip relative mt-[3px] min-w-0">
-      <span
-        tabIndex={0}
-        aria-describedby={tooltipId}
-        className="account-id-tooltip-trigger block max-w-[150px] truncate rounded-[4px] bg-white/[.09] px-[7px] py-[3px] text-[11px] text-[#E9EFED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
-        style={{ fontFamily: "var(--mono)" }}
-      >
+    <InfoPopover
+      label="Show full account ID"
+      className="mt-[3px] min-w-0"
+      placement="bottom"
+      panelClassName="w-max max-w-[calc(100vw-1rem)] break-all bg-[#0B2026] font-mono text-[11px]"
+      triggerClassName="block max-w-[150px] truncate rounded-[4px] bg-white/[.09] px-[7px] py-[3px] text-[11px] text-[#E9EFED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
+      content={value}
+    >
+      <span className="block truncate" style={{ fontFamily: "var(--mono)" }}>
         {value}
       </span>
-      <span
-        id={tooltipId}
-        role="tooltip"
-        className="account-id-tooltip-content pointer-events-none absolute left-0 top-full z-50 mt-2 max-w-[min(360px,80vw)] rounded-[6px] bg-[#0B2026] px-2.5 py-1.5 text-[11px] leading-snug text-white shadow-lg"
-        style={{ fontFamily: "var(--mono)" }}
-      >
-        {value}
-      </span>
-    </span>
+    </InfoPopover>
   );
 }
 
@@ -295,8 +414,11 @@ function Dashboard() {
   });
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [sourceScopeVersion, setSourceScopeVersion] = useState(0);
+  const [exportDemand, setExportDemand] = useState<{
+    scope: string;
+    tabs: ViewTab[];
+  } | null>(null);
   const [preparedExportScope, setPreparedExportScope] = useState<string | null>(null);
-  const [exportPreparingScope, setExportPreparingScope] = useState<string | null>(null);
   const [exportPreparationArmed, setExportPreparationArmed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
@@ -475,13 +597,14 @@ function Dashboard() {
     }
   }, []);
 
-  // Auto-refresh interval based on settings
+  // Refresh only mounted dashboard data. Hidden documents pause the timer and
+  // receive a full interval on resume, avoiding a focus-time request burst.
   useEffect(() => {
     if (appSettings.refreshIntervalMinutes <= 0) return;
-    const interval = setInterval(() => {
-      rqClient.invalidateQueries();
-    }, appSettings.refreshIntervalMinutes * 60 * 1000);
-    return () => clearInterval(interval);
+    return startScopedAutoRefresh(
+      rqClient,
+      appSettings.refreshIntervalMinutes * 60 * 1000,
+    );
   }, [appSettings.refreshIntervalMinutes, rqClient]);
 
   // Density → compact-mode CSS class on root
@@ -621,16 +744,9 @@ function Dashboard() {
     sessionStorage.removeItem("_chunk_reload");
   }, [warehouseReady]);
 
-  const exportScopeKey = buildExportScopeKey(
-    dateRange.startDate,
-    dateRange.endDate,
-    selectedWorkspaceIds,
-    sourceScopeVersion,
-    (Object.keys(tabVisibility) as ViewTab[]).filter((tab) => tabVisibility[tab]),
-  );
-  const exportPreparationRequested = showExportDialog && exportPreparingScope === exportScopeKey;
+  const exportPreparationRequested = showExportDialog && exportDemand !== null;
   const requested = (tab: ViewTab) =>
-    warehouseQueriesAllowed && isTabDataRequested(tab, activeTab, exportPreparationRequested, tabVisibility);
+    warehouseQueriesAllowed && isTabDataRequested(tab, activeTab, exportDemand?.tabs);
   const dbuRequested = requested("dbu");
   const sqlRequested = requested("sql");
   const infraRequested = requested("infra");
@@ -876,54 +992,76 @@ function Dashboard() {
   const activeTabInitialLoading = !warehouseQueriesAllowed || tabLoading[activeTab];
   const showActiveTabLoading = activeTabInitialLoading || explicitRefreshingTab === activeTab;
   const exportDataLoading = exportPreparationRequested &&
-    (Object.keys(tabVisibility) as ViewTab[]).some((tab) => tabVisibility[tab] && tabLoading[tab]);
+    Boolean(exportDemand?.tabs.some((tab) => tabLoading[tab]));
   const exportHasErrors = exportPreparationRequested &&
-    (Object.keys(tabVisibility) as ViewTab[]).some((tab) => tabVisibility[tab] && Boolean(tabErrors[tab]));
+    Boolean(exportDemand?.tabs.some((tab) => Boolean(tabErrors[tab])));
+  const exportDataPrepared = Boolean(
+    exportDemand && preparedExportScope === exportDemand.scope,
+  );
+  const exportPreparing = exportPreparationRequested
+    && !exportDataPrepared
+    && !exportHasErrors;
 
   useEffect(() => {
-    if (!exportPreparationRequested) return;
+    if (!exportPreparationRequested || !exportDemand) return;
     if (!exportPreparationArmed) {
       setExportPreparationArmed(true);
       return;
     }
     if (exportDataLoading || exportHasErrors) return;
-    setPreparedExportScope(exportScopeKey);
-    setExportPreparingScope(null);
-  }, [exportDataLoading, exportHasErrors, exportPreparationArmed, exportPreparationRequested, exportScopeKey]);
-
-  const previousExportScopeRef = useRef(exportScopeKey);
-  useEffect(() => {
-    if (previousExportScopeRef.current === exportScopeKey) return;
-    previousExportScopeRef.current = exportScopeKey;
-    setPreparedExportScope(null);
-    if (!showExportDialog) return;
-    void cancelExportPreparationQueries(rqClient);
-    setExportPreparingScope(exportScopeKey);
-    setExportPreparationArmed(false);
-  }, [exportScopeKey, rqClient, showExportDialog]);
+    setPreparedExportScope(exportDemand.scope);
+  }, [exportDataLoading, exportDemand, exportHasErrors, exportPreparationArmed, exportPreparationRequested]);
 
   const openExportDialog = () => {
-    const hasVisibleErrors = (Object.keys(tabVisibility) as ViewTab[])
-      .some((tab) => tabVisibility[tab] && Boolean(tabErrors[tab]));
-    const needsPreparation = preparedExportScope !== exportScopeKey || hasVisibleErrors;
-    setExportPreparingScope(needsPreparation ? exportScopeKey : null);
-    setExportPreparationArmed(!needsPreparation);
+    setExportDemand(null);
+    setPreparedExportScope(null);
+    setExportPreparationArmed(false);
     setShowExportDialog(true);
   };
 
   const closeExportDialog = useCallback(() => {
     setShowExportDialog(false);
-    setExportPreparingScope(null);
+    setExportDemand(null);
     setExportPreparationArmed(false);
     void cancelExportPreparationQueries(rqClient, activeTab);
   }, [activeTab, rqClient]);
 
+  const prepareExportData = useCallback((sections: ExportSections) => {
+    const tabs = getRequiredExportTabs(sections, tabVisibility) as ViewTab[];
+    const scope = buildExportScopeKey(
+      dateRange.startDate,
+      dateRange.endDate,
+      selectedWorkspaceIds,
+      sourceScopeVersion,
+      tabs,
+    );
+    setPreparedExportScope(null);
+    setExportPreparationArmed(false);
+    setExportDemand({ scope, tabs });
+  }, [
+    dateRange.endDate,
+    dateRange.startDate,
+    selectedWorkspaceIds,
+    sourceScopeVersion,
+    tabVisibility,
+  ]);
+
+  const resetExportDemand = useCallback(() => {
+    if (!exportDemand) return;
+    void cancelExportPreparationQueries(rqClient, activeTab);
+    setExportDemand(null);
+    setPreparedExportScope(null);
+    setExportPreparationArmed(false);
+  }, [activeTab, exportDemand, rqClient]);
+
   const retryFailedExportData = useCallback(async () => {
+    const tabs = exportDemand?.tabs ?? [];
     await rqClient.refetchQueries({
       type: "active",
-      predicate: (query) => query.state.status === "error" && isDashboardQuery(query.queryKey),
+      predicate: (query) => query.state.status === "error"
+        && tabs.some((tab) => isQueryOwnedByTab(tab, query.queryKey)),
     });
-  }, [rqClient]);
+  }, [exportDemand?.tabs, rqClient]);
 
   // Workspace list for the filter dropdown: SQL-backed, only fire when warehouse is ready.
   const { data: wsListData, isLoading: wsListLoading } = useQuery<{ workspaces: { id: string; name: string; historical?: boolean }[] }>({
@@ -966,26 +1104,6 @@ function Dashboard() {
   // Memoize so consumers of SpNameMapContext get a stable reference while
   // spListData is undefined (otherwise every parent render churns the context).
   const spNameMap = useMemo(() => spListData?.map ?? {}, [spListData?.map]);
-
-  // Settings data: all prefetched in the background after the main bundle loads.
-  // `enabled` gates each query on `!!bundle` so settings requests don't race the
-  // critical-path billing queries on cold start.
-  const _settingsReady = !!bundle;
-  useQuery({ queryKey: ["user-permissions"],      enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/settings/user-permissions"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 5 * 60 * 1000 });
-  useQuery({ queryKey: ["app-config"],             enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/settings/config"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 5 * 60 * 1000 });
-  // settings-install-report: same endpoint as app-config but separate key used by SettingsDebugger
-  useQuery({ queryKey: ["settings-install-report"], enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/settings/config"); return r.ok ? r.json() : null; }, staleTime: 5 * 60 * 1000 });
-  useQuery({ queryKey: ["warehouses"],             enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/settings/warehouses"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 5 * 60 * 1000 });
-  useQuery({ queryKey: ["cloud-provider"],         enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/settings/cloud-provider"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 30 * 60 * 1000 });
-  useQuery({ queryKey: ["cloud-connections"],      enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/settings/cloud-connections"); if (!r.ok) throw new Error("Failed"); return r.json(); }, staleTime: 5 * 60 * 1000 });
-  useQuery({ queryKey: ["settings-account-prices"], enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/settings/account-prices"); return r.ok ? r.json() : { available: false, prices: [], source: null, count: 0 }; }, staleTime: 5 * 60 * 1000 });
-  useQuery({ queryKey: ["settings-catalog"],       enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/settings/catalog"); return r.ok ? r.json() : null; }, staleTime: 5 * 60 * 1000 });
-  useQuery({ queryKey: ["settings-auth-status"],   enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/settings/auth-status"); return r.ok ? r.json() : null; }, staleTime: 5 * 60 * 1000 });
-  useQuery({ queryKey: ["settings-schedule"],      enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/settings/schedule"); return r.ok ? r.json() : null; }, staleTime: 5 * 60 * 1000 });
-  useQuery({ queryKey: ["setup-workspace-filter"], enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/setup/workspace-filter"); return r.ok ? r.json() : null; }, staleTime: 5 * 60 * 1000 });
-  useQuery({ queryKey: ["billing", "account"],     enabled: _settingsReady, queryFn: async () => { const r = await fetch("/api/billing/account"); return r.ok ? r.json() : null; }, staleTime: Infinity });
-  // settings-tables-status is NOT pre-fetched: it runs SQL against every app table
-  // and returns stale false-negatives if it fires before the background MV build completes.
 
   // Memoize infra data transformations to avoid re-creating arrays on every render
   const infraViewData = useMemo(() => pricedInfraCosts ? {
@@ -1067,6 +1185,7 @@ function Dashboard() {
 
   const handleExportPDF = async (sections: ExportSections, workspaceFilter?: { ids: string[]; names?: string[] }) => {
     try {
+      const { generateCostReport } = await import("@/utils/pdfExport");
       await generateCostReport(
         {
         summary,
@@ -1129,6 +1248,7 @@ function Dashboard() {
   };
 
   const handleArchitectureExport = async () => {
+    const { generateArchitectureReport } = await import("@/utils/architectureReport");
     await generateArchitectureReport();
   };
 
@@ -1231,8 +1351,8 @@ function Dashboard() {
       {/* Sticky top chrome: navy account bar + white title/tabs */}
       <div className="sticky top-0 z-30 shadow">
       {/* Account rail */}
-      <div data-testid="account-rail" className="h-[52px] overflow-visible bg-[#1B3139] text-white">
-        <div className="flex h-full w-full min-w-0 flex-nowrap items-center gap-[8px] px-[12px] min-[1280px]:gap-[14px] min-[1280px]:px-[20px]">
+      <div data-testid="account-rail" className="min-h-[52px] overflow-visible bg-[#1B3139] text-white">
+        <div className="flex min-h-[52px] w-full min-w-0 flex-wrap items-center gap-[8px] px-[12px] py-[8px] min-[1280px]:gap-[14px] min-[1280px]:px-[20px]">
           <a
             href="https://www.databricks.com"
             target="_blank"
@@ -1255,16 +1375,18 @@ function Dashboard() {
             <AccountIdentifier value={accountInfo?.account_id || accountInfo?.account_name || "Loading…"} />
           </div>
 
-          <WorkspaceFilter
-            workspaces={wsFilterList}
-            selectedIds={selectedWorkspaceIds}
-            onChange={setSelectedWorkspaceIds}
-            isLoading={wsListLoading}
-            variant="rail"
-          />
-              <SourceLabelFilter variant="rail" onApplied={handleSourceApplied} />
+          <div className="order-last flex w-full min-w-0 items-center gap-[8px] sm:order-none sm:w-auto sm:flex-1">
+            <WorkspaceFilter
+              workspaces={wsFilterList}
+              selectedIds={selectedWorkspaceIds}
+              onChange={setSelectedWorkspaceIds}
+              isLoading={wsListLoading}
+              variant="rail"
+            />
+            <SourceLabelFilter variant="rail" onApplied={handleSourceApplied} />
+          </div>
 
-          <div className="min-w-[2px] flex-1" />
+          <div className="min-w-[2px] flex-1 sm:hidden" />
 
           {user && (
             <>
@@ -1371,161 +1493,36 @@ function Dashboard() {
 
       <header className="bg-white">
         <div className="mx-auto max-w-7xl px-4 pt-8 pb-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex min-w-0 items-center gap-2">
               <button type="button" onClick={() => setActiveTab("dbu")} title="Back to DBU Overview" className="cursor-pointer transition-opacity hover:opacity-80">
                 <CostObsLockup />
               </button>
               <VersionPill />
             </div>
-            <div className="ml-auto">
+            <div className="w-full sm:ml-auto sm:w-auto">
               <DateRangePicker value={dateRange} onChange={setDateRange} />
             </div>
           </div>
           {/* Tab Navigation */}
-          <div className="mt-4 overflow-x-auto overflow-y-hidden" style={{ borderBottom: "1px solid var(--hairline)" }}>
-            <nav className="-mb-px flex min-w-max justify-center space-x-7 [&_svg]:h-3.75 [&_svg]:w-3.75">
-              {tabVisibility.dbu && (
-              <button
-                onClick={() => setActiveTab("dbu")}
-                className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
-                  activeTab === "dbu"
-                    ? "border-lava text-lava"
-                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
-                }`}
-              >
-                <span className="mr-1.5 -mt-0.5 inline-flex h-4 items-center justify-center font-mono text-base font-bold">$</span>
-                DBU Overview
-              </button>
-              )}
-              {tabVisibility.sql && (
-              <button
-                onClick={() => setActiveTab("sql")}
-                className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
-                  activeTab === "sql"
-                    ? "border-lava text-lava"
-                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
-                }`}
-              >
-                <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-                </svg>
-                SQL
-              </button>
-              )}
-              {tabVisibility.aiml && (
-              <button
-                onClick={() => setActiveTab("aiml")}
-                className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
-                  activeTab === "aiml"
-                    ? "border-lava text-lava"
-                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
-                }`}
-              >
-                <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                </svg>
-                AI/ML
-              </button>
-              )}
-              {tabVisibility.apps && (
-              <button
-                onClick={() => setActiveTab("apps")}
-                className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
-                  activeTab === "apps"
-                    ? "border-lava text-lava"
-                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
-                }`}
-              >
-                <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                </svg>
-                Apps
-              </button>
-              )}
-              {tabVisibility.tagging && (
-              <button
-                onClick={() => setActiveTab("tagging")}
-                className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
-                  activeTab === "tagging"
-                    ? "border-lava text-lava"
-                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
-                }`}
-              >
-                <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                </svg>
-                Tagging
-              </button>
-              )}
-              {tabVisibility["users-groups"] && (
-              <button
-                onClick={() => setActiveTab("users-groups")}
-                className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
-                  activeTab === "users-groups"
-                    ? "border-lava text-lava"
-                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
-                }`}
-              >
-                <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-                Users
-              </button>
-              )}
-              {tabVisibility.kpis && (
-              <button
-                onClick={() => setActiveTab("kpis")}
-                className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
-                  activeTab === "kpis"
-                    ? "border-lava text-lava"
-                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
-                }`}
-              >
-                <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-                KPIs & Trends
-              </button>
-              )}
-              {tabVisibility.infra && (
-              <button
-                onClick={() => setActiveTab("infra")}
-                className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
-                  activeTab === "infra"
-                    ? "border-lava text-lava"
-                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
-                }`}
-              >
-                <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-                </svg>
-                Cloud Costs
-              </button>
-              )}
-              {tabVisibility.optimizer && (
-              <button
-                onClick={() => setActiveTab("optimizer")}
-                className={`whitespace-nowrap border-b-2 px-1 py-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-400 ${
-                  activeTab === "optimizer"
-                    ? "border-lava text-lava"
-                    : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
-                }`}
-              >
-                <svg className="mr-2 -mt-0.5 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                </svg>
-                Optimize
-              </button>
-              )}
-            </nav>
-          </div>
+          <DashboardTabNavigation
+            activeTab={activeTab}
+            visibility={tabVisibility}
+            onChange={setActiveTab}
+          />
         </div>
       </header>
       </div>{/* end sticky top chrome */}
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <div key={activeTab} className="animate-fade-in relative">
+        <div
+          key={activeTab}
+          id={`dashboard-panel-${activeTab}`}
+          role="tabpanel"
+          aria-labelledby={`dashboard-tab-${activeTab}`}
+          tabIndex={0}
+          className="animate-fade-in relative focus-visible:outline-none focus-visible:shadow-(--focus)"
+        >
         <TabRefreshRegion
           isLoading={showActiveTabLoading}
           isRefreshing={explicitRefreshingTab !== null}
@@ -1731,12 +1728,19 @@ function Dashboard() {
         enableArchitectureView={appSettings.enableArchitectureView}
         onExportArchitecture={handleArchitectureExport}
         tabVisibility={tabVisibility}
-        dataLoading={exportDataLoading}
+        dataLoading={exportPreparing}
+        dataPrepared={exportDataPrepared}
+        requiredTabs={exportDemand?.tabs ?? []}
+        tabLoading={tabLoading}
         dataErrors={tabErrors}
+        onPrepare={prepareExportData}
+        onSelectionChange={resetExportDemand}
         onRetryFailed={retryFailedExportData}
       />
 
-      <SettingsDialog
+      {showSettings && (
+      <Suspense fallback={null}>
+        <SettingsDialog
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         tabVisibility={tabVisibility}
@@ -1751,6 +1755,8 @@ function Dashboard() {
         }}
         onSettingsChange={setAppSettings}
       />
+      </Suspense>
+      )}
     </div>
     </SpNameMapContext.Provider>
   );

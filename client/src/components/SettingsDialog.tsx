@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SettingsDebugger } from "./settings";
 import { READINESS_QUERY_KEY } from "@/hooks/useFeatureAvailability";
 import { SetupWizard } from "./SetupWizard";
@@ -50,6 +50,38 @@ interface SettingsDialogProps {
   appSettings: AppSettings;
 }
 
+const settingsQuery = (
+  queryKey: readonly unknown[],
+  url: string,
+  staleTime = 5 * 60 * 1000,
+) => ({
+  queryKey,
+  queryFn: async () => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Settings request failed (${response.status})`);
+    return response.json();
+  },
+  staleTime,
+});
+
+function useSettingsQueries() {
+  useQueries({
+    queries: [
+      settingsQuery(["user-permissions"], "/api/settings/user-permissions"),
+      settingsQuery(["app-config"], "/api/settings/config"),
+      settingsQuery(["warehouses"], "/api/settings/warehouses"),
+      settingsQuery(["cloud-provider"], "/api/settings/cloud-provider", 30 * 60 * 1000),
+      settingsQuery(["cloud-connections"], "/api/settings/cloud-connections"),
+      settingsQuery(["settings-account-prices"], "/api/settings/account-prices"),
+      settingsQuery(["settings-catalog"], "/api/settings/catalog"),
+      settingsQuery(["settings-auth-status"], "/api/settings/auth-status"),
+      settingsQuery(["settings-schedule"], "/api/settings/schedule"),
+      settingsQuery(["setup-workspace-filter"], "/api/setup/workspace-filter"),
+      settingsQuery(["billing", "account"], "/api/billing/account", Infinity),
+    ],
+  });
+}
+
 export function SettingsDialog(props: SettingsDialogProps) {
   if (!props.isOpen) return null;
   return createPortal(
@@ -61,6 +93,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
 }
 
 function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVisibility, appSettings }: SettingsDialogProps) {
+  useSettingsQueries();
   const rqClient = useQueryClient();
   const toast = useToast();
   const dialogRef = useRef<HTMLDivElement>(null);

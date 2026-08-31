@@ -3257,7 +3257,12 @@ async def get_kpi_trend(
     """Get trend data for a specific KPI over time."""
     from server import workspace_filter as wf
     params, id_list = _validated_scope(start_date, end_date, workspace_ids)
-    owner_tab = tab if isinstance(tab, str) and tab in {"dbu", "sql", "aiml", "tagging", "infra"} else "dbu"
+    owner_tab = (
+        tab
+        if isinstance(tab, str)
+        and tab in {"dbu", "sql", "aiml", "tagging", "infra", "users-groups"}
+        else "dbu"
+    )
     cache_endpoint = f"trend:{owner_tab}:billing-kpi"
 
     _dkey = bundle_cache_key(f"{cache_endpoint}:{kpi}:{granularity}", params["start_date"], params["end_date"], id_list)
@@ -3980,7 +3985,11 @@ async def get_platform_kpi_trend(
     """Get trend data for platform KPIs over time."""
     from server import workspace_filter as wf
     params, id_list = _validated_scope(start_date, end_date, workspace_ids)
-    owner_tab = tab if isinstance(tab, str) and tab in {"sql", "kpis"} else "kpis"
+    owner_tab = (
+        tab
+        if isinstance(tab, str) and tab in {"sql", "kpis", "users-groups"}
+        else "kpis"
+    )
     cache_endpoint = f"trend:{owner_tab}:platform-kpi"
 
     _dkey = bundle_cache_key(f"{cache_endpoint}:{kpi}:{granularity}", params["start_date"], params["end_date"], id_list)

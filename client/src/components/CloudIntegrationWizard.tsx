@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import awsLogo from "@/assets/aws.png";
-import azureLogo from "@/assets/azure.png";
+import azureLogo from "@/assets/azure-128.png";
 import gcpLogo from "@/assets/gcp.svg";
 import { C } from "@/theme";
 

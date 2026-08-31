@@ -1,4 +1,4 @@
-import azureLogo from "@/assets/azure.png";
+import azureLogo from "@/assets/azure-128.png";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   Cell, PieChart, Pie, Legend,

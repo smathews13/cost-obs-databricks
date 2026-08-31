@@ -21,7 +21,7 @@ import type {
   ExpensiveQuery,
 } from "@/types/billing";
 import type { UsersGroupsBundle } from "@/hooks/useBillingData";
-import type { ExportSections } from "@/components/ExportDialog";
+import type { ExportSections } from "@/utils/exportDemand";
 import { formatCurrency, formatNumber } from "./formatters";
 import {
   addPdfFooters,

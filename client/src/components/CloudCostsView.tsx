@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import awsLogo from "@/assets/aws.png";
-import azureLogo from "@/assets/azure.png";
+// Downsampled from the official 3000x3000 PNG: 128x128, 10,539 bytes.
+import azureLogo from "@/assets/azure-128.png";
 import gcpLogo from "@/assets/gcp.svg";
 import { KPITrendModal } from "./KPITrendModal";
 import { LoadingPanels, Spinner } from "./Spinner";
@@ -39,6 +39,9 @@ import { CloudIntegrationWizard } from "./CloudIntegrationWizard";
 import type { CloudIntegration } from "./CloudIntegrationWizard";
 import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
+import { SortableHeader } from "@/components/ui/SortableHeader";
+import { TrendAction } from "@/components/ui/TrendAction";
 import {
   buildFilteredUrl,
   getActiveSourceScopeKey,
@@ -102,34 +105,6 @@ function getInstanceColor(name: string, index: number): string {
   return INSTANCE_COLORS[name] || FAMILY_PALETTE[index % FAMILY_PALETTE.length];
 }
 
-function InfoTooltip({ text }: { text: string }) {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  return (
-    <span
-      className="ml-1 inline-flex cursor-help"
-      onMouseEnter={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseMove={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseLeave={() => setPos(null)}
-      onClick={e => e.stopPropagation()}
-    >
-      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-semibold normal-case text-gray-500">i</span>
-      {pos && createPortal(
-        <div
-          className="pointer-events-none fixed z-[9999] w-64 rounded-lg bg-gray-900 px-3 py-2 text-xs font-normal normal-case leading-relaxed text-white shadow-lg"
-          style={{
-            top: pos.y - 12,
-            transform: 'translateY(-100%)',
-            left: Math.min(pos.x + 14, window.innerWidth - 272),
-          }}
-        >
-          {text}
-        </div>,
-        document.body
-      )}
-    </span>
-  );
-}
-
 function formatDate(dateStr: string): string {
   try {
     return format(parseISO(dateStr), "MMM d");
@@ -145,21 +120,6 @@ function getClusterUrl(host: string | null | undefined, clusterId: string | null
 }
 
 type CloudProvider = "AWS" | "AZURE" | "GCP";
-
-function SortIndicator({
-  field,
-  activeField,
-  direction,
-}: {
-  field: SortField;
-  activeField: SortField;
-  direction: SortDirection;
-}) {
-  if (activeField !== field) {
-    return <span className="ml-1 text-gray-300">↕</span>;
-  }
-  return <span className="ml-1">{direction === "asc" ? "↑" : "↓"}</span>;
-}
 
 function getInstancePricingUrl(instanceType: string | null, cloud: CloudProvider): string {
   if (cloud === "AZURE") {
@@ -893,11 +853,7 @@ export function CloudCostsView({
             </div>
           </div>
         </div>
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({ kpi: "infra_dbu_hours", label: "Daily Cluster DBUs" })}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -908,15 +864,14 @@ export function CloudCostsView({
               <p className="text-sm font-medium text-gray-500">Total Cluster DBUs</p>
               <p className="text-2xl font-semibold text-gray-900">{formatNumber(cloudSummary.totalDBUHours)}</p>
               <p className="mt-1 text-xs text-gray-500">across {cloudSummary.totalClusterCount} clusters</p>
-              {startDate && endDate && <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "infra_dbu_hours", label: "Daily Cluster DBUs" }) : undefined}
+                ariaLabel="See Total Cluster DBUs trend"
+              />
             </div>
           </div>
         </div>
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({ kpi: "infra_clusters", label: `Daily Active ${cloudDisplayName} Clusters` })}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -927,7 +882,10 @@ export function CloudCostsView({
               <p className="text-sm font-medium text-gray-500">Active Clusters<InfoTooltip text="Average number of distinct clusters with billing activity per day in the selected period. Includes all cluster types (job clusters, interactive clusters)." /></p>
               <p className="text-2xl font-semibold text-gray-900">{formatNumber(cloudSummary.avgActiveClustersPerDay)}</p>
               <p className="mt-1 text-xs text-gray-500">daily average</p>
-              {startDate && endDate && <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "infra_clusters", label: `Daily Active ${cloudDisplayName} Clusters` }) : undefined}
+                ariaLabel="See Active Clusters trend"
+              />
             </div>
           </div>
         </div>
@@ -1079,14 +1037,7 @@ export function CloudCostsView({
           <div>
             <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
               {cloudDisplayName} Cluster Leaderboard
-              <span className="inline-flex items-center group relative">
-                <svg className="h-3.5 w-3.5 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="pointer-events-none absolute top-5 left-0 z-[9999] w-72 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-normal text-gray-600 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                  Databricks spend uses billed DBU usage and system list prices. Cloud VM currency cost still requires a cloud billing integration or authoritative node-hour data.
-                </span>
-              </span>
+              <InfoTooltip className="" text="Databricks spend uses billed DBU usage and system list prices. Cloud VM currency cost still requires a cloud billing integration or authoritative node-hour data." />
             </h3>
             <p className="text-sm text-gray-500">
               {detailTruncated
@@ -1105,15 +1056,7 @@ export function CloudCostsView({
               />
               <span>Show historical clusters ({historicalClusterCount})</span>
             </label>
-            <div className="group relative">
-              <svg className="h-4 w-4 cursor-help text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div className="invisible absolute right-0 top-6 z-10 w-72 rounded-lg bg-gray-900 p-3 text-xs text-white opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
-                <p className="font-semibold mb-1.5">Historical Clusters</p>
-                <p className="text-gray-200">Historical clusters have no instance type information available. These are typically old or deleted clusters that no longer have detailed configuration data.</p>
-              </div>
-            </div>
+            <InfoTooltip className="" label="About historical clusters" text="Historical clusters have no instance type information available. These are typically old or deleted clusters that no longer have detailed configuration data." />
             {availableTableWorkspaces.length > 1 && (
               <div className="relative" ref={workspaceFilterRef}>
                 <button
@@ -1253,23 +1196,27 @@ export function CloudCostsView({
           <table className="w-full table-fixed divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="cursor-pointer px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => handleSort("cluster_name")}>
-                  Cluster <SortIndicator field="cluster_name" activeField={sortField} direction={sortDirection} />
-                </th>
+                <SortableHeader field="cluster_name" activeField={sortField} direction={sortDirection} onSort={(field) => handleSort(field as SortField)} className="px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Cluster
+                </SortableHeader>
                 <th className="w-44 px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Instance Types</th>
-                <th className="w-28 cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => handleSort("databricks_spend")}>
-                  <div className="flex items-center justify-end gap-1">
-                    <span>DBU Spend</span>
-                    <InfoTooltip text={`Databricks ${accountPricingApplied ? "account-price" : "list-price"} spend from billed DBU usage. This is not cloud VM cost; connect cloud billing to see VM, disk, network, and infrastructure costs.`} />
-                    <SortIndicator field="databricks_spend" activeField={sortField} direction={sortDirection} />
-                  </div>
-                </th>
-                <th className="w-28 cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => handleSort("total_dbu_hours")}>
-                  DBU Hours <SortIndicator field="total_dbu_hours" activeField={sortField} direction={sortDirection} />
-                </th>
-                <th className="w-16 cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => handleSort("days_active")}>
-                  Days <SortIndicator field="days_active" activeField={sortField} direction={sortDirection} />
-                </th>
+                <SortableHeader
+                  field="databricks_spend"
+                  activeField={sortField}
+                  direction={sortDirection}
+                  onSort={(field) => handleSort(field as SortField)}
+                  align="right"
+                  className="w-28 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500"
+                  accessory={<InfoTooltip className="" stopClick text={`Databricks ${accountPricingApplied ? "account-price" : "list-price"} spend from billed DBU usage. This is not cloud VM cost; connect cloud billing to see VM, disk, network, and infrastructure costs.`} />}
+                >
+                  DBU Spend
+                </SortableHeader>
+                <SortableHeader field="total_dbu_hours" activeField={sortField} direction={sortDirection} onSort={(field) => handleSort(field as SortField)} align="right" className="w-28 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+                  DBU Hours
+                </SortableHeader>
+                <SortableHeader field="days_active" activeField={sortField} direction={sortDirection} onSort={(field) => handleSort(field as SortField)} align="right" className="w-16 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Days
+                </SortableHeader>
                 <th className="w-16 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">% Spend</th>
               </tr>
             </thead>
@@ -1322,7 +1269,7 @@ export function CloudCostsView({
                     <td className="px-3 py-3">
                       <div className="flex flex-col gap-1">
                         {cluster.driver_instance_type && (
-                          <div className="group relative inline-flex items-center gap-1">
+                          <div className="inline-flex items-center gap-1">
                             <span className="inline-flex max-w-full truncate rounded bg-blue-50 px-2 py-0.5 text-xs font-mono text-blue-700" title={`D: ${cluster.driver_instance_type}`}>D: {cluster.driver_instance_type}</span>
                             <a href={getInstancePricingUrl(cluster.driver_instance_type, cloudProvider)} target="_blank" rel="noopener noreferrer" className="transition-colors" style={{ color: C.lava }} title={`View ${isAzure ? "Azure" : isGCP ? "GCP" : "AWS"} pricing for this instance type`}>
                               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1344,15 +1291,7 @@ export function CloudCostsView({
                         {!cluster.driver_instance_type && !cluster.worker_instance_type && (
                           <div className="group relative inline-flex items-center gap-1">
                             <span className="inline-flex rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Historical cluster</span>
-                            <div className="relative">
-                              <svg className="h-3 w-3 cursor-help text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                              <div className="invisible absolute left-0 top-6 z-10 w-64 rounded-lg bg-gray-900 p-3 text-xs text-white opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
-                                <p className="font-semibold mb-1.5">Instance type unavailable</p>
-                                <p className="text-gray-200">This cluster no longer exists in the workspace. Instance type information is only available for currently configured clusters.</p>
-                              </div>
-                            </div>
+                            <InfoTooltip className="" label="Why instance type is unavailable" text="This cluster no longer exists in the workspace. Instance type information is only available for currently configured clusters." />
                           </div>
                         )}
                       </div>
@@ -1418,12 +1357,6 @@ export function CloudCostsView({
             </div>
           </div>
         )}
-      </div>
-
-      <div className="fixed" style={{ top: -9999, left: -9999, opacity: 0.01, pointerEvents: "none" }} aria-hidden="true">
-        <img src={awsLogo} alt="" style={{ width: 1, height: 1 }} />
-        <img src={azureLogo} alt="" style={{ width: 1, height: 1 }} />
-        <img src={gcpLogo} alt="" style={{ width: 1, height: 1 }} />
       </div>
 
       {IntegrationWizard}

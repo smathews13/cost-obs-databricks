@@ -1,14 +1,19 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TabRefreshRegion } from "@/components/TabRefreshRegion";
 import {
   isQueryOwnedByTab,
   refreshSourceScopeData,
   refreshTabData,
+  startScopedAutoRefresh,
   TAB_LOADING_SECTIONS,
 } from "../tabRefresh";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("per-tab manual refresh", () => {
   it.each([
@@ -21,6 +26,8 @@ describe("per-tab manual refresh", () => {
     ["apps", ["apps-kpi-trend", "apps_spend"]],
     ["tagging", ["tagging-kpi-trend", "total_spend"]],
     ["users-groups", ["users-groups", "bundle"]],
+    ["users-groups", ["users-groups-kpi-trend", "user_spend"]],
+    ["users-groups", ["users-groups-platform-kpi-trend", "total_users"]],
   ] as const)("matches %s-owned queries", (tab, queryKey) => {
     expect(isQueryOwnedByTab(tab, queryKey)).toBe(true);
   });
@@ -32,6 +39,56 @@ describe("per-tab manual refresh", () => {
     expect(isQueryOwnedByTab("infra", ["billing", "dashboard-bundle-fast"])).toBe(false);
     expect(isQueryOwnedByTab("sql", ["aiml-kpi-trend", "aiml_spend"])).toBe(false);
     expect(isQueryOwnedByTab("dbu", ["tagging-kpi-trend", "tagged_spend"])).toBe(false);
+    expect(isQueryOwnedByTab("dbu", ["users-groups-kpi-trend", "user_spend"])).toBe(false);
+    expect(isQueryOwnedByTab("kpis", ["users-groups-platform-kpi-trend", "total_users"])).toBe(false);
+  });
+
+  it("auto-refreshes active dashboard queries, pauses hidden, and resumes without a burst", async () => {
+    vi.useFakeTimers();
+    const client = new QueryClient();
+    const dashboardQuery = client.getQueryCache().build(client, {
+      queryKey: ["billing", "dashboard-bundle-fast"],
+      queryFn: async () => ({}),
+    });
+    const settingsQuery = client.getQueryCache().build(client, {
+      queryKey: ["unified-settings"],
+      queryFn: async () => ({}),
+    });
+    const listeners = new Set<EventListener>();
+    let visibilityState: DocumentVisibilityState = "visible";
+    const visibilityDocument = {
+      get visibilityState() { return visibilityState; },
+      addEventListener: (_event: string, listener: EventListenerOrEventListenerObject) => {
+        if (typeof listener === "function") listeners.add(listener);
+      },
+      removeEventListener: (_event: string, listener: EventListenerOrEventListenerObject) => {
+        if (typeof listener === "function") listeners.delete(listener);
+      },
+    };
+    const invalidate = vi.spyOn(client, "invalidateQueries").mockResolvedValue();
+    const stop = startScopedAutoRefresh(client, 1_000, visibilityDocument);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    const options = invalidate.mock.calls[0][0];
+    expect(options?.type).toBe("active");
+    expect(options?.refetchType).toBe("active");
+    expect(options?.predicate?.(dashboardQuery)).toBe(true);
+    expect(options?.predicate?.(settingsQuery)).toBe(false);
+
+    visibilityState = "hidden";
+    listeners.forEach((listener) => listener(new Event("visibilitychange")));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+
+    visibilityState = "visible";
+    listeners.forEach((listener) => listener(new Event("visibilitychange")));
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    stop();
   });
 
   it.each([
@@ -42,9 +99,11 @@ describe("per-tab manual refresh", () => {
     ["aiml", ["aiml-kpi-trend", "aiml_spend"]],
     ["apps", ["apps-kpi-trend", "apps_spend"]],
     ["tagging", ["tagging-kpi-trend", "tagged_spend"]],
+    ["users-groups", ["users-groups-kpi-trend", "user_spend"]],
+    ["users-groups", ["users-groups-platform-kpi-trend", "total_users"]],
   ] as const)("assigns %s trend queries to one tab", (tab, queryKey) => {
     expect(isQueryOwnedByTab(tab, queryKey)).toBe(true);
-    for (const other of ["dbu", "sql", "infra", "kpis", "aiml", "apps", "tagging"] as const) {
+    for (const other of ["dbu", "sql", "infra", "kpis", "aiml", "apps", "tagging", "users-groups"] as const) {
       if (other !== tab) expect(isQueryOwnedByTab(other, queryKey)).toBe(false);
     }
   });
@@ -95,10 +154,12 @@ describe("per-tab manual refresh", () => {
       queryKey: ["apps", "dashboard-bundle", "scope-a"],
       queryFn: appsFetch,
     };
+    const usersTrendKey = ["users-groups-kpi-trend", "user_spend", "scope-a"];
     const observer = new QueryObserver(client, dbuOptions);
     const unsubscribe = observer.subscribe(() => {});
     await client.ensureQueryData(dbuOptions);
     client.setQueryData(appsOptions.queryKey, { apps: ["stale"] });
+    client.setQueryData(usersTrendKey, { data_points: ["stale"] });
 
     await refreshSourceScopeData(client, "dbu");
 
@@ -106,6 +167,7 @@ describe("per-tab manual refresh", () => {
     expect(appsFetch).not.toHaveBeenCalled();
     expect(client.getQueryState(dbuOptions.queryKey)?.isInvalidated).toBe(true);
     expect(client.getQueryState(appsOptions.queryKey)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(usersTrendKey)?.isInvalidated).toBe(true);
 
     await client.fetchQuery({ ...dbuOptions, queryKey: ["billing", "dashboard-bundle-fast", "scope-b"] });
     await client.fetchQuery({ ...appsOptions, queryKey: ["apps", "dashboard-bundle", "scope-b"] });

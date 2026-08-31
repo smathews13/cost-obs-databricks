@@ -1,31 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { VirtualizedList } from "./VirtualizedList";
 import { LoadingPanels } from "./Spinner";
 
-function InfoTooltip({ text }: { text: string }) {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  return (
-    <span
-      className="ml-1.5 inline-flex cursor-help"
-      onMouseEnter={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseMove={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseLeave={() => setPos(null)}
-    >
-      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-semibold text-gray-500">i</span>
-      {pos && createPortal(
-        <div
-          className="pointer-events-none fixed z-[9999] w-64 rounded-lg bg-gray-900 px-3 py-2 text-xs font-normal leading-relaxed text-white shadow-lg"
-          style={{ top: pos.y - 12, transform: "translateY(-100%)", left: Math.min(pos.x + 14, window.innerWidth - 272) }}
-        >
-          {text}
-        </div>,
-        document.body
-      )}
-    </span>
-  );
-}
 import {
   AreaChart,
   Area,
@@ -45,6 +22,8 @@ import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
+import { TrendAction } from "@/components/ui/TrendAction";
 import {
   buildFilteredUrl,
   getActiveSourceScopeKey,
@@ -488,11 +467,7 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
 
       {/* Summary Cards */}
       <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({kpi: "aiml_spend", label: "Daily AI/ML Spend"})}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -503,16 +478,15 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
               <p className="text-sm font-medium text-gray-500">Total AI/ML Spend</p>
               <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.total_spend)}</p>
               <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
-              <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_spend", label: "Daily AI/ML Spend"}) : undefined}
+                ariaLabel="See Total AI/ML Spend trend"
+              />
             </div>
           </div>
         </div>
 
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({kpi: "aiml_dbus", label: "Daily AI/ML DBUs"})}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -523,16 +497,15 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
               <p className="text-sm font-medium text-gray-500">Total DBUs</p>
               <p className="text-2xl font-semibold text-gray-900">{formatNumber(summary.total_dbus)}</p>
               <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
-              <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_dbus", label: "Daily AI/ML DBUs"}) : undefined}
+                ariaLabel="See Total DBUs trend"
+              />
             </div>
           </div>
         </div>
 
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({kpi: "aiml_endpoints", label: "Daily Active Endpoints"})}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -543,16 +516,15 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
               <p className="flex items-center text-sm font-medium text-gray-500">Active Endpoints<InfoTooltip text="Count of distinct model serving or inference endpoints that had billable usage on each day. An endpoint counts as active on any day it consumed DBUs." /></p>
               <p className="text-2xl font-semibold text-gray-900">{formatNumber(summary.endpoint_count || 0)}</p>
               <p className="mt-1 text-xs text-gray-500">avg. across {summary.workspace_count || 0} workspaces</p>
-              <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_endpoints", label: "Daily Active Endpoints"}) : undefined}
+                ariaLabel="See Active Endpoints trend"
+              />
             </div>
           </div>
         </div>
 
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({kpi: "aiml_avg_endpoint_cost", label: "Average Daily Endpoint Cost"})}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -563,7 +535,10 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
               <p className="text-sm font-medium text-gray-500">Endpoint Cost</p>
               <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.avg_cost_per_endpoint || 0)}</p>
               <p className="mt-1 text-xs text-gray-500">daily per-endpoint</p>
-              <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_avg_endpoint_cost", label: "Average Daily Endpoint Cost"}) : undefined}
+                ariaLabel="See Endpoint Cost trend"
+              />
             </div>
           </div>
         </div>
@@ -666,15 +641,7 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
         <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
           <div className="mb-4 flex items-center gap-2">
             <h3 className="text-lg font-semibold text-gray-900">Top Model Serving Endpoints</h3>
-            <div className="group relative">
-              <svg className="h-4 w-4 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div className="absolute left-0 top-6 z-50 hidden w-72 rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-600 shadow-lg group-hover:block">
-                <p className="font-medium text-gray-900 mb-1">Model Serving Endpoints</p>
-                <p>Endpoints deployed via Databricks Model Serving using serverless compute. These are pay-per-request inference endpoints that auto-scale to zero. Costs include both steady-state compute and scale-from-zero launch overhead.</p>
-              </div>
-            </div>
+            <InfoTooltip className="" label="About model serving endpoints" text="Endpoints deployed via Databricks Model Serving using serverless compute. These are pay-per-request inference endpoints that auto-scale to zero. Costs include both steady-state compute and scale-from-zero launch overhead." />
             <div className="ml-auto flex items-center gap-2">
               {endpointWorkspaces.length > 0 && (() => {
                 const isPartialWs = endpointsWorkspaceFilter.length > 0 && endpointsWorkspaceFilter.length < endpointWorkspaces.length;
@@ -863,15 +830,7 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
           <div className="mb-4 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-semibold text-gray-900">Top Models</h3>
-              <div className="group relative">
-                <svg className="h-4 w-4 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div className="absolute left-0 top-6 z-50 hidden w-72 rounded-lg border border-gray-200 bg-white p-3 text-xs text-gray-600 shadow-lg group-hover:block">
-                  <p className="font-medium text-gray-900 mb-1">Top Models</p>
-                  <p>Foundation Model API calls (Anthropic, OpenAI, Gemini, etc.), Feature Store lookups, and model training jobs. Unlike serverless endpoints above, these are billed by token usage or feature access rather than compute time.</p>
-                </div>
-              </div>
+              <InfoTooltip className="" label="About top models" text="Foundation Model API calls, Feature Store lookups, and model training jobs. Unlike serverless endpoints above, these are billed by token usage or feature access rather than compute time." />
             </div>
             {distinctTypes.length > 1 && (() => {
               const isPartialTypes = modelsTypeFilters.length > 0 && modelsTypeFilters.length < distinctTypes.length;
@@ -1014,10 +973,7 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
                         onChange={(e) => { setShowHistoricalMlClusters(e.target.checked); setMlClustersPage(1); }}
                         className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
                       Show historical ({historicalMlCount})
-                      <span className="relative group ml-0.5">
-                        <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Clusters whose names could not be resolved: likely terminated or from inaccessible workspaces</span>
-                      </span>
+                      <InfoTooltip className="ml-0.5" label="About historical clusters" text="Clusters whose names could not be resolved: likely terminated or from inaccessible workspaces" />
                     </label>
                   )}
                   {availableRuntimes.length > 0 && (
@@ -1184,10 +1140,7 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
                         className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
                       />
                       Show historical ({historicalAgentCount})
-                      <span className="relative group ml-0.5">
-                        <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Agents whose names could not be resolved: likely deleted or renamed</span>
-                      </span>
+                      <InfoTooltip className="ml-0.5" label="About historical agents" text="Agents whose names could not be resolved: likely deleted or renamed" />
                     </label>
                   )}
                   {agentTypes.length > 1 && (() => {

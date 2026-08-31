@@ -38,6 +38,24 @@ describe("DateRangePicker", () => {
     vi.useRealTimers();
   });
 
+  it("fills narrow headers and keeps the desktop width", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <DateRangePicker
+          value={{ startDate: "2026-08-01", endDate: "2026-08-29" }}
+          onChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    const trigger = screen.getByRole("button", { name: /Aug 1, 2026 to Aug 29, 2026/i });
+    expect(trigger.parentElement).toHaveClass("w-full", "sm:w-80");
+    expect(trigger).toHaveClass("w-full");
+  });
+
   it.each([7, 14, 30, 90])(
     "makes Last %i days an exact inclusive window ending yesterday",
     (days) => {

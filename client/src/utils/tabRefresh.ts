@@ -54,7 +54,10 @@ export const TAB_QUERY_KEY_PREDICATES: Record<DashboardTab, QueryKeyPredicate> =
     keyStartsWith(key, "apps") || keyStartsWith(key, "apps-kpi-trend"),
   tagging: (key) =>
     keyStartsWith(key, "tagging") || keyStartsWith(key, "tagging-kpi-trend"),
-  "users-groups": (key) => keyStartsWith(key, "users-groups"),
+  "users-groups": (key) =>
+    keyStartsWith(key, "users-groups")
+    || keyStartsWith(key, "users-groups-kpi-trend")
+    || keyStartsWith(key, "users-groups-platform-kpi-trend"),
 };
 
 export const TAB_LOADING_SECTIONS: Record<DashboardTab, string[]> = {
@@ -77,6 +80,54 @@ const DASHBOARD_TABS = Object.keys(TAB_QUERY_KEY_PREDICATES) as DashboardTab[];
 
 export function isDashboardQuery(queryKey: QueryKey): boolean {
   return DASHBOARD_TABS.some((tab) => isQueryOwnedByTab(tab, queryKey));
+}
+
+interface VisibilityDocument {
+  readonly visibilityState: DocumentVisibilityState;
+  addEventListener(type: "visibilitychange", listener: EventListener): void;
+  removeEventListener(type: "visibilitychange", listener: EventListener): void;
+}
+type TimerApi = Pick<typeof globalThis, "setTimeout" | "clearTimeout">;
+
+/**
+ * Refresh mounted dashboard observers only. Time spent in a hidden document does
+ * not accrue: returning to the app starts a fresh interval instead of bursting.
+ */
+export function startScopedAutoRefresh(
+  queryClient: QueryClient,
+  intervalMs: number,
+  visibilityDocument: VisibilityDocument = document,
+  timers: TimerApi = globalThis,
+): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const clear = () => {
+    if (timer !== null) {
+      timers.clearTimeout(timer);
+      timer = null;
+    }
+  };
+  const schedule = () => {
+    clear();
+    if (intervalMs <= 0 || visibilityDocument.visibilityState !== "visible") return;
+    timer = timers.setTimeout(() => {
+      timer = null;
+      void queryClient.invalidateQueries({
+        type: "active",
+        predicate: (query) => isDashboardQuery(query.queryKey),
+        refetchType: "active",
+      });
+      schedule();
+    }, intervalMs);
+  };
+  const onVisibilityChange = () => schedule();
+
+  visibilityDocument.addEventListener("visibilitychange", onVisibilityChange);
+  schedule();
+  return () => {
+    clear();
+    visibilityDocument.removeEventListener("visibilitychange", onVisibilityChange);
+  };
 }
 
 /**

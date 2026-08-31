@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import type { TabVisibility } from "@/components/SettingsDialog";
 import {
   buildExportScopeKey,
   cancelExportPreparationQueries,
@@ -9,27 +8,21 @@ import {
   isTabDataRequested,
 } from "../tabDemand";
 
-const visibility: TabVisibility = {
-  dbu: true,
-  sql: true,
-  infra: true,
-  optimizer: true,
-  kpis: true,
-  aiml: false,
-  apps: true,
-  tagging: true,
-  "users-groups": true,
-};
-
 describe("on-demand tab data", () => {
   it("loads only the active tab during normal dashboard use", () => {
-    expect(isTabDataRequested("dbu", "dbu", false, visibility)).toBe(true);
-    expect(isTabDataRequested("sql", "dbu", false, visibility)).toBe(false);
+    expect(isTabDataRequested("dbu", "dbu")).toBe(true);
+    expect(isTabDataRequested("sql", "dbu")).toBe(false);
   });
 
-  it("loads visible report tabs while export is open", () => {
-    expect(isTabDataRequested("sql", "dbu", true, visibility)).toBe(true);
-    expect(isTabDataRequested("aiml", "dbu", true, visibility)).toBe(false);
+  it("does not load report tabs when export merely opens", () => {
+    expect(isTabDataRequested("sql", "dbu", [])).toBe(false);
+    expect(isTabDataRequested("apps", "dbu", [])).toBe(false);
+  });
+
+  it("loads only tabs demanded by selected report sections", () => {
+    expect(isTabDataRequested("sql", "dbu", ["sql", "apps"])).toBe(true);
+    expect(isTabDataRequested("apps", "dbu", ["sql", "apps"])).toBe(true);
+    expect(isTabDataRequested("infra", "dbu", ["sql", "apps"])).toBe(false);
   });
 
   it("uses one stable cache key per report filter scope", () => {

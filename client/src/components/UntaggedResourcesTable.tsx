@@ -3,6 +3,8 @@ import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { formatCurrency, formatNumber, workspaceUrl } from "@/utils/formatters";
 import type { TaggingDashboardBundle } from "@/types/billing";
 import { C } from "@/theme";
+import { InfoPopover } from "@/components/ui/InfoPopover";
+import { SortableHeader } from "@/components/ui/SortableHeader";
 
 type UntaggedItem = {
   workspace_id: string;
@@ -70,19 +72,6 @@ interface UntaggedResourcesTableProps {
 const SUGGESTED_TAGS_KEY = "cost-obs-minimize-suggested-tags";
 
 const ALL_RESOURCE_TYPES: Exclude<UntaggedTab, "all">[] = ["clusters", "jobs", "pipelines", "warehouses", "endpoints"];
-
-function SortIndicator({
-  field,
-  sortField,
-  sortDirection,
-}: {
-  field: string;
-  sortField: string;
-  sortDirection: "asc" | "desc";
-}) {
-  if (sortField !== field) return <span className="ml-1 text-gray-300">↕</span>;
-  return <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>;
-}
 
 export function UntaggedResourcesTable({
   data, host, suggestedTags, untaggedCounts,
@@ -279,25 +268,13 @@ export function UntaggedResourcesTable({
                   <p className="mt-0.5 text-[11px] text-gray-500">Based on tags already in use across your resources:</p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {suggestedTags.map((tag) => (
-                      <div key={tag.key} className="group relative">
-                        <span className="inline-flex cursor-help items-center rounded border border-gray-200 bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-                          {tag.key}
-                        </span>
-                        <div className="invisible absolute bottom-full left-0 z-10 mb-2 w-64 rounded-lg bg-gray-900 p-3 text-xs text-white opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
-                          <p className="font-semibold text-orange-300 mb-1">{tag.key}</p>
-                          <p className="text-gray-300 mb-1">Used by {tag.usageCount} resources</p>
-                          {tag.examples.length > 0 && (
-                            <div>
-                              <p className="text-gray-500 text-[10px] uppercase">Example values:</p>
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {tag.examples.map((ex, i) => (
-                                  <span key={i} className="rounded bg-gray-700 px-1.5 py-0.5">{ex}</span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      <span key={tag.key} className="inline-flex items-center rounded border border-gray-200 bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+                        {tag.key}
+                        <InfoPopover
+                          label={`About ${tag.key}`}
+                          text={`Used by ${tag.usageCount} resources${tag.examples.length > 0 ? `. Example values: ${tag.examples.join(", ")}` : ""}`}
+                        />
+                      </span>
                     ))}
                   </div>
                 </>
@@ -313,10 +290,7 @@ export function UntaggedResourcesTable({
             onChange={(e) => { onHistoricalToggle(e.target.checked); onPageChange(1); }}
             className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
           Show historical ({historicalCount})
-          <span className="relative group ml-0.5">
-            <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            <span className="absolute bottom-full left-0 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Resources whose names could not be resolved: likely deleted or from inaccessible workspaces</span>
-          </span>
+          <InfoPopover className="ml-0.5" label="About historical resources" text="Resources whose names could not be resolved: likely deleted or from inaccessible workspaces" />
         </label>
         <div className="relative" ref={tabDropdownRef}>
           <button
@@ -395,23 +369,17 @@ export function UntaggedResourcesTable({
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="cursor-pointer px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => onSort(resourceConfig.idKey)}>
-                  {resourceConfig.label} <SortIndicator field={resourceConfig.idKey} sortField={sortField} sortDirection={sortDirection} />
-                </th>
+                <SortableHeader field={resourceConfig.idKey} activeField={sortField} direction={sortDirection} onSort={onSort} className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  {resourceConfig.label}
+                </SortableHeader>
                 {extraColumns.map((col) => (
-                  <th key={col.key} className="cursor-pointer px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => onSort(col.key)}>
-                    {col.label} <SortIndicator field={col.key} sortField={sortField} sortDirection={sortDirection} />
-                  </th>
+                  <SortableHeader key={col.key} field={col.key} activeField={sortField} direction={sortDirection} onSort={onSort} className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                    {col.label}
+                  </SortableHeader>
                 ))}
-                <th className="cursor-pointer px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => onSort("total_dbus")}>
-                  DBUs <SortIndicator field="total_dbus" sortField={sortField} sortDirection={sortDirection} />
-                </th>
-                <th className="cursor-pointer px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => onSort("total_spend")}>
-                  Spend <SortIndicator field="total_spend" sortField={sortField} sortDirection={sortDirection} />
-                </th>
-                <th className="cursor-pointer px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => onSort("days_active")}>
-                  Days Active <SortIndicator field="days_active" sortField={sortField} sortDirection={sortDirection} />
-                </th>
+                <SortableHeader field="total_dbus" activeField={sortField} direction={sortDirection} onSort={onSort} align="right" className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">DBUs</SortableHeader>
+                <SortableHeader field="total_spend" activeField={sortField} direction={sortDirection} onSort={onSort} align="right" className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Spend</SortableHeader>
+                <SortableHeader field="days_active" activeField={sortField} direction={sortDirection} onSort={onSort} align="right" className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Days Active</SortableHeader>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Suggested Tags</th>
                 <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Actions</th>
               </tr>

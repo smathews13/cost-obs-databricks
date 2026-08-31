@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AreaChart,
@@ -21,6 +20,8 @@ import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatt
 import { getAppFallbackColor, getAppInitials } from "@/utils/apps";
 import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { InfoPopover } from "@/components/ui/InfoPopover";
+import { TrendAction } from "@/components/ui/TrendAction";
 import {
   buildFilteredUrl,
   getActiveSourceScopeKey,
@@ -67,29 +68,6 @@ function servicePrincipalAdminUrl(
   return `${hostBase}/settings/identity-and-access/service-principals/${encodeURIComponent(id)}`;
 }
 
-function InfoTooltip({ text }: { text: string }) {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  return (
-    <span
-      className="ml-1.5 inline-flex cursor-help"
-      onMouseEnter={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseMove={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseLeave={() => setPos(null)}
-    >
-      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-semibold text-gray-500">i</span>
-      {pos && createPortal(
-        <div
-          className="pointer-events-none fixed z-[9999] w-72 rounded-lg bg-gray-900 px-3 py-2 text-xs font-normal leading-relaxed text-white shadow-lg"
-          style={{ top: pos.y - 12, transform: "translateY(-100%)", left: Math.min(pos.x + 14, window.innerWidth - 296) }}
-        >
-          {text}
-        </div>,
-        document.body
-      )}
-    </span>
-  );
-}
-
 function AppThumbnail({
   app,
   size,
@@ -98,24 +76,44 @@ function AppThumbnail({
   size: number;
 }) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const fallbackColor = getAppFallbackColor(app.app_id || app.app_name);
 
   if (app.metadata?.thumbnail_url && !failed) {
     return (
-      <img
-        src={app.metadata.thumbnail_url}
-        alt={`${app.app_name} icon`}
-        className="rounded-md object-cover"
-        style={{ width: size, height: size }}
-        onError={() => setFailed(true)}
-      />
+      <span
+        className="relative block shrink-0 overflow-hidden rounded-md"
+        style={{
+          width: size,
+          height: size,
+          aspectRatio: "1 / 1",
+          backgroundColor: fallbackColor,
+        }}
+      >
+        <img
+          src={app.metadata.thumbnail_url}
+          alt={`${app.app_name} icon`}
+          loading="lazy"
+          decoding="async"
+          width={size}
+          height={size}
+          className={`h-full w-full object-cover transition-opacity ${loaded ? "opacity-100" : "opacity-0"}`}
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+        />
+      </span>
     );
   }
 
   return (
     <div
       className="flex items-center justify-center rounded-md text-white"
-      style={{ backgroundColor: fallbackColor, width: size, height: size }}
+      style={{
+        backgroundColor: fallbackColor,
+        width: size,
+        height: size,
+        aspectRatio: "1 / 1",
+      }}
       aria-label={`${app.app_name} fallback icon`}
     >
       <span className="font-bold select-none" style={{ fontSize: Math.max(14, size * 0.4) }}>
@@ -515,11 +513,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
 
       {/* Summary Cards with click-to-trend */}
       <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({kpi: "apps_spend", label: "Daily App Spend"})}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -530,16 +524,15 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
               <p className="text-sm font-medium text-gray-500">Total App Spend</p>
               <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.total_spend)}</p>
               <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
-              {startDate && endDate && <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_spend", label: "Daily App Spend"}) : undefined}
+                ariaLabel="See Total App Spend trend"
+              />
             </div>
           </div>
         </div>
 
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({kpi: "apps_dbus", label: "Daily App DBUs"})}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -550,16 +543,15 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
               <p className="text-sm font-medium text-gray-500">Total App DBUs</p>
               <p className="text-2xl font-semibold text-gray-900">{formatNumber(summary.total_dbus)}</p>
               <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
-              {startDate && endDate && <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_dbus", label: "Daily App DBUs"}) : undefined}
+                ariaLabel="See Total App DBUs trend"
+              />
             </div>
           </div>
         </div>
 
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({kpi: "apps_count", label: "Daily Active Apps"})}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -567,21 +559,20 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500 flex items-center gap-1">Active Apps<InfoTooltip text={`Currently registered apps with positive Apps compute usage from ${appsData.active_window.start_date} through ${appsData.active_window.end_date}. This is the same scoped population used by App Status Breakdown.`} /></p>
+              <p className="text-sm font-medium text-gray-500 flex items-center gap-1">Active Apps<InfoPopover text={`Currently registered apps with positive Apps compute usage from ${appsData.active_window.start_date} through ${appsData.active_window.end_date}. This is the same scoped population used by App Status Breakdown.`} /></p>
               <p data-testid="active-apps-kpi-value" className="text-2xl font-semibold text-gray-900">{formatNumber(summary.active_app_count)}</p>
               <p className="mt-1 text-xs text-gray-500">
                 last {appsData.active_window.days} days · {summary.workspace_count} {summary.workspace_count === 1 ? "workspace" : "workspaces"}
               </p>
-              {startDate && endDate && <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_count", label: "Daily Active Apps"}) : undefined}
+                ariaLabel="See Active Apps trend"
+              />
             </div>
           </div>
         </div>
 
-        <div
-          className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all"
-          style={{ borderColor: C.hairline }}
-          onClick={() => startDate && endDate && setSelectedKPI({kpi: "apps_avg_cost_per_app", label: "Daily Per-App Spend"})}
-        >
+        <div className="rounded-lg bg-white p-6 border shadow-sm" style={{ borderColor: C.hairline }}>
           <div className="flex items-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100">
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -592,7 +583,10 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
               <p className="text-sm font-medium text-gray-500">Per-App Spend</p>
               <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.avg_cost_per_app ?? 0)}</p>
               <p className="mt-1 text-xs text-gray-500">daily average</p>
-              {startDate && endDate && <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
+              <TrendAction
+                onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_avg_cost_per_app", label: "Daily Per-App Spend"}) : undefined}
+                ariaLabel="See Per-App Spend trend"
+              />
             </div>
           </div>
         </div>
@@ -618,7 +612,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
             <h3 className="mb-4 flex items-center text-lg font-semibold text-gray-900">
               App Status Breakdown
-              <InfoTooltip text={`Uses the same registered-app population, date window (${appsData.active_window.start_date} through ${appsData.active_window.end_date}), workspace filter, and source scope as the Active Apps KPI.`} />
+              <InfoPopover text={`Uses the same registered-app population, date window (${appsData.active_window.start_date} through ${appsData.active_window.end_date}), workspace filter, and source scope as the Active Apps KPI.`} />
             </h3>
             <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">
               <ResponsiveContainer width="100%" height={250} className="max-w-xs">

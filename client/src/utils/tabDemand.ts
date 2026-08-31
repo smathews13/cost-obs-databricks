@@ -1,4 +1,4 @@
-import type { TabVisibility } from "@/components/SettingsDialog";
+import type { TabVisibility } from "@/utils/settingsHydration";
 import type { Query, QueryClient } from "@tanstack/react-query";
 
 export type DashboardTab = keyof TabVisibility;
@@ -22,10 +22,9 @@ export function buildExportScopeKey(
 export function isTabDataRequested(
   tab: DashboardTab,
   activeTab: DashboardTab,
-  exportOpen: boolean,
-  visibility: TabVisibility,
+  exportTabs: readonly DashboardTab[] = [],
 ): boolean {
-  return activeTab === tab || (exportOpen && visibility[tab]);
+  return activeTab === tab || exportTabs.includes(tab);
 }
 
 const SUBMIT_AND_POLL_TAB_KEYS: Partial<Record<DashboardTab, readonly [string, string]>> = {

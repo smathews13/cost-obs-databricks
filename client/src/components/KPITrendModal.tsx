@@ -1,7 +1,5 @@
-import { useEffect, useCallback } from "react";
-import { createPortal } from "react-dom";
 import { format, parseISO } from "date-fns";
-import { X, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import {
   AreaChart,
   Area,
@@ -17,6 +15,7 @@ import { C, FONT_MONO } from "@/theme";
 import { changeTone } from "@/components/brand";
 import { InkTooltip, axisTick, gridStroke, baselineStroke } from "@/components/chartTheme";
 import { Spinner } from "@/components/Spinner";
+import { Dialog } from "@/components/ui/Dialog";
 
 interface KPITrendModalProps {
   kpi: string;
@@ -81,21 +80,6 @@ export function KPITrendModal({
 
   const fmt = formatValue ?? (variant === "platform" ? defaultPlatformFormat : defaultBillingFormat);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") onClose();
-  }, [onClose]);
-
-  useEffect(() => {
-    if (isOpen) {
-      document.addEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "hidden";
-    }
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "";
-    };
-  }, [isOpen, handleKeyDown]);
-
   if (!isOpen) return null;
 
   const formattedStart = format(parseISO(startDate), "MMM d, yyyy");
@@ -103,33 +87,15 @@ export function KPITrendModal({
   const changePct = data?.summary?.change_percent ?? 0;
   const tone = changeTone(changePct);
 
-  return createPortal(
-    <div
-      className="animate-backdrop fixed inset-0 z-50 overflow-y-auto"
-      style={{ background: "rgba(11,32,38,.45)" }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+  return (
+    <Dialog
+      open={isOpen}
+      onClose={onClose}
+      title={kpiLabel}
+      subtitle="Trend Analysis"
+      className="max-w-4xl"
+      closeLabel={`Close ${kpiLabel} trend`}
     >
-      <div className="flex min-h-full items-center justify-center p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div
-        className="animate-dialog relative w-full max-w-4xl bg-white"
-        style={{ borderRadius: 12, boxShadow: "var(--sh-modal)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: `1px solid ${C.hairline}` }}>
-          <div>
-            <h2 className="text-xl font-semibold" style={{ color: C.ink }}>{kpiLabel}</h2>
-            <p className="text-sm" style={{ color: C.slate }}>Trend Analysis</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-2 transition-colors"
-            style={{ color: C.slate }}
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="p-6">
           {isLoading ? (
             <div className="flex h-80 items-center justify-center">
               <Spinner size="md" />
@@ -219,10 +185,6 @@ export function KPITrendModal({
               <p className="text-sm">Try selecting a different date range</p>
             </div>
           )}
-        </div>
-      </div>
-      </div>
-    </div>,
-    document.body
+    </Dialog>
   );
 }

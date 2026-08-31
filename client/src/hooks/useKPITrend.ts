@@ -28,6 +28,12 @@ export interface KPITrendResponse {
   summary: KPITrendSummary;
 }
 
+export function trendOwnerTab(queryKeyPrefix: string): string {
+  if (queryKeyPrefix.startsWith("users-groups-")) return "users-groups";
+  if (queryKeyPrefix === "kpi-trend") return "dbu";
+  return queryKeyPrefix.split("-")[0];
+}
+
 function useTrendQuery(
   queryKeyPrefix: string,
   endpoint: string,
@@ -49,10 +55,7 @@ function useTrendQuery(
         end_date: endDate,
         granularity,
       });
-      const ownerTab = queryKeyPrefix === "kpi-trend"
-        ? "dbu"
-        : queryKeyPrefix.split("-")[0];
-      params.set("tab", ownerTab);
+      params.set("tab", trendOwnerTab(queryKeyPrefix));
 
       const response = await fetch(buildFilteredUrl(`/api/billing/${endpoint}`, params, workspaceIds));
 

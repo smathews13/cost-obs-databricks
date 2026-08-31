@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import awsLogo from "@/assets/aws.png";
-import azureLogo from "@/assets/azure.png";
+import azureLogo from "@/assets/azure-128.png";
 import gcpLogo from "@/assets/gcp.svg";
 import { Spinner } from "@/components/Spinner";
 

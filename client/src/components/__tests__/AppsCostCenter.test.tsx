@@ -156,6 +156,22 @@ describe("AppsCostCenter metadata detail", () => {
     });
   });
 
+  it("defers thumbnail work while reserving stable placeholder geometry", () => {
+    renderApps([metadataApp]);
+
+    const image = screen.getByAltText("Metadata App icon");
+    expect(image).toHaveAttribute("loading", "lazy");
+    expect(image).toHaveAttribute("decoding", "async");
+    expect(image).toHaveAttribute("width", "48");
+    expect(image).toHaveAttribute("height", "48");
+    expect(image.parentElement).toHaveStyle({
+      width: "48px",
+      height: "48px",
+      aspectRatio: "1 / 1",
+      backgroundColor: getAppFallbackColor(metadataApp.app_id),
+    });
+  });
+
   it("shows safe app, compute, deployment, workspace, and resource metadata", () => {
     renderApps([metadataApp]);
 

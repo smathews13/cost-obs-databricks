@@ -1,27 +1,15 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import type { TabVisibility } from "@/components/SettingsDialog";
+import type { TabVisibility } from "@/utils/settingsHydration";
 import { C } from "@/theme";
 import { CostObsMark } from "@/components/brand";
 import { Spinner } from "@/components/Spinner";
+import {
+  SECTION_TO_TAB as sectionToTab,
+  type ExportSections,
+} from "@/utils/exportDemand";
 
-export interface ExportSections {
-  summary: boolean;
-  products: boolean;
-  workspaces: boolean;
-  skus: boolean;
-  pipelines: boolean;
-  interactive: boolean;
-  query360: boolean;
-  aiml: boolean;
-  apps: boolean;
-  tagging: boolean;
-  users: boolean;
-  platformKPIs: boolean;
-  anomalies: boolean;
-  awsCosts: boolean;
-  optimize: boolean;
-}
+export type { ExportSections } from "@/utils/exportDemand";
 
 export type ExportFormat = "pdf" | "csv";
 
@@ -33,28 +21,27 @@ interface ExportDialogProps {
   onExportArchitecture?: () => Promise<void>;
   tabVisibility: TabVisibility;
   dataLoading?: boolean;
+  dataPrepared?: boolean;
+  requiredTabs?: Array<keyof TabVisibility>;
+  tabLoading?: Partial<Record<keyof TabVisibility, boolean>>;
   dataErrors?: Partial<Record<keyof TabVisibility, string>>;
+  onPrepare?: (sections: ExportSections) => void;
+  onSelectionChange?: (sections: ExportSections) => void;
   onRetryFailed?: () => Promise<void>;
 }
 
 // Map export sections to the tab that owns them: order matches tab nav so the
 // PDF reads in the same order as the app.
-const sectionToTab: Record<keyof ExportSections, keyof TabVisibility | null> = {
-  summary: "dbu",
-  products: "dbu",
-  workspaces: "dbu",
-  skus: "dbu",
-  pipelines: "dbu",
-  interactive: "dbu",
-  query360: "sql",
-  aiml: "aiml",
-  apps: "apps",
-  tagging: "tagging",
-  users: "users-groups",
-  platformKPIs: "kpis",
-  anomalies: "kpis",
-  awsCosts: "infra",
-  optimize: "optimizer",
+const tabLabels: Record<keyof TabVisibility, string> = {
+  dbu: "DBU Overview",
+  sql: "SQL",
+  aiml: "AI/ML",
+  apps: "Apps",
+  tagging: "Tagging",
+  "users-groups": "Users",
+  kpis: "KPIs & Trends",
+  infra: "Cloud Costs",
+  optimizer: "Optimize",
 };
 
 const sectionLabels: Record<keyof ExportSections, { label: string; description: string }> = {
@@ -83,7 +70,12 @@ export function ExportDialog({
   onExportArchitecture,
   tabVisibility,
   dataLoading = false,
+  dataPrepared = false,
+  requiredTabs = [],
+  tabLoading = {},
   dataErrors = {},
+  onPrepare,
+  onSelectionChange,
   onRetryFailed,
 }: ExportDialogProps) {
   const visibleSections = useMemo(() => {
@@ -127,32 +119,39 @@ export function ExportDialog({
 
   if (!isOpen) return null;
 
+  const updateSections = (next: ExportSections) => {
+    setSections(next);
+    onSelectionChange?.(next);
+  };
+
   const toggleSection = (key: keyof ExportSections) => {
-    setSections((prev) => ({ ...prev, [key]: !prev[key] }));
+    updateSections({ ...sections, [key]: !sections[key] });
   };
 
   const selectAll = () => {
-    setSections({ ...visibleSections });
+    updateSections({ ...visibleSections });
   };
 
   const selectNone = () => {
     const none: ExportSections = {} as ExportSections;
     for (const key of Object.keys(sectionToTab) as Array<keyof ExportSections>) none[key] = false;
-    setSections(none);
+    updateSections(none);
   };
 
   const visibleKeys = (Object.keys(sectionToTab) as Array<keyof ExportSections>).filter((k) => visibleSections[k]);
   const selectedCount = visibleKeys.filter((k) => sections[k]).length;
   const failedSelectedTabs = Array.from(new Set(
-    visibleKeys
-      .filter((key) => sections[key])
-      .map((key) => sectionToTab[key])
-      .filter((tab): tab is keyof TabVisibility => Boolean(tab && dataErrors[tab])),
+    requiredTabs.filter((tab) => Boolean(dataErrors[tab])),
   ));
   const hasSelectedErrors = failedSelectedTabs.length > 0;
+  const readyTabCount = requiredTabs.filter((tab) => !tabLoading[tab] && !dataErrors[tab]).length;
 
   const handleExport = () => {
     if (dataLoading || architectureBusy || hasSelectedErrors) return;
+    if (!dataPrepared) {
+      onPrepare?.(sections);
+      return;
+    }
     onExport(sections, format);
     onClose();
   };
@@ -385,6 +384,34 @@ export function ExportDialog({
                 );
               })}
             </div>
+            {requiredTabs.length > 0 && (
+              <div className="mt-4 rounded-lg border px-3 py-2.5" style={{ borderColor: C.hairline, background: C.oatPage }}>
+                <div className="text-xs font-semibold" style={{ color: C.ink }}>
+                  Required tabs: {readyTabCount} of {requiredTabs.length} ready
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {requiredTabs.map((tab) => {
+                    const error = dataErrors[tab];
+                    const loading = tabLoading[tab];
+                    const status = error ? "Failed" : loading ? "Loading" : "Ready";
+                    return (
+                      <span
+                        key={tab}
+                        role="status"
+                        className="rounded-full border px-2 py-1 text-[11px] font-semibold"
+                        style={{
+                          borderColor: error ? "#FCA5A5" : loading ? C.coralBrd : "#A7D7B7",
+                          color: error ? "#B91C1C" : loading ? C.lava : "#166534",
+                          background: C.card,
+                        }}
+                      >
+                        {tabLabels[tab]} · {status}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
@@ -418,7 +445,13 @@ export function ExportDialog({
               type="button"
               onClick={handleExport}
               disabled={selectedCount === 0 || dataLoading || architectureBusy || hasSelectedErrors}
-              aria-label={dataLoading ? "Preparing report data" : hasSelectedErrors ? "Export blocked by failed report data" : undefined}
+              aria-label={dataLoading
+                ? `Preparing report data: ${readyTabCount} of ${requiredTabs.length} tabs ready`
+                : hasSelectedErrors
+                  ? "Export blocked by failed report data"
+                  : !dataPrepared && onPrepare
+                    ? "Prepare report data"
+                    : undefined}
               className="btn-brand inline-flex items-center gap-2 px-4 py-2 text-sm focus-visible:outline-none"
             >
               {dataLoading ? <Spinner size="xs" /> : (
@@ -427,8 +460,10 @@ export function ExportDialog({
                 </svg>
               )}
               {dataLoading
-                ? "Preparing report data…"
-                : `Export ${selectedCount} section${selectedCount !== 1 ? "s" : ""} as ${format.toUpperCase()}`}
+                ? `Preparing ${readyTabCount} of ${requiredTabs.length} tabs…`
+                : !dataPrepared && onPrepare
+                  ? `Prepare ${selectedCount} section${selectedCount !== 1 ? "s" : ""}`
+                  : `Export ${selectedCount} section${selectedCount !== 1 ? "s" : ""} as ${format.toUpperCase()}`}
             </button>
             </div>
           </div>

@@ -158,35 +158,6 @@ textarea {
   font: inherit;
 }
 
-/* The full account identifier is available on both pointer hover and keyboard
-   focus without relying on a native title tooltip. */
-.account-id-tooltip-content {
-  visibility: hidden;
-  opacity: 0;
-  transform: translateY(-2px);
-  transition: opacity 120ms ease-out, transform 120ms ease-out, visibility 120ms;
-}
-.account-id-tooltip:hover .account-id-tooltip-content,
-.account-id-tooltip:focus-within .account-id-tooltip-content {
-  visibility: visible;
-  opacity: 1;
-  transform: translateY(0);
-}
-
-/* Deployment details use one shared tooltip for pointer hover and keyboard focus. */
-.deployment-badge-tooltip {
-  visibility: hidden;
-  opacity: 0;
-  transform: translateY(-2px);
-  transition: opacity 120ms ease-out, transform 120ms ease-out, visibility 120ms;
-}
-.deployment-badge:hover .deployment-badge-tooltip,
-.deployment-badge:focus-within .deployment-badge-tooltip {
-  visibility: visible;
-  opacity: 1;
-  transform: translateY(0);
-}
-
 /* ── Animations ────────────────────────────────────────── */
 
 /* NOTE: animate-spin, animate-pulse, animate-bounce overrides are in

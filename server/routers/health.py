@@ -573,7 +573,7 @@ async def clear_cache(request: Request, tab: str | None = None) -> dict[str, Any
     TAB_PATTERNS: dict[str, list[str]] = {
         "dbu":          [
             "tab:dbu", "dashboard-bundle-fast", "sku-breakdown", "pipeline-objects",
-            "interactive-breakdown", "etl-breakdown", "kpi-trend",
+            "interactive-breakdown", "etl-breakdown",
         ],
         "infra":        [
             "tab:infra", "infra-bundle", "infra-costs", "infra-timeseries",
@@ -582,7 +582,7 @@ async def clear_cache(request: Request, tab: str | None = None) -> dict[str, Any
             "gcp-actual", "gcp_actual", "gcp-costs",
         ],
         "optimizer":    ["tab:optimizer", "warehouse-health", "warehouse-idle-time", "optimizer"],
-        "kpis":         ["tab:kpis", "kpis-bundle", "spend-anomalies", "platform-kpis", "platform-kpi-trend"],
+        "kpis":         ["tab:kpis", "kpis-bundle", "spend-anomalies", "platform-kpis"],
         "aiml":         ["tab:aiml", "aiml"],
         "apps":         ["tab:apps", "apps", "apps-kpi-trend"],
         "tagging":      ["tab:tagging", "tagging"],
@@ -603,7 +603,7 @@ async def clear_cache(request: Request, tab: str | None = None) -> dict[str, Any
         "apps":         ["apps:", "trend:apps:"],
         "tagging":      ["tagging:", "trend:tagging:"],
         "sql":          ["dbsql:", "billing:sql-breakdown", "trend:sql:"],
-        "users-groups": ["users:"],
+        "users-groups": ["users:", "trend:users-groups:"],
     }
 
     if tab and tab in TAB_PATTERNS:

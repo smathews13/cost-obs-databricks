@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ExportSections } from "@/components/ExportDialog";
+import type { ExportSections } from "@/utils/exportDemand";
 import { generateCostCSV } from "../csvExport";
 import {
   anonymizeExportIdentity,

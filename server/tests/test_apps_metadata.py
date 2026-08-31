@@ -571,6 +571,7 @@ async def test_thumbnail_proxy_rejects_malformed_id_before_registry_or_sdk(monke
     response = await apps.get_app_thumbnail("../../arbitrary-target")
 
     assert response.status_code == 400
+    assert response.headers["cache-control"] == "no-store"
     assert registry_calls == 0
     assert sdk_calls == 0
     assert cache == {}
@@ -593,6 +594,7 @@ async def test_thumbnail_proxy_rejects_unknown_registry_id_without_caching(monke
     response = await apps.get_app_thumbnail("unknown-app-id")
 
     assert response.status_code == 404
+    assert response.headers["cache-control"] == "no-store"
     assert sdk_calls == 0
     assert cache == {}
 
@@ -600,3 +602,34 @@ async def test_thumbnail_proxy_rejects_unknown_registry_id_without_caching(monke
 def test_thumbnail_cache_is_bounded_ttl_lru():
     assert apps._thumbnail_cache.maxsize == 128
     assert apps._thumbnail_cache.ttl == apps.cache_ttls.THUMBNAIL
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_proxy_sets_private_cache_etag_and_supports_304(monkeypatch):
+    content = b"\x89PNG" + (b"cached-thumbnail" * 4)
+    registry = {
+        "app-id": {
+            "name": "safe-app",
+            "url": "https://safe-app.example.databricksapps.com",
+            "metadata": {},
+        }
+    }
+    monkeypatch.setattr(apps, "_get_app_registry", lambda: registry)
+    monkeypatch.setattr(apps, "_thumbnail_cache", {"app-id": (content, "image/png")})
+
+    response = await apps.get_app_thumbnail("app-id")
+
+    assert response.status_code == 200
+    assert response.body == content
+    assert response.headers["cache-control"] == (
+        f"private, max-age={apps.cache_ttls.THUMBNAIL}"
+    )
+    etag = response.headers["etag"]
+    assert etag.startswith('"') and etag.endswith('"')
+
+    not_modified = await apps.get_app_thumbnail("app-id", etag)
+
+    assert not_modified.status_code == 304
+    assert not_modified.body == b""
+    assert not_modified.headers["etag"] == etag
+    assert not_modified.headers["cache-control"] == response.headers["cache-control"]

@@ -60,6 +60,22 @@ describe("CloudCostsView empty-data controls", () => {
     await userEvent.click(screen.getByRole("button", { name: "Actual Costs" }));
 
     expect(screen.getByText("Actual Azure Infrastructure Cost")).toBeInTheDocument();
+    for (const image of screen.getAllByRole("img", { name: "Azure" })) {
+      expect(image).toHaveAttribute("src", expect.stringContaining("azure-128.png"));
+    }
+  });
+
+  it("loads only visible provider logos and uses the optimized Azure asset", () => {
+    const { container } = renderView({
+      actualData: { available: true, start_date: "2026-08-01", end_date: "2026-08-28" },
+      azureActualData: { available: true, start_date: "2026-08-01", end_date: "2026-08-28" },
+    });
+
+    expect(container.querySelector('[aria-hidden="true"] img')).toBeNull();
+    expect(screen.getByRole("img", { name: "Azure" })).toHaveAttribute(
+      "src",
+      expect.stringContaining("azure-128.png"),
+    );
   });
 
   it("parses GCP machine families the same way as the backend", () => {
@@ -224,5 +240,38 @@ describe("CloudCostsView empty-data controls", () => {
     expect(screen.getByText(/showing top 100 of 101 clusters/i)).toBeInTheDocument();
     expect(screen.getByText(/top 100 detail subtotal/i)).toBeInTheDocument();
     expect(screen.getByText("$30")).toBeInTheDocument();
+  });
+
+  it("sorts cluster columns from keyboard-accessible header buttons", async () => {
+    const clusters = [{
+      cluster_id: "cluster-1",
+      cluster_name: "Cluster 1",
+      driver_instance_type: "m5.xlarge",
+      worker_instance_type: "m5.xlarge",
+      cluster_source: "UI",
+      workspace_id: "123",
+      state: null,
+      total_dbu_hours: 10,
+      databricks_spend: 15,
+      days_active: 1,
+      percentage: 100,
+    }];
+    const data = {
+      ...EMPTY_COSTS,
+      cloud: "AWS",
+      cloud_display_name: "AWS",
+      clusters,
+      instance_families: [],
+    };
+    renderView({ data, infraData: { ...data, available: true, availability: "available" } });
+
+    const header = screen.getByRole("columnheader", { name: "Cluster" });
+    expect(header).toHaveAttribute("aria-sort", "none");
+    const sortButton = screen.getByRole("button", { name: "Cluster" });
+    sortButton.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(header).toHaveAttribute("aria-sort", "descending");
+    await userEvent.keyboard(" ");
+    expect(header).toHaveAttribute("aria-sort", "ascending");
   });
 });

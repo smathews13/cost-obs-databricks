@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
-import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFeatureAvailability } from "@/hooks/useFeatureAvailability";
 import {
@@ -24,6 +23,9 @@ import { LoadingPanels, Spinner } from "./Spinner";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { Dialog } from "@/components/ui/Dialog";
+import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
+import { TrendAction } from "@/components/ui/TrendAction";
 import {
   buildFilteredUrl,
   getActiveSourceScopeKey,
@@ -79,34 +81,6 @@ const USER_BAR_TOOLTIP_FMT = (value: unknown) => formatCurrency(value as number)
 const USER_BAR_TOOLTIP_LABEL_FMT = (label: unknown) => `User: ${label}`;
 const USER_BAR_LABEL_FMT = (v: unknown) => `$${Math.round(v as number).toLocaleString()}`;
 const USER_BAR_LABEL_STYLE = { fontSize: 11, fill: C.slate };
-
-function InfoTooltip({ text, stopClick }: { text: string; stopClick?: boolean }) {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  return (
-    <span
-      className="ml-1 inline-flex cursor-help"
-      onMouseEnter={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseMove={e => setPos({ x: e.clientX, y: e.clientY })}
-      onMouseLeave={() => setPos(null)}
-      onClick={stopClick ? e => e.stopPropagation() : undefined}
-    >
-      <span className="flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-semibold normal-case text-gray-500">i</span>
-      {pos && createPortal(
-        <div
-          className="pointer-events-none fixed z-[9999] w-64 rounded-lg bg-gray-900 px-3 py-2 text-xs font-normal normal-case leading-relaxed text-white shadow-lg"
-          style={{
-            top: pos.y - 12,
-            transform: 'translateY(-100%)',
-            left: Math.min(pos.x + 14, window.innerWidth - 272),
-          }}
-        >
-          {text}
-        </div>,
-        document.body
-      )}
-    </span>
-  );
-}
 
 function OptimizeTablePagination({
   currentPage,
@@ -607,7 +581,7 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
 
             return (
           <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all" onClick={() => startDate && endDate && setSelectedKPI({kpi: "sql_spend", label: "Daily SQL Spend Trend", variant: "billing"})}>
+            <div className="rounded-lg bg-white p-6 border shadow-sm">
               <div className="flex items-center">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
                   <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -622,11 +596,14 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                   <div className="mt-1 text-xs text-gray-500">
                     {summary != null ? `${formatNumber(summary.total_dbus ?? 0)} DBUs · over ${startDate && endDate ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1 : "?"} days` : "N/A"}
                   </div>
-                  <p className="mt-1 text-xs text-lava">See trend →</p>
+                  <TrendAction
+                    onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "sql_spend", label: "Daily SQL Spend Trend", variant: "billing"}) : undefined}
+                    ariaLabel="See Total Query Spend trend"
+                  />
                 </div>
               </div>
             </div>
-            <div className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all" onClick={() => startDate && endDate && setSelectedKPI({kpi: "sql_queries", label: "Daily SQL Queries", variant: "platform"})}>
+            <div className="rounded-lg bg-white p-6 border shadow-sm">
               <div className="flex items-center">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
                   <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -645,11 +622,14 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                       return `${avgPerDay != null ? formatNumber(avgPerDay) + " avg/day · " : ""}${formatCurrency(summary.avg_cost_per_query ?? 0)}/query`;
                     })() : "N/A"}
                   </div>
-                  <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+                  <TrendAction
+                    onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "sql_queries", label: "Daily SQL Queries", variant: "platform"}) : undefined}
+                    ariaLabel="See Total Queries trend"
+                  />
                 </div>
               </div>
             </div>
-            <div className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all" onClick={() => startDate && endDate && setSelectedKPI({kpi: "sql_users", label: "Daily SQL Users", variant: "platform"})}>
+            <div className="rounded-lg bg-white p-6 border shadow-sm">
               <div className="flex items-center">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
                   <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -664,11 +644,14 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                   <div className="mt-1 text-xs text-gray-500">
                     {summary != null ? `across ${formatNumber(summary.unique_warehouses ?? 0)} SQL warehouses` : "N/A"}
                   </div>
-                  <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+                  <TrendAction
+                    onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "sql_users", label: "Daily SQL Users", variant: "platform"}) : undefined}
+                    ariaLabel="See Unique SQL Users trend"
+                  />
                 </div>
               </div>
             </div>
-            <div className="rounded-lg bg-white p-6 border shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all" onClick={() => startDate && endDate && setSelectedKPI({kpi: "avg_query_duration", label: "Query Duration"})}>
+            <div className="rounded-lg bg-white p-6 border shadow-sm">
               <div className="flex items-center">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100">
                   <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -683,7 +666,10 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                   <div className="mt-1 text-xs text-gray-500">
                     average per query
                   </div>
-                  <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+                  <TrendAction
+                    onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "avg_query_duration", label: "Query Duration"}) : undefined}
+                    ariaLabel="See Query Duration trend"
+                  />
                 </div>
               </div>
             </div>
@@ -787,6 +773,18 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                     </Bar>
                   </BarChart>
               </ResponsiveContainer>
+              <div className="flex flex-wrap gap-2">
+                {userBarData.map((user) => (
+                  <button
+                    key={user.rawUser}
+                    type="button"
+                    onClick={() => setSelectedUser({ raw: user.rawUser, display: user.user })}
+                    className="sr-only rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 focus:not-sr-only focus-visible:outline-none focus-visible:shadow-(--focus)"
+                  >
+                    View queries for {user.user}
+                  </button>
+                ))}
+              </div>
             </div>
             )}
           </div>
@@ -910,18 +908,18 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
                       {(queryData.by_source?.sources ?? []).map((source) => (
-                        <tr
-                          key={source.query_source_type}
-                          className="cursor-pointer hover:bg-gray-50"
-                          onClick={() => handleSourceClick(source.query_source_type)}
-                        >
+                        <tr key={source.query_source_type} className="hover:bg-gray-50">
                           <td className="whitespace-nowrap px-4 py-3">
-                            <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleSourceClick(source.query_source_type)}
+                              className="flex items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:shadow-(--focus)"
+                            >
                               <QuerySourceBadge sourceType={source.query_source_type} />
-                              <svg className="h-3 w-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <svg aria-hidden="true" className="h-3 w-3 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                               </svg>
-                            </div>
+                            </button>
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right text-sm text-gray-500">
                             {formatNumber(source.query_count)}
@@ -966,10 +964,7 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                     onChange={(e) => { setShowHistoricalQueries(e.target.checked); setQueriesPage(1); }}
                     className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
                   Show historical ({historicalQueryCount})
-                  <span className="relative group ml-0.5">
-                    <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Queries with unknown users or unavailable previews</span>
-                  </span>
+                  <InfoTooltip className="ml-0.5" label="About historical queries" text="Queries with unknown users or unavailable previews" />
                 </label>
               )}
               <div className="relative ml-auto flex items-center gap-2 shrink-0">
@@ -1141,21 +1136,15 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
           )}
 
       {/* Source Drilldown Modal: rendered via portal to avoid stacking context issues */}
-      {selectedSource && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" onClick={() => setSelectedSource(null)}>
-          <div className="mx-4 w-full max-w-5xl rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h3 className="text-lg font-semibold text-gray-900">Top 5 Queries:</h3>
-                <QuerySourceBadge sourceType={selectedSource} />
-              </div>
-              <button onClick={() => setSelectedSource(null)} className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-600">
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
+      {selectedSource && (
+        <Dialog
+          open
+          onClose={() => setSelectedSource(null)}
+          title="Top 5 Queries"
+          subtitle={<QuerySourceBadge sourceType={selectedSource} />}
+          className="max-w-5xl"
+          closeLabel="Close source query drilldown"
+        >
             {sourceQueriesLoading ? (
               <div className="flex h-40 items-center justify-center">
                 <Spinner size="md" />
@@ -1215,30 +1204,20 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                 No queries found for this source type
               </div>
             )}
-          </div>
-        </div>,
-        document.body
+        </Dialog>
       )}
       {/* User Query Drilldown Modal */}
-      {selectedUser && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" onClick={() => setSelectedUser(null)}>
-          <div className="mx-4 w-full max-w-4xl rounded-lg bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Queries: {selectedUser.display}</h3>
-                {userQueriesData?.total_spend != null && (
-                  <p className="text-sm text-gray-500 mt-0.5">
-                    {userQueriesData.query_count} queries · {formatCurrency(userQueriesData.total_spend)} total
-                  </p>
-                )}
-              </div>
-              <button onClick={() => setSelectedUser(null)} className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-600">
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
+      {selectedUser && (
+        <Dialog
+          open
+          onClose={() => setSelectedUser(null)}
+          title={`Queries: ${selectedUser.display}`}
+          subtitle={userQueriesData?.total_spend != null
+            ? `${userQueriesData.query_count} queries · ${formatCurrency(userQueriesData.total_spend)} total`
+            : undefined}
+          className="max-w-4xl"
+          closeLabel={`Close queries for ${selectedUser.display}`}
+        >
             {userQueriesLoading ? (
               <div className="flex h-48 items-center justify-center">
                 <Spinner size="md" />
@@ -1330,9 +1309,7 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                 No queries found for this user in the selected date range
               </div>
             )}
-          </div>
-        </div>,
-        document.body
+        </Dialog>
       )}
     </div>
   );

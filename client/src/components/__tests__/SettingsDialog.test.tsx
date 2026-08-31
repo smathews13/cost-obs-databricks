@@ -12,6 +12,41 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("starts settings queries only after the dialog opens and deduplicates config", async () => {
+  const fetchMock = vi.fn(async () => new Response("{}", {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const props = {
+    onClose: vi.fn(),
+    onTabVisibilityChange: vi.fn(),
+    onSettingsChange: vi.fn(),
+    tabVisibility: loadTabVisibility(),
+    appSettings: loadAppSettings(),
+  };
+  const view = render(
+    <QueryClientProvider client={client}>
+      <SettingsDialog {...props} isOpen={false} />
+    </QueryClientProvider>,
+  );
+
+  expect(fetchMock).not.toHaveBeenCalled();
+  view.rerender(
+    <QueryClientProvider client={client}>
+      <SettingsDialog {...props} isOpen />
+    </QueryClientProvider>,
+  );
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  const urls = fetchMock.mock.calls.map(([input]) => String(input));
+  expect(urls).toContain("/api/settings/warehouses");
+  expect(urls).toContain("/api/settings/cloud-connections");
+  expect(urls).toContain("/api/setup/workspace-filter");
+  expect(urls.filter((url) => url === "/api/settings/config")).toHaveLength(1);
+});
+
 it("animates the save spinner while respecting reduced motion", () => {
   const css = readFileSync("src/components/settings/settings.css", "utf8");
   expect(css).toMatch(/\.settings-save-spinner\s*\{[^}]*animation:\s*settings-save-spin/s);

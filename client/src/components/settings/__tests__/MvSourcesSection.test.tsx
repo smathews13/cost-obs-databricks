@@ -33,6 +33,7 @@ describe("shared source freshness", () => {
             label: "west",
             catalog: "shared",
             schema: "cost_obs",
+            cloud: "azure",
             tables: ["daily_usage_summary"],
             share_last_updated: "2026-08-28T11:00:00Z",
             catalog_explorer_tables: [{
@@ -62,6 +63,10 @@ describe("shared source freshness", () => {
     const remove = screen.getByRole("button", { name: "Remove" });
     expect(check.parentElement).toContainElement(remove);
     expect(screen.getByText(/Provider updates appear automatically/)).toBeVisible();
+    expect(screen.getByRole("img", { name: "Azure" })).toHaveAttribute(
+      "src",
+      expect.stringContaining("azure-128.png"),
+    );
     expect(screen.getByRole("link", {
       name: "Open shared.cost_obs.daily_usage_summary in Catalog Explorer (opens in a new tab)",
     })).toHaveAttribute(

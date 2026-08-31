@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   Cell, LabelList,
@@ -10,29 +9,6 @@ import { Bot } from "lucide-react";
 import { LoadingPanels } from "@/components/Spinner";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 
-function InfoTooltip({ text }: { text: string }) {
-  const [show, setShow] = useState(false);
-  return (
-    <span className="relative inline-flex items-center ml-1">
-      <button
-        onMouseEnter={() => setShow(true)}
-        onMouseLeave={() => setShow(false)}
-        className="text-gray-500 hover:text-gray-600"
-        aria-label="More info"
-      >
-        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      </button>
-      {show && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50 w-56 rounded-lg bg-gray-900 px-3 py-2 text-xs text-white shadow-lg">
-          {text}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
-        </div>
-      )}
-    </span>
-  );
-}
 import type { UserSpend } from "@/hooks/useBillingData";
 import type { DateRange } from "@/types/billing";
 import {
@@ -43,25 +19,23 @@ import {
 } from "@/utils/identity";
 import { C, productColor, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { Dialog } from "@/components/ui/Dialog";
+import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
+import { TrendAction } from "@/components/ui/TrendAction";
 
 // ── User Detail Modal ─────────────────────────────────────────────────────────
 
 function UserDetailModal({ user, displayName, onClose }: { user: UserSpend; displayName: string; onClose: () => void }) {
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-gray-900 text-sm truncate max-w-75">{displayName}</h3>
-            </div>
-            <p className="text-xs text-gray-500 mt-0.5">{user.active_days} active days · {user.workspace_count} workspace{user.workspace_count !== 1 ? "s" : ""}</p>
-          </div>
-          <button onClick={onClose} className="ml-4 shrink-0 rounded-lg p-1.5 hover:bg-gray-100 text-gray-500">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-        <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={displayName}
+      subtitle={`${user.active_days} active days · ${user.workspace_count} workspace${user.workspace_count !== 1 ? "s" : ""}`}
+      className="max-w-lg"
+      bodyClassName="max-h-[70vh] space-y-5 overflow-y-auto p-6"
+      closeLabel={`Close details for ${displayName}`}
+    >
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
               <p className="text-xs text-gray-500">Total spend</p>
@@ -104,10 +78,7 @@ function UserDetailModal({ user, displayName, onClose }: { user: UserSpend; disp
             </div>
           )}
 
-        </div>
-      </div>
-    </div>,
-    document.body
+    </Dialog>
   );
 }
 
@@ -142,44 +113,51 @@ function ProductDrilldown({ topUsers, displayIdentity }: { topUsers: UserSpend[]
       <div className="space-y-2.5">
         {sorted.map(([product, spend]) => {
           const pct = total > 0 ? (spend / total) * 100 : 0;
-          const isSelected = selectedProduct === product;
           return (
             <div key={product}>
               <button
                 className="w-full text-left group"
-                onClick={() => setSelectedProduct(isSelected ? null : product)}
+                onClick={() => setSelectedProduct(product)}
               >
                 <div className="flex justify-between text-xs mb-1">
-                  <span className={`font-medium ${isSelected ? 'text-lava' : 'text-gray-600 group-hover:text-gray-900'}`}>
+                  <span className="font-medium text-gray-600 group-hover:text-gray-900">
                     {product}
-                    <span className="ml-1 text-gray-500 text-[10px]">{isSelected ? '▲' : '▼'}</span>
+                    <span className="ml-1 text-gray-500 text-[10px]" aria-hidden="true">↗</span>
                   </span>
                   <span className="font-medium text-gray-800">{formatCurrency(spend)} <span className="text-gray-500">({pct.toFixed(1)}%)</span></span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-gray-100">
-                  <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: isSelected ? C.lava : productColor(product) }} />
+                  <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: productColor(product) }} />
                 </div>
               </button>
-              {isSelected && top5.length > 0 && (
-                <div className="mt-2 mb-1 ml-2 rounded-lg border border-gray-100 bg-gray-50 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Top users: {product}</p>
-                  <div className="space-y-1.5">
-                    {top5.map((u, i) => (
-                      <div key={u.email} className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-gray-500 w-3 shrink-0">{i + 1}.</span>
-                          <span className="text-gray-700 truncate">{displayIdentity(u.email)}</span>
-                        </div>
-                        <span className="ml-3 font-medium text-gray-800 shrink-0">{formatCurrency(u.spend)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
       </div>
+      <Dialog
+        open={selectedProduct !== null}
+        onClose={() => setSelectedProduct(null)}
+        title={selectedProduct ? `Top users: ${selectedProduct}` : "Top users"}
+        subtitle="Highest-spending users for this product"
+        className="max-w-lg"
+        closeLabel="Close product drilldown"
+      >
+        {top5.length > 0 ? (
+          <ol className="space-y-2">
+            {top5.map((user, index) => (
+              <li key={user.email} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                <span className="min-w-0 truncate text-gray-700">
+                  <span className="mr-2 text-gray-500">{index + 1}.</span>
+                  {displayIdentity(user.email)}
+                </span>
+                <span className="ml-3 shrink-0 font-medium text-gray-800">{formatCurrency(user.spend)}</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="text-sm text-gray-500">No user spend is available for this product.</p>
+        )}
+      </Dialog>
     </div>
   );
 }
@@ -328,7 +306,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
       {/* Summary Cards */}
       <div className="co-kpi-grid grid grid-cols-2 gap-4 lg:grid-cols-4">
         {/* Active users */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all" onClick={() => startDate && endDate && setSelectedKPI({kpi: "total_users", label: "Daily Unique Active Users", variant: "platform"})}>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-lava">
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
@@ -340,12 +318,15 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
               </p>
               <p className="text-2xl font-semibold text-gray-900">{summary?.user_count != null ? formatNumber(summary.user_count) : "N/A"}</p>
               <p className="text-xs text-gray-500">across {summary?.workspace_count ?? "N/A"} workspaces</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "total_users", label: "Daily Unique Active Users", variant: "platform"}) : undefined}
+                ariaLabel="See Unique Active Users trend"
+              />
             </div>
           </div>
         </div>
         {/* User Spend */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all" onClick={() => startDate && endDate && setSelectedKPI({kpi: "avg_spend_per_user", label: "Daily Per-User Spend"})}>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-lava">
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
@@ -357,12 +338,15 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
               </p>
               <p className="text-2xl font-semibold text-gray-900">{summary ? formatKpiCurrency(summary.avg_spend_per_user) : "N/A"}</p>
               <p className="text-xs text-gray-500">Per-user spend over {daysDiff} days</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "avg_spend_per_user", label: "Daily Per-User Spend"}) : undefined}
+                ariaLabel="See User Spend trend"
+              />
             </div>
           </div>
         </div>
         {/* Power Users */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all" onClick={() => startDate && endDate && setSelectedKPI({kpi: "power_user_spend", label: "Power User Daily Spend"})}>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-lava">
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>
@@ -374,12 +358,15 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
               </p>
               <p className="text-2xl font-semibold text-gray-900">{powerUsers.length}</p>
               <p className="text-xs text-gray-500">{formatCurrency(powerUsersSpend)} spend over {daysDiff} days</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "power_user_spend", label: "Power User Daily Spend"}) : undefined}
+                ariaLabel="See Power Users trend"
+              />
             </div>
           </div>
         </div>
         {/* User Spend Growth */}
-        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all" onClick={() => startDate && endDate && setSelectedKPI({kpi: "user_spend", label: "Daily User Spend"})}>
+        <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-lava">
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
@@ -397,7 +384,10 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                 <p className="text-2xl font-semibold" style={{ color: C.muted }}>N/A</p>
               )}
               <p className="text-[11px] text-gray-500">{summary?.user_count != null ? formatNumber(summary.user_count) : "N/A"} total users · {daysDiff} days</p>
-              <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
+              <TrendAction
+                onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "user_spend", label: "Daily User Spend"}) : undefined}
+                ariaLabel="See User Spend Growth trend"
+              />
             </div>
           </div>
         </div>
@@ -413,6 +403,9 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
           startDate={startDate}
           endDate={endDate}
           workspaceIds={workspaceIds}
+          queryKeyPrefix={selectedKPI.variant === "platform"
+            ? "users-groups-platform-kpi-trend"
+            : "users-groups-kpi-trend"}
         />
       )}
 

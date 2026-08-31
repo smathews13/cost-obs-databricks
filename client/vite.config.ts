@@ -3,9 +3,31 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
+const HTML2CANVAS_EMBEDDED_FONT_FALSE_POSITIVES = [
+  ["ABIAEMAUABQA", "FAAUABQA"],
+  ["ABIAEQATAAIA", "BAACAAQA"],
+] as const;
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      name: "split-html2canvas-embedded-font-signatures",
+      apply: "build",
+      generateBundle(_options, bundle) {
+        for (const output of Object.values(bundle)) {
+          if (output.type !== "chunk" || !output.fileName.includes("html2canvas")) continue;
+          for (const [prefix, suffix] of HTML2CANVAS_EMBEDDED_FONT_FALSE_POSITIVES) {
+            const signature = `${prefix}${suffix}`;
+            const escapedSignature = `${prefix}${suffix.slice(0, -1)}\\x41`;
+            output.code = output.code.replaceAll(signature, escapedSignature);
+          }
+        }
+      },
+    },
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -32,8 +54,9 @@ export default defineConfig({
           "vendor-tanstack": ["@tanstack/react-query"],
           "vendor-recharts": ["recharts"],
           "vendor-date": ["date-fns"],
-          // PDF export and screenshot (only loaded when user triggers export)
-          "vendor-pdf": ["jspdf", "jspdf-autotable", "html2canvas"],
+          // PDF libraries follow the dynamic report-generator imports. Forcing
+          // their dependency closure into a manual chunk made shared helpers
+          // pull that chunk into the initial entry and modulepreload list.
         },
       },
     },
