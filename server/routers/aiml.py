@@ -2,8 +2,6 @@
 
 import asyncio
 import logging
-import threading
-import time as _time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -16,11 +14,13 @@ from server.db import (
     CacheGeneration,
     SQLExecutionError,
     bundle_cache_key,
+    bundle_compute_is_pending,
     capture_cache_generation,
     delta_cache_get,
     delta_cache_put,
     execute_queries_parallel,
     execute_query,
+    get_bundle_compute_state,
     get_local_source_label,
     recover_optional_bundle_queries,
     selected_source_labels,
@@ -49,11 +49,37 @@ def query_with_fallback(enriched_sql: str, fallback_sql: str, query_params: dict
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-_aiml_bundle_inflight: set[str] = set()
-_aiml_bundle_inflight_lock = threading.Lock()
-_aiml_available: bool = True
-_aiml_last_failure: float = 0.0
-_AIML_RETRY_INTERVAL: float = 1800.0  # skip new computes for 30 min after a mass timeout
+class _AimlProducerError(RuntimeError):
+    def __init__(self, code: str = "AIML_PRODUCER_FAILED"):
+        super().__init__("AI/ML data is temporarily unavailable.")
+        self.code = code
+
+
+def _aiml_failure_payload(
+    params: dict[str, str],
+    error_code: str,
+) -> dict[str, Any]:
+    unavailable = {
+        "available": False,
+        "availability": "unavailable",
+        "retryable": True,
+        "reason": "producer_failed",
+        "reason_detail": "AI/ML data is temporarily unavailable. Retry shortly.",
+        "error_code": error_code,
+    }
+    return {
+        **unavailable,
+        "summary": {**unavailable, "total_dbus": 0, "total_spend": 0},
+        "providers": {**unavailable, "providers": [], "total_spend": 0},
+        "endpoints": {**unavailable, "endpoints": [], "total_spend": 0},
+        "categories": {**unavailable, "categories": [], "total_spend": 0},
+        "timeseries": {**unavailable, "timeseries": [], "categories": []},
+        "models": {**unavailable, "models": []},
+        "ml_clusters": {**unavailable, "clusters": []},
+        "agent_bricks": {**unavailable, "agents": []},
+        "start_date": params["start_date"],
+        "end_date": params["end_date"],
+    }
 
 
 def _shared_only_scope() -> bool:
@@ -1052,7 +1078,6 @@ def _compute_aiml_bundle(
     cache_generation: CacheGeneration,
 ) -> None:
     """Background worker: run all 8 AIML queries, build response, write to Delta cache."""
-    global _aiml_available, _aiml_last_failure
     try:
         def _ws(sql: str) -> str:
             return wf.inject_ws_filter(sql, ws_clause)
@@ -1087,17 +1112,6 @@ def _compute_aiml_bundle(
             results, optional_failures = recover_optional_bundle_queries(
                 exc, required_queries
             )
-
-        timed_out = sum(1 for v in results.values() if v is None)
-        if timed_out >= 4:
-            _aiml_available = False
-            _aiml_last_failure = _time.time()
-            logger.warning(
-                "aiml bundle: %d/%d queries timed out; skipping new computes for %.0fs",
-                timed_out, len(queries), _AIML_RETRY_INTERVAL,
-            )
-        else:
-            _aiml_available = True
 
         # Format summary
         summary_data = results.get("summary", [])
@@ -1264,21 +1278,31 @@ def _compute_aiml_bundle(
             "start_date": params["start_date"],
             "end_date": params["end_date"],
         }
-        delta_cache_put(
-            dkey,
-            "aiml:dashboard-bundle",
-            _resp,
-            ttl_seconds=(
-                60
-                if optional_failures
-                else cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE
-            ),
-            generation=cache_generation,
-            wait_for_remote=True,
-        )
+        try:
+            cache_written = delta_cache_put(
+                dkey,
+                "aiml:dashboard-bundle",
+                _resp,
+                ttl_seconds=(
+                    60
+                    if optional_failures
+                    else cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE
+                ),
+                generation=cache_generation,
+                wait_for_remote=True,
+            )
+        except Exception as cache_error:
+            raise _AimlProducerError("AIML_CACHE_WRITE_FAILED") from cache_error
+        if not cache_written:
+            raise _AimlProducerError("AIML_CACHE_WRITE_FAILED")
         logger.info("aiml dashboard-bundle background compute complete: %s", dkey)
     except Exception as e:
         logger.error("aiml dashboard-bundle background compute failed: %s", e, exc_info=True)
+        if isinstance(e, _AimlProducerError):
+            raise
+        raise _AimlProducerError(
+            str(getattr(e, "code", "AIML_PRODUCER_FAILED"))
+        ) from e
 
 
 @router.get("/dashboard-bundle")
@@ -1314,14 +1338,48 @@ async def get_aiml_dashboard_bundle(
 
     _dkey = bundle_cache_key("aiml:dashboard-bundle", params["start_date"], params["end_date"], id_list)
 
+    producer_state = await asyncio.to_thread(get_bundle_compute_state, _dkey)
+    if producer_state and producer_state.get("state") == "failed":
+        shared_code = str(producer_state.get("error_code") or "")
+        if shared_code in {
+            "BUNDLE_PRODUCER_DEADLINE",
+            "BUNDLE_PRODUCER_LEASE_EXPIRED",
+        }:
+            public_code = "AIML_PRODUCER_DEADLINE"
+        elif shared_code in {
+            "BUNDLE_REMOTE_CACHE_WRITE_FAILED",
+            "AIML_CACHE_WRITE_FAILED",
+        }:
+            public_code = "AIML_CACHE_WRITE_FAILED"
+        else:
+            public_code = "AIML_PRODUCER_FAILED"
+        failure = _aiml_failure_payload(params, public_code)
+        if public_code == "AIML_PRODUCER_DEADLINE":
+            failure["reason"] = "producer_deadline_exceeded"
+            failure["reason_detail"] = (
+                "AI/ML data exceeded its 90-second deadline. Retry shortly."
+            )
+        return JSONResponse(
+            status_code=503,
+            content=failure,
+            headers={"Retry-After": "2"},
+        )
+
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         if isinstance(_dcached, dict) and "_error" in _dcached:
-            raise HTTPException(status_code=500, detail=_dcached.get("_error", "Bundle compute failed"))
+            return JSONResponse(
+                status_code=503,
+                content=_aiml_failure_payload(params, "AIML_PRODUCER_FAILED"),
+                headers={"Retry-After": "2"},
+            )
         return _dcached
 
-    if not _aiml_available and (_time.time() - _aiml_last_failure) < _AIML_RETRY_INTERVAL:
-        logger.info("aiml bundle: queries recently timed out; returning 503 (retry in %.0fs)", _AIML_RETRY_INTERVAL - (_time.time() - _aiml_last_failure))
-        raise HTTPException(status_code=503, detail="AI/ML data temporarily unavailable — warehouse queries timed out recently")
+    if bundle_compute_is_pending(_dkey):
+        return JSONResponse(
+            status_code=202,
+            content={"status": "pending"},
+            headers={"Retry-After": "2"},
+        )
 
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
@@ -1338,6 +1396,8 @@ async def get_aiml_dashboard_bundle(
                 cache_generation,
             ),
             name="aiml-bundle",
+            lease_seconds=90,
+            hard_deadline_seconds=90,
         )
         if started:
             logger.info("aiml dashboard-bundle: started background compute for %s", _dkey)

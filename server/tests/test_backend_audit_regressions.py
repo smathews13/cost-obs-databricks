@@ -122,7 +122,6 @@ def test_apps_background_thread_captures_request_context():
 
 
 def test_aiml_background_thread_captures_request_context():
-    aiml._aiml_bundle_inflight.clear()
     captured = {}
 
     def capture_start(_key, _producer, **_kwargs):
@@ -135,7 +134,8 @@ def test_aiml_background_thread_captures_request_context():
     try:
         with (
             patch.object(aiml, "delta_cache_get", return_value=None),
-            patch.object(aiml, "_aiml_available", True),
+            patch.object(aiml, "get_bundle_compute_state", return_value=None),
+            patch.object(aiml, "bundle_compute_is_pending", return_value=False),
             patch.object(
                 aiml, "get_local_source_label", return_value="shared-central"
             ),
@@ -158,7 +158,6 @@ def test_aiml_background_thread_captures_request_context():
     finally:
         db._user_token.reset(user_token)
         db.reset_source_labels(source_token)
-        aiml._aiml_bundle_inflight.clear()
 
 
 def test_dbsql_background_thread_captures_request_context():

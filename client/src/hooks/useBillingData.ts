@@ -632,6 +632,7 @@ export function useAIMLDashboardBundle(dateRange?: DateRange, workspaceIds?: str
       fetchSubmitAndPoll<AIMLDashboardBundle>(
         buildUrlWithWs("/api/aiml/dashboard-bundle", dateRange, workspaceIds),
         signal,
+        { timeoutMs: 90_000 },
       ),
     enabled,
     retry: false,

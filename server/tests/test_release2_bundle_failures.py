@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from server import db
-from server.routers import aiml, apps, billing, dbsql_base, users_groups
+from server.routers import aiml, apps, billing, dbsql_base, tagging, users_groups
 
 START = "2026-02-01"
 END = "2026-02-28"
@@ -242,13 +242,15 @@ def test_aiml_required_failure_is_not_cached():
         ),
         patch.object(aiml, "delta_cache_put") as cache_put,
     ):
-        aiml._compute_aiml_bundle(
-            PARAMS,
-            None,
-            "",
-            "aiml-key",
-            db.CacheGeneration("aiml:dashboard-bundle", 0),
-        )
+        with pytest.raises(aiml._AimlProducerError) as exc_info:
+            aiml._compute_aiml_bundle(
+                PARAMS,
+                None,
+                "",
+                "aiml-key",
+                db.CacheGeneration("aiml:dashboard-bundle", 0),
+            )
+    assert exc_info.value.code == "SQL_TIMEOUT"
     cache_put.assert_not_called()
 
 
@@ -281,6 +283,118 @@ def test_aiml_optional_failure_is_partial_and_short_cached():
         )
     payload = cache_put.call_args.args[2]
     assert payload["availability"] == "partial"
+    assert cache_put.call_args.kwargs["ttl_seconds"] == 60
+
+
+@pytest.mark.parametrize(
+    "cache_outcome",
+    [False, RuntimeError("remote cache unavailable")],
+    ids=["false-return", "exception"],
+)
+def test_aiml_durable_cache_failure_is_typed(cache_outcome):
+    results = {
+        name: []
+        for name in (
+            "summary",
+            "providers",
+            "endpoints",
+            "categories",
+            "timeseries",
+            "models",
+            "ml_clusters",
+            "agent_bricks",
+        )
+    }
+    cache_exception = cache_outcome if isinstance(cache_outcome, BaseException) else None
+    with (
+        patch.object(aiml, "execute_queries_parallel", return_value=results),
+        patch.object(
+            aiml,
+            "delta_cache_put",
+            return_value=False,
+            side_effect=cache_exception,
+        ),
+    ):
+        with pytest.raises(aiml._AimlProducerError) as exc_info:
+            aiml._compute_aiml_bundle(
+                PARAMS,
+                None,
+                "",
+                "aiml-cache-failure",
+                db.CacheGeneration("aiml:dashboard-bundle", 0),
+            )
+
+    assert exc_info.value.code == "AIML_CACHE_WRITE_FAILED"
+
+
+def _tagging_results() -> dict:
+    return {
+        "summary": [{
+            "tagged_spend": 75,
+            "untagged_spend": 25,
+            "total_spend": 100,
+        }],
+        "clusters": [],
+        "jobs": [],
+        "pipelines": [],
+        "warehouses": [],
+        "endpoints": [],
+        "cost_by_tag": [],
+        "tag_stats": [{"avg_cost_per_tag": 10, "total_tag_count": 4}],
+        "tag_keys": [],
+        "timeseries": [],
+    }
+
+
+def test_tagging_required_timeout_returns_typed_unavailable_without_fake_zero():
+    partial = _tagging_results()
+    partial["summary"] = None
+    with (
+        patch.object(tagging, "delta_cache_get", return_value=None),
+        patch.object(
+            tagging,
+            "execute_queries_parallel",
+            side_effect=_failure("summary", partial),
+        ) as execute,
+        patch.object(tagging, "delta_cache_put") as cache_put,
+    ):
+        result = asyncio.run(
+            tagging.get_tagging_dashboard_bundle(START, END, None)
+        )
+
+    assert result["available"] is False
+    assert result["availability"] == "unavailable"
+    assert result["retryable"] is True
+    assert result["error_code"] == "SQL_TIMEOUT"
+    assert result["summary"] == {}
+    assert "error" not in result
+    assert execute.call_args.args[1] == 27.0
+    assert execute.call_args.kwargs["required_names"] == {"summary"}
+    assert execute.call_args.kwargs["max_concurrency"] == 2
+    cache_put.assert_not_called()
+
+
+def test_tagging_optional_timeout_returns_positive_partial_core():
+    partial = _tagging_results()
+    partial["jobs"] = None
+    with (
+        patch.object(tagging, "delta_cache_get", return_value=None),
+        patch.object(
+            tagging,
+            "execute_queries_parallel",
+            side_effect=_failure("jobs", partial),
+        ),
+        patch.object(tagging, "delta_cache_put") as cache_put,
+    ):
+        result = asyncio.run(
+            tagging.get_tagging_dashboard_bundle(START, END, None)
+        )
+
+    assert result["available"] is True
+    assert result["availability"] == "partial"
+    assert result["summary"]["total_spend"] == 100
+    assert result["summary"]["tagged_percentage"] == 75
+    assert result["partial_reasons"] == {"jobs": "SQL_TIMEOUT"}
     assert cache_put.call_args.kwargs["ttl_seconds"] == 60
 
 

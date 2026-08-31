@@ -117,6 +117,15 @@ def test_users_required_queries_are_prioritized_and_bounded():
             ("2026-08-01", "2026-08-30", None, None),
             "USERS_PRODUCER_DEADLINE",
         ),
+        (
+            "aiml",
+            db.bundle_cache_key(
+                "aiml:dashboard-bundle", "2026-08-01", "2026-08-30", None
+            ),
+            aiml.get_aiml_dashboard_bundle,
+            ("2026-08-01", "2026-08-30", None),
+            "AIML_PRODUCER_DEADLINE",
+        ),
     ],
 )
 def test_second_worker_sees_shared_deadline_and_allows_bounded_retry(
@@ -148,7 +157,11 @@ def test_second_worker_sees_shared_deadline_and_allows_bounded_retry(
         with apps._apps_bundle_status_lock:
             apps._apps_bundle_status.pop(cache_key, None)
 
-    module = apps if kind == "apps" else users_groups
+    module = {
+        "apps": apps,
+        "users": users_groups,
+        "aiml": aiml,
+    }[kind]
     with (
         patch.object(module, "delta_cache_get") as cache_get,
         patch.object(module, "start_bundle_compute") as start,
@@ -217,6 +230,31 @@ def test_apps_and_users_pollers_return_shared_terminal_payload(
 
     assert result == payload
     start.assert_not_called()
+
+
+def test_aiml_submit_and_poll_transitions_from_202_to_200():
+    payload = {
+        "availability": "available",
+        "summary": {"total_spend": 12, "total_dbus": 4},
+        "providers": {"providers": [], "total_spend": 0},
+    }
+    with (
+        patch.object(aiml, "get_bundle_compute_state", return_value=None),
+        patch.object(aiml, "bundle_compute_is_pending", return_value=False),
+        patch.object(aiml, "delta_cache_get", side_effect=[None, payload]),
+        patch.object(aiml, "start_bundle_compute", return_value=True) as start,
+    ):
+        submitted = asyncio.run(
+            aiml.get_aiml_dashboard_bundle("2026-08-01", "2026-08-30", None)
+        )
+        completed = asyncio.run(
+            aiml.get_aiml_dashboard_bundle("2026-08-01", "2026-08-30", None)
+        )
+
+    assert submitted.status_code == 202
+    assert completed == payload
+    assert start.call_count == 1
+    assert start.call_args.kwargs["hard_deadline_seconds"] == 90
 
 
 @pytest.mark.parametrize(

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Query
 from server import cache_ttls
 from server import workspace_filter as wf
 from server.db import (
+    SQLExecutionError,
     apply_mv_overrides,
     bundle_cache_key,
     capture_cache_generation,
@@ -21,6 +22,7 @@ from server.db import (
     get_catalog_schema,
     get_workspace_client,
     local_source_is_selected,
+    recover_optional_bundle_queries,
     selected_source_labels,
     source_label_filter_clause,
 )
@@ -1256,19 +1258,37 @@ async def get_tagging_dashboard_bundle(
         ("timeseries", lambda: local_detail(lambda: execute_query(_ws(TAG_COVERAGE_TIMESERIES), params))),
     ]
 
+    required_queries = {"summary"}
     try:
-        results = await asyncio.to_thread(execute_queries_parallel, queries, timeout=90.0)
+        try:
+            results = await asyncio.to_thread(
+                execute_queries_parallel,
+                queries,
+                27.0,
+                required_names=required_queries,
+                max_concurrency=2,
+            )
+            optional_failures: dict[str, str] = {}
+        except SQLExecutionError as exc:
+            results, optional_failures = recover_optional_bundle_queries(
+                exc, required_queries
+            )
     except Exception as e:
-        logger.error("tagging dashboard-bundle failed: %s", e)
+        logger.error("tagging dashboard-bundle required phase failed: %s", e)
         empty_untagged = {"items": [], "total_spend": 0, "count": 0}
         return {
-            "summary": {"tagged_spend": 0, "untagged_spend": 0, "total_spend": 0, "tagged_percentage": 0, "untagged_percentage": 0},
+            "available": False,
+            "availability": "unavailable",
+            "retryable": True,
+            "reason": "required_query_failed",
+            "reason_detail": "Tag coverage data is temporarily unavailable. Retry shortly.",
+            "error_code": str(getattr(e, "code", "TAGGING_BUNDLE_FAILED")),
+            "summary": {},
             "untagged": {"clusters": empty_untagged, "jobs": empty_untagged, "pipelines": empty_untagged, "warehouses": empty_untagged, "endpoints": empty_untagged},
             "cost_by_tag": {"tags": [], "total_spend": 0},
             "timeseries": {"timeseries": [], "categories": ["Tagged", "Untagged"]},
             "start_date": params["start_date"],
             "end_date": params["end_date"],
-            "error": str(e),
         }
 
     # Format summary
@@ -1291,7 +1311,13 @@ async def get_tagging_dashboard_bundle(
     # Enrich pipeline names via system table / SDK fallback (handles NULL names and UUID-only rows)
     pipeline_rows = results.get("pipelines")
     if pipeline_rows:
-        results["pipelines"] = await asyncio.to_thread(_enrich_pipeline_rows, pipeline_rows)
+        try:
+            results["pipelines"] = await asyncio.wait_for(
+                asyncio.to_thread(_enrich_pipeline_rows, pipeline_rows),
+                timeout=2.0,
+            )
+        except TimeoutError:
+            optional_failures["pipeline_enrichment"] = "ENRICHMENT_TIMEOUT"
 
     # Format untagged resources
     def format_untagged(data, key):
@@ -1343,6 +1369,9 @@ async def get_tagging_dashboard_bundle(
     ]
 
     _resp = {
+        "available": True,
+        "availability": "partial" if optional_failures else "available",
+        "partial_reasons": optional_failures,
         "summary": summary,
         "untagged": {
             "clusters": format_untagged(results.get("clusters"), "clusters"),
@@ -1370,5 +1399,15 @@ async def get_tagging_dashboard_bundle(
             "Job and pipeline names may be incomplete — Lakeflow enrichment was unavailable."
         ),
     }
-    delta_cache_put(_dkey, "tagging:dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=_cache_generation)
+    delta_cache_put(
+        _dkey,
+        "tagging:dashboard-bundle",
+        _resp,
+        ttl_seconds=(
+            60
+            if optional_failures
+            else cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE
+        ),
+        generation=_cache_generation,
+    )
     return _resp
