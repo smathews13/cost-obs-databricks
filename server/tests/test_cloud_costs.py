@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+from datetime import date
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -506,6 +507,34 @@ def test_cloud_poll_does_not_query_cache_while_producer_is_pending():
     assert response.status_code == 202
     assert response.headers["retry-after"] == "1"
     cache_get.assert_not_called()
+
+
+def test_cloud_payload_normalizes_connector_native_dates_before_caching():
+    payload = billing._json_safe_cloud_payload(
+        {"availability": "available", "infra_bundle": {"start_date": date(2026, 8, 1)}}
+    )
+
+    assert payload["infra_bundle"]["start_date"] == "2026-08-01"
+
+
+def test_sku_breakdown_has_a_bounded_optional_query_deadline():
+    with (
+        patch.object(billing, "delta_cache_get", return_value=None),
+        patch.object(billing, "delta_cache_put"),
+        patch.object(billing, "capture_cache_generation", return_value=1),
+        patch.object(billing, "execute_query", return_value=[]) as execute,
+    ):
+        result = asyncio.run(
+            billing.get_sku_breakdown(
+                start_date="2026-08-01",
+                end_date="2026-08-30",
+                workspace_ids=None,
+            )
+        )
+
+    assert result["skus"] == []
+    assert execute.call_args.kwargs["timeout"] == 30
+    assert execute.call_args.kwargs["max_rows"] == 100
 
 
 def test_cloud_producer_failure_returns_safe_typed_retryable_error(

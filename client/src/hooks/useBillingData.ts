@@ -131,15 +131,32 @@ async function responseError(response: Response): Promise<HttpRequestError> {
   );
 }
 
-async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(url, { signal });
-  if (!response.ok) {
-    throw await responseError(response);
+async function fetchJson<T>(
+  url: string,
+  signal?: AbortSignal,
+  timeoutMs = 95_000,
+): Promise<T> {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(signal?.reason);
+  if (signal?.aborted) controller.abort(signal.reason);
+  else signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = globalThis.setTimeout(
+    () => controller.abort(new DOMException("Request timed out", "TimeoutError")),
+    timeoutMs,
+  );
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw await responseError(response);
+    }
+    const data = await response.json() as T;
+    const issue = responsePayloadIssue(data);
+    if (issue) throw new Error(issue);
+    return data;
+  } finally {
+    globalThis.clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromCaller);
   }
-  const data = await response.json() as T;
-  const issue = responsePayloadIssue(data);
-  if (issue) throw new Error(issue);
-  return data;
 }
 
 // Active MV source-label selection, set by the top-nav SourceLabelFilter. Empty
@@ -354,9 +371,14 @@ export function getDefaultDateRange(days: number = 30): DateRange {
 export function useSKUBreakdown(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<SKUBreakdownResponse>({
     queryKey: scopedQueryKey("billing", "sku-breakdown", dateRange, getWorkspaceScopeKey(workspaceIds)),
-    queryFn: () => fetchJson(buildUrlWithWs("/api/billing/sku-breakdown", dateRange, workspaceIds)),
+    queryFn: ({ signal }) => fetchJson(
+      buildUrlWithWs("/api/billing/sku-breakdown", dateRange, workspaceIds),
+      signal,
+      35_000,
+    ),
     staleTime: STALE_TIME,
     enabled,
+    retry: false,
   });
 }
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from cachetools import TTLCache
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from server import cache_ttls
@@ -1645,6 +1646,11 @@ async def _compute_cloud_costs_bundle(
     }
 
 
+def _json_safe_cloud_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize connector-native dates/decimals before shared JSON caching."""
+    return jsonable_encoder(payload)
+
+
 @router.get("/cloud-costs-bundle")
 async def get_cloud_costs_bundle(
     start_date: str = Query(default=None),
@@ -1686,7 +1692,9 @@ async def get_cloud_costs_bundle(
 
     def produce() -> None:
         try:
-            payload = asyncio.run(_compute_cloud_costs_bundle(params, id_list))
+            payload = _json_safe_cloud_payload(
+                asyncio.run(_compute_cloud_costs_bundle(params, id_list))
+            )
             delta_cache_put(
                 cache_key,
                 "billing:cloud-costs-bundle:v1",
@@ -2787,7 +2795,13 @@ async def get_sku_breakdown(
         return _dcached
     _cache_generation = capture_cache_generation("billing:sku-breakdown")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
-    results = await asyncio.to_thread(execute_query, _inject_ws_filter(SKU_BREAKDOWN, ws_clause), params)
+    results = await asyncio.to_thread(
+        execute_query,
+        _inject_ws_filter(SKU_BREAKDOWN, ws_clause),
+        params,
+        timeout=30,
+        max_rows=100,
+    )
 
     skus = []
     total_spend = 0.0

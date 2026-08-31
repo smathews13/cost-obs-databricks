@@ -979,6 +979,12 @@ function Dashboard() {
     tagging: taggingLoading,
     "users-groups": usersGroupsLoading,
   };
+  // Optional DBU panels own their loading states. Do not mask the entire
+  // overview after the core bundle has loaded because one detail query is slow.
+  const tabPrimaryLoading: Record<ViewTab, boolean> = {
+    ...tabLoading,
+    dbu: bundleLoading,
+  };
   const firstPayloadIssue = (
     ...payloads: Array<[unknown, boolean?]>
   ): string | undefined => {
@@ -1032,7 +1038,7 @@ function Dashboard() {
     tagging: reportPayloadIssues.tagging || (taggingError ? "Tagging data failed to load." : undefined),
     "users-groups": reportPayloadIssues["users-groups"] || (usersGroupsError ? "Users data failed to load." : undefined),
   };
-  const activeTabInitialLoading = !warehouseQueriesAllowed || tabLoading[activeTab];
+  const activeTabInitialLoading = !warehouseQueriesAllowed || tabPrimaryLoading[activeTab];
   const showActiveTabLoading = activeTabInitialLoading || explicitRefreshingTab === activeTab;
   const exportDataLoading = exportPreparationRequested &&
     Boolean(exportDemand?.tabs.some((tab) => tabLoading[tab]));
