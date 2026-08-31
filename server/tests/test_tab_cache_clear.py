@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -13,7 +13,10 @@ def _request():
 
 @pytest.fixture(autouse=True)
 def _allow_admin():
-    with patch("server.routers.settings._require_admin"):
+    with patch(
+        "server.auth.require_admin",
+        new=AsyncMock(return_value="admin@example.com"),
+    ):
         yield
 
 

@@ -25,15 +25,24 @@ _SERVER_START_TIME = datetime.utcnow().strftime("%Y-%m-%d %H:%M") + " UTC"
 
 
 def _require_admin(request: Request) -> str:
-    """Raise 403 if the requesting user is not an admin. Returns email on success."""
-    email = request.headers.get("X-Forwarded-Email", os.getenv("USER", "dev@local"))
-    perms = _load_user_permissions()
-    admins = perms.get("admins", [])
-    # Mirror user.py::_get_user_role: if no admins configured yet, everyone is
-    # admin (fresh deploy). Only enforce the list once admins have been set.
-    if admins and email not in admins:
-        raise HTTPException(status_code=403, detail="Admin role required")
-    return email
+    """Synchronous compatibility wrapper around the centralized fail-closed policy."""
+    from server.auth import require_admin_sync
+
+    return require_admin_sync(request)
+
+
+async def _require_admin_async(request: Request) -> str:
+    """Authorize an admin without running blocking permission SQL on the event loop."""
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_require_admin, request),
+            timeout=8.0,
+        )
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Administrator authorization timed out",
+        ) from exc
 
 # In-process cache for /api/settings/tables — expensive parallel SQL + owner lookups
 _tables_cache: dict | None = None
@@ -1377,7 +1386,7 @@ async def check_mv_source_freshness(request: Request, label: str) -> dict:
     action verifies what is currently visible, refreshes the local view bindings,
     and returns the provider table's latest metadata timestamp.
     """
-    _require_admin(request)
+    await _require_admin_async(request)
     from datetime import datetime, timezone
     from server.db import get_mv_sources, get_catalog_schema
     from server.materialized_views import (
@@ -1437,7 +1446,7 @@ async def add_mv_source(request: Request, body: dict) -> dict:
 
     The source list and dependent view rebuild are one admin-only ordered
     operation across every server worker."""
-    _require_admin(request)
+    await _require_admin_async(request)
     from server.db import get_mv_sources, save_mv_sources, get_catalog_schema
     from server.materialized_views import (
         _MV_TABLES,
@@ -1535,7 +1544,7 @@ async def add_mv_source(request: Request, body: dict) -> dict:
 @router.delete("/mv-sources")
 async def remove_mv_source(request: Request, label: str = None) -> dict:
     """Remove an additional MV source by label and rebuild unified views."""
-    _require_admin(request)
+    await _require_admin_async(request)
     from server.db import get_mv_sources, save_mv_sources, get_catalog_schema
     from server.materialized_views import (
         _rebuild_unified_views_locked,
@@ -1603,7 +1612,7 @@ async def remove_mv_source(request: Request, label: str = None) -> dict:
 @router.post("/catalog")
 async def save_catalog_settings(request: Request, body: dict):
     """Save catalog/schema override from the Setup Wizard."""
-    _require_admin(request)
+    await _require_admin_async(request)
     import asyncio as _asyncio
     from fastapi import HTTPException
     from server.db import save_catalog_schema, StorageConfigurationError
@@ -1640,7 +1649,7 @@ async def trigger_mv_refresh(
     force_full: when True (default for UI-triggered rebuilds), bypass incremental MERGE
                 and always run full CREATE OR REPLACE for every table.
     """
-    _require_admin(request)
+    await _require_admin_async(request)
     global _tables_cache, _tables_cache_ts
     from server.app import _run_mv_refresh
     def _run_manual_locked() -> dict:
@@ -1752,11 +1761,12 @@ class AuthModeRequest(BaseModel):
 
 
 @router.post("/auth-mode")
-async def set_auth_mode(body: AuthModeRequest):
+async def set_auth_mode(request: Request, body: AuthModeRequest):
     """Auth mode endpoint — OAuth is currently disabled.
 
     Only 'sp' is accepted. 'auto' is rejected until OAuth is re-enabled.
     """
+    await _require_admin_async(request)
     if body.mode == "auto":
         raise HTTPException(
             status_code=422,
@@ -1909,7 +1919,7 @@ async def list_azure_connections():
 @router.post("/cloud-connections")
 async def create_cloud_connection(request: Request, conn: CloudConnectionCreate):
     """Create a new cloud connection."""
-    _require_admin(request)
+    await _require_admin_async(request)
     if conn.provider not in ("azure", "aws", "gcp"):
         raise HTTPException(status_code=400, detail="Invalid provider. Must be azure, aws, or gcp.")
 
@@ -1965,7 +1975,7 @@ async def create_azure_connection(request: Request, conn: CloudConnectionCreate)
 @router.delete("/cloud-connections/{connection_id}")
 async def delete_cloud_connection(request: Request, connection_id: str):
     """Delete a cloud connection."""
-    _require_admin(request)
+    await _require_admin_async(request)
     connections = _load_connections()
     original_count = len(connections)
     connections = [c for c in connections if c.get("id") != connection_id]
@@ -2071,7 +2081,7 @@ async def get_webhook_settings() -> dict[str, Any]:
 @router.post("/webhook")
 async def save_webhook_settings(request: Request, settings: WebhookSettings) -> dict[str, Any]:
     """Save webhook settings."""
-    _require_admin(request)
+    await _require_admin_async(request)
     try:
         _save_webhook_settings({"slack_webhook_url": settings.slack_webhook_url})
     except AppSettingsDurabilityError as e:
@@ -2083,7 +2093,7 @@ async def save_webhook_settings(request: Request, settings: WebhookSettings) -> 
 @router.post("/webhook/test")
 async def test_webhook(request: Request) -> dict[str, Any]:
     """Send a test message to the configured Slack webhook."""
-    _require_admin(request)
+    await _require_admin_async(request)
     settings = _load_webhook_settings()
     url = settings.get("slack_webhook_url", "")
     if not url:
@@ -2108,7 +2118,7 @@ async def send_webhook_alert(
     request: Request, alert_data: dict[str, Any]
 ) -> dict[str, Any]:
     """Send an alert notification to the configured Slack webhook."""
-    _require_admin(request)
+    await _require_admin_async(request)
     settings = _load_webhook_settings()
     url = settings.get("slack_webhook_url", "")
     if not url:
@@ -2145,7 +2155,7 @@ async def run_alerts(request: Request, send: bool = True) -> dict[str, Any]:
     """Evaluate the configured cost-alert thresholds against the latest spend and,
     when a Slack webhook is set and `send`, post any breaches. Admin-only. This is the
     manual trigger for the same check the nightly scheduler runs."""
-    _require_admin(request)
+    await _require_admin_async(request)
     from server.alerting import run_alert_check
     return await asyncio.to_thread(run_alert_check, send)
 
@@ -2178,32 +2188,10 @@ def _ensure_permissions_table() -> None:
 
 
 def _load_user_permissions() -> dict:
-    """Load permissions from Delta table, then local file."""
-    try:
-        from server.db import execute_query
-        _ensure_permissions_table()
-        table = _permissions_table()
-        rows = execute_query(f"SELECT role, email FROM {table}", None, no_cache=True)
-        admins = [r["email"] for r in rows if r.get("role") == "admin"]
-        consumers = [r["email"] for r in rows if r.get("role") == "consumer"]
-        if admins or consumers:
-            logger.info(f"Loaded permissions from Delta table ({len(admins)} admins, {len(consumers)} consumers)")
-            return {"admins": admins, "consumers": consumers}
-    except Exception as e:
-        if _table_missing(e):
-            logger.debug("Could not load permissions from Delta table (not yet created): %s", e)
-        else:
-            logger.warning(f"Could not load permissions from Delta table: {e}")
+    """Compatibility wrapper for centralized, stateful permission loading."""
+    from server.auth import get_permission_snapshot_sync
 
-    # Fallback: local file (ephemeral — only useful in dev)
-    try:
-        if os.path.exists(USER_PERMISSIONS_FILE):
-            with open(USER_PERMISSIONS_FILE) as f:
-                data = json.load(f)
-            return {"admins": data.get("admins", []), "consumers": data.get("consumers", [])}
-    except (json.JSONDecodeError, IOError):
-        pass
-    return {"admins": [], "consumers": []}
+    return get_permission_snapshot_sync().as_dict()
 
 
 def _save_user_permissions_to_table(admins: list[str], consumers: list[str]) -> None:
@@ -2215,7 +2203,17 @@ def _save_user_permissions_to_table(admins: list[str], consumers: list[str]) -> 
     # CREATE TABLE permission — propagate so the caller gets a clear error.
     _ensure_permissions_table()
     table = _permissions_table()
-    rows = [("admin", e) for e in admins] + [("consumer", e) for e in consumers]
+    normalized_admins = list(dict.fromkeys(email.strip().lower() for email in admins))
+    normalized_consumers = [
+        email
+        for email in dict.fromkeys(item.strip().lower() for item in consumers)
+        if email not in normalized_admins
+    ]
+    # Keep one durable singleton owner row. It is both the first administrator
+    # and the compare-and-set marker that permanently disables fresh bootstrap.
+    rows = [("owner", normalized_admins[0])]
+    rows.extend(("admin", email) for email in normalized_admins[1:])
+    rows.extend(("consumer", email) for email in normalized_consumers)
     params: dict[str, str] = {}
     values: list[str] = []
     for index, (role, email) in enumerate(rows):
@@ -2228,15 +2226,30 @@ def _save_user_permissions_to_table(admins: list[str], consumers: list[str]) -> 
         f"FROM VALUES {', '.join(values)} AS source(role, email)",
         params,
     )
-    # Invalidate cached permission reads so the change is visible immediately
+    # Invalidate cached permission reads so the change is visible immediately.
+    from server.auth import reset_permission_cache
+
+    reset_permission_cache()
     clear_query_cache("perms")
-    logger.info(f"Saved user permissions to Delta table ({len(admins)} admins, {len(consumers)} consumers)")
+    logger.info(
+        "Saved user permissions to Delta table (%d admins, %d consumers)",
+        len(normalized_admins),
+        len(normalized_consumers),
+    )
 
 
 @router.get("/user-permissions")
 async def get_user_permissions(request: Request) -> dict:
     """Return the admin and consumer user lists."""
-    perms = _load_user_permissions()
+    from server.auth import PermissionStoreUnavailable, request_identity
+
+    try:
+        perms = await asyncio.to_thread(_load_user_permissions)
+    except PermissionStoreUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Permission state is temporarily unavailable",
+        ) from exc
     try:
         from server.db import get_catalog_schema
         catalog, schema = get_catalog_schema()
@@ -2245,12 +2258,10 @@ async def get_user_permissions(request: Request) -> dict:
         perms["table_location"] = None
     # Tell the UI who the current user is and expose the same capability policy
     # used by /api/user/me. Protected mutation routes still enforce _require_admin.
-    current_user = request.headers.get(
-        "X-Forwarded-Email", os.getenv("USER", "dev@local")
-    )
+    current_user = request_identity(request)
     current_role = (
         "admin"
-        if not perms.get("admins") or current_user in perms.get("admins", [])
+        if current_user in perms.get("admins", [])
         else "consumer"
     )
     from server.routers.user import ROLE_CAPABILITIES
@@ -2267,11 +2278,7 @@ async def get_user_permissions(request: Request) -> dict:
 @router.post("/user-permissions")
 async def save_user_permissions(request: Request, data: UserPermissionsModel) -> dict:
     """Save permissions to Delta table."""
-    _require_admin(request)
-    # An empty permissions table is the fresh-deploy bootstrap state, where every
-    # authenticated user is temporarily treated as an admin. Once an administrator
-    # explicitly configures roles, never allow a write to recreate that bootstrap
-    # state or leave the app with no administrator able to repair access.
+    await _require_admin_async(request)
     normalized_admins = list(dict.fromkeys(
         email.strip() for email in data.admins if email.strip()
     ))
@@ -2374,7 +2381,7 @@ async def get_schedule_settings() -> dict:
 
 @router.post("/schedule")
 async def save_schedule_endpoint(request: Request, data: dict) -> dict:
-    _require_admin(request)
+    await _require_admin_async(request)
     with _settings_write_lock("schedule-settings"):
         current = load_schedule_settings()
         merged = {**current, **{
@@ -2480,7 +2487,7 @@ async def get_alert_thresholds() -> dict:
 
 @router.post("/alert-thresholds")
 async def save_alert_thresholds_endpoint(request: Request) -> dict:
-    _require_admin(request)
+    await _require_admin_async(request)
     data = await request.json()
     settings = {
         "spike_threshold_percent": max(5.0, min(100.0, float(data.get("spike_threshold_percent", 20)))),
@@ -2654,7 +2661,7 @@ async def get_pricing_mode() -> dict[str, Any]:
 @router.put("/pricing-mode")
 async def set_pricing_mode(request: Request, data: dict) -> dict[str, Any]:
     """Save the pricing mode setting."""
-    _require_admin(request)
+    await _require_admin_async(request)
     use_account_prices = bool(data.get("use_account_prices", False))
     try:
         _save_pricing_settings({"use_account_prices": use_account_prices})
@@ -2891,10 +2898,12 @@ def anomaly_spike_threshold() -> float:
 
 
 def _is_admin(request: Request) -> bool:
-    """Non-raising admin check (mirrors _require_admin's rule)."""
-    email = request.headers.get("X-Forwarded-Email", os.getenv("USER", "dev@local"))
-    admins = _load_user_permissions().get("admins", [])
-    return (not admins) or (email in admins)
+    """Non-raising, fail-closed admin capability check."""
+    try:
+        _require_admin(request)
+        return True
+    except HTTPException:
+        return False
 
 
 # Cheap capability probes cached in-process (avoid a SQL round-trip on every settings load).
@@ -2972,7 +2981,7 @@ async def get_unified_settings(request: Request) -> dict:
 @router.put("")
 async def put_unified_settings(request: Request) -> dict:
     """Partial settings update — dispatches each sub-object to its domain store. Admin-only."""
-    _require_admin(request)
+    await _require_admin_async(request)
     body = await request.json()
 
     def _apply() -> dict:

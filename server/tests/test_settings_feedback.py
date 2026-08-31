@@ -6,6 +6,10 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+from fastapi import HTTPException
+
+from server import auth
 from server.routers import settings, user
 
 
@@ -152,12 +156,15 @@ def test_role_payloads_match_admin_route_policy():
     assert permissions["role_capabilities"]["consumer"]["can_manage_users"] is False
 
 
-def test_empty_admin_list_preserves_server_bootstrap_admin_policy():
+def test_empty_admin_list_is_bootstrap_only_not_implicit_admin():
     request = SimpleNamespace(headers={"X-Forwarded-Email": "new-user@example.com"})
-    with patch.object(
-        settings,
-        "_load_user_permissions",
-        return_value={"admins": [], "consumers": []},
-    ):
-        assert settings._require_admin(request) == "new-user@example.com"
-        assert settings._is_admin(request) is True
+    auth._permission_cache = auth.PermissionSnapshot(
+        state=auth.PermissionState.BOOTSTRAPPABLE,
+        admins=(),
+        consumers=(),
+        loaded_at=__import__("time").monotonic(),
+    )
+    with pytest.raises(HTTPException) as exc:
+        settings._require_admin(request)
+    assert exc.value.status_code == 403
+    assert settings._is_admin(request) is False

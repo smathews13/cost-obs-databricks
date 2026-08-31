@@ -412,9 +412,8 @@ function Dashboard() {
 
     fetch("/api/setup/status", { signal: controller.signal })
       .then((r) => r.json())
-      .then((status) => {
+      .then(async (status) => {
         clearTimeout(timeout);
-        setSetupCheckPending(false);
         if (status?.status === "ready") {
           localStorage.setItem("coc-setup-complete", "true");
           sessionStorage.setItem("coc-setup-complete", "true");
@@ -425,9 +424,17 @@ function Dashboard() {
           if (!prevCompleted()) {
             localStorage.removeItem("coc-setup-complete");
             sessionStorage.removeItem("coc-setup-complete");
-            setShowSetupWizard(true);
+            // The durable administrator claim must happen before any setup
+            // mutation. The server verifies the forwarded Apps OAuth identity
+            // and atomically allows only the first caller to claim ownership.
+            const bootstrap = await fetch("/api/setup/bootstrap-admin", {
+              method: "POST",
+              signal: controller.signal,
+            });
+            setShowSetupWizard(bootstrap.ok);
           }
         }
+        setSetupCheckPending(false);
         // "initializing" and other transient states: no wizard change, but unblock dashboard
       })
       .catch(() => {
@@ -447,8 +454,6 @@ function Dashboard() {
     sessionStorage.setItem("coc-setup-complete", "true");
     // Mark setup complete server-side (survives page refresh, cleared on redeploy)
     fetch("/api/setup/complete", { method: "POST" }).catch(() => {});
-    // Save the deploying user as admin (fire-and-forget)
-    fetch("/api/setup/bootstrap-admin", { method: "POST" }).catch(() => {});
     setShowSetupWizard(false);
     rqClient.invalidateQueries();
   };
@@ -468,13 +473,6 @@ function Dashboard() {
       ].forEach((k) => localStorage.removeItem(k));
       localStorage.setItem(BANNER_RESET_KEY, BANNER_RESET_VERSION);
     }
-  }, []);
-
-  // Trigger cache prewarm immediately on mount (runs while permissions dialog is shown)
-  useEffect(() => {
-    fetch("/api/prewarm", { method: "POST" }).catch(() => {
-      // Ignore errors - prewarm is best-effort
-    });
   }, []);
 
   // Auto-refresh interval based on settings

@@ -16,8 +16,10 @@ export const WAREHOUSE_PROBE_AFTER_POLLS = 2;
 export const WAREHOUSE_PROBE_RETRY_MS = 60_000;
 
 export async function fetchWarehouseHealth(probe = false): Promise<WarehouseHealth> {
-  const suffix = probe ? "?probe=true" : "";
-  const response = await fetch(`/api/health/sql-warehouse${suffix}`);
+  const url = probe
+    ? "/api/health/sql-warehouse/probe"
+    : "/api/health/sql-warehouse";
+  const response = await fetch(url, probe ? { method: "POST" } : undefined);
   if (!response.ok) {
     throw new Error(`Warehouse health check failed (${response.status})`);
   }

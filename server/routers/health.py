@@ -206,7 +206,7 @@ async def health_check() -> dict[str, Any]:
 
 
 @router.get("/health/detailed")
-async def detailed_health_check() -> dict[str, Any]:
+async def detailed_health_check(request: Request) -> dict[str, Any]:
     """Detailed health check with database connectivity and cache stats.
 
     This endpoint performs actual service verification:
@@ -214,6 +214,9 @@ async def detailed_health_check() -> dict[str, Any]:
     - Query cache statistics
     - Memory usage info
     """
+    from server.auth import redact_diagnostic_payload, require_admin
+
+    await require_admin(request)
     checks: dict[str, Any] = {
         "status": "healthy",
         "service": "cost-observability-control",
@@ -239,7 +242,7 @@ async def detailed_health_check() -> dict[str, Any]:
     )
     checks["status"] = "healthy" if all_healthy else "degraded"
 
-    return checks
+    return redact_diagnostic_payload(checks)
 
 
 @router.get("/health/sql-warehouse")
@@ -264,11 +267,16 @@ async def get_sql_warehouse_status(
     import os
     import re as _re
 
-    if probe:
-        from server.routers.settings import _require_admin
+    from server.auth import require_admin
 
-        _require_admin(request)
+    await require_admin(request)
+    if probe and getattr(request, "method", "GET").upper() == "GET":
+        from fastapi import HTTPException
 
+        raise HTTPException(
+            status_code=405,
+            detail="Use POST /api/health/sql-warehouse/probe for recovery probes",
+        )
     # Prefer DATABRICKS_WAREHOUSE_ID if injected; fall back to parsing HTTP path.
     # The regex handles /sql/1.0/warehouses/<id> and /sql/1.0/endpoints/<id>,
     # strips query-string params, and is safe against trailing slashes.
@@ -457,6 +465,13 @@ async def get_sql_warehouse_status(
     }
 
 
+@router.post("/health/sql-warehouse/probe")
+async def probe_sql_warehouse_status(request: Request) -> dict[str, Any]:
+    """Run the bounded, admin-only SQL recovery probe via a mutating HTTP verb."""
+
+    return await get_sql_warehouse_status(request, probe=True)
+
+
 async def _check_database() -> dict[str, Any]:
     """Report warehouse configuration without issuing a query.
 
@@ -550,10 +565,10 @@ async def clear_cache(request: Request, tab: str | None = None) -> dict[str, Any
       alerts       → clears alerts queries
       (none)       → clears entire cache
     """
+    from server.auth import require_admin
     from server.db import clear_query_cache, delta_cache_invalidate
-    from server.routers.settings import _require_admin
 
-    _require_admin(request)
+    await require_admin(request)
 
     TAB_PATTERNS: dict[str, list[str]] = {
         "dbu":          [
@@ -628,12 +643,18 @@ async def clear_cache(request: Request, tab: str | None = None) -> dict[str, Any
 
 
 @router.post("/prewarm")
-async def trigger_cache_prewarm(background_tasks: BackgroundTasks) -> dict[str, Any]:
+async def trigger_cache_prewarm(
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
     """Trigger cache pre-warming for all dashboard queries.
 
     This runs in the background and returns immediately.
     Use /api/health/detailed to check cache status.
     """
+    from server.auth import require_admin
+
+    await require_admin(request)
     background_tasks.add_task(_run_prewarm)
     return {
         "status": "started",
@@ -642,7 +663,8 @@ async def trigger_cache_prewarm(background_tasks: BackgroundTasks) -> dict[str, 
 
 
 @router.get("/query-diag")
-async def query_diagnostics() -> dict[str, Any]:
+@router.get("/health/query-diag")
+async def query_diagnostics(request: Request) -> dict[str, Any]:
     """Diagnose why data tabs might show zeros.
 
     Tests SQL connectivity, system table access, and MV table access
@@ -651,8 +673,16 @@ async def query_diagnostics() -> dict[str, Any]:
 
     SQL tests run in a thread pool so this endpoint never blocks the event loop.
     """
-    import asyncio
-    from server.db import execute_query, get_auth_status, _user_token, _auth_mode, get_catalog_schema
+    from server.auth import redact_diagnostic_payload, require_admin
+    from server.db import (
+        _auth_mode,
+        _user_token,
+        execute_query,
+        get_auth_status,
+        get_catalog_schema,
+    )
+
+    await require_admin(request)
 
     diag: dict[str, Any] = {
         "auth": get_auth_status(),
@@ -710,16 +740,22 @@ async def query_diagnostics() -> dict[str, Any]:
     try:
         from server.db import get_workspace_client
         w = get_workspace_client()
-        tables = [t.name for t in w.tables.list(catalog_name=catalog, schema_name=schema) if t.name]
+        tables = await asyncio.to_thread(
+            lambda: [
+                t.name
+                for t in w.tables.list(catalog_name=catalog, schema_name=schema)
+                if t.name
+            ]
+        )
         diag["tests"]["uc_table_list"] = f"ok — {len(tables)} tables: {sorted(tables)}"
     except Exception as e:
         diag["tests"]["uc_table_list"] = f"ERROR: {e}"
 
-    return diag
+    return redact_diagnostic_payload(diag)
 
 
-@router.get("/billing-diag")
-async def billing_diagnostics() -> dict[str, Any]:
+@router.post("/billing-diag")
+async def billing_diagnostics(request: Request) -> dict[str, Any]:
     """Diagnose why billing/dashboard tabs show zeros.
 
     Checks the full data path used by /api/billing/dashboard-bundle-fast:
@@ -730,12 +766,11 @@ async def billing_diagnostics() -> dict[str, Any]:
 
     Hit this in the browser when tabs show zeros to get the exact failure point.
     """
-    import asyncio
-    import os
-    import time
-    from server.db import execute_query, get_auth_status, get_catalog_schema, _auth_mode, _user_token
-    from server.routers.billing import _mv_cache, _check_mv_available
+    from server.auth import redact_diagnostic_payload, require_admin
+    from server.db import execute_query, get_auth_status, get_catalog_schema
+    from server.routers.billing import _check_mv_available, _mv_cache
 
+    await require_admin(request)
     catalog, schema = get_catalog_schema()
     now = time.time()
     cache_age = round(now - _mv_cache["checked_at"], 1) if _mv_cache["checked_at"] else None
@@ -804,14 +839,16 @@ async def billing_diagnostics() -> dict[str, Any]:
     diag["mv_queries"] = mv_results
     diag["fallback_queries"] = fallback_results
 
-    return diag
+    return redact_diagnostic_payload(diag)
 
 
 @router.get("/debug-env")
-async def debug_env():
+async def debug_env(request: Request):
     """Debug: show detected environment (temporary)."""
-    import os
+    from server.auth import redact_diagnostic_payload, require_admin
     from server.db import get_host_url
+
+    await require_admin(request)
     host = get_host_url()
     cloud = None
     if host:
@@ -822,16 +859,16 @@ async def debug_env():
             cloud = "GCP"
         elif "cloud.databricks.com" in h:
             cloud = "AWS"
-    return {
+    return redact_diagnostic_payload({
         "host": host,
         "cloud": cloud,
         "DATABRICKS_HOST": os.getenv("DATABRICKS_HOST", "NOT SET"),
         "DATABRICKS_HTTP_PATH": os.getenv("DATABRICKS_HTTP_PATH", "NOT SET"),
-    }
+    })
 
 
-@router.get("/setup-diag")
-async def setup_diagnostics() -> dict[str, Any]:
+@router.post("/setup-diag")
+async def setup_diagnostics(request: Request) -> dict[str, Any]:
     """Diagnose why the app is stuck on 'Setting up your workspace'.
 
     Tests every component of the bootstrap flow independently with short
@@ -840,10 +877,10 @@ async def setup_diagnostics() -> dict[str, Any]:
     Hit this on the AWS app when setup stalls:
       https://<app-url>/api/setup-diag
     """
-    import os
-    import asyncio
-    from server.db import get_catalog_schema, get_workspace_client, _user_token, _auth_mode
+    from server.auth import redact_diagnostic_payload, require_admin
+    from server.db import _auth_mode, _user_token, get_catalog_schema, get_workspace_client
 
+    await require_admin(request)
     catalog, schema = get_catalog_schema()
     http_path = os.getenv("DATABRICKS_HTTP_PATH", "NOT SET")
     host_raw = os.getenv("DATABRICKS_HOST", "NOT SET")
@@ -1025,4 +1062,4 @@ async def setup_diagnostics() -> dict[str, Any]:
 
     diag["schema_create_permission"] = await _run(_schema_perm)
 
-    return diag
+    return redact_diagnostic_payload(diag)

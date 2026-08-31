@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server import db
+from server import auth, db
 from server.app import app as cost_obs_app
 from server.routers import aws_actual, azure_actual, gcp_actual, settings, setup, users_groups
 
@@ -147,7 +147,7 @@ def test_permissions_replacement_is_one_atomic_statement():
     assert "INSERT OVERWRITE" in writes[0][0]
     assert "DELETE FROM" not in writes[0][0]
     assert set(writes[0][1].values()) == {
-        "admin",
+        "owner",
         "admin@example.com",
         "consumer",
         "consumer@example.com",
@@ -204,8 +204,13 @@ def test_legacy_azure_connection_routes_call_guarded_handlers():
     client = TestClient(app)
     stored = []
 
+    auth._permission_cache = auth.PermissionSnapshot(
+        state=auth.PermissionState.CONFIGURED,
+        admins=("admin@example.com",),
+        consumers=(),
+        loaded_at=__import__("time").monotonic(),
+    )
     with (
-        patch.object(settings, "_load_user_permissions", return_value={"admins": []}),
         patch.object(settings, "_load_connections", side_effect=lambda: [dict(item) for item in stored]),
         patch.object(settings, "_upsert_connection_to_table"),
         patch.object(settings, "_delete_connection_from_table"),
@@ -213,6 +218,7 @@ def test_legacy_azure_connection_routes_call_guarded_handlers():
     ):
         created = client.post(
             "/api/settings/azure-connections",
+            headers={"X-Forwarded-Email": "admin@example.com"},
             json={
                 "name": "legacy",
                 "provider": "aws",
@@ -225,7 +231,10 @@ def test_legacy_azure_connection_routes_call_guarded_handlers():
         assert created.status_code == 200
         assert created.json()["provider"] == "azure"
         connection_id = created.json()["id"]
-        deleted = client.delete(f"/api/settings/azure-connections/{connection_id}")
+        deleted = client.delete(
+            f"/api/settings/azure-connections/{connection_id}",
+            headers={"X-Forwarded-Email": "admin@example.com"},
+        )
         assert deleted.status_code == 200
         assert deleted.json() == {"status": "deleted", "id": connection_id}
 
@@ -237,9 +246,20 @@ def test_costly_and_mutating_routes_reject_consumers_but_reads_remain_available(
     app.include_router(users_groups.router, prefix="/api/users-groups")
     client = TestClient(app)
     headers = {"X-Forwarded-Email": "consumer@example.com"}
-    permissions = {"admins": ["admin@example.com"], "consumers": ["consumer@example.com"]}
-
-    with patch.object(settings, "_load_user_permissions", return_value=permissions):
+    auth._permission_cache = auth.PermissionSnapshot(
+        state=auth.PermissionState.CONFIGURED,
+        admins=("admin@example.com",),
+        consumers=("consumer@example.com",),
+        loaded_at=__import__("time").monotonic(),
+    )
+    with patch.object(
+        settings,
+        "_load_user_permissions",
+        return_value={
+            "admins": ["admin@example.com"],
+            "consumers": ["consumer@example.com"],
+        },
+    ):
         assert client.post("/api/setup/create-tables", headers=headers).status_code == 403
         assert client.delete("/api/setup/drop-materialized-views", headers=headers).status_code == 403
         assert client.post(

@@ -86,12 +86,16 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
   const dirtyCount = pendingUpdate.updatedCount;
   const isSaving = saveStatus.kind === "saving";
 
-  const { data: permissions } = useQuery<{ admins: string[]; current_user?: string | null }>({
+  const { data: permissions } = useQuery<{
+    admins: string[];
+    current_user?: string | null;
+    current_role?: "admin" | "consumer";
+  }>({
     queryKey: ["user-permissions"],
     queryFn: () => fetch("/api/settings/user-permissions").then(r => { if (!r.ok) throw new Error(); return r.json(); }),
     staleTime: 60 * 1000,
   });
-  const isAdmin = !permissions || !permissions.admins?.length || (!!permissions.current_user && permissions.admins.includes(permissions.current_user));
+  const isAdmin = permissions?.current_role === "admin";
 
   const { data: appConfig } = useQuery<import("./settings/SettingsConfig").AppConfigInfo>({
     queryKey: ["app-config"],

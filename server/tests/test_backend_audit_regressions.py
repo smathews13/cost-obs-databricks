@@ -8,7 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import BackgroundTasks, HTTPException
@@ -674,7 +674,10 @@ def test_costly_and_mutating_control_routes_require_admin():
             request, {"catalog": "c", "schema": "s"}
         ),
     ]
-    with patch.object(settings, "_require_admin", side_effect=denied):
+    with (
+        patch.object(settings, "_require_admin", side_effect=denied),
+        patch("server.auth.require_admin", new=AsyncMock(side_effect=denied)),
+    ):
         for call in calls:
             with pytest.raises(HTTPException) as exc:
                 asyncio.run(call())

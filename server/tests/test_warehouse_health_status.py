@@ -3,7 +3,7 @@ import json
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -11,8 +11,8 @@ from fastapi import HTTPException
 from server.routers import health
 
 
-def _request():
-    return SimpleNamespace(headers={})
+def _request(method="GET"):
+    return SimpleNamespace(headers={}, method=method)
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +26,12 @@ def _reset_probe_state(monkeypatch, tmp_path):
     monkeypatch.setattr(
         health, "_WAREHOUSE_PROBE_STATE_PATH", str(tmp_path / "probe.json")
     )
+
+
+@pytest.fixture(autouse=True)
+def _allow_admin_diagnostics():
+    with patch("server.auth.require_admin", new=AsyncMock(return_value="admin@example.com")):
+        yield
 
 
 @pytest.mark.asyncio
@@ -105,7 +111,7 @@ async def test_sql_warehouse_status_probe_recovers_after_rest_failure():
         patch("server.db.execute_query", return_value=[{"warehouse_ready": 1}]) as execute,
         patch("server.routers.settings._require_admin"),
     ):
-        result = await health.get_sql_warehouse_status(_request(), probe=True)
+        result = await health.get_sql_warehouse_status(_request("POST"), probe=True)
 
     assert result["status"] == "warm"
     assert result["state"] == "SQL_PROBE_SUCCEEDED"
@@ -130,7 +136,7 @@ async def test_sql_warehouse_status_probe_wakes_a_stopped_warehouse():
         patch("server.db.execute_query", return_value=[{"warehouse_ready": 1}]),
         patch("server.routers.settings._require_admin"),
     ):
-        result = await health.get_sql_warehouse_status(_request(), probe=True)
+        result = await health.get_sql_warehouse_status(_request("POST"), probe=True)
 
     assert result["status"] == "warm"
     assert result["state"] == "SQL_PROBE_SUCCEEDED"
@@ -147,7 +153,7 @@ async def test_sql_warehouse_status_never_probes_a_missing_binding():
         patch("server.db.execute_query") as execute,
         patch("server.routers.settings._require_admin"),
     ):
-        result = await health.get_sql_warehouse_status(_request(), probe=True)
+        result = await health.get_sql_warehouse_status(_request("POST"), probe=True)
 
     assert result["status"] == "unavailable"
     assert result["state"] == "NOT_CONFIGURED"
@@ -159,12 +165,14 @@ async def test_sql_warehouse_probe_requires_admin():
     with (
         patch.dict("os.environ", {"DATABRICKS_WAREHOUSE_ID": "warehouse-123"}),
         patch(
-            "server.routers.settings._require_admin",
+            "server.auth.require_admin",
+            new=AsyncMock(
             side_effect=HTTPException(status_code=403, detail="Admin required"),
+            ),
         ),
     ):
         with pytest.raises(HTTPException) as exc:
-            await health.get_sql_warehouse_status(_request(), probe=True)
+            await health.get_sql_warehouse_status(_request("POST"), probe=True)
     assert exc.value.status_code == 403
 
 
@@ -187,15 +195,15 @@ async def test_sql_warehouse_probe_is_single_flight_and_rate_limited():
         patch("server.routers.settings._require_admin"),
     ):
         first = asyncio.create_task(
-            health.get_sql_warehouse_status(_request(), probe=True)
+            health.get_sql_warehouse_status(_request("POST"), probe=True)
         )
         assert await asyncio.to_thread(started.wait, 1)
         second = asyncio.create_task(
-            health.get_sql_warehouse_status(_request(), probe=True)
+            health.get_sql_warehouse_status(_request("POST"), probe=True)
         )
         release.set()
         first_result, second_result = await asyncio.gather(first, second)
-        third_result = await health.get_sql_warehouse_status(_request(), probe=True)
+        third_result = await health.get_sql_warehouse_status(_request("POST"), probe=True)
 
     assert first_result["state"] == "SQL_PROBE_SUCCEEDED"
     assert second_result["state"] == "SQL_PROBE_SUCCEEDED"
@@ -225,6 +233,6 @@ async def test_sql_warehouse_probe_honors_cross_worker_rate_state():
         patch("server.db.execute_query") as execute,
         patch("server.routers.settings._require_admin"),
     ):
-        result = await health.get_sql_warehouse_status(_request(), probe=True)
+        result = await health.get_sql_warehouse_status(_request("POST"), probe=True)
     assert result == cached
     execute.assert_not_called()

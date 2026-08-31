@@ -21,7 +21,7 @@ it("animates the save spinner while respecting reduced motion", () => {
 it("labels the admin section Permissions & Access everywhere", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true,
-    json: async () => ({}),
+    json: async () => ({ current_role: "admin" }),
   }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -38,7 +38,7 @@ it("labels the admin section Permissions & Access everywhere", async () => {
     </QueryClientProvider>,
   );
 
-  await userEvent.click(screen.getByRole("button", { name: "Permissions & Access" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Permissions & Access" }));
   expect(screen.getByRole("heading", { name: "Permissions & Access" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Access" })).not.toBeInTheDocument();
 });
@@ -111,7 +111,7 @@ it("renders, toggles, saves, and reloads user anonymization", async () => {
     if (url.endsWith("/api/settings")) {
       return { ok: true, json: async () => ({ general: { anonymize_users: serverValue } }) };
     }
-    return { ok: true, json: async () => ({}) };
+    return { ok: true, json: async () => ({ current_role: "admin" }) };
   }));
 
   const renderDialog = () => {
@@ -131,7 +131,7 @@ it("renders, toggles, saves, and reloads user anonymization", async () => {
   };
 
   const first = renderDialog();
-  await userEvent.click(screen.getByRole("button", { name: "Experimental" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Experimental" }));
   expect(screen.getByText(/Replace human email addresses with User 1/)).toBeInTheDocument();
   const toggle = screen.getByRole("switch", { name: "User anonymization" });
   expect(toggle).toHaveAttribute("aria-checked", "false");
@@ -145,7 +145,7 @@ it("renders, toggles, saves, and reloads user anonymization", async () => {
 
   first.unmount();
   renderDialog();
-  await userEvent.click(screen.getByRole("button", { name: "Experimental" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Experimental" }));
   await waitFor(() => expect(screen.getByRole("switch", { name: "User anonymization" })).toHaveAttribute("aria-checked", "true"));
 });
 
@@ -165,7 +165,7 @@ it("defaults, saves, reloads, and resets the architecture view setting", async (
     if (url.endsWith("/api/settings")) {
       return { ok: true, status: 200, json: async () => ({ experimental: { enable_architecture_view: serverValue } }) };
     }
-    return { ok: true, status: 200, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ current_role: "admin" }) };
   }));
 
   const renderDialog = () => {
@@ -185,7 +185,7 @@ it("defaults, saves, reloads, and resets the architecture view setting", async (
   };
 
   const first = renderDialog();
-  await userEvent.click(screen.getByRole("button", { name: "Experimental" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Experimental" }));
   expect(screen.getByText("Unlock architecture PDF export from the existing Export dialog.")).toBeVisible();
   const toggle = screen.getByRole("switch", { name: "Architecture view" });
   expect(toggle).toHaveAttribute("aria-checked", "false");
@@ -198,7 +198,7 @@ it("defaults, saves, reloads, and resets the architecture view setting", async (
   first.unmount();
   localStorage.clear();
   renderDialog();
-  await userEvent.click(screen.getByRole("button", { name: "Experimental" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Experimental" }));
   await waitFor(() => expect(screen.getByRole("switch", { name: "Architecture view" })).toHaveAttribute("aria-checked", "true"));
 
   await userEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
@@ -310,7 +310,11 @@ it("prevents double submission while a save is in flight", async () => {
       putCount += 1;
       return new Promise((resolve) => { resolvePut = resolve; });
     }
-    return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ current_role: "admin" }),
+    });
   }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -352,7 +356,11 @@ it("uses the shared dirty and save status for Experimental draft controls", asyn
       putBodies.push(JSON.parse(String(init.body)));
       return new Promise((resolve) => { resolvePut = resolve; });
     }
-    return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ current_role: "admin" }),
+    });
   }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -369,7 +377,7 @@ it("uses the shared dirty and save status for Experimental draft controls", asyn
     </QueryClientProvider>,
   );
 
-  await userEvent.click(screen.getByRole("button", { name: "Experimental" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Experimental" }));
   await userEvent.click(screen.getByRole("switch", { name: "User anonymization" }));
   await userEvent.click(screen.getByRole("switch", { name: "Architecture view" }));
   expect(screen.getByRole("status")).toHaveTextContent("2 unsaved settings");
@@ -394,7 +402,11 @@ it("persists all toggles from the first Save click", async () => {
     if (String(input).endsWith("/api/settings") && init?.method === "PUT") {
       putBodies.push(JSON.parse(String(init.body)));
     }
-    return { ok: true, status: 200, json: async () => ({}) };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ current_role: "admin" }),
+    };
   }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
@@ -414,7 +426,7 @@ it("persists all toggles from the first Save click", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Dashboard tabs" }));
   await userEvent.click(screen.getByRole("switch", { name: "Cloud Costs" }));
   await userEvent.click(screen.getByRole("switch", { name: "Optimize" }));
-  await userEvent.click(screen.getByRole("button", { name: "Experimental" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Experimental" }));
   await userEvent.click(screen.getByRole("switch", { name: "User anonymization" }));
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -432,7 +444,11 @@ it("clears a saved webhook draft without writing the secret to localStorage", as
     if (String(input).endsWith("/api/settings")) {
       return { ok: true, status: 200, json: async () => ({ webhook: { configured: false } }) };
     }
-    return { ok: true, status: 200, json: async () => ({}) };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ current_role: "admin" }),
+    };
   }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -448,7 +464,7 @@ it("clears a saved webhook draft without writing the secret to localStorage", as
     </QueryClientProvider>,
   );
 
-  await userEvent.click(screen.getByRole("button", { name: "Alerts & notifications" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Alerts & notifications" }));
   const webhook = screen.getByPlaceholderText(/hooks\.slack\.com\/services/);
   await userEvent.type(webhook, "https://hooks.slack.com/services/top-secret");
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));

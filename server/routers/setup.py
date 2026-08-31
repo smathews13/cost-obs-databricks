@@ -23,11 +23,11 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _require_setup_admin(request: Request) -> None:
+async def _require_setup_admin(request: Request) -> str:
     """Reuse the configured app-role policy for setup mutations."""
-    from server.routers.settings import _require_admin
+    from server.auth import require_admin
 
-    _require_admin(request)
+    return await require_admin(request)
 
 
 SETTINGS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", ".settings")
@@ -513,27 +513,6 @@ async def get_setup_status() -> dict[str, Any]:
             "next_poll_ms": 5000,
         }
 
-    # Tables exist — but if a user OAuth token is present, re-run SP grants in the
-    # background. Each git deploy creates a new SP with no grants; auto-bootstrap only
-    # fires when tables are missing. Re-granting here is idempotent and non-fatal.
-    if all_exist:
-        user_token = _db_user_token.get()
-        if user_token:
-            import threading as _threading
-            _token_snap = user_token
-            _catalog_snap = catalog
-            _schema_snap = schema
-            _sp_id_snap = os.getenv("DATABRICKS_CLIENT_ID", "")
-            def _bg_grant():
-                tok = _db_user_token.set(_token_snap)
-                try:
-                    _grant_sp_schema_access(_catalog_snap, _schema_snap)
-                finally:
-                    _db_user_token.reset(tok)
-                if _sp_id_snap:
-                    _grant_system_via_user_sql(_token_snap, _sp_id_snap)
-            _threading.Thread(target=_bg_grant, daemon=True).start()
-
     # Core tables exist (checked above) and setup_done.json is present (either
     # pre-existing or just auto-healed). Non-core tables being absent just means
     # some SQL/job views are still building — the dashboard falls back gracefully.
@@ -562,7 +541,7 @@ async def mark_setup_complete(
     The background rebuild creates all materialized views so the dashboard has
     data immediately after setup — no manual Rebuild click required.
     """
-    _require_setup_admin(request)
+    await _require_setup_admin(request)
     global _setup_confirmed_ready
     try:
         os.makedirs(SETTINGS_DIR, exist_ok=True)
@@ -610,7 +589,7 @@ async def mark_setup_complete(
 
 
 @router.post("/mark-complete")
-async def mark_setup_complete_manual() -> dict[str, Any]:
+async def mark_setup_complete_manual(request: Request) -> dict[str, Any]:
     """Mark setup complete WITHOUT triggering a rebuild.
 
     For when the app-managed tables already exist but the app lost its
@@ -618,6 +597,7 @@ async def mark_setup_complete_manual() -> dict[str, Any]:
     the durable flag couldn't be restored). Lets the user dismiss the
     'setup incomplete' banner directly instead of re-running the wizard.
     """
+    await _require_setup_admin(request)
     global _setup_confirmed_ready
     try:
         import time as _time
@@ -645,12 +625,13 @@ async def mark_setup_complete_manual() -> dict[str, Any]:
 
 
 @router.post("/rerun")
-async def rerun_setup() -> dict[str, Any]:
+async def rerun_setup(request: Request) -> dict[str, Any]:
     """Clear setup_done.json and reset task state so the wizard shows again.
 
     Called when an admin clicks Re-run Setup Wizard in Settings. Safe to call
     at any time — existing tables are left in place and are not dropped.
     """
+    await _require_setup_admin(request)
     try:
         if os.path.exists(SETUP_DONE_FILE):
             os.remove(SETUP_DONE_FILE)
@@ -668,7 +649,7 @@ async def rerun_setup() -> dict[str, Any]:
 
 
 @router.post("/reset-bootstrap")
-async def reset_bootstrap_state() -> dict[str, Any]:
+async def reset_bootstrap_state(request: Request) -> dict[str, Any]:
     """Reset the in-process bootstrap state so auto-init can retry.
 
     Call this if the app is stuck on the 'Setting up your workspace' spinner.
@@ -676,6 +657,7 @@ async def reset_bootstrap_state() -> dict[str, Any]:
     attempt auto-bootstrap again (or fall through to setup_required if no
     user token is available).
     """
+    await _require_setup_admin(request)
     prev = _create_task_state.copy()
     _create_task_state["status"] = "idle"
     _create_task_state["error"] = None
@@ -684,8 +666,9 @@ async def reset_bootstrap_state() -> dict[str, Any]:
 
 
 @router.get("/bootstrap-state")
-async def get_bootstrap_state() -> dict[str, Any]:
+async def get_bootstrap_state(request: Request) -> dict[str, Any]:
     """Return current in-process bootstrap task state for debugging."""
+    await _require_setup_admin(request)
     return _create_task_state.copy()
 
 
@@ -821,6 +804,7 @@ async def grant_sp_system_access(request: Request) -> dict[str, Any]:
     account admin so the GRANT statements succeed on system tables.
     Returns a summary of how many grants were applied.
     """
+    await _require_setup_admin(request)
     from server.materialized_views import get_catalog_schema
 
     user_token = request.headers.get("x-forwarded-access-token", "")
@@ -955,7 +939,7 @@ async def create_tables(
     WARNING: This operation can take several minutes on large accounts.
     Set run_in_background=true (default) to run asynchronously.
     """
-    _require_setup_admin(request)
+    await _require_setup_admin(request)
     cat, sch = get_catalog_schema()
     target_catalog = catalog or cat
     target_schema = schema or sch
@@ -1187,7 +1171,7 @@ async def refresh_tables(
     This rebuilds all tables from scratch with current data.
     Should be run daily to keep data fresh.
     """
-    _require_setup_admin(request)
+    await _require_setup_admin(request)
     cat, sch = get_catalog_schema()
     target_catalog = catalog or cat
     target_schema = schema or sch
@@ -1299,7 +1283,7 @@ async def create_aws_cur_tables(
         load_data: If True, also loads data from S3 into bronze table
         run_in_background: Run table creation in background
     """
-    _require_setup_admin(request)
+    await _require_setup_admin(request)
     from server.aws_cur_setup import create_cur_tables, get_catalog_schema
 
     cat, sch = get_catalog_schema()
@@ -1358,7 +1342,7 @@ async def refresh_aws_cur_tables(
     This incrementally loads new CUR data from S3 and refreshes
     the silver and gold tables.
     """
-    _require_setup_admin(request)
+    await _require_setup_admin(request)
     from server.aws_cur_setup import refresh_cur_tables, get_catalog_schema
 
     cat, sch = get_catalog_schema()
@@ -1404,41 +1388,17 @@ def _refresh_cur_tables_task(catalog: str, schema: str, s3_path: str | None):
 
 @router.post("/bootstrap-admin")
 async def bootstrap_admin(request: Request) -> dict[str, Any]:
-    """Save the deploying user as admin on first-run setup completion."""
-    # X-Forwarded-Email is injected by Databricks Apps on Azure but may be absent on AWS.
-    # Fall back to resolving identity from the forwarded OAuth token via the SDK.
-    user_email = request.headers.get("X-Forwarded-Email", "")
-    if not user_email:
-        try:
-            from server.db import get_user_workspace_client
-            import asyncio as _asyncio
-            loop = _asyncio.get_running_loop()
-            me = await loop.run_in_executor(
-                None, lambda: get_user_workspace_client().current_user.me()
-            )
-            user_email = me.user_name or ""
-        except Exception as e:
-            logger.warning(f"Could not resolve user identity for bootstrap-admin: {e}")
-    if not user_email:
-        return {"status": "skipped", "reason": "no user email available"}
+    """Atomically claim the one-time administrator slot for a verified Apps caller."""
+    from server.auth import bootstrap_admin_atomic
 
-    try:
-        from server.routers.settings import _load_user_permissions, _save_user_permissions_to_table
-
-        perms = _load_user_permissions()
-        if user_email in perms.get("admins", []):
-            return {"status": "ok", "email": user_email, "role": "admin", "note": "already admin"}
-
-        admins = perms.get("admins", []) + [user_email]
-        consumers = perms.get("consumers", [])
-
-        _save_user_permissions_to_table(admins, consumers)
-        logger.info(f"Bootstrapped admin in Delta table: {user_email}")
-        return {"status": "ok", "email": user_email, "role": "admin"}
-
-    except Exception as e:
-        logger.error(f"Bootstrap admin failed: {e}")
-        return {"status": "error", "message": str(e)}
+    user_email, first_claim = await bootstrap_admin_atomic(request)
+    logger.info("Verified caller claimed administrator bootstrap: %s", user_email)
+    return {
+        "status": "ok",
+        "email": user_email,
+        "role": "admin",
+        "first_claim": first_claim,
+    }
 
 
 # ============================================================================
@@ -1512,7 +1472,7 @@ async def ensure_catalog(request: Request) -> dict[str, Any]:
        via SQL GRANT using the user's forwarded token (avoids unity-catalog scope issue).
     3. Verify SP can now access the catalog. If still blocked, return clear SQL to run.
     """
-    _require_setup_admin(request)
+    await _require_setup_admin(request)
     import asyncio as _asyncio
 
     catalog, _ = get_catalog_schema()
@@ -1667,7 +1627,7 @@ async def ensure_schema(request: Request) -> dict[str, Any]:
     Runs as the SP via UC SDK. The SP owns the catalog after ensure-catalog
     creates it, so CREATE SCHEMA succeeds without any extra privilege grant.
     """
-    _require_setup_admin(request)
+    await _require_setup_admin(request)
     import asyncio as _asyncio
 
     catalog, schema = get_catalog_schema()
@@ -1728,6 +1688,7 @@ async def grant_catalog_access(request: Request) -> dict[str, Any]:
     admin or catalog owner. Returns ok=True/False with a message so the frontend
     can either show success and let them retry, or confirm they need an admin.
     """
+    await _require_setup_admin(request)
     import asyncio as _asyncio
 
     catalog, _ = get_catalog_schema()
@@ -1798,39 +1759,6 @@ async def grant_catalog_access(request: Request) -> dict[str, Any]:
                 f"GRANT CREATE SCHEMA ON CATALOG `{catalog}` TO `{user}`;"
             ),
         }
-
-
-# ============================================================================
-# Token Generation (for local development)
-# ============================================================================
-
-
-@router.post("/generate-token")
-async def generate_token() -> dict[str, Any]:
-    """Generate a Databricks PAT using the app's OAuth credentials.
-
-    Useful for local development: once the app is running with OAuth,
-    generate a token to use as DATABRICKS_TOKEN in a local .env file.
-    """
-    try:
-        w = get_workspace_client()
-        host = w.config.host or os.getenv("DATABRICKS_HOST", "")
-        response = w.tokens.create(
-            comment="cost-obs local development",
-            lifetime_seconds=7776000,  # 90 days
-        )
-        token_value = response.token_value
-        expiry = response.token_info.expiry_time if response.token_info else None
-        return {
-            "status": "created",
-            "token": token_value,
-            "host": host,
-            "expiry_time": expiry,
-        }
-    except Exception as e:
-        logger.error(f"Failed to generate token: {e}")
-        return {"status": "error", "message": str(e)}
-
 
 
 # ============================================================================
@@ -2501,14 +2429,8 @@ async def save_workspace_filter(request: Request) -> dict:
     import re as _re
     t0 = _time.monotonic()
 
-    from server.routers.user import _get_user_role
-    user_email = request.headers.get("X-Forwarded-Email", os.getenv("USER", ""))
+    user_email = await _require_setup_admin(request)
     logger.info("save-workspace-filter: request from %s", user_email or "(unknown)")
-
-    role = _get_user_role(user_email)
-    logger.info("save-workspace-filter: user role=%s (%.1fms)", role, (_time.monotonic() - t0) * 1000)
-    if role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required to modify the workspace filter pool")
 
     body = await request.json()
     raw_ids: list = body.get("workspace_ids", [])
@@ -2619,7 +2541,7 @@ def _record_drop_in_refresh_log() -> None:
 @router.delete("/drop-materialized-views")
 async def drop_mvs(request: Request) -> dict:
     """Drop all app-managed materialized view tables. Irreversible — use with caution."""
-    _require_setup_admin(request)
+    await _require_setup_admin(request)
     try:
         from server.db import get_catalog_schema
         catalog, schema = get_catalog_schema()
@@ -2653,14 +2575,31 @@ async def get_mv_overrides() -> dict:
 @router.post("/mv-overrides")
 async def save_mv_overrides(request: Request) -> dict:
     """Persist MV table name overrides. Send {} or omit a key to clear an override."""
-    from server.db import save_mv_table_overrides, get_mv_table_overrides
+    await _require_setup_admin(request)
+    from server.auth import validate_uc_table_identifier
+    from server.db import save_mv_table_overrides
+
     body = await request.json()
     overrides_raw: dict = body.get("overrides", {})
-    # Only keep non-empty string values for known logical names
-    valid = {
-        k: v.strip()
-        for k, v in overrides_raw.items()
-        if k in _MV_TABLES and isinstance(v, str) and v.strip()
-    }
+    if not isinstance(overrides_raw, dict):
+        raise HTTPException(status_code=422, detail="overrides must be an object")
+    unknown = sorted(set(overrides_raw) - set(_MV_TABLES))
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown materialized-view override keys: {', '.join(unknown)}",
+        )
+    valid: dict[str, str] = {}
+    try:
+        for key, value in overrides_raw.items():
+            if value in ("", None):
+                continue
+            if not isinstance(value, str):
+                raise ValueError(
+                    f"Override for {key} must be a three-part Unity Catalog identifier"
+                )
+            valid[key] = validate_uc_table_identifier(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     save_mv_table_overrides(valid)
     return {"ok": True, "saved": valid, "cleared": [k for k in _MV_TABLES if k not in valid]}

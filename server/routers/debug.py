@@ -4,7 +4,7 @@ import logging
 import os
 import time as _time
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Request
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -664,15 +664,18 @@ _CHECKS = [
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/run")
-async def run_diagnostics(no_cache: bool = False) -> dict:
+async def run_diagnostics(request: Request, no_cache: bool = False) -> dict:
     """Run all diagnostic checks in parallel and return structured results.
 
     Results are cached for 5 minutes. Pass ?no_cache=true to force a fresh run
     (useful after applying a fix when you want to verify it immediately).
     """
+    from server.auth import redact_diagnostic_payload, require_admin
+
+    await require_admin(request)
     global _debug_cache, _debug_cache_ts
     if not no_cache and _debug_cache is not None and (_time.time() - _debug_cache_ts) < _DEBUG_CACHE_TTL:
-        return _debug_cache
+        return redact_diagnostic_payload(_debug_cache)
 
     import asyncio
 
@@ -711,18 +714,18 @@ async def run_diagnostics(no_cache: bool = False) -> dict:
     }
     _debug_cache = out
     _debug_cache_ts = _time.time()
-    return out
+    return redact_diagnostic_payload(out)
 
 
 @router.post("/rebuild-mvs")
 async def rebuild_mvs(background_tasks: BackgroundTasks, request: Request) -> dict:
     """Trigger a full MV rebuild in the background. Admin only."""
-    from server.routers.user import _get_user_role
-    user_email = request.headers.get("X-Forwarded-Email", os.getenv("USER", ""))
-    if _get_user_role(user_email) != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required to rebuild materialized views")
+    from server.auth import require_admin
 
-    from server.db import _user_token as _db_user_token, get_catalog_schema
+    await require_admin(request)
+
+    from server.db import get_catalog_schema
+    from server.db import _user_token as _db_user_token
     from server.materialized_views import refresh_materialized_views
 
     catalog, schema = get_catalog_schema()

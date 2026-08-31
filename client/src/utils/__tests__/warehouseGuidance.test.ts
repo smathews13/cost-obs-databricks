@@ -98,7 +98,10 @@ describe("warehouse health fetching", () => {
       status: "warm",
       state: "SQL_PROBE_SUCCEEDED",
     });
-    expect(fetchMock).toHaveBeenCalledWith("/api/health/sql-warehouse?probe=true");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/health/sql-warehouse/probe",
+      { method: "POST" },
+    );
   });
 });
 
