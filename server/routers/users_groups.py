@@ -560,10 +560,10 @@ async def _compute_users_groups_bundle(
         }
 
     params = {"start_date": start_date, "end_date": end_date}
-    _dkey = bundle_cache_key("users:dashboard-bundle", start_date, end_date, id_list)
+    _dkey = bundle_cache_key("users:dashboard-bundle:v2", start_date, end_date, id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("users:dashboard-bundle")
+    _cache_generation = capture_cache_generation("users:dashboard-bundle:v2")
     # Compute mid-point for spend growth comparison
     from datetime import datetime as _dt
     start_dt = _dt.strptime(start_date, "%Y-%m-%d").date()
@@ -727,7 +727,7 @@ async def _compute_users_groups_bundle(
     }
     delta_cache_put(
         _dkey,
-        "users:dashboard-bundle",
+        "users:dashboard-bundle:v2",
         _resp,
         ttl_seconds=(
             60
@@ -766,7 +766,7 @@ async def get_users_groups_bundle(
         }
 
     cache_key = bundle_cache_key(
-        "users:dashboard-bundle", validated_start, validated_end, id_list
+        "users:dashboard-bundle:v2", validated_start, validated_end, id_list
     )
     producer_state = await asyncio.to_thread(get_bundle_compute_state, cache_key)
     if producer_state and producer_state.get("state") == "failed":
@@ -800,7 +800,7 @@ async def get_users_groups_bundle(
     if (cached := await asyncio.to_thread(delta_cache_get, cache_key)) is not None:
         return cached
 
-    generation = capture_cache_generation("users:dashboard-bundle")
+    generation = capture_cache_generation("users:dashboard-bundle:v2")
 
     def produce() -> None:
         payload = asyncio.run(
@@ -814,7 +814,7 @@ async def get_users_groups_bundle(
         if payload.get("availability") == "unavailable":
             delta_cache_put(
                 cache_key,
-                "users:dashboard-bundle",
+                "users:dashboard-bundle:v2",
                 payload,
                 ttl_seconds=15,
                 generation=generation,

@@ -62,7 +62,7 @@ def test_apps_required_failure_is_typed_and_short_cached_for_pollers():
             None,
             False,
             "apps-key",
-            db.CacheGeneration("apps:dashboard-bundle:all", 0),
+            db.CacheGeneration("apps:dashboard-bundle:v2:all", 0),
         )
     payload = cache_put.call_args.args[2]
     assert payload["availability"] == "unavailable"
@@ -106,7 +106,7 @@ def test_apps_optional_failure_is_partial_and_short_cached():
             None,
             False,
             "apps-key",
-            db.CacheGeneration("apps:dashboard-bundle:all", 0),
+            db.CacheGeneration("apps:dashboard-bundle:v2:all", 0),
         )
     payload = cache_put.call_args.args[2]
     assert payload["availability"] == "partial"
@@ -172,7 +172,7 @@ def test_apps_durable_cache_failure_is_typed_and_never_completed(cache_outcome):
                 None,
                 False,
                 cache_key,
-                db.CacheGeneration("apps:dashboard-bundle:all", 0),
+                db.CacheGeneration("apps:dashboard-bundle:v2:all", 0),
             )
 
     with apps._apps_bundle_status_lock:
@@ -228,7 +228,7 @@ def test_apps_durable_cache_failure_releases_lease_as_failed(
                 None,
                 False,
                 cache_key,
-                db.CacheGeneration("apps:dashboard-bundle:all", 0),
+                db.CacheGeneration("apps:dashboard-bundle:v2:all", 0),
             ),
             lease_seconds=30,
             hard_deadline_seconds=30,
@@ -272,7 +272,7 @@ def test_aiml_required_failure_is_not_cached():
                 None,
                 "",
                 "aiml-key",
-                db.CacheGeneration("aiml:dashboard-bundle", 0),
+                db.CacheGeneration("aiml:dashboard-bundle:v2", 0),
             )
     assert exc_info.value.code == "SQL_TIMEOUT"
     cache_put.assert_not_called()
@@ -303,7 +303,7 @@ def test_aiml_optional_failure_is_partial_and_short_cached():
             None,
             "",
             "aiml-key",
-            db.CacheGeneration("aiml:dashboard-bundle", 0),
+            db.CacheGeneration("aiml:dashboard-bundle:v2", 0),
         )
     payload = cache_put.call_args.args[2]
     assert payload["availability"] == "partial"
@@ -345,7 +345,7 @@ def test_aiml_durable_cache_failure_is_typed(cache_outcome):
                 None,
                 "",
                 "aiml-cache-failure",
-                db.CacheGeneration("aiml:dashboard-bundle", 0),
+                db.CacheGeneration("aiml:dashboard-bundle:v2", 0),
             )
 
     assert exc_info.value.code == "AIML_CACHE_WRITE_FAILED"
@@ -471,7 +471,7 @@ def test_users_optional_failure_is_partial_and_short_cached():
         patch.object(
             users_groups,
             "capture_cache_generation",
-            return_value=db.CacheGeneration("users:dashboard-bundle", 0),
+            return_value=db.CacheGeneration("users:dashboard-bundle:v2", 0),
         ),
         patch.object(
             users_groups,

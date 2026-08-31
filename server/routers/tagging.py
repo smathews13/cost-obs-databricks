@@ -1142,10 +1142,10 @@ async def get_tagging_dashboard_bundle(
     )
     params = {"start_date": validated_start, "end_date": validated_end}
     id_list = parse_workspace_ids(workspace_ids)
-    _dkey = bundle_cache_key("tagging:dashboard-bundle", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("tagging:dashboard-bundle:v2", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("tagging:dashboard-bundle")
+    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v2")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     def _ws(sql: str) -> str:
@@ -1401,7 +1401,7 @@ async def get_tagging_dashboard_bundle(
     }
     delta_cache_put(
         _dkey,
-        "tagging:dashboard-bundle",
+        "tagging:dashboard-bundle:v2",
         _resp,
         ttl_seconds=(
             60

@@ -1074,7 +1074,7 @@ def _compute_apps_bundle(
 ) -> None:
     """Background worker: run all Apps queries, build response, write to Delta cache."""
     import time as _time
-    _endpoint = f"apps:dashboard-bundle:{'active' if active_only else 'all'}"
+    _endpoint = f"apps:dashboard-bundle:v2:{'active' if active_only else 'all'}"
     _start = _time.time()
     _set_apps_producer_status(dkey, "running")
 
@@ -1442,7 +1442,7 @@ async def get_apps_dashboard_bundle(
     )
     params = {"start_date": validated_start, "end_date": validated_end}
     id_list = parse_workspace_ids(workspace_ids)
-    _endpoint = f"apps:dashboard-bundle:{'active' if active_only else 'all'}"
+    _endpoint = f"apps:dashboard-bundle:v2:{'active' if active_only else 'all'}"
     _dkey = bundle_cache_key(_endpoint, params["start_date"], params["end_date"], id_list)
 
     producer_status = await asyncio.to_thread(get_bundle_compute_state, _dkey)
