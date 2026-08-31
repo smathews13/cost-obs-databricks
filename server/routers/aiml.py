@@ -26,7 +26,7 @@ from server.db import (
     selected_source_labels,
     start_bundle_compute,
 )
-from server.queries.pricing import apply_temporal_list_price_join
+from server.queries.pricing import apply_current_list_price_join
 from server.request_limits import default_date_range, parse_workspace_ids, validate_date_range
 
 
@@ -715,7 +715,7 @@ ORDER BY total_spend DESC
 
 for _query_name, _query_value in list(globals().items()):
     if isinstance(_query_value, str) and "/* TEMPORAL_LIST_PRICE_JOIN */" in _query_value:
-        globals()[_query_name] = apply_temporal_list_price_join(_query_value)
+        globals()[_query_name] = apply_current_list_price_join(_query_value)
 
 
 @router.get("/debug-ml-clusters")

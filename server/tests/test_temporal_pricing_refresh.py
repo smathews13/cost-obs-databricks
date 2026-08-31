@@ -6,8 +6,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from server import materialized_views, queries
-from server.queries.pricing import temporal_list_price_join
-from server.routers import aiml, apps, users_groups
+from server.queries.pricing import (
+    current_list_price_join,
+    temporal_list_price_join,
+)
+from server.routers import aiml, apps, billing, dbsql_base, tagging, users_groups
 
 
 def _ts(value: str) -> datetime:
@@ -105,28 +108,46 @@ def test_canonical_join_preserves_units_and_half_open_temporal_semantics():
     assert "WHERE ranked.price_rank = 1" in sql
 
 
-def test_all_owned_live_and_aggregate_queries_use_the_canonical_join():
-    modules = (queries, materialized_views)
+def test_live_queries_use_current_price_join_without_lateral():
+    modules = (queries, aiml, apps, tagging, users_groups)
     priced_templates = []
     for module in modules:
         for name, value in vars(module).items():
-            if name.isupper() and isinstance(value, str) and "p.pricing" in value:
+            if (
+                name.isupper()
+                and not name.startswith("MV_")
+                and isinstance(value, str)
+                and "p.pricing" in value
+            ):
                 priced_templates.append((module.__name__, name, value))
 
     assert priced_templates
     for module_name, name, sql in priced_templates:
         assert "/* TEMPORAL_LIST_PRICE_JOIN */" not in sql, (module_name, name)
-        assert "LEFT JOIN system.billing.list_prices p" not in sql, (module_name, name)
-        assert "p.price_end_time IS NULL" not in sql, (module_name, name)
-        assert "LEFT JOIN LATERAL" in sql, (module_name, name)
-        assert "candidate.usage_unit = u.usage_unit" in sql, (module_name, name)
+        assert "LEFT JOIN LATERAL" not in sql, (module_name, name)
+        assert "LEFT JOIN system.billing.list_prices p" in sql, (module_name, name)
+        assert "u.sku_name = p.sku_name" in sql, (module_name, name)
+        assert "u.cloud = p.cloud" in sql, (module_name, name)
+        assert "p.price_end_time IS NULL" in sql, (module_name, name)
 
 
-def test_active_spend_sql_cannot_restore_current_price_join_patterns():
+def test_materialized_view_build_and_merge_sql_remains_temporal():
+    priced_templates = [
+        (name, value)
+        for name, value in vars(materialized_views).items()
+        if name.isupper() and isinstance(value, str) and "p.pricing" in value
+    ]
+    assert priced_templates
+    for name, sql in priced_templates:
+        assert "LEFT JOIN LATERAL" in sql, name
+        assert "candidate.usage_unit = u.usage_unit" in sql, name
+        assert "candidate.price_end_time IS NULL" in sql, name
+
+
+def test_request_path_modules_do_not_import_temporal_helper():
     root = Path(__file__).resolve().parents[1]
     paths = [
         root / "queries" / "__init__.py",
-        root / "materialized_views.py",
         *(root / "routers" / name for name in (
             "users_groups.py",
             "apps.py",
@@ -137,21 +158,33 @@ def test_active_spend_sql_cannot_restore_current_price_join_patterns():
     ]
     for path in paths:
         source = path.read_text()
-        assert "LEFT JOIN system.billing.list_prices p" not in source, path
-        assert "p.price_end_time IS NULL" not in source, path
-        assert "MAX(p.pricing" not in source, path
+        assert "apply_temporal_list_price_join" not in source, path
+        assert "temporal_list_price_join(" not in source, path
 
 
-def test_representative_routes_share_identical_authoritative_price_contract():
-    expected = temporal_list_price_join()
+def test_representative_routes_use_compatible_current_price_contract(monkeypatch):
+    expected = current_list_price_join()
     for sql in (
         queries.BILLING_SUMMARY,
-        materialized_views.CREATE_DAILY_USAGE_SUMMARY,
         apps.APPS_SUMMARY,
         aiml.AIML_SUMMARY,
         users_groups.USERS_SUMMARY,
     ):
         assert expected in sql
+        assert "LEFT JOIN LATERAL" not in sql
+
+    captured = {}
+    monkeypatch.setattr(
+        billing,
+        "_execute_query",
+        lambda sql, *_args, **_kwargs: captured.setdefault("sql", sql) and [],
+    )
+    billing.execute_query("SELECT * FROM usage u /* TEMPORAL_LIST_PRICE_JOIN */")
+    assert expected in captured["sql"]
+    assert "LEFT JOIN LATERAL" not in captured["sql"]
+
+    assert "current_list_price_join()" in Path(dbsql_base.__file__).read_text()
+    assert temporal_list_price_join() in materialized_views.CREATE_DAILY_USAGE_SUMMARY
 
 
 _MERGES = {

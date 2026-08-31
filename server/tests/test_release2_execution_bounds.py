@@ -314,6 +314,24 @@ def test_sql_row_and_byte_caps_fail_closed(monkeypatch):
     assert byte_error.value.limit_name == "response byte"
 
 
+def test_default_capacity_accepts_large_aggregate_intermediate(monkeypatch):
+    assert db.SQL_MAX_RESULT_ROWS >= 150_000
+    assert db.SQL_MAX_RESULT_BYTES >= 64 * 1024 * 1024
+    rows = [(index,) for index in range(100_001)]
+    monkeypatch.setattr(
+        db,
+        "get_connection",
+        lambda: _connection_factory(lambda _cursor: None, rows=rows),
+    )
+
+    result = db.execute_query("SELECT aggregate rows", no_cache=True)
+
+    assert len(result) == 100_001
+    limited, metadata = cap_detail_items(result, max_rows=25)
+    assert len(limited) == 25
+    assert metadata["truncated"] is True
+
+
 @pytest.mark.parametrize(
     "failure",
     [

@@ -32,7 +32,8 @@ from server.db import (
     start_bundle_compute,
 )
 from server.email_service import send_alert_email
-from server.queries.pricing import apply_temporal_list_price_join
+from server.queries.pricing import apply_current_list_price_join
+from server.request_limits import cap_detail_items
 from server.routers.dbsql_base import validate_request_scope
 
 logger = logging.getLogger(__name__)
@@ -311,7 +312,7 @@ ORDER BY month
 
 for _query_name, _query_value in list(globals().items()):
     if isinstance(_query_value, str) and "/* TEMPORAL_LIST_PRICE_JOIN */" in _query_value:
-        globals()[_query_name] = apply_temporal_list_price_join(_query_value)
+        globals()[_query_name] = apply_current_list_price_join(_query_value)
 
 _SCIM_TIMEOUT = 12.0  # seconds per HTTP request
 
@@ -673,6 +674,7 @@ async def _compute_users_groups_bundle(
             u["primary_product"] = max(u["products"], key=lambda x: x["spend"])["product"]
         else:
             u["primary_product"] = "Unknown"
+    top_users, top_users_limits = cap_detail_items(top_users)
 
     # Timeseries — pivot to {date, user1_spend, user2_spend, ...}
     ts_rows = results.get("timeseries") or []
@@ -715,6 +717,7 @@ async def _compute_users_groups_bundle(
         "partial_reasons": optional_failures,
         "summary": summary,
         "top_users": top_users,
+        "top_users_limits": top_users_limits,
         "timeseries": timeseries,
         "timeseries_users": sorted(list(ts_users)),
         "by_workspace": by_workspace,

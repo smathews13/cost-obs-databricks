@@ -603,9 +603,10 @@ def test_cloud_producer_failure_returns_safe_typed_retryable_error(
 def test_cluster_query_uses_billing_list_prices_for_dbu_spend_only():
     assert "system.billing.list_prices" in INFRA_COST_ESTIMATE
     assert "u.usage_quantity * COALESCE(p.pricing.default, 0) AS databricks_spend" in INFRA_COST_ESTIMATE
-    assert "u.usage_start_time" in INFRA_COST_ESTIMATE
-    assert "candidate.price_start_time" in INFRA_COST_ESTIMATE
-    assert "candidate.price_end_time IS NULL" in INFRA_COST_ESTIMATE
+    assert "u.sku_name = p.sku_name" in INFRA_COST_ESTIMATE
+    assert "u.cloud = p.cloud" in INFRA_COST_ESTIMATE
+    assert "p.price_end_time IS NULL" in INFRA_COST_ESTIMATE
+    assert "LEFT JOIN LATERAL" not in INFRA_COST_ESTIMATE
     assert "SUM(uf.databricks_spend)     AS databricks_spend" in INFRA_COST_ESTIMATE
     assert "COUNT(*) OVER ()" in INFRA_COST_ESTIMATE
     assert "SUM(cr.total_dbu_hours) OVER ()" in INFRA_COST_ESTIMATE

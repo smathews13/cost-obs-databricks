@@ -3,6 +3,29 @@
 from __future__ import annotations
 
 TEMPORAL_PRICE_JOIN_MARKER = "/* TEMPORAL_LIST_PRICE_JOIN */"
+CURRENT_PRICE_JOIN_MARKER = "/* CURRENT_LIST_PRICE_JOIN */"
+
+
+def current_list_price_join(
+    usage_alias: str = "u",
+    price_alias: str = "p",
+) -> str:
+    """Return the AWS-compatible current list-price join for live requests."""
+    return f"""LEFT JOIN system.billing.list_prices {price_alias}
+  ON {usage_alias}.sku_name = {price_alias}.sku_name
+  AND {usage_alias}.cloud = {price_alias}.cloud
+  AND {price_alias}.price_end_time IS NULL"""
+
+
+def apply_current_list_price_join(sql: str) -> str:
+    """Expand live-query price markers using the current price row."""
+    return sql.replace(
+        CURRENT_PRICE_JOIN_MARKER,
+        current_list_price_join(),
+    ).replace(
+        TEMPORAL_PRICE_JOIN_MARKER,
+        current_list_price_join(),
+    )
 
 
 def temporal_list_price_join(

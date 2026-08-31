@@ -225,13 +225,13 @@ SQL_DEFAULT_TIMEOUT_SECONDS = _bounded_env_int(
     "COST_OBS_SQL_TIMEOUT_SECONDS", 120, minimum=5, maximum=300
 )
 SQL_MAX_RESULT_ROWS = _bounded_env_int(
-    "COST_OBS_SQL_MAX_RESULT_ROWS", 5000, minimum=100, maximum=50000
+    "COST_OBS_SQL_MAX_RESULT_ROWS", 150_000, minimum=100, maximum=250_000
 )
 SQL_MAX_RESULT_BYTES = _bounded_env_int(
     "COST_OBS_SQL_MAX_RESULT_BYTES",
-    8 * 1024 * 1024,
+    64 * 1024 * 1024,
     minimum=256 * 1024,
-    maximum=32 * 1024 * 1024,
+    maximum=128 * 1024 * 1024,
 )
 
 _sql_executor = _DaemonExecutor(

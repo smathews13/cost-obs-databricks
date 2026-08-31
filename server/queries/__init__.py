@@ -1,9 +1,9 @@
 """SQL query templates for billing data.
 
-Historical list cost always uses the shared half-open temporal price lookup.
+Live request queries use the current list-price row for AWS compatibility.
 """
 
-from server.queries.pricing import apply_temporal_list_price_join
+from server.queries.pricing import apply_current_list_price_join
 
 # Account info query
 ACCOUNT_INFO = """
@@ -1363,9 +1363,7 @@ WHERE period_start_time >= :start_date
 """
 
 
-# Expand the canonical pricing fragment only after every template is declared.
-# Keeping one marker in each raw template makes divergent current-price joins
-# impossible while preserving the module's existing string constants API.
+# Expand the live pricing fragment only after every template is declared.
 for _query_name, _query_value in tuple(globals().items()):
     if isinstance(_query_value, str) and "/* TEMPORAL_LIST_PRICE_JOIN */" in _query_value:
-        globals()[_query_name] = apply_temporal_list_price_join(_query_value)
+        globals()[_query_name] = apply_current_list_price_join(_query_value)

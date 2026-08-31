@@ -75,7 +75,7 @@ from server.queries import (
     SQL_TOOL_ATTRIBUTION,
     TOTAL_WORKSPACES_ALLTIME,
 )
-from server.queries.pricing import apply_temporal_list_price_join
+from server.queries.pricing import apply_current_list_price_join
 from server.request_limits import default_date_range, parse_workspace_ids, validate_date_range
 
 router = APIRouter()
@@ -83,8 +83,8 @@ logger = logging.getLogger(__name__)
 
 
 def execute_query(sql: str, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
-    """Execute billing SQL after expanding any canonical temporal-price marker."""
-    return _execute_query(apply_temporal_list_price_join(sql), *args, **kwargs)
+    """Execute billing SQL after expanding the compatible current-price marker."""
+    return _execute_query(apply_current_list_price_join(sql), *args, **kwargs)
 
 # Stale fallback: stores the last successful non-zero kpis_response per exact
 # date/workspace/source scope so one source selection can never leak into another.

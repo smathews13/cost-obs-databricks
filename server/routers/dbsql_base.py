@@ -38,7 +38,7 @@ from server.db import (
     source_label_filter_clause,
     start_bundle_compute,
 )
-from server.queries.pricing import temporal_list_price_join
+from server.queries.pricing import current_list_price_join
 from server.request_limits import (
     MAX_DATE_RANGE_MONTHS,
     cap_detail_items,
@@ -446,7 +446,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                       u.sku_name as sku_name,
                       SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as daily_spend
                     FROM system.billing.usage u
-                    {temporal_list_price_join()}
+                    {current_list_price_join()}
                     WHERE u.billing_origin_product = 'SQL'
                       AND u.usage_date BETWEEN :start_date AND :end_date
                       AND u.usage_quantity > 0
@@ -1199,7 +1199,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                   u.sku_name as sku_name,
                   SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as daily_spend
                 FROM system.billing.usage u
-                {temporal_list_price_join()}
+                {current_list_price_join()}
                 WHERE u.billing_origin_product = 'SQL'
                   AND u.usage_date BETWEEN :start_date AND :end_date
                   AND u.usage_quantity > 0

@@ -114,6 +114,30 @@ def test_apps_optional_failure_is_partial_and_short_cached():
     assert cache_put.call_args.kwargs["ttl_seconds"] == 60
 
 
+def test_apps_large_account_aggregate_remains_usable():
+    raw_apps = [
+        {
+            "app_id": f"app-{index}",
+            "total_spend": 1,
+            "total_dbus": 1,
+            "workspace_count": 1,
+            "days_active": 30,
+            "last_usage_date": END,
+        }
+        for index in range(3549)
+    ]
+    registry = {
+        row["app_id"]: {"name": row["app_id"], "url": ""}
+        for row in raw_apps
+    }
+
+    response = apps._process_apps(raw_apps, False, START, END, registry)
+
+    assert len(response["apps"]) == 3549
+    assert response["total_app_count"] == 3549
+    assert response["total_spend"] == 3549
+
+
 @pytest.mark.parametrize(
     "cache_outcome",
     [False, RuntimeError("remote cache unavailable")],
@@ -467,6 +491,57 @@ def test_users_optional_failure_is_partial_and_short_cached():
     assert response["availability"] == "partial"
     assert response["partial_reasons"] == {"product_breakdown": "SQL_TIMEOUT"}
     assert cache_put.call_args.kwargs["ttl_seconds"] == 60
+
+
+def test_users_large_aggregate_is_usable_but_detail_payload_is_capped():
+    rows = [
+        {
+            "user_email": f"user-{index}@example.com",
+            "total_spend": 1,
+            "total_dbus": 1,
+            "active_days": 1,
+            "workspace_count": 1,
+        }
+        for index in range(1001)
+    ]
+    results = {
+        "summary": [{
+            "user_count": len(rows),
+            "workspace_count": 1,
+            "total_spend": len(rows),
+            "total_dbus": len(rows),
+            "avg_spend_per_user": 1,
+        }],
+        "top_users": rows,
+        "product_breakdown": [],
+        "timeseries": [],
+        "by_workspace": [],
+        "spend_growth": [],
+        "user_growth": [],
+    }
+    with (
+        patch.object(users_groups, "delta_cache_get", return_value=None),
+        patch.object(users_groups, "capture_cache_generation"),
+        patch.object(
+            users_groups,
+            "execute_queries_parallel",
+            return_value=results,
+        ),
+        patch.object(users_groups, "delta_cache_put"),
+    ):
+        response = asyncio.run(
+            users_groups._compute_users_groups_bundle(
+                start_date=START,
+                end_date=END,
+                workspace_ids=None,
+                source_labels=None,
+            )
+        )
+
+    assert response["availability"] == "available"
+    assert response["summary"]["user_count"] == 1001
+    assert len(response["top_users"]) == 1000
+    assert response["top_users_limits"]["truncated"] is True
 
 
 def test_dbsql_required_failure_is_not_cached():

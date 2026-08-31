@@ -296,8 +296,8 @@ def test_positive_aiml_kpis_return_nonempty_consistent_trends(kpi):
     assert kwargs["timeout"] == 25
     if kpi in {"aiml_spend", "aiml_avg_endpoint_cost"}:
         join_marker = (
-            "LEFT JOIN LATERAL"
-            if "LEFT JOIN LATERAL" in sql
+            "LEFT JOIN system.billing.list_prices p"
+            if "LEFT JOIN system.billing.list_prices p" in sql
             else "/* TEMPORAL_LIST_PRICE_JOIN */"
         )
         assert sql.index("WITH filtered_usage") < sql.index(join_marker)
@@ -342,11 +342,14 @@ def test_positive_cloud_kpis_return_authoritative_daily_trends(kpi):
         assert "/ NULLIF(" in captured["sql"]
 
 
-def test_temporal_price_queries_prefilter_usage_before_lateral_join():
+def test_live_price_queries_prefilter_usage_before_current_join():
     for sql in (
         users_groups.USERS_SUMMARY,
         users_groups.USERS_TOP_SPEND,
         apps.APPS_SUMMARY,
         aiml.AIML_SUMMARY,
     ):
-        assert sql.index("WITH filtered_usage") < sql.index("LEFT JOIN LATERAL")
+        assert sql.index("WITH filtered_usage") < sql.index(
+            "LEFT JOIN system.billing.list_prices p"
+        )
+        assert "LEFT JOIN LATERAL" not in sql

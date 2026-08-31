@@ -41,8 +41,8 @@ from server.db import (
 )
 from server.materialized_views import MV_APPS_AVG_COST_PER_APP
 from server.queries.pricing import (
-    apply_temporal_list_price_join,
-    temporal_list_price_join,
+    apply_current_list_price_join,
+    current_list_price_join,
 )
 from server.request_limits import (
     default_date_range,
@@ -784,7 +784,7 @@ ORDER BY app_id, total_spend DESC
 
 for _query_name, _query_value in list(globals().items()):
     if isinstance(_query_value, str) and "/* TEMPORAL_LIST_PRICE_JOIN */" in _query_value:
-        globals()[_query_name] = apply_temporal_list_price_join(_query_value)
+        globals()[_query_name] = apply_current_list_price_join(_query_value)
 
 
 def _process_apps(
@@ -1104,7 +1104,7 @@ def _compute_apps_bundle(
           SUM(u.usage_quantity) as total_dbus,
           SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend
         FROM filtered_usage u
-        {temporal_list_price_join()}
+        {current_list_price_join()}
         GROUP BY u.usage_date
         ORDER BY u.usage_date
         """
@@ -1126,7 +1126,7 @@ def _compute_apps_bundle(
             SUM(u.usage_quantity * COALESCE(p.pricing.default, 0))
               / NULLIF(COUNT(DISTINCT u.usage_metadata.app_id), 0) as daily_cost_per_app
           FROM filtered_usage u
-          {temporal_list_price_join()}
+          {current_list_price_join()}
           GROUP BY u.usage_date
         ) t
         """
@@ -1604,7 +1604,7 @@ async def get_apps_kpi_trend(
             u.usage_quantity,
             COALESCE(p.pricing.default, 0) as price_per_dbu
           FROM system.billing.usage u
-          {temporal_list_price_join()}
+          {current_list_price_join()}
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND u.billing_origin_product = 'APPS'
@@ -1671,7 +1671,7 @@ async def get_apps_kpi_trend(
           SUM(usage_quantity * COALESCE(p.pricing.default, 0))
             / NULLIF(COUNT(DISTINCT COALESCE(u.usage_metadata.app_id, 'unknown')), 0) as value
         FROM system.billing.usage u
-        {temporal_list_price_join()}
+        {current_list_price_join()}
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.billing_origin_product = 'APPS'
