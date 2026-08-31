@@ -262,9 +262,15 @@ def _get_mv_query(mv_query: str, ws_filter: str = "") -> str:
     return apply_mv_overrides(sql, catalog, schema)
 
 
-def _exec_mv(mv_template: str, params: dict, ws_filter: str = "") -> list[dict]:
+def _exec_mv(
+    mv_template: str,
+    params: dict,
+    ws_filter: str = "",
+    *,
+    timeout: float | None = None,
+) -> list[dict]:
     """Execute a materialized view query against Delta."""
-    return execute_query(_get_mv_query(mv_template, ws_filter), params)
+    return execute_query(_get_mv_query(mv_template, ws_filter), params, timeout=timeout)
 
 
 def _mv_ws_clause(id_list: list[str] | None) -> str:
@@ -2295,7 +2301,12 @@ async def get_dashboard_bundle_fast(
             )
 
         def _mv_workspaces():
-            return execute_query(_inject_ws_filter(BILLING_BY_WORKSPACE, ws_clause), params)
+            return execute_query(
+                _inject_ws_filter(BILLING_BY_WORKSPACE, ws_clause),
+                params,
+                timeout=15,
+                max_rows=200,
+            )
 
         # Also fetch most-recent-day workspace count; MV summary gives period-total DISTINCT
         # which is always >= any single day and mismatches the daily trend chart.
@@ -2316,8 +2327,16 @@ async def get_dashboard_bundle_fast(
             ("products", _mv_products),
             ("workspaces", _mv_workspaces),
             ("timeseries", _mv_timeseries),
-            ("etl_breakdown", lambda: _exec_mv(MV_ETL_BREAKDOWN, params, mv_ws)),
-            ("workspace_count", lambda: execute_query(_WORKSPACE_COUNT_QUERY_MV, params)),
+            ("etl_breakdown", lambda: _exec_mv(MV_ETL_BREAKDOWN, params, mv_ws, timeout=15)),
+            (
+                "workspace_count",
+                lambda: execute_query(
+                    _WORKSPACE_COUNT_QUERY_MV,
+                    params,
+                    timeout=15,
+                    max_rows=1,
+                ),
+            ),
         ]
     else:
         # Fall back to fast queries without MVs; inject workspace filter when active.
@@ -2341,10 +2360,18 @@ async def get_dashboard_bundle_fast(
         queries = [
             ("summary", lambda: execute_query(_s, params)),
             ("products", lambda: execute_query(_p, params)),
-            ("workspaces", lambda: execute_query(_w, params)),
+            ("workspaces", lambda: execute_query(_w, params, timeout=15, max_rows=200)),
             ("timeseries", lambda: execute_query(_t, params)),
-            ("etl_breakdown", lambda: execute_query(_e, params)),
-            ("workspace_count", lambda: execute_query(WORKSPACE_COUNT_QUERY, params)),
+            ("etl_breakdown", lambda: execute_query(_e, params, timeout=15)),
+            (
+                "workspace_count",
+                lambda: execute_query(
+                    WORKSPACE_COUNT_QUERY,
+                    params,
+                    timeout=15,
+                    max_rows=1,
+                ),
+            ),
         ]
 
     try:
@@ -2352,7 +2379,7 @@ async def get_dashboard_bundle_fast(
             _run_bundle_parallel,
             queries,
             required={"summary", "products", "timeseries"},
-            timeout=90.0,
+            timeout=35.0,
         )
 
         # Format responses
