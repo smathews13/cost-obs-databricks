@@ -1389,7 +1389,16 @@ function Dashboard() {
       const name = workspaceNameMap[w.id] || w.name || null;
       // Trust the server's `historical` (computed from the true resolved name), so the
       // "workspace display names" toggle nulling names never mislabels a live workspace.
-      return { workspace_id: w.id, workspace_name: name, historical: w.historical ?? !name };
+      return {
+        workspace_id: w.id,
+        workspace_name: name,
+        historical: w.historical ?? !name,
+        total_dbus: 0,
+        total_spend: 0,
+        percentage: 0,
+        top_products: [],
+        top_users: [],
+      };
     }),
     [wsListData?.workspaces, workspaceNameMap],
   );
@@ -1883,8 +1892,8 @@ function Dashboard() {
             <SpendChart data={timeseries} isLoading={bundleLoading} />
 
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <ProductBreakdown data={products} isLoading={bundleLoading} workspaces={workspaces?.workspaces} dateRange={dateRange} workspaceNameMap={workspaceNameMap} />
-              <SKUBreakdown data={skuBreakdown} isLoading={skuLoading} workspaces={workspaces?.workspaces} dateRange={dateRange} workspaceNameMap={workspaceNameMap} />
+              <ProductBreakdown data={products} isLoading={bundleLoading} workspaces={workspaces?.workspaces?.length ? workspaces.workspaces : wsFilterList} dateRange={dateRange} workspaceNameMap={workspaceNameMap} />
+              <SKUBreakdown data={skuBreakdown} isLoading={skuLoading} workspaces={workspaces?.workspaces?.length ? workspaces.workspaces : wsFilterList} dateRange={dateRange} workspaceNameMap={workspaceNameMap} />
             </div>
 
             <WorkspaceTable data={workspaces} isLoading={bundleLoading} host={accountInfo?.host} workspaceNameMap={workspaceNameMap} />

@@ -1142,10 +1142,10 @@ async def get_tagging_dashboard_bundle(
     )
     params = {"start_date": validated_start, "end_date": validated_end}
     id_list = parse_workspace_ids(workspace_ids)
-    _dkey = bundle_cache_key("tagging:dashboard-bundle:v2", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("tagging:dashboard-bundle:v3", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v2")
+    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v3")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     def _ws(sql: str) -> str:
@@ -1293,6 +1293,8 @@ async def get_tagging_dashboard_bundle(
 
     # Format summary
     summary_data = results.get("summary", [])
+    timeseries_rows = results.get("timeseries", []) or []
+    summary_available = bool(summary_data or timeseries_rows)
     if summary_data:
         row = summary_data[0]
         total_spend = float(row.get("total_spend") or 0)
@@ -1305,6 +1307,18 @@ async def get_tagging_dashboard_bundle(
             "tagged_percentage": (tagged_spend / total_spend * 100) if total_spend > 0 else 0,
             "untagged_percentage": (untagged_spend / total_spend * 100) if total_spend > 0 else 0,
         }
+    elif timeseries_rows:
+        tagged_spend = sum(float(row.get("tagged_spend") or 0) for row in timeseries_rows)
+        untagged_spend = sum(float(row.get("untagged_spend") or 0) for row in timeseries_rows)
+        total_spend = tagged_spend + untagged_spend
+        summary = {
+            "tagged_spend": tagged_spend,
+            "untagged_spend": untagged_spend,
+            "total_spend": total_spend,
+            "tagged_percentage": (tagged_spend / total_spend * 100) if total_spend > 0 else 0,
+            "untagged_percentage": (untagged_spend / total_spend * 100) if total_spend > 0 else 0,
+        }
+        optional_failures["summary"] = "DERIVED_FROM_TIMESERIES"
     else:
         summary = {"tagged_spend": 0, "untagged_spend": 0, "total_spend": 0, "tagged_percentage": 0, "untagged_percentage": 0}
 
@@ -1358,7 +1372,7 @@ async def get_tagging_dashboard_bundle(
     tags, tag_limit_info = cap_detail_items(tags)
 
     # Format timeseries
-    ts_data = results.get("timeseries", []) or []
+    ts_data = timeseries_rows
     timeseries = [
         {
             "date": str(r.get("usage_date")),
@@ -1369,8 +1383,18 @@ async def get_tagging_dashboard_bundle(
     ]
 
     _resp = {
-        "available": True,
-        "availability": "partial" if optional_failures else "available",
+        "available": summary_available,
+        "availability": (
+            "unavailable"
+            if not summary_available
+            else "partial" if optional_failures else "available"
+        ),
+        "reason": None if summary_available else "required_query_failed",
+        "reason_detail": (
+            None
+            if summary_available
+            else "Tag coverage data is temporarily unavailable. Retry shortly."
+        ),
         "partial_reasons": optional_failures,
         "summary": summary,
         "untagged": {
@@ -1401,7 +1425,7 @@ async def get_tagging_dashboard_bundle(
     }
     delta_cache_put(
         _dkey,
-        "tagging:dashboard-bundle:v2",
+        "tagging:dashboard-bundle:v3",
         _resp,
         ttl_seconds=(
             60

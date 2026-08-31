@@ -4107,11 +4107,16 @@ async def get_kpi_trend(
             {ws_clause}
           GROUP BY u.identity_metadata.run_as
         ),
-        period_total AS (SELECT SUM(total_spend) AS grand_total FROM user_totals),
+        ranked_users AS (
+          SELECT
+            user_email,
+            NTILE(10) OVER (ORDER BY total_spend DESC) AS spend_decile
+          FROM user_totals
+        ),
         power_users AS (
-          SELECT ut.user_email
-          FROM user_totals ut, period_total pt
-          WHERE ut.total_spend / NULLIF(pt.grand_total, 0) >= 0.10
+          SELECT user_email
+          FROM ranked_users
+          WHERE spend_decile = 1
         )
         SELECT
           u.usage_date AS date,

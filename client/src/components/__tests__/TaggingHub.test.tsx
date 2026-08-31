@@ -52,7 +52,6 @@ const DATA: TaggingDashboardBundle = {
 
 it.each([
   ["Tagged Spend", "tagged_spend"],
-  ["Untagged Spend", "untagged_spend"],
   ["Cost Per-Tag", "cost_per_tag"],
   ["Total Tags", "total_tags"],
 ])("opens the %s trend from the full KPI card", async (title, kpi) => {
@@ -73,6 +72,44 @@ it.each([
   expect(card.querySelector("button")).toBeNull();
   await userEvent.click(card);
   expect(screen.getByTestId("tagging-selected-kpi")).toHaveTextContent(kpi);
+});
+
+it("keeps zero-value spend cards static", () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <TaggingHub data={DATA} isLoading={false} startDate="2026-08-01" endDate="2026-08-28" />
+    </QueryClientProvider>,
+  );
+
+  expect(screen.queryByRole("button", { name: "See Untagged Spend trend" })).not.toBeInTheDocument();
+});
+
+it("derives spend KPIs from a populated timeseries instead of showing false zeroes", () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const data: TaggingDashboardBundle = {
+    ...DATA,
+    summary: {
+      ...DATA.summary,
+      tagged_spend: 0,
+      untagged_spend: 0,
+      total_spend: 0,
+      tagged_percentage: 0,
+      untagged_percentage: 0,
+    },
+    timeseries: {
+      ...DATA.timeseries,
+      timeseries: [{ date: "2026-08-01", Tagged: 400, Untagged: 20 }],
+    },
+  };
+  render(
+    <QueryClientProvider client={client}>
+      <TaggingHub data={data} isLoading={false} startDate="2026-08-01" endDate="2026-08-28" />
+    </QueryClientProvider>,
+  );
+
+  expect(screen.getByText("$400")).toBeVisible();
+  expect(screen.getByText("$20")).toBeVisible();
 });
 
 it("opens a key-wide drilldown when a Spend by Key row is clicked", async () => {

@@ -128,14 +128,17 @@ def test_active_count_uses_one_registered_population_and_inclusive_seven_day_win
         "start_date": "2026-08-24",
         "end_date": "2026-08-30",
         "days": 7,
-        "definition": "Currently registered apps with positive Apps compute usage",
+        "definition": "Apps with positive compute usage in the inclusive seven-day window",
     }
-    assert result["active_count"] == 1
+    assert result["active_count"] == 2
     assert {
         app["app_id"]: app["status"]
         for app in result["apps"]
         if app["is_registered"]
     } == {"active-id": "active", "old-id": "inactive"}
+    assert next(
+        app for app in result["apps"] if app["app_id"] == "historical-id"
+    )["status"] == "active"
 
 
 def test_active_count_contract_rejects_disagreement():

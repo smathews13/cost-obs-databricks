@@ -916,7 +916,7 @@ def _process_apps(
                 "last_usage_date": str(r.get("last_usage_date")) if r.get("last_usage_date") else None,
                 "percentage": (spend / total_spend_all * 100) if total_spend_all > 0 else 0,
                 "is_registered": False,
-                "status": "inactive",
+                "status": "active" if r.get("_is_active") else "inactive",
             })
             apps_in_list.add(raw_id)
 
@@ -959,7 +959,7 @@ def _process_apps(
             "start_date": active_window_start.isoformat(),
             "end_date": selected_end.isoformat(),
             "days": (selected_end - active_window_start).days + 1,
-            "definition": "Currently registered apps with positive Apps compute usage",
+            "definition": "Apps with positive compute usage in the inclusive seven-day window",
         },
         "inactive_summary": {
             "count": len(inactive_rows),
@@ -1074,7 +1074,7 @@ def _compute_apps_bundle(
 ) -> None:
     """Background worker: run all Apps queries, build response, write to Delta cache."""
     import time as _time
-    _endpoint = f"apps:dashboard-bundle:v2:{'active' if active_only else 'all'}"
+    _endpoint = f"apps:dashboard-bundle:v3:{'active' if active_only else 'all'}"
     _start = _time.time()
     _set_apps_producer_status(dkey, "running")
 
@@ -1372,15 +1372,17 @@ def _compute_apps_bundle(
                 _resp,
                 ttl_seconds=cache_ttl,
                 generation=cache_generation,
-                wait_for_remote=True,
+                wait_for_remote=False,
             )
         except Exception as _ce:
-            raise _AppsCacheWriteError(
-                "Apps dashboard data could not be made durable."
-            ) from _ce
+            logger.warning(
+                "Apps shared cache write could not be queued; serving the local result: %s",
+                _ce,
+            )
+            cache_written = True
         if not cache_written:
-            raise _AppsCacheWriteError(
-                "Apps dashboard data could not be made durable."
+            logger.warning(
+                "Apps shared cache rejected the payload; serving the local result"
             )
         logger.info(
             "apps dashboard-bundle background compute complete: %.1fs workspaces=%s apps=%d",
@@ -1442,7 +1444,7 @@ async def get_apps_dashboard_bundle(
     )
     params = {"start_date": validated_start, "end_date": validated_end}
     id_list = parse_workspace_ids(workspace_ids)
-    _endpoint = f"apps:dashboard-bundle:v2:{'active' if active_only else 'all'}"
+    _endpoint = f"apps:dashboard-bundle:v3:{'active' if active_only else 'all'}"
     _dkey = bundle_cache_key(_endpoint, params["start_date"], params["end_date"], id_list)
 
     producer_status = await asyncio.to_thread(get_bundle_compute_state, _dkey)

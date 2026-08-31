@@ -62,7 +62,7 @@ def test_apps_required_failure_is_typed_and_short_cached_for_pollers():
             None,
             False,
             "apps-key",
-            db.CacheGeneration("apps:dashboard-bundle:v2:all", 0),
+            db.CacheGeneration("apps:dashboard-bundle:v3:all", 0),
         )
     payload = cache_put.call_args.args[2]
     assert payload["availability"] == "unavailable"
@@ -106,7 +106,7 @@ def test_apps_optional_failure_is_partial_and_short_cached():
             None,
             False,
             "apps-key",
-            db.CacheGeneration("apps:dashboard-bundle:v2:all", 0),
+            db.CacheGeneration("apps:dashboard-bundle:v3:all", 0),
         )
     payload = cache_put.call_args.args[2]
     assert payload["availability"] == "partial"
@@ -143,7 +143,7 @@ def test_apps_large_account_aggregate_remains_usable():
     [False, RuntimeError("remote cache unavailable")],
     ids=["false-return", "exception"],
 )
-def test_apps_durable_cache_failure_is_typed_and_never_completed(cache_outcome):
+def test_apps_shared_cache_failure_keeps_the_successful_local_result(cache_outcome):
     partial = {
         "summary": [],
         "apps": [],
@@ -154,7 +154,6 @@ def test_apps_durable_cache_failure_is_typed_and_never_completed(cache_outcome):
         "service_principals": [],
     }
     cache_key = "apps-durable-failure"
-    cache_side_effect = [cache_outcome, cache_outcome]
     with (
         patch.object(apps, "_app_name_cache", {}),
         patch.object(apps, "_app_details_cache", {}),
@@ -164,26 +163,23 @@ def test_apps_durable_cache_failure_is_typed_and_never_completed(cache_outcome):
             "execute_queries_parallel",
             side_effect=_failure("workspaces", partial),
         ),
-        patch.object(apps, "delta_cache_put", side_effect=cache_side_effect),
+        patch.object(apps, "delta_cache_put", side_effect=cache_outcome),
     ):
-        with pytest.raises(apps._AppsCacheWriteError):
-            apps._compute_apps_bundle(
-                PARAMS,
-                None,
-                False,
-                cache_key,
-                db.CacheGeneration("apps:dashboard-bundle:v2:all", 0),
-            )
+        apps._compute_apps_bundle(
+            PARAMS,
+            None,
+            False,
+            cache_key,
+            db.CacheGeneration("apps:dashboard-bundle:v3:all", 0),
+        )
 
     with apps._apps_bundle_status_lock:
         status = dict(apps._apps_bundle_status[cache_key])
-        failure = dict(apps._apps_bundle_failures[cache_key])
+        failure = apps._apps_bundle_failures.get(cache_key)
         apps._apps_bundle_status.pop(cache_key, None)
         apps._apps_bundle_failures.pop(cache_key, None)
-    assert status["state"] == "failed"
-    assert status["error_code"] == "APPS_CACHE_WRITE_FAILED"
-    assert failure["error_code"] == "APPS_CACHE_WRITE_FAILED"
-    assert failure["availability"] == "unavailable"
+    assert status["state"] == "complete"
+    assert failure is None
 
 
 @pytest.mark.parametrize(
@@ -191,7 +187,7 @@ def test_apps_durable_cache_failure_is_typed_and_never_completed(cache_outcome):
     [False, RuntimeError("remote cache unavailable")],
     ids=["false-return", "exception"],
 )
-def test_apps_durable_cache_failure_releases_lease_as_failed(
+def test_apps_shared_cache_failure_releases_lease_as_successful(
     monkeypatch, tmp_path, cache_outcome
 ):
     partial = {
@@ -218,7 +214,7 @@ def test_apps_durable_cache_failure_releases_lease_as_failed(
         patch.object(
             apps,
             "delta_cache_put",
-            side_effect=[cache_outcome, cache_outcome],
+            side_effect=cache_outcome,
         ),
     ):
         assert db.start_bundle_compute(
@@ -228,22 +224,20 @@ def test_apps_durable_cache_failure_releases_lease_as_failed(
                 None,
                 False,
                 cache_key,
-                db.CacheGeneration("apps:dashboard-bundle:v2:all", 0),
+                db.CacheGeneration("apps:dashboard-bundle:v3:all", 0),
             ),
             lease_seconds=30,
             hard_deadline_seconds=30,
         )
         deadline = time.monotonic() + 2
-        state = None
+        state = db.get_bundle_compute_state(cache_key)
         while time.monotonic() < deadline:
             state = db.get_bundle_compute_state(cache_key)
-            if state and state.get("state") == "failed":
+            if state is None:
                 break
             time.sleep(0.01)
 
-    assert state is not None
-    assert state["state"] == "failed"
-    assert state["error_code"] == "APPS_CACHE_WRITE_FAILED"
+    assert state is None
 
 
 def test_aiml_required_failure_is_not_cached():
@@ -272,7 +266,7 @@ def test_aiml_required_failure_is_not_cached():
                 None,
                 "",
                 "aiml-key",
-                db.CacheGeneration("aiml:dashboard-bundle:v2", 0),
+                db.CacheGeneration("aiml:dashboard-bundle:v3", 0),
             )
     assert exc_info.value.code == "SQL_TIMEOUT"
     cache_put.assert_not_called()
@@ -303,7 +297,7 @@ def test_aiml_optional_failure_is_partial_and_short_cached():
             None,
             "",
             "aiml-key",
-            db.CacheGeneration("aiml:dashboard-bundle:v2", 0),
+            db.CacheGeneration("aiml:dashboard-bundle:v3", 0),
         )
     payload = cache_put.call_args.args[2]
     assert payload["availability"] == "partial"
@@ -345,7 +339,7 @@ def test_aiml_durable_cache_failure_is_typed(cache_outcome):
                 None,
                 "",
                 "aiml-cache-failure",
-                db.CacheGeneration("aiml:dashboard-bundle:v2", 0),
+                db.CacheGeneration("aiml:dashboard-bundle:v3", 0),
             )
 
     assert exc_info.value.code == "AIML_CACHE_WRITE_FAILED"
@@ -471,7 +465,7 @@ def test_users_optional_failure_is_partial_and_short_cached():
         patch.object(
             users_groups,
             "capture_cache_generation",
-            return_value=db.CacheGeneration("users:dashboard-bundle:v2", 0),
+            return_value=db.CacheGeneration("users:dashboard-bundle:v3", 0),
         ),
         patch.object(
             users_groups,

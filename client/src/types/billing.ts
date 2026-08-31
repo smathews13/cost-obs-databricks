@@ -770,6 +770,11 @@ export interface TagCostResponse {
 }
 
 export interface TaggingDashboardBundle {
+  available?: boolean;
+  availability?: "available" | "partial" | "unavailable";
+  reason?: string;
+  reason_detail?: string;
+  error_code?: string;
   summary: TaggingSummary;
   untagged: {
     clusters: { items: UntaggedCluster[]; total_spend: number; count: number };

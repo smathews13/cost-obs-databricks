@@ -230,7 +230,13 @@ export default function UsersGroups({
   const daysDiff = startDate && endDate
     ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24)) + 1
     : 30;
-  const powerUsers = topUsers.filter(u => (u.percentage ?? 0) >= 10);
+  const rankedUsers = [...topUsers]
+    .filter((user) => (user.total_spend ?? 0) > 0)
+    .sort((a, b) => b.total_spend - a.total_spend);
+  const powerUsers = rankedUsers.slice(
+    0,
+    rankedUsers.length > 0 ? Math.max(1, Math.ceil(rankedUsers.length * 0.1)) : 0,
+  );
   const powerUsersSpend = powerUsers.reduce((acc, u) => acc + (u.total_spend ?? 0), 0);
 
   // Stable anon index map: human users sorted by spend get User 1, User 2, …
@@ -360,8 +366,8 @@ export default function UsersGroups({
           title="Power Users"
           value={powerUsers.length}
           subtitle={`${formatCurrency(powerUsersSpend)} spend over ${daysDiff} days`}
-          infoText="Users whose spend accounts for ≥10% of total spend in the selected period. These high-impact users drive the majority of platform costs."
-          onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "power_user_spend", label: "Power User Daily Spend"}) : undefined}
+          infoText="The top 10% of users ranked by spend in the selected period. This adapts to large accounts where no single user represents 10% of total spend."
+          onActivate={powerUsers.length > 0 && summary && startDate && endDate ? () => setSelectedKPI({kpi: "power_user_spend", label: "Power User Daily Spend"}) : undefined}
           ariaLabel="See Power Users trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>}
         />

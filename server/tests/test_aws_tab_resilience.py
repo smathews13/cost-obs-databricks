@@ -102,7 +102,7 @@ def test_users_required_queries_are_prioritized_and_bounded():
         (
             "apps",
             db.bundle_cache_key(
-                "apps:dashboard-bundle:v2:all", "2026-08-01", "2026-08-30", None
+                "apps:dashboard-bundle:v3:all", "2026-08-01", "2026-08-30", None
             ),
             apps.get_apps_dashboard_bundle,
             ("2026-08-01", "2026-08-30", False, None),
@@ -111,7 +111,7 @@ def test_users_required_queries_are_prioritized_and_bounded():
         (
             "users",
             db.bundle_cache_key(
-                "users:dashboard-bundle:v2", "2026-08-01", "2026-08-30", None
+                "users:dashboard-bundle:v3", "2026-08-01", "2026-08-30", None
             ),
             users_groups.get_users_groups_bundle,
             ("2026-08-01", "2026-08-30", None, None),
@@ -120,7 +120,7 @@ def test_users_required_queries_are_prioritized_and_bounded():
         (
             "aiml",
             db.bundle_cache_key(
-                "aiml:dashboard-bundle:v2", "2026-08-01", "2026-08-30", None
+                "aiml:dashboard-bundle:v3", "2026-08-01", "2026-08-30", None
             ),
             aiml.get_aiml_dashboard_bundle,
             ("2026-08-01", "2026-08-30", None),

@@ -1281,7 +1281,7 @@ def _compute_aiml_bundle(
         try:
             cache_written = delta_cache_put(
                 dkey,
-                "aiml:dashboard-bundle:v2",
+                "aiml:dashboard-bundle:v3",
                 _resp,
                 ttl_seconds=(
                     60
@@ -1336,7 +1336,7 @@ async def get_aiml_dashboard_bundle(
             "end_date": validated_end,
         }
 
-    _dkey = bundle_cache_key("aiml:dashboard-bundle:v2", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("aiml:dashboard-bundle:v3", params["start_date"], params["end_date"], id_list)
 
     producer_state = await asyncio.to_thread(get_bundle_compute_state, _dkey)
     if producer_state and producer_state.get("state") == "failed":
@@ -1383,7 +1383,7 @@ async def get_aiml_dashboard_bundle(
 
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
-    cache_generation = capture_cache_generation("aiml:dashboard-bundle:v2")
+    cache_generation = capture_cache_generation("aiml:dashboard-bundle:v3")
     try:
         started = await asyncio.to_thread(
             start_bundle_compute,

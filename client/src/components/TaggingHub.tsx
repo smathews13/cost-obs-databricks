@@ -361,7 +361,30 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
     );
   }
 
-  const summary = data.summary;
+  if (data.available === false || data.availability === "unavailable") {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
+        <p className="font-semibold text-amber-800">Tagging data is temporarily unavailable</p>
+        <p className="mt-1 text-sm text-amber-700">
+          {data.reason_detail || "Retry shortly. Missing tag coverage is never displayed as $0."}
+        </p>
+      </div>
+    );
+  }
+
+  const rawTimeseries = data.timeseries?.timeseries ?? [];
+  const timeseriesTagged = rawTimeseries.reduce((sum, row) => sum + Number(row.Tagged || 0), 0);
+  const timeseriesUntagged = rawTimeseries.reduce((sum, row) => sum + Number(row.Untagged || 0), 0);
+  const timeseriesTotal = timeseriesTagged + timeseriesUntagged;
+  const summary = data.summary.total_spend === 0 && timeseriesTotal > 0
+    ? {
+        tagged_spend: timeseriesTagged,
+        untagged_spend: timeseriesUntagged,
+        total_spend: timeseriesTotal,
+        tagged_percentage: (timeseriesTagged / timeseriesTotal) * 100,
+        untagged_percentage: (timeseriesUntagged / timeseriesTotal) * 100,
+      }
+    : data.summary;
 
 
   return (
@@ -404,7 +427,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           title="Tagged Spend"
           value={formatKpiCurrency(summary.tagged_spend)}
           subtitle={`${(summary.tagged_percentage ?? 0).toFixed(1)}% of ${daysDiff}-day spend`}
-          onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "tagged_spend", label: "Daily Tagged Spend" }) : undefined}
+          onActivate={summary.tagged_spend > 0 && startDate && endDate ? () => setSelectedKPI({ kpi: "tagged_spend", label: "Daily Tagged Spend" }) : undefined}
           ariaLabel="See Tagged Spend trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
         />
@@ -412,7 +435,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           title="Untagged Spend"
           value={formatKpiCurrency(summary.untagged_spend)}
           subtitle={`${(summary.untagged_percentage ?? 0).toFixed(1)}% of ${daysDiff}-day spend`}
-          onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "untagged_spend", label: "Daily Untagged Spend" }) : undefined}
+          onActivate={summary.untagged_spend > 0 && startDate && endDate ? () => setSelectedKPI({ kpi: "untagged_spend", label: "Daily Untagged Spend" }) : undefined}
           ariaLabel="See Untagged Spend trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>}
         />
