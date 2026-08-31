@@ -174,8 +174,8 @@ export function ExportDialog({
       await onExportArchitecture();
       onClose();
     } catch (error) {
-      console.error("Architecture PDF export failed", error);
-      setArchitectureError("The architecture PDF could not be generated. Please try again.");
+      console.error("Architecture PDF download failed", error);
+      setArchitectureError("The architecture PDF could not be downloaded. Please try again.");
     } finally {
       setArchitectureBusy(false);
     }
@@ -273,7 +273,7 @@ export function ExportDialog({
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.293.707l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   )}
-                  {architectureBusy ? "Generating architecture PDF…" : "Download Architecture PDF"}
+                  {architectureBusy ? "Downloading architecture PDF…" : "Download Architecture PDF"}
                 </button>
               </div>
             </div>

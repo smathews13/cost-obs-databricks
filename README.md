@@ -369,7 +369,7 @@ Use **Settings → Permissions & Access** to manage who can administer or view t
 <a id="architecture"></a>
 ## Architecture and data lineage
 
-For the customer-ready three-page design hierarchy, request paths, tab lineage, and complete source inventory, see the [cost-obs v1.2 architecture specification](cost-obs-architecture.md).
+Download the canonical customer-ready artifact, [`cost-obs-arch-1.2.pdf`](client/public/reports/cost-obs-arch-1.2.pdf), for the three-page architecture overview. The app's Architecture export serves these exact stored bytes. The detailed request paths, tab lineage, and source inventory remain in the [cost-obs v1.2 architecture specification](cost-obs-architecture.md).
 
 ```mermaid
 flowchart LR
@@ -445,7 +445,7 @@ Tables can be dropped and recreated at any time with no data loss — all source
 
 ### Tab lineage summary
 
-The downloadable architecture report maps every visible tab to its React component, FastAPI route, managed Delta data, exact source tables, and live fallback behavior. At a high level:
+The canonical `cost-obs-arch-1.2.pdf` architecture report maps every visible tab to its React component, FastAPI route, managed Delta data, exact source tables, and live fallback behavior. At a high level:
 
 - **DBU Overview** uses `daily_usage_summary` and `daily_product_breakdown`, with live billing, workspace, compute, and pipeline detail.
 - **SQL** uses `sql_tool_attribution` and `dbsql_cost_per_query`, backed by billing, query history, warehouse metadata, and workspace names.

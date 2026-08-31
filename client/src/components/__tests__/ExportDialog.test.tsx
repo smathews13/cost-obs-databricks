@@ -139,7 +139,7 @@ describe("ExportDialog report data loading", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
-  it("shows architecture export progress while generation is pending", async () => {
+  it("shows architecture export progress while the download is pending", async () => {
     let resolveExport: (() => void) | undefined;
     const onExportArchitecture = vi.fn(() => new Promise<void>((resolve) => { resolveExport = resolve; }));
     render(
@@ -154,7 +154,7 @@ describe("ExportDialog report data loading", () => {
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Download Architecture PDF" }));
-    expect(screen.getByRole("button", { name: /Generating architecture PDF/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Downloading architecture PDF/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Close export dialog" })).toBeDisabled();
     resolveExport?.();
     await waitFor(() => expect(screen.getByRole("button", { name: "Download Architecture PDF" })).toBeEnabled());
@@ -175,7 +175,7 @@ describe("ExportDialog report data loading", () => {
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Download Architecture PDF" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("The architecture PDF could not be generated");
+    expect(await screen.findByRole("alert")).toHaveTextContent("The architecture PDF could not be downloaded");
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeVisible();
   });

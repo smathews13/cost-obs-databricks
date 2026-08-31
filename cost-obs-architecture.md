@@ -47,7 +47,7 @@ Browser / React 19          FastAPI application          Databricks SQL Warehous
 3. FastAPI serves a valid cached bundle when possible; otherwise it submits governed SQL through the bound SQL Warehouse.
 4. Queries use app-managed Delta aggregates for supported summaries and live system-table queries for detailed, specialized, or fallback views.
 5. Configured AWS / Azure / GCP billing exports are queried only for the optional actual-cloud-cost views.
-6. FastAPI returns shaped JSON; React renders the dashboard or generates the architecture PDF locally.
+6. FastAPI returns shaped JSON and React renders the dashboard. Architecture export downloads the canonical same-origin `cost-obs-arch-1.2.pdf` asset without regenerating or mutating it.
 
 ## Authentication & governance
 

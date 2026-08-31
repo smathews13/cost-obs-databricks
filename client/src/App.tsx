@@ -87,6 +87,7 @@ import {
 } from "@/hooks/useBillingData";
 import type { DateRange, WorkspaceBreakdown } from "@/types/billing";
 import { generateCostCSV } from "@/utils/csvExport";
+import { downloadArchitecturePdf } from "@/utils/architectureDownload";
 import { C } from "@/theme";
 import { CostObsLockup, VersionPill, PageHero, Chip, InfoPanel } from "@/components/brand";
 import { LoadingPanels, Spinner } from "@/components/Spinner";
@@ -1249,8 +1250,7 @@ function Dashboard() {
   };
 
   const handleArchitectureExport = async () => {
-    const { generateArchitectureReport } = await import("@/utils/architectureReport");
-    await generateArchitectureReport();
+    await downloadArchitecturePdf();
   };
 
   if (showSetupWizard) {

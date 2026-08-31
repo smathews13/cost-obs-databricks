@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import re
 import shutil
@@ -11,6 +12,9 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+ARCHITECTURE_PDF_SHA256 = (
+    "aade7cb46480fe0d30586557a06495c8e800c72c40f60f0331c1fa5990506812"
+)
 
 
 def test_repository_has_no_github_workflows():
@@ -86,11 +90,19 @@ def test_current_public_stage_has_no_identifiers_secrets_or_broken_links(tmp_pat
     stage.mkdir()
     _derive_working_public_stage(stage)
 
-    errors = _load_public_validator().validate_public_tree(stage)
+    validator = _load_public_validator()
+    errors = validator.validate_public_tree(stage)
 
     assert errors == []
     assert (stage / "CHANGELOG.md").exists()
     assert not (stage / "docs" / "DEPLOYMENT_PLAN.md").exists()
+    source_pdf = stage / "client" / "public" / "reports" / "cost-obs-arch-1.2.pdf"
+    static_pdf = stage / "static" / "reports" / "cost-obs-arch-1.2.pdf"
+    for pdf in (source_pdf, static_pdf):
+        content = pdf.read_bytes()
+        assert content.startswith(b"%PDF-")
+        assert hashlib.sha256(content).hexdigest() == ARCHITECTURE_PDF_SHA256
+        assert pdf not in set(validator._text_files(stage))
 
 
 def test_public_validator_rejects_removed_doc_links_and_private_targets(tmp_path):
