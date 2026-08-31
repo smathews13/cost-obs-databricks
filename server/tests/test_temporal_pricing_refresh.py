@@ -135,13 +135,25 @@ def test_materialized_view_build_and_merge_sql_remains_temporal():
     priced_templates = [
         (name, value)
         for name, value in vars(materialized_views).items()
-        if name.isupper() and isinstance(value, str) and "p.pricing" in value
+        if (
+            name.isupper()
+            and name != "MV_TAGGING_SUMMARY"
+            and isinstance(value, str)
+            and "p.pricing" in value
+        )
     ]
     assert priced_templates
     for name, sql in priced_templates:
         assert "LEFT JOIN LATERAL" in sql, name
         assert "candidate.usage_unit = u.usage_unit" in sql, name
         assert "candidate.price_end_time IS NULL" in sql, name
+
+
+def test_tagging_request_hybrid_uses_the_aws_compatible_current_price_join():
+    sql = materialized_views.MV_TAGGING_SUMMARY
+    assert "LEFT JOIN LATERAL" not in sql
+    assert "LEFT JOIN system.billing.list_prices p" in sql
+    assert "p.price_end_time IS NULL" in sql
 
 
 def test_request_path_modules_do_not_import_temporal_helper():

@@ -2279,7 +2279,10 @@ tagged_agg AS (
     u.workspace_id,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS tagged_spend
   FROM system.billing.usage u
-  /* TEMPORAL_LIST_PRICE_JOIN */
+  LEFT JOIN system.billing.list_prices p
+    ON u.sku_name = p.sku_name
+    AND u.cloud = p.cloud
+    AND p.price_end_time IS NULL
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.custom_tags IS NOT NULL
