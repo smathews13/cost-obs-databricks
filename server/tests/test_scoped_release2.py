@@ -90,7 +90,7 @@ def test_users_mixed_scope_returns_only_filtered_local_identity_rows():
             }]
         return []
 
-    def sequential(queries, timeout=None):
+    def sequential(queries, timeout=None, **_kwargs):
         del timeout
         return {name: fn() for name, fn in queries}
 
@@ -104,7 +104,7 @@ def test_users_mixed_scope_returns_only_filtered_local_identity_rows():
         ),
     ):
         result = asyncio.run(
-            users_groups.get_users_groups_bundle(
+            users_groups._compute_users_groups_bundle(
                 start_date="2026-08-01",
                 end_date="2026-08-28",
                 workspace_ids="123",
@@ -123,7 +123,7 @@ def test_users_mixed_scope_returns_only_filtered_local_identity_rows():
         "CAST(u.workspace_id AS STRING) IN ('123')" in sql for sql in captured_sql
     )
     timeseries_sql = next(sql for sql in captured_sql if "daily AS (" in sql)
-    assert timeseries_sql.count("CAST(u.workspace_id AS STRING) IN ('123')") == 2
+    assert timeseries_sql.count("CAST(u.workspace_id AS STRING) IN ('123')") == 1
 
 
 def test_dbsql_source_drilldown_uses_unified_source_and_workspace_scope():

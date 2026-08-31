@@ -350,7 +350,7 @@ describe("SettingsPermissions: polished access controls", () => {
 
     expect(addRow).toHaveClass("settings-access-user-grid");
     expect(addRow.style.getPropertyValue("--settings-access-grid-columns")).toBe(
-      "minmax(210px, 1fr) 90px 132px 112px",
+      "minmax(210px, 1fr) 90px 112px 112px",
     );
     expect(addRow.style.minWidth).toBe("");
     expect(addRow.children).toHaveLength(4);
@@ -365,7 +365,7 @@ describe("SettingsPermissions: polished access controls", () => {
     });
     expect(screen.getByRole("textbox", { name: "User email" })).toHaveStyle({ width: "100%" });
     expect(screen.getByRole("combobox", { name: "Role for new user" }).parentElement).toHaveClass("settings-role-select");
-    expect(screen.getByRole("button", { name: "Add User" }).parentElement).toHaveStyle({ display: "grid" });
+    expect(screen.getByRole("button", { name: "Add User" }).parentElement).toHaveClass("settings-user-action-cell");
   });
 
   it("puts role guidance and the metastore placeholder directly below Users", async () => {
@@ -373,16 +373,21 @@ describe("SettingsPermissions: polished access controls", () => {
     renderPermissions();
 
     const users = await screen.findByTestId("settings-users-section");
+    const usersTable = screen.getByTestId("settings-users-table");
     const roleCapabilities = screen.getByTestId("settings-role-capabilities");
     const metastore = screen.getByRole("group", { name: "Add a metastore" });
     const servicePrincipal = screen.getByTestId("settings-service-principal-section");
 
     expect(users.compareDocumentPosition(roleCapabilities) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(usersTable.nextElementSibling).toBe(roleCapabilities);
+    expect(roleCapabilities.nextElementSibling).toBe(metastore);
     expect(roleCapabilities.compareDocumentPosition(metastore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(metastore.compareDocumentPosition(servicePrincipal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(users.compareDocumentPosition(servicePrincipal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Metastore" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Browse" })).toBeDisabled();
+    expect(metastore).toHaveStyle({ filter: "grayscale(1)", opacity: "0.68" });
+    expect(screen.getByText("Coming soon")).toBeVisible();
   });
 
   it("separates Owner persona from Admin role and protects the verified deployer", async () => {
@@ -404,6 +409,25 @@ describe("SettingsPermissions: polished access controls", () => {
     expect(screen.getByRole("combobox", { name: "Role for owner@databricks.com" })).toBeDisabled();
     expect(ownerRow?.querySelector(".settings-user-action--remove")).toBeDisabled();
     expect(screen.getByText("viewer@databricks.com").closest("[data-testid='access-user-row']")).toHaveTextContent("User");
+    expect(document.querySelectorAll(".settings-persona")).toHaveLength(4);
+    document.querySelectorAll(".settings-persona").forEach((persona) => {
+      expect(["Owner", "User"]).toContain(persona.textContent);
+    });
+  });
+
+  it("places the verification banner inside the service-principal group after Identity", async () => {
+    mockApis(SP_AUTH_STATUS);
+    renderPermissions();
+
+    const identity = await screen.findByText("Identity");
+    const banner = screen.getByTestId("service-principal-verification-banner");
+    const executionIdentity = screen.getByText("Execution identity");
+    const section = screen.getByTestId("settings-service-principal-section");
+
+    expect(section).toContainElement(banner);
+    expect(identity.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(banner.compareDocumentPosition(executionIdentity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(banner).toHaveTextContent("Service principal verified");
   });
 
   it("shows safe service-principal details without rendering credentials", async () => {
@@ -440,7 +464,8 @@ describe("SettingsPermissions: polished access controls", () => {
     expect(add).toHaveFocus();
 
     const css = readFileSync("src/components/settings/settings.css", "utf8");
-    expect(css).toMatch(/\.settings-user-action\s*\{[^}]*width:\s*104px[^}]*height:\s*32px[^}]*font-weight:\s*600/s);
+    expect(css).toMatch(/\.settings-user-action\s*\{[^}]*width:\s*112px[^}]*min-width:\s*112px[^}]*height:\s*32px[^}]*font-weight:\s*600/s);
+    expect(css).toMatch(/\.settings-user-action-cell\s*\{[^}]*width:\s*112px/s);
     expect(css).toMatch(/\.settings-user-action--remove\s*\{[^}]*danger/s);
     expect(css).toMatch(/\.settings-user-action:focus-visible/);
   });

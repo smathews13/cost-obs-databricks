@@ -22,6 +22,9 @@ export interface KPITrendSummary {
 }
 
 export interface KPITrendResponse {
+  available?: boolean;
+  retryable?: boolean;
+  unavailable_reason?: string;
   kpi: string;
   granularity: string;
   data_points: KPITrendDataPoint[];

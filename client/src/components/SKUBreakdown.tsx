@@ -195,7 +195,7 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
       {dropdownOpen && (
         <div className="absolute right-0 top-full z-[9999] mt-1 min-w-[220px] rounded-lg border border-gray-200 bg-white shadow-lg">
           <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Workspaces</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Workspace</span>
             <div className="flex items-center gap-2 text-xs">
               <button onClick={(e) => { e.stopPropagation(); setWorkspaceFilters((workspaces || []).map(ws => String(ws.workspace_id))); }} className="text-gray-500 hover:text-gray-800">All</button>
               <span className="text-gray-300">·</span>
@@ -254,6 +254,17 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
           <Spinner size="lg" />
           <p className="text-sm text-gray-500">Loading SKU breakdown...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (data?.availability === "unavailable" || data?.available === false) {
+    return (
+      <div className="rounded-lg border bg-white p-5" style={{ borderColor: C.hairline }}>
+        <h3 className="text-base font-semibold text-gray-900">Spend by SKU</h3>
+        <p className="mt-2 text-sm text-amber-700">
+          SKU detail is temporarily unavailable. Retry shortly.
+        </p>
       </div>
     );
   }

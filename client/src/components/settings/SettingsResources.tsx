@@ -91,9 +91,6 @@ export function SettingsResources() {
   const identityUrl = safeExternalUrl(sp.identity_url, true);
   const appPageUrl = safeExternalUrl(data.app.page_url);
   const sourceCodeUrl = safeExternalUrl(data.app.source_code_url);
-  const refresh = data.refresh.status;
-  const schedule = data.refresh.schedule;
-  const history = refresh?.refresh_history ?? [];
   const unavailableSections = Object.entries(data.subsections ?? {})
     .filter(([, status]) => !status.available)
     .map(([name]) => name.replaceAll("_", " "));
@@ -103,7 +100,7 @@ export function SettingsResources() {
 
   return (
     <div>
-      <SectionTitle title="Resources" subtitle="Authoritative Databricks App resources, managed data, integrations, and refresh operations." />
+      <SectionTitle title="Resources" subtitle="Authoritative Databricks App resources, managed data, and integrations." />
       {unavailableSections.length > 0 && (
         <div role="status" style={{ border: `1px solid ${T.warningBorder}`, backgroundColor: T.warningBg, color: T.warningFg, borderRadius: 8, padding: "10px 12px", marginBottom: 12, fontSize: 12 }}>
           Some resource details are temporarily unavailable ({unavailableSections.join(", ")}).{" "}
@@ -168,17 +165,6 @@ export function SettingsResources() {
           helper={data.inventory.unified_views.count ? "Verified unified views currently used for shared-source routing." : "No unified shared-source views are currently verified."}
           control={data.inventory.unified_views.count ? <InventoryList inventory={data.inventory.unified_views} /> : <span style={{ fontSize: 12, color: T.textSecondary }}>None</span>}
         />
-        <Row
-          label="Observed table availability"
-          helper={data.inventory.observed_tables
-            ? `Last bounded table inventory: ${formatTimestamp(data.inventory.observed_tables.checked_at)}.`
-            : "Not checked in this process yet; open Data & tables to run the bounded inventory."}
-          control={<span style={{ fontSize: 12, color: T.textSecondary }}>
-            {data.inventory.observed_tables
-              ? `${data.inventory.observed_tables.available} of ${data.inventory.observed_tables.total}`
-              : "Not checked"}
-          </span>}
-        />
       </Group>
 
       <Group label="Data sources & scope">
@@ -207,32 +193,6 @@ export function SettingsResources() {
         <Row label="Permissions table" helper="App roles persist here across deployments." control={<MonoChip>{data.storage.permissions_table || "Not configured"}</MonoChip>} />
       </Group>
 
-      <Group label="Refresh operations">
-        <Row
-          first
-          label="Schedule"
-          helper={schedule.enabled
-            ? `${schedule.frequency} at ${String(schedule.hour_utc).padStart(2, "0")}:00 UTC · ${schedule.lookback_days}-day rebuild window`
-            : "Scheduled refresh is disabled."}
-          control={<span style={{ fontSize: 12, color: T.textSecondary }}>{schedule.enabled ? "Enabled" : "Disabled"}</span>}
-        />
-        <Row
-          label="Freshness"
-          helper={refresh?.last_refresh_utc ? `Last successful refresh ${formatTimestamp(refresh.last_refresh_utc)}.` : "No successful refresh has been recorded."}
-          control={
-            <span style={{ color: refresh?.stale ? T.warningFg : refresh ? T.successFg : T.textSecondary, fontSize: 12, fontWeight: 600 }}>
-              {!refresh ? "Unavailable" : refresh.stale ? "Stale" : "Fresh"}
-            </span>
-          }
-        />
-        <Row
-          label={`Refresh history (${history.length})`}
-          helper={history.length
-            ? history.slice(0, 3).map((entry) => `${formatTimestamp(entry.timestamp)} · ${entry.operation || entry.trigger || "refresh"} · ${entry.status || "unknown"}`).join(" | ")
-            : "No rebuild or source-add history is available."}
-          control={<span style={{ fontSize: 12, color: T.textSecondary }}>Latest 20 retained</span>}
-        />
-      </Group>
     </div>
   );
 }

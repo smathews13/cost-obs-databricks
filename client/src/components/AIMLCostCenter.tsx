@@ -24,6 +24,7 @@ import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
 import { KPICard } from "@/components/ui/KPICard";
+import { buildAimlCategoryColorMap } from "./aimlCategoryColors";
 import {
   buildFilteredUrl,
   getActiveSourceScopeKey,
@@ -43,20 +44,6 @@ interface AIMLCostCenterProps {
   workspaceNameMap?: Record<string, string>;
 }
 
-// Stable category-to-color mapping for consistent colors across pie + timeseries
-const CATEGORY_COLORS: Record<string, string> = {
-  "Serverless Inference": C.s5,
-  "Model Training": C.s2,
-  "Feature Engineering": C.s3,
-  "GPU Clusters": C.lava,
-  "Model Serving": C.s1,
-  "MLflow": C.s5,
-  "OpenAI": C.s3,
-  "Anthropic": C.s4,
-  "Gemini": C.slate,
-  "AI Search": C.s5,
-  "Fine Tuning": C.s1,
-};
 function buildUrl(host: string | null | undefined, path: string): string | null {
   if (!host) return null;
   const base = host.replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -79,7 +66,7 @@ function getClusterUrl(host: string | null | undefined, clusterId: string, works
   return buildUrl(host, `/compute/interactive${wsParam}`);
 }
 
-export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, startDate, endDate, host, workspaceIds, workspaceNameMap }: AIMLCostCenterProps) {
+export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, endDate, host, workspaceIds, workspaceNameMap }: AIMLCostCenterProps) {
   const spNameMap = useSpNameMap();
   const [endpointsPage, setEndpointsPage] = useState(1);
   const [modelsPage, setModelsPage] = useState(1);
@@ -265,23 +252,12 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
 
   // Build a single stable color map from ALL category names so pie + timeseries match
   const categoryColorMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    let fallbackIdx = 0;
     const allNames = new Set<string>();
     // Gather from pie categories (strip "FMAPI - " prefix)
     for (const cat of data?.categories?.categories || []) allNames.add(cat.category.replace(/^FMAPI\s*-\s*/, ""));
     // Gather from timeseries categories
     for (const cat of data?.timeseries?.categories || []) allNames.add(cat);
-    // Assign colors: known names get their fixed color, others get fallback in stable order
-    for (const name of allNames) {
-      if (CATEGORY_COLORS[name]) {
-        map[name] = CATEGORY_COLORS[name];
-      } else {
-        map[name] = seriesColor(fallbackIdx);
-        fallbackIdx++;
-      }
-    }
-    return map;
+    return buildAimlCategoryColorMap(allNames);
   }, [data]);
 
   const pieData = useMemo(() => {
@@ -379,8 +355,8 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
       <div className="rounded-lg border border-red-200 bg-red-50 p-6">
         <div className="flex flex-col items-center justify-center gap-3 py-4">
           <p className="text-base font-medium text-red-800">Failed to load AI/ML data</p>
-          <p className="text-center font-mono text-sm text-red-700">
-            {error instanceof Error ? error.message : "Check server logs for details."}
+          <p className="text-center text-sm text-red-700">
+            AI/ML data is temporarily unavailable. Retry shortly.
           </p>
           {onRetry && (
             <button
@@ -471,7 +447,7 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
           title="Total AI/ML Spend"
           value={formatKpiCurrency(summary.total_spend)}
           subtitle={`over ${summary.days_in_range} days`}
-          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_spend", label: "Daily AI/ML Spend"}) : undefined}
+          onActivate={summary.total_spend > 0 && startDate && endDate ? () => setSelectedKPI({kpi: "aiml_spend", label: "Daily AI/ML Spend"}) : undefined}
           ariaLabel="See Total AI/ML Spend trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
         />
@@ -479,7 +455,7 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
           title="Total DBUs"
           value={formatNumber(summary.total_dbus)}
           subtitle={`over ${summary.days_in_range} days`}
-          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_dbus", label: "Daily AI/ML DBUs"}) : undefined}
+          onActivate={summary.total_dbus > 0 && startDate && endDate ? () => setSelectedKPI({kpi: "aiml_dbus", label: "Daily AI/ML DBUs"}) : undefined}
           ariaLabel="See Total DBUs trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>}
         />
@@ -488,7 +464,7 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
           value={formatNumber(summary.endpoint_count || 0)}
           subtitle={`avg. across ${summary.workspace_count || 0} workspaces`}
           infoText="Count of distinct model serving or inference endpoints that had billable usage on each day. An endpoint counts as active on any day it consumed DBUs."
-          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_endpoints", label: "Daily Active Endpoints"}) : undefined}
+          onActivate={(summary.endpoint_count || 0) > 0 && startDate && endDate ? () => setSelectedKPI({kpi: "aiml_endpoints", label: "Daily Active Endpoints"}) : undefined}
           ariaLabel="See Active Endpoints trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>}
         />
@@ -496,7 +472,7 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
           title="Endpoint Cost"
           value={formatKpiCurrency(summary.avg_cost_per_endpoint || 0)}
           subtitle="daily per-endpoint"
-          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "aiml_avg_endpoint_cost", label: "Average Daily Endpoint Cost"}) : undefined}
+          onActivate={(summary.avg_cost_per_endpoint || 0) > 0 && startDate && endDate ? () => setSelectedKPI({kpi: "aiml_avg_endpoint_cost", label: "Average Daily Endpoint Cost"}) : undefined}
           ariaLabel="See Endpoint Cost trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>}
         />

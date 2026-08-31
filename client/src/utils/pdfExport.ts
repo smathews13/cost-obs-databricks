@@ -68,7 +68,7 @@ export interface OptimizeExport {
       idle_minutes: number;
       idle_pct: number;
       total_spend: number;
-      estimated_idle_spend: number;
+      estimated_idle_spend: number | null;
     }>;
   };
 }
@@ -1661,7 +1661,9 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
         yPos += 6;
 
         const rows = [...data.optimize.idle.warehouses]
-          .sort((a, b) => b.estimated_idle_spend - a.estimated_idle_spend)
+          .sort((a, b) => (
+            (b.estimated_idle_spend ?? -1) - (a.estimated_idle_spend ?? -1)
+          ))
           .slice(0, 10)
           .map((w) => [
             w.warehouse_name || w.warehouse_id,
@@ -1669,7 +1671,9 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
             w.warehouse_type || "N/A",
             `${(w.idle_minutes / 60).toFixed(1)} h`,
             `${w.idle_pct.toFixed(1)}%`,
-            formatCurrency(w.estimated_idle_spend),
+            w.estimated_idle_spend == null
+              ? "N/A"
+              : formatCurrency(w.estimated_idle_spend),
           ]);
 
         autoTable(doc, {

@@ -111,9 +111,11 @@ describe("CloudCostsView empty-data controls", () => {
   });
 
   it.each([
+    ["Databricks Compute Spend", "infra_cost"],
     ["Total Cluster DBUs", "infra_dbu_hours"],
     ["Active Clusters", "infra_clusters"],
-  ])("opens the %s trend from the full card while static KPIs stay static", async (title, kpi) => {
+    ["Databricks Spend / Cluster", "avg_cost_per_cluster"],
+  ])("opens the %s trend from the full card with a backend-compatible key", async (title, kpi) => {
     const clusters = [{
       cluster_id: "cluster-1",
       cluster_name: "Cluster 1",
@@ -153,8 +155,145 @@ describe("CloudCostsView empty-data controls", () => {
     expect(card.querySelector("button")).toBeNull();
     await userEvent.click(card);
     expect(screen.getByTestId("cloud-selected-kpi")).toHaveTextContent(kpi);
-    expect(screen.getByText("Databricks Compute Spend").closest(".co-kpi-card")?.tagName).toBe("DIV");
-    expect(screen.getByText("Databricks Spend / Cluster").closest(".co-kpi-card")?.tagName).toBe("DIV");
+  });
+
+  it("keeps all cloud KPI cards static when their numeric values are zero", () => {
+    const data = {
+      ...EMPTY_COSTS,
+      cloud: "AWS",
+      cloud_display_name: "AWS",
+      clusters: [{
+        cluster_id: "cluster-zero",
+        cluster_name: "Zero cluster",
+        driver_instance_type: "m5.xlarge",
+        worker_instance_type: "m5.xlarge",
+        cluster_source: "UI",
+        workspace_id: "123",
+        state: null,
+        total_dbu_hours: 0,
+        databricks_spend: 0,
+        days_active: 1,
+        percentage: 0,
+      }],
+      total_cluster_count: 0,
+      billing_summary: {
+        databricks_compute_spend: 0,
+        avg_clusters_per_day: 0,
+        avg_databricks_spend_per_cluster: 0,
+        days_in_range: 28,
+      },
+    };
+    renderView({
+      data,
+      infraData: { ...data, available: true, availability: "available" },
+      startDate: "2026-08-01",
+      endDate: "2026-08-28",
+    });
+
+    for (const title of [
+      "Databricks Compute Spend",
+      "Total Cluster DBUs",
+      "Active Clusters",
+      "Databricks Spend / Cluster",
+    ]) {
+      expect(screen.queryByRole("button", { name: `See ${title} trend` })).not.toBeInTheDocument();
+      expect(screen.getByText(title).closest(".co-kpi-card")?.tagName).toBe("DIV");
+    }
+    expect(screen.queryByText("See trend")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["Databricks Compute Spend", "infra_cost"],
+    ["Databricks Spend / Cluster", "avg_cost_per_cluster"],
+  ])("keeps positive %s trends available when cluster metadata is missing", async (title, kpi) => {
+    const data = {
+      ...EMPTY_COSTS,
+      billing_summary: {
+        databricks_compute_spend: 75,
+        avg_clusters_per_day: 3,
+        avg_databricks_spend_per_cluster: 25,
+        days_in_range: 28,
+      },
+    };
+    renderView({
+      data,
+      infraData: {
+        ...data,
+        available: true,
+        availability: "partial",
+        reason: "cluster_detail_unavailable",
+      },
+      startDate: "2026-08-01",
+      endDate: "2026-08-28",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: `See ${title} trend` }));
+    expect(screen.getByTestId("cloud-selected-kpi")).toHaveTextContent(kpi);
+  });
+
+  it("keeps a zero fallback spend-per-cluster card static", () => {
+    const data = {
+      ...EMPTY_COSTS,
+      billing_summary: {
+        databricks_compute_spend: 75,
+        avg_clusters_per_day: 0,
+        avg_databricks_spend_per_cluster: 0,
+        days_in_range: 28,
+      },
+    };
+    renderView({
+      data,
+      infraData: { ...data, available: true, availability: "partial" },
+      startDate: "2026-08-01",
+      endDate: "2026-08-28",
+    });
+
+    expect(screen.queryByRole("button", {
+      name: "See Databricks Spend / Cluster trend",
+    })).not.toBeInTheDocument();
+  });
+
+  it("uses compact instance metadata tooltips, a singular workspace filter, and a nowrap spend header", async () => {
+    const clusters = ["123", "456"].map((workspaceId, index) => ({
+      cluster_id: `cluster-${index + 1}`,
+      cluster_name: `Cluster ${index + 1}`,
+      driver_instance_type: "m5.xlarge",
+      worker_instance_type: "m5.2xlarge",
+      cluster_source: "UI",
+      workspace_id: workspaceId,
+      state: null,
+      total_dbu_hours: 10,
+      databricks_spend: 15,
+      days_active: 1,
+      percentage: 50,
+    }));
+    const data = {
+      ...EMPTY_COSTS,
+      cloud: "AWS",
+      cloud_display_name: "AWS",
+      clusters,
+      total_databricks_spend: 30,
+      total_dbu_hours: 20,
+      total_cluster_count: 2,
+    };
+    renderView({
+      data,
+      infraData: { ...data, available: true, availability: "available" },
+      workspaceNameMap: { "123": "Workspace A", "456": "Workspace B" },
+    });
+
+    expect(screen.getByRole("button", { name: "Workspace" })).toBeVisible();
+    const spendHeader = screen.getByRole("columnheader", { name: /DBU Spend/i });
+    expect(spendHeader).toHaveClass("whitespace-nowrap");
+
+    const driverInfo = screen.getAllByRole("button", { name: "About driver instance type" })[0];
+    expect(driverInfo.closest("td")?.querySelector("a")).toBeNull();
+    await userEvent.click(driverInfo);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/D means driver node/);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/historical, deleted, or inaccessible/);
+
+    await userEvent.click(screen.getAllByRole("button", { name: "About worker instance type" })[0]);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(/W means worker nodes/);
   });
 
   it("applies account pricing to every DBU list-price spend value exactly once", () => {

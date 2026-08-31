@@ -1019,8 +1019,10 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                         className="cursor-pointer px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700"
                         onClick={() => handleSort("cost")}
                       >
-                        Cost {sortField === "cost" && (sortDirection === "asc" ? "↑" : "↓")}
-                        <InfoTooltip text={COST_TOOLTIP_TEXT} stopClick />
+                        <span className="inline-flex items-center justify-end gap-1 whitespace-nowrap">
+                          Cost {sortField === "cost" && (sortDirection === "asc" ? "↑" : "↓")}
+                          <InfoTooltip text={COST_TOOLTIP_TEXT} stopClick />
+                        </span>
                       </th>
                     </tr>
                   </thead>
@@ -1108,7 +1110,9 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Duration</th>
                       <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Cost <InfoTooltip text={COST_TOOLTIP_TEXT} />
+                        <span className="inline-flex items-center justify-end gap-1 whitespace-nowrap">
+                          Cost <InfoTooltip text={COST_TOOLTIP_TEXT} />
+                        </span>
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">History</th>
                     </tr>
@@ -1177,7 +1181,9 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Query</th>
                       <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Duration</th>
                       <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
-                        Cost <InfoTooltip text={COST_TOOLTIP_TEXT} />
+                        <span className="inline-flex items-center justify-end gap-1 whitespace-nowrap">
+                          Cost <InfoTooltip text={COST_TOOLTIP_TEXT} />
+                        </span>
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">History</th>
                     </tr>
@@ -1293,28 +1299,30 @@ export function OptimizeMethodologyPanel() {
   );
 }
 
-export function WarehouseRightsizingView({ host }: { host?: string | null }) {
-  const { data: warehouseHealth, isLoading: healthLoading, isError: healthError } = useQuery<{
-    available: boolean;
-    recommendations: Array<{
-      warehouse_id: string;
-      warehouse_name: string | null;
-      warehouse_size: string | null;
-      workspace_id: string;
-      recommendation_type: string;
-      recommendation_text: string;
-    }>;
-    warehouses_analyzed: number;
-  }>({
-    queryKey: ["warehouse-health"],
-    queryFn: async () => {
-      const response = await fetch("/api/sql/warehouse-health");
-      if (!response.ok) throw new Error(`Warehouse health request failed with ${response.status}`);
-      return response.json();
-    },
-    staleTime: 30 * 60 * 1000,
-    retry: false,
-  });
+export interface WarehouseHealthData {
+  available: boolean;
+  recommendations: Array<{
+    warehouse_id: string;
+    warehouse_name: string | null;
+    warehouse_size: string | null;
+    workspace_id: string;
+    recommendation_type: string;
+    recommendation_text: string;
+  }>;
+  warehouses_analyzed: number;
+}
+
+export function WarehouseRightsizingView({
+  host,
+  data: warehouseHealth,
+  isLoading: healthLoading,
+  isError: healthError,
+}: {
+  host?: string | null;
+  data: WarehouseHealthData | undefined;
+  isLoading: boolean;
+  isError: boolean;
+}) {
   const HEALTH_ISSUE_OPTIONS = [
     { value: "OVER_SCALED", label: "Over-Scaled" },
     { value: "OVERSIZED", label: "Oversized" },
@@ -1514,57 +1522,42 @@ const fmtHours = (minutes: number) => {
   return `${h}h ${m}m`;
 };
 
+export interface WarehouseIdleTimeData {
+  available: boolean;
+  serverless_detected: boolean;
+  error?: string;
+  warehouses: Array<{
+    warehouse_id: string;
+    warehouse_name: string;
+    warehouse_size: string;
+    warehouse_type: string;
+    workspace_id: string;
+    uptime_source?: string;
+    total_running_minutes: number;
+    busy_union_minutes: number;
+    idle_minutes: number;
+    idle_pct: number;
+    warm_hold_minutes: number;
+    keep_alive_score: number;
+    auto_stop_mins: number;
+    max_num_clusters: number;
+    total_spend: number;
+    estimated_idle_spend: number | null;
+    low_confidence: boolean;
+  }>;
+}
+
 export function WarehouseIdleTimeView({
   host,
-  startDate,
-  endDate,
-  workspaceIds,
+  data,
+  isLoading,
+  isError,
 }: {
   host?: string | null;
-  startDate?: string;
-  endDate?: string;
-  workspaceIds?: string[];
+  data: WarehouseIdleTimeData | undefined;
+  isLoading: boolean;
+  isError: boolean;
 }) {
-  const params = new URLSearchParams();
-  if (startDate) params.set("start_date", startDate);
-  if (endDate) params.set("end_date", endDate);
-  if (workspaceIds && workspaceIds.length > 0) params.set("workspace_ids", workspaceIds.join(","));
-
-  const { data, isLoading, isError } = useQuery<{
-    available: boolean;
-    serverless_detected: boolean;
-    error?: string;
-    warehouses: Array<{
-      warehouse_id: string;
-      warehouse_name: string;
-      warehouse_size: string;
-      warehouse_type: string;
-      workspace_id: string;
-      uptime_source?: string;
-      total_running_minutes: number;
-      busy_union_minutes: number;
-      idle_minutes: number;
-      idle_pct: number;
-      warm_hold_minutes: number;
-      keep_alive_score: number;
-      auto_stop_mins: number;
-      max_num_clusters: number;
-      total_spend: number;
-      // null when the backend suppressed attribution: serverless, multi-cluster,
-      // or when uptime came from the billing fallback rather than lifecycle events.
-      estimated_idle_spend: number | null;
-      low_confidence: boolean;
-    }>;
-  }>({
-    queryKey: ["warehouse-idle-time", startDate, endDate, workspaceIds?.join(",")],
-    queryFn: async () => {
-      const response = await fetch(`/api/sql/warehouse-health/idle-time?${params}`);
-      if (!response.ok) throw new Error(`Warehouse idle time request failed with ${response.status}`);
-      return response.json();
-    },
-    staleTime: 30 * 60 * 1000,
-    retry: false,
-  });
   const [idlePage, setIdlePage] = useState(1);
   const [idleSearch, setIdleSearch] = useState("");
   const [idleSizeFilter, setIdleSizeFilter] = useState<string[]>([]);

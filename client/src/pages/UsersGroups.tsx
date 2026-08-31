@@ -3,14 +3,12 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   Cell, LabelList,
 } from "recharts";
-import { useUsersGroupsBundle } from "@/hooks/useBillingData";
 import { KPITrendModal } from "@/components/KPITrendModal";
 import { Bot } from "lucide-react";
 import { LoadingPanels } from "@/components/Spinner";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 
-import type { UserSpend } from "@/hooks/useBillingData";
-import type { DateRange } from "@/types/billing";
+import type { UserSpend, UsersGroupsBundle } from "@/hooks/useBillingData";
 import {
   buildAnonymizedIdentityMap,
   formatIdentity,
@@ -168,7 +166,10 @@ function ProductDrilldown({ topUsers, displayIdentity }: { topUsers: UserSpend[]
 interface Props {
   startDate: string;
   endDate: string;
-  dateRange: DateRange;
+  data: UsersGroupsBundle | undefined;
+  isLoading: boolean;
+  isError?: boolean;
+  onRetry: () => void;
   anonymizeUsers?: boolean;
   workspaceIds?: string[];
   workspaceNameMap?: Record<string, string>;
@@ -176,7 +177,17 @@ interface Props {
 
 const PAGE_SIZE = 10;
 
-export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUsers = false, workspaceIds, workspaceNameMap }: Props) {
+export default function UsersGroups({
+  startDate,
+  endDate,
+  data,
+  isLoading,
+  isError = false,
+  onRetry,
+  anonymizeUsers = false,
+  workspaceIds,
+  workspaceNameMap,
+}: Props) {
   const spNameMap = useSpNameMap();
   const [selectedUser, setSelectedUser] = useState<UserSpend | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -211,7 +222,6 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const { data, isLoading } = useUsersGroupsBundle(dateRange, workspaceIds);
   const summary = data?.summary;
   const topUsers = data?.top_users ?? [];
   const uniqueProducts = Array.from(new Set(topUsers.map(u => u.primary_product).filter(Boolean))).sort() as string[];
@@ -266,8 +276,31 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
     ]} />;
   }
 
+  if (isError || data?.availability === "unavailable" || data?.available === false) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
+        <p className="font-medium text-amber-900">User data is temporarily unavailable</p>
+        <p className="mt-1 text-sm text-amber-800">
+          User summary data is temporarily unavailable. Retry shortly.
+        </p>
+        <button
+          type="button"
+          className="mt-3 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900"
+          onClick={onRetry}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {data?.availability === "partial" && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          Top users and totals are available. Some optional activity or product detail could not be loaded.
+        </div>
+      )}
       <InfoPanel
         title="Users tab methodology"
         minimized={infoMinimized}

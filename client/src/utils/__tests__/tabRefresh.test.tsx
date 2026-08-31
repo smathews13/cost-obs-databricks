@@ -141,6 +141,29 @@ describe("per-tab manual refresh", () => {
     expect(invalidate.mock.invocationCallOrder[0]).toBeLessThan(refetch.mock.invocationCallOrder[0]);
   });
 
+  it("increments the current tab fetch count after manual refresh", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
+    });
+    const queryFn = vi.fn(async () => ({ total_spend: 1 }));
+    const observer = new QueryObserver(client, {
+      queryKey: ["billing", "dashboard-bundle-fast", "scope-a"],
+      queryFn,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    await observer.refetch();
+    expect(queryFn).toHaveBeenCalledTimes(1);
+
+    await refreshTabData(
+      client,
+      "dbu",
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }) as typeof fetch,
+    );
+
+    expect(queryFn).toHaveBeenCalledTimes(2);
+    unsubscribe();
+  });
+
   it("invalidates old scope without duplicate refetch, then fetches new scope on demand", async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 60_000 } },

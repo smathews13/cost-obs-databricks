@@ -1,15 +1,10 @@
 import { createElement } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { UserSpend } from "@/hooks/useBillingData";
-import { useUsersGroupsBundle } from "@/hooks/useBillingData";
+import { describe, expect, it, vi } from "vitest";
+import type { UserSpend, UsersGroupsBundle } from "@/hooks/useBillingData";
 import UsersGroups from "../UsersGroups";
 import { buildAnonymizedIdentityMap } from "@/utils/identity";
 
-vi.mock("@/hooks/useBillingData", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/hooks/useBillingData")>();
-  return { ...actual, useUsersGroupsBundle: vi.fn() };
-});
 vi.mock("@/components/KPITrendModal", () => ({
   KPITrendModal: (props: {
     kpi: string;
@@ -34,28 +29,32 @@ const user = (user_email: string, total_spend: number): UserSpend => ({
   products: [],
 });
 
-describe("user anonymization", () => {
-  beforeEach(() => {
-    vi.mocked(useUsersGroupsBundle).mockReturnValue({
-      data: {
-        summary: {
-          user_count: 2,
-          workspace_count: 1,
-          total_spend: 150,
-          total_dbus: 15,
-          avg_spend_per_user: 75,
-          spend_growth_pct: 0,
-        },
-        top_users: [
-          { ...user("human@example.com", 100), total_dbus: 10, percentage: 66.7, products: [{ product: "SQL", spend: 100 }] },
-          { ...user("12345678-1234-1234-1234-123456789abc", 50), total_dbus: 5, percentage: 33.3, products: [{ product: "SQL", spend: 50 }] },
-        ],
-        user_growth: [],
-      },
-      isLoading: false,
-    } as ReturnType<typeof useUsersGroupsBundle>);
-  });
+const bundle: UsersGroupsBundle = {
+  summary: {
+    user_count: 2,
+    workspace_count: 1,
+    total_spend: 150,
+    total_dbus: 15,
+    avg_spend_per_user: 75,
+    spend_growth_pct: 0,
+  },
+  top_users: [
+    { ...user("human@example.com", 100), total_dbus: 10, percentage: 66.7, products: [{ product: "SQL", spend: 100 }] },
+    { ...user("12345678-1234-1234-1234-123456789abc", 50), total_dbus: 5, percentage: 33.3, products: [{ product: "SQL", spend: 50 }] },
+  ],
+  user_growth: [],
+};
+const defaultProps = {
+  startDate: "2026-08-01",
+  endDate: "2026-08-28",
+  data: bundle,
+  isLoading: false,
+  isError: false,
+  error: null,
+  onRetry: vi.fn(),
+};
 
+describe("user anonymization", () => {
   it("replaces human identities by spend rank and preserves service principals", () => {
     const servicePrincipal = "12345678-1234-1234-1234-123456789abc";
     const result = buildAnonymizedIdentityMap([
@@ -71,9 +70,7 @@ describe("user anonymization", () => {
 
   it("keeps human identities anonymized in details and product drilldowns", () => {
     render(createElement(UsersGroups, {
-      startDate: "2026-08-01",
-      endDate: "2026-08-28",
-      dateRange: { startDate: "2026-08-01", endDate: "2026-08-28" },
+      ...defaultProps,
       anonymizeUsers: true,
     }));
 
@@ -84,9 +81,7 @@ describe("user anonymization", () => {
 
   it("uses the stable anonymized rank in avatars and product users", () => {
     render(createElement(UsersGroups, {
-      startDate: "2026-08-01",
-      endDate: "2026-08-28",
-      dateRange: { startDate: "2026-08-01", endDate: "2026-08-28" },
+      ...defaultProps,
       anonymizeUsers: true,
     }));
 
@@ -103,9 +98,7 @@ describe("user anonymization", () => {
 
   it("routes every full-card user trend through users-groups-owned cache keys", () => {
     render(createElement(UsersGroups, {
-      startDate: "2026-08-01",
-      endDate: "2026-08-28",
-      dateRange: { startDate: "2026-08-01", endDate: "2026-08-28" },
+      ...defaultProps,
     }));
 
     for (const [title, kpi, prefix] of [
@@ -121,5 +114,33 @@ describe("user anonymization", () => {
       expect(screen.getByTestId("users-trend-routing")).toHaveAttribute("data-kpi", kpi);
       expect(screen.getByTestId("users-trend-routing")).toHaveAttribute("data-prefix", prefix);
     }
+  });
+
+  it("settles with retryable unavailable copy instead of four endless spinners", () => {
+    const onRetry = vi.fn();
+    render(createElement(UsersGroups, {
+      ...defaultProps,
+      data: {
+        available: false,
+        availability: "unavailable",
+        retryable: true,
+        reason_detail: "Failed URL /api/users?workspace_ids=987654321",
+        summary: {},
+        top_users: [],
+        timeseries: [],
+        timeseries_users: [],
+        by_workspace: [],
+        user_growth: [],
+        start_date: "2026-08-01",
+        end_date: "2026-08-28",
+      },
+      onRetry,
+    }));
+
+    expect(screen.getByText("User data is temporarily unavailable")).toBeVisible();
+    expect(screen.queryByText(/987654321/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading...")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledOnce();
   });
 });

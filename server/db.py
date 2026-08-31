@@ -455,11 +455,24 @@ _bundle_executor = _DaemonExecutor(
 _bundle_admission = threading.BoundedSemaphore(
     BUNDLE_EXECUTOR_MAX_WORKERS + BUNDLE_EXECUTOR_QUEUE_CAPACITY
 )
-_bundle_inflight: set[str] = set()
+_bundle_inflight: dict[str, str] = {}
 _bundle_inflight_lock = threading.Lock()
 _bundle_lease_thread_lock = threading.Lock()
 _bundle_metrics_lock = threading.Lock()
 _bundle_metrics = {"active": 0, "queued": 0, "rejected": 0, "leased_elsewhere": 0}
+_bundle_lease_owner: ContextVar[tuple[str, str] | None] = ContextVar(
+    "_bundle_lease_owner", default=None
+)
+_bundle_remote_write_result: ContextVar[bool | None] = ContextVar(
+    "_bundle_remote_write_result", default=None
+)
+BUNDLE_TERMINAL_STATE_SECONDS = 15
+
+
+def _record_bundle_remote_write_result(succeeded: bool) -> None:
+    """Keep a required producer write failed once any durable write fails."""
+    if _bundle_remote_write_result.get() is not False:
+        _bundle_remote_write_result.set(succeeded)
 
 
 @dataclass(frozen=True)
@@ -472,9 +485,10 @@ class BundleLease:
     lock_path: str
     expires_at: float
     lease_seconds: int
+    deadline_at: float
 
     def renew(self) -> bool:
-        """Extend this lease only while the on-disk owner fence still matches."""
+        """Heartbeat this owner without extending its absolute hard deadline."""
         import fcntl
 
         now = time.time()
@@ -487,21 +501,35 @@ class BundleLease:
                             state = json.load(state_file)
                     except (FileNotFoundError, json.JSONDecodeError, OSError):
                         return False
-                    if state.get("owner") != self.owner:
+                    if (
+                        state.get("owner") != self.owner
+                        or state.get("state") not in {"queued", "running"}
+                    ):
                         return False
-                    state["expires_at"] = now + self.lease_seconds
+                    deadline_at = float(state.get("deadline_at", self.deadline_at))
+                    if now >= deadline_at:
+                        _mark_bundle_state_failed(
+                            state,
+                            now,
+                            "BUNDLE_PRODUCER_DEADLINE",
+                        )
+                        _write_bundle_state(self.state_path, self.owner, state, "deadline")
+                        return False
+                    state["state"] = "running"
+                    state.setdefault("started_at", now)
+                    state["expires_at"] = min(now + self.lease_seconds, deadline_at)
                     state["renewed_at"] = now
-                    temp_path = f"{self.state_path}.{self.owner}.renew"
-                    with open(temp_path, "w") as state_file:
-                        json.dump(state, state_file)
-                        state_file.flush()
-                        os.fsync(state_file.fileno())
-                    os.replace(temp_path, self.state_path)
+                    _write_bundle_state(self.state_path, self.owner, state, "renew")
                     return True
                 finally:
                     fcntl.flock(lock_file, fcntl.LOCK_UN)
 
-    def release(self) -> None:
+    def release(
+        self,
+        *,
+        succeeded: bool = True,
+        error_code: str = "BUNDLE_PRODUCER_FAILED",
+    ) -> None:
         import fcntl
 
         with _bundle_lease_thread_lock:
@@ -514,18 +542,62 @@ class BundleLease:
                     except (FileNotFoundError, json.JSONDecodeError, OSError):
                         state = {}
                     if state.get("owner") == self.owner:
-                        try:
-                            os.remove(self.state_path)
-                        except FileNotFoundError:
-                            pass
+                        if succeeded and state.get("state") in {"queued", "running"}:
+                            try:
+                                os.remove(self.state_path)
+                            except FileNotFoundError:
+                                pass
+                        elif state.get("state") in {"queued", "running"}:
+                            _mark_bundle_state_failed(
+                                state,
+                                time.time(),
+                                error_code,
+                            )
+                            _write_bundle_state(
+                                self.state_path,
+                                self.owner,
+                                state,
+                                "failed",
+                            )
                 finally:
                     fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def _write_bundle_state(
+    state_path: str,
+    owner: str,
+    state: dict[str, Any],
+    suffix: str,
+) -> None:
+    temp_path = f"{state_path}.{owner}.{suffix}"
+    with open(temp_path, "w") as state_file:
+        json.dump(state, state_file)
+        state_file.flush()
+        os.fsync(state_file.fileno())
+    os.replace(temp_path, state_path)
+
+
+def _mark_bundle_state_failed(
+    state: dict[str, Any],
+    now: float,
+    error_code: str,
+) -> None:
+    state.update(
+        {
+            "state": "failed",
+            "error_code": error_code,
+            "failed_at": now,
+            "expires_at": now,
+            "terminal_expires_at": now + BUNDLE_TERMINAL_STATE_SECONDS,
+        }
+    )
 
 
 def try_acquire_bundle_lease(
     cache_key: str,
     *,
     lease_seconds: int | None = None,
+    hard_deadline_seconds: int | None = None,
 ) -> BundleLease | None:
     """Atomically claim a bundle key, replacing only expired/crashed claims."""
     import fcntl
@@ -538,6 +610,10 @@ def try_acquire_bundle_lease(
     lock_path = str(lease_dir / f"{key_hash}.lock")
     now = time.time()
     owner = f"{os.getpid()}:{uuid.uuid4().hex}"
+    deadline_duration = max(
+        duration,
+        int(hard_deadline_seconds or BUNDLE_LEASE_SECONDS),
+    )
 
     with _bundle_lease_thread_lock:
         with open(lock_path, "a+") as lock_file:
@@ -552,22 +628,34 @@ def try_acquire_bundle_lease(
                     existing_expiry = float(state.get("expires_at", 0))
                 except (TypeError, ValueError):
                     existing_expiry = 0
-                if state.get("owner") and existing_expiry > now:
+                try:
+                    terminal_expiry = float(state.get("terminal_expires_at", 0))
+                except (TypeError, ValueError):
+                    terminal_expiry = 0
+                if state.get("state") == "failed" and terminal_expiry > now:
+                    return None
+                if (
+                    state.get("owner")
+                    and state.get("state") in {"queued", "running"}
+                    and existing_expiry > now
+                ):
                     return None
                 expires_at = now + duration
-                temp_path = f"{state_path}.{owner}.tmp"
-                with open(temp_path, "w") as state_file:
-                    json.dump(
-                        {
-                            "owner": owner,
-                            "expires_at": expires_at,
-                            "created_at": now,
-                        },
-                        state_file,
-                    )
-                    state_file.flush()
-                    os.fsync(state_file.fileno())
-                os.replace(temp_path, state_path)
+                deadline_at = now + deadline_duration
+                _write_bundle_state(
+                    state_path,
+                    owner,
+                    {
+                        "cache_key": cache_key,
+                        "owner": owner,
+                        "state": "queued",
+                        "expires_at": min(expires_at, deadline_at),
+                        "deadline_at": deadline_at,
+                        "created_at": now,
+                        "heartbeat_at": now,
+                    },
+                    "claim",
+                )
                 return BundleLease(
                     cache_key=cache_key,
                     owner=owner,
@@ -575,6 +663,7 @@ def try_acquire_bundle_lease(
                     lock_path=lock_path,
                     expires_at=expires_at,
                     lease_seconds=duration,
+                    deadline_at=deadline_at,
                 )
             finally:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
@@ -586,21 +675,34 @@ def start_bundle_compute(
     *,
     name: str = "bundle",
     lease_seconds: int | None = None,
+    hard_deadline_seconds: int | None = None,
 ) -> bool:
     """Start one bounded producer process-wide and cross-process for a cache key."""
     with _bundle_inflight_lock:
         if cache_key in _bundle_inflight:
             return False
-        _bundle_inflight.add(cache_key)
 
     if not _bundle_admission.acquire(blocking=False):
-        with _bundle_inflight_lock:
-            _bundle_inflight.discard(cache_key)
         with _bundle_metrics_lock:
             _bundle_metrics["rejected"] += 1
         raise BundleOverloadedError(
             "Background bundle capacity is full; retry the request shortly."
         )
+
+    # Claim before queueing so another process immediately sees this producer,
+    # including time spent waiting for the bounded executor.
+    lease = try_acquire_bundle_lease(
+        cache_key,
+        lease_seconds=lease_seconds,
+        hard_deadline_seconds=hard_deadline_seconds,
+    )
+    if lease is None:
+        _bundle_admission.release()
+        with _bundle_metrics_lock:
+            _bundle_metrics["leased_elsewhere"] += 1
+        return False
+    with _bundle_inflight_lock:
+        _bundle_inflight[cache_key] = lease.owner
 
     request_context = __import__("contextvars").copy_context()
     with _bundle_metrics_lock:
@@ -609,26 +711,21 @@ def start_bundle_compute(
     def run() -> None:
         with _bundle_metrics_lock:
             _bundle_metrics["queued"] -= 1
-        # A cross-process contender may have completed while this task waited
-        # for a worker. Recheck the durable cache before claiming/recomputing.
+        # A cross-process contender may have completed while this task waited.
         try:
             if delta_cache_get(cache_key) is not None:
+                lease.release()
                 return
         except Exception:
-            logger.debug("Bundle cache recheck failed; continuing to lease acquisition")
-
-        lease = try_acquire_bundle_lease(
-            cache_key, lease_seconds=lease_seconds
-        )
-        if lease is None:
-            with _bundle_metrics_lock:
-                _bundle_metrics["leased_elsewhere"] += 1
-            return
+            logger.debug("Bundle cache recheck failed; continuing claimed producer")
 
         with _bundle_metrics_lock:
             _bundle_metrics["active"] += 1
         heartbeat_stop = threading.Event()
-        heartbeat_interval = max(0.05, lease.lease_seconds / 3)
+        heartbeat_interval = max(
+            0.05,
+            min(lease.lease_seconds / 3, max(0.05, (lease.deadline_at - time.time()) / 3)),
+        )
 
         def renew_while_active() -> None:
             while not heartbeat_stop.wait(heartbeat_interval):
@@ -642,26 +739,57 @@ def start_bundle_compute(
             name=f"{name}-lease-heartbeat",
         )
         heartbeat.start()
+        succeeded = False
+        terminal_error_code = "BUNDLE_PRODUCER_FAILED"
         try:
-            request_context.run(producer)
+            def run_owned_producer() -> None:
+                owner_token = _bundle_lease_owner.set((cache_key, lease.owner))
+                write_token = _bundle_remote_write_result.set(None)
+                try:
+                    producer()
+                finally:
+                    producer_outcome["remote_write"] = _bundle_remote_write_result.get()
+                    _bundle_remote_write_result.reset(write_token)
+                    _bundle_lease_owner.reset(owner_token)
+
+            producer_outcome: dict[str, bool | None] = {}
+            try:
+                request_context.run(run_owned_producer)
+            except Exception as producer_error:
+                terminal_error_code = str(
+                    getattr(producer_error, "code", "BUNDLE_PRODUCER_FAILED")
+                )
+                raise
+            if not bundle_lease_owner_is_current(cache_key, lease.owner):
+                terminal_error_code = "BUNDLE_PRODUCER_OWNER_LOST"
+            elif producer_outcome.get("remote_write") is False:
+                terminal_error_code = "BUNDLE_REMOTE_CACHE_WRITE_FAILED"
+            else:
+                succeeded = True
         finally:
             heartbeat_stop.set()
             heartbeat.join(timeout=max(0.1, heartbeat_interval * 2))
-            lease.release()
+            lease.release(
+                succeeded=succeeded,
+                error_code=terminal_error_code,
+            )
             with _bundle_metrics_lock:
                 _bundle_metrics["active"] -= 1
 
     try:
         future = _bundle_executor.submit(run)
     except Exception:
+        lease.release(succeeded=False)
         _bundle_admission.release()
         with _bundle_inflight_lock:
-            _bundle_inflight.discard(cache_key)
+            if _bundle_inflight.get(cache_key) == lease.owner:
+                _bundle_inflight.pop(cache_key, None)
         raise
 
     def finish(_future: Future) -> None:
         with _bundle_inflight_lock:
-            _bundle_inflight.discard(cache_key)
+            if _bundle_inflight.get(cache_key) == lease.owner:
+                _bundle_inflight.pop(cache_key, None)
         _bundle_admission.release()
 
     future.add_done_callback(finish)
@@ -671,9 +799,12 @@ def start_bundle_compute(
 
 def bundle_compute_is_pending(cache_key: str) -> bool:
     """Check local/cross-process bundle ownership without consuming SQL capacity."""
-    with _bundle_inflight_lock:
-        if cache_key in _bundle_inflight:
-            return True
+    state = get_bundle_compute_state(cache_key)
+    return bool(state and state.get("state") in {"queued", "running"})
+
+
+def get_bundle_compute_state(cache_key: str) -> dict[str, Any] | None:
+    """Read durable producer state and atomically fail an expired deadline."""
 
     key_hash = hashlib.sha256(cache_key.encode()).hexdigest()
     state_path = Path(_BUNDLE_LEASE_DIR) / f"{key_hash}.json"
@@ -683,18 +814,118 @@ def bundle_compute_is_pending(cache_key: str) -> bool:
 
         with _bundle_lease_thread_lock:
             with open(lock_path, "a+") as lock_file:
-                fcntl.flock(lock_file, fcntl.LOCK_SH)
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
                 try:
                     with open(state_path) as state_file:
                         state = json.load(state_file)
-                    return bool(
-                        state.get("owner")
-                        and float(state.get("expires_at", 0)) > time.time()
-                    )
+                    now = time.time()
+                    if (
+                        state.get("state") in {"queued", "running"}
+                        and now >= float(state.get("deadline_at", 0))
+                    ):
+                        _mark_bundle_state_failed(
+                            state,
+                            now,
+                            "BUNDLE_PRODUCER_DEADLINE",
+                        )
+                        _write_bundle_state(
+                            str(state_path),
+                            str(state.get("owner", "unknown")),
+                            state,
+                            "poll-deadline",
+                        )
+                        with _bundle_inflight_lock:
+                            if _bundle_inflight.get(cache_key) == state.get("owner"):
+                                _bundle_inflight.pop(cache_key, None)
+                    if (
+                        state.get("state") == "failed"
+                        and now >= float(state.get("terminal_expires_at", 0))
+                    ):
+                        with _bundle_inflight_lock:
+                            if _bundle_inflight.get(cache_key) == state.get("owner"):
+                                _bundle_inflight.pop(cache_key, None)
+                        state_path.unlink(missing_ok=True)
+                        return None
+                    if state.get("state") == "failed":
+                        with _bundle_inflight_lock:
+                            if _bundle_inflight.get(cache_key) == state.get("owner"):
+                                _bundle_inflight.pop(cache_key, None)
+                    if (
+                        state.get("state") in {"queued", "running"}
+                        and float(state.get("expires_at", 0)) <= now
+                    ):
+                        _mark_bundle_state_failed(
+                            state,
+                            now,
+                            "BUNDLE_PRODUCER_LEASE_EXPIRED",
+                        )
+                        _write_bundle_state(
+                            str(state_path),
+                            str(state.get("owner", "unknown")),
+                            state,
+                            "lease-expired",
+                        )
+                    return state
                 finally:
                     fcntl.flock(lock_file, fcntl.LOCK_UN)
     except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError):
-        return False
+        return None
+
+
+def bundle_lease_owner_is_current(cache_key: str, owner: str) -> bool:
+    state = get_bundle_compute_state(cache_key)
+    return bool(
+        state
+        and state.get("owner") == owner
+        and state.get("state") in {"queued", "running"}
+    )
+
+
+def abandon_bundle_compute(
+    cache_key: str,
+    *,
+    expected_owner: str | None = None,
+    error_code: str = "BUNDLE_PRODUCER_DEADLINE",
+) -> None:
+    """Owner-fence and fail a producer that exceeded its hard deadline.
+
+    The producer's cache generation must be invalidated by the caller first so
+    late output cannot become visible. Its executor permit is released normally
+    if the abandoned thread eventually exits.
+    """
+    import fcntl
+
+    with _bundle_inflight_lock:
+        local_owner = _bundle_inflight.get(cache_key)
+        if expected_owner is None or local_owner == expected_owner:
+            _bundle_inflight.pop(cache_key, None)
+
+    key_hash = hashlib.sha256(cache_key.encode()).hexdigest()
+    state_path = Path(_BUNDLE_LEASE_DIR) / f"{key_hash}.json"
+    lock_path = Path(_BUNDLE_LEASE_DIR) / f"{key_hash}.lock"
+    try:
+        with _bundle_lease_thread_lock:
+            with open(lock_path, "a+") as lock_file:
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
+                try:
+                    try:
+                        with open(state_path) as state_file:
+                            state = json.load(state_file)
+                    except (FileNotFoundError, json.JSONDecodeError, OSError):
+                        return
+                    if expected_owner is not None and state.get("owner") != expected_owner:
+                        return
+                    _mark_bundle_state_failed(state, time.time(), error_code)
+                    _write_bundle_state(
+                        str(state_path),
+                        str(state.get("owner", "unknown")),
+                        state,
+                        "abandoned",
+                    )
+                finally:
+                    fcntl.flock(lock_file, fcntl.LOCK_UN)
+    except OSError:
+        logger.warning("Could not remove abandoned bundle lease for %s", cache_key)
 
 
 def get_bundle_executor_metrics() -> dict[str, int]:
@@ -2131,15 +2362,38 @@ def delta_cache_put(
     *,
     wait_for_remote: bool = False,
 ) -> bool:
-    """Write a bundle payload to the Delta response cache. Fails silently; one retry on conflict.
+    """Write a bundle payload and report whether the requested write was accepted.
 
     L1 is updated synchronously. Remote writes use a bounded background queue by
     default. Cross-worker single-flight producers set ``wait_for_remote=True`` so
-    the lease is not released before the shared row becomes visible.
+    the result reports actual remote durability before the lease is released.
     """
     operation_generation = generation or capture_cache_generation(endpoint)
     if operation_generation.endpoint != endpoint:
         raise ValueError("Cache generation endpoint must match the cache write endpoint.")
+    bundle_owner = _bundle_lease_owner.get()
+    if (
+        bundle_owner is not None
+        and bundle_owner[0] == key
+        and not bundle_lease_owner_is_current(key, bundle_owner[1])
+    ):
+        logger.warning(
+            "Rejected late bundle cache write for %s after owner fence expired",
+            endpoint,
+        )
+        if wait_for_remote:
+            _record_bundle_remote_write_result(False)
+        return False
+
+    def _remove_local_payload() -> None:
+        with _cache_generation_thread_lock:
+            if (
+                _delta_l1.get(key) is payload
+                and _delta_l1_generations.get(key) == operation_generation.value
+            ):
+                _delta_l1.pop(key, None)
+                _delta_l1_endpoints.pop(key, None)
+                _delta_l1_generations.pop(key, None)
 
     # Keep the request path non-blocking with respect to remote Delta writes.
     # The local lock still orders this worker's L1 update against a clear; the
@@ -2148,6 +2402,8 @@ def delta_cache_put(
         state = _read_cache_generation_state()
         if not _cache_generation_is_current(operation_generation, state):
             logger.info("Rejected stale cache write for %s after invalidation", endpoint)
+            if wait_for_remote:
+                _record_bundle_remote_write_result(False)
             return False
         _delta_l1[key] = payload
         _delta_l1_endpoints[key] = endpoint
@@ -2162,16 +2418,23 @@ def delta_cache_put(
         _payload=payload,
         _ttl=ttl_seconds,
         _generation=operation_generation,
-    ):
+    ) -> bool:
         with _cache_generation_operation_lock() as state:
             if not _cache_generation_is_current(_generation, state):
                 logger.info("Rejected stale Delta cache write for %s after invalidation", _endpoint)
-                return
+                return False
+        if (
+            bundle_owner is not None
+            and bundle_owner[0] == _key
+            and not bundle_lease_owner_is_current(_key, bundle_owner[1])
+        ):
+            logger.warning("Rejected remote cache write after bundle owner fence expired")
+            return False
         if not _ensure_response_cache_table():
-            return
+            return False
         cat, sch = get_catalog_schema()
         if not cat or not sch:
-            return
+            return False
         compressed = base64.b64encode(
             gzip.compress(json.dumps(_payload).encode())
         ).decode("ascii")
@@ -2212,16 +2475,45 @@ def delta_cache_put(
                             "Delta cache write for %s completed stale; readers will reject it",
                             _endpoint,
                         )
-                return
+                        return False
+                if (
+                    bundle_owner is not None
+                    and bundle_owner[0] == _key
+                    and not bundle_lease_owner_is_current(_key, bundle_owner[1])
+                ):
+                    logger.warning(
+                        "Bundle owner fence expired during remote cache write; deleting late row"
+                    )
+                    # Fence readers before best-effort cleanup. Even if the
+                    # DELETE fails, the old generation cannot be promoted.
+                    delta_cache_invalidate(_endpoint, remote_cleanup=False)
+                    try:
+                        execute_query(
+                            f"DELETE FROM `{cat}`.`{sch}`.`app_response_cache` "
+                            "WHERE cache_key = :key AND generation = :generation",
+                            {
+                                "key": _key,
+                                "generation": _generation.value,
+                            },
+                            no_cache=True,
+                        )
+                    except Exception:
+                        logger.warning("Could not delete late fenced cache row")
+                    return False
+                return True
             except Exception as e:
                 if attempt == 0:
                     logger.debug("Delta cache write conflict, retrying: %s", e)
                 else:
                     logger.debug("Delta cache write failed after retry (non-fatal): %s", e)
+        return False
 
     if wait_for_remote:
-        _write()
-        return True
+        written = _write()
+        _record_bundle_remote_write_result(written)
+        if not written:
+            _remove_local_payload()
+        return written
     if not _cache_io_admission.acquire(blocking=False):
         logger.debug("Delta cache write queue full; L1 result remains available")
         return True
@@ -2234,7 +2526,11 @@ def delta_cache_put(
     return True
 
 
-def delta_cache_invalidate(pattern: str | None = None) -> None:
+def delta_cache_invalidate(
+    pattern: str | None = None,
+    *,
+    remote_cleanup: bool = True,
+) -> None:
     """Delete Delta cache entries, optionally filtered by endpoint prefix."""
     with _cache_generation_operation_lock() as state:
         sequence = int(state.get("sequence", 0)) + 1
@@ -2261,6 +2557,9 @@ def delta_cache_invalidate(pattern: str | None = None) -> None:
             _delta_l1.clear()
             _delta_l1_endpoints.clear()
             _delta_l1_generations.clear()
+
+    if not remote_cleanup:
+        return
 
     # Remote cleanup is best-effort and deliberately outside the generation
     # lock. Generation-tagged readers reject any old or late-arriving row.

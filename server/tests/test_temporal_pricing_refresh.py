@@ -7,7 +7,7 @@ from pathlib import Path
 
 from server import materialized_views, queries
 from server.queries.pricing import temporal_list_price_join
-from server.routers import apps, users_groups
+from server.routers import aiml, apps, users_groups
 
 
 def _ts(value: str) -> datetime:
@@ -130,6 +130,7 @@ def test_active_spend_sql_cannot_restore_current_price_join_patterns():
         *(root / "routers" / name for name in (
             "users_groups.py",
             "apps.py",
+            "aiml.py",
             "dbsql_base.py",
             "billing.py",
         )),
@@ -147,6 +148,7 @@ def test_representative_routes_share_identical_authoritative_price_contract():
         queries.BILLING_SUMMARY,
         materialized_views.CREATE_DAILY_USAGE_SUMMARY,
         apps.APPS_SUMMARY,
+        aiml.AIML_SUMMARY,
         users_groups.USERS_SUMMARY,
     ):
         assert expected in sql

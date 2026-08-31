@@ -247,7 +247,7 @@ export function ExportDialog({
               >
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold" style={{ color: C.navy }}>Architecture PDF</span>
+                    <h4 className="text-sm font-bold" style={{ color: C.navy }}>Architecture PDF</h4>
                     <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ color: C.lava, background: C.coralTint }}>
                       Preview
                     </span>
@@ -280,7 +280,17 @@ export function ExportDialog({
           )}
 
           {/* Format picker */}
-          <div className="px-6 pb-4 pt-5" style={{ background: C.oatPage, borderBottom: `1px solid ${C.hairline}` }}>
+          <section
+            aria-labelledby="cost-report-heading"
+            className="px-6 pb-4 pt-5"
+            style={{ background: C.oatPage, borderBottom: `1px solid ${C.hairline}` }}
+          >
+            <h4 id="cost-report-heading" className="text-sm font-bold" style={{ color: C.navy }}>
+              Cost report
+            </h4>
+            <p className="mt-1 mb-4 text-xs leading-5" style={{ color: C.slate }}>
+              Export selected cost and usage sections with the active workspace and date filters.
+            </p>
             <div className="mb-2 text-xs font-bold uppercase tracking-[0.12em]" style={{ color: C.slate }}>
               File format
             </div>
@@ -313,7 +323,7 @@ export function ExportDialog({
                 Downloads a multi-sheet Excel workbook (.xls), with one sheet per app tab and the active workspace and date filters applied.
               </p>
             )}
-          </div>
+          </section>
 
           {/* Content */}
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4" style={{ background: C.card }}>

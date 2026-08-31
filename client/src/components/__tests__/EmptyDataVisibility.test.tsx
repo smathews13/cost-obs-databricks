@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { InteractiveBreakdown } from "../InteractiveBreakdown";
 import { PipelineObjectsTable } from "../PipelineObjectsTable";
 import { SpendChart } from "../SpendChart";
+import { SKUBreakdown } from "../SKUBreakdown";
 import type { PipelineObjectsResponse } from "@/types/billing";
 
 describe("empty dashboard panels", () => {
@@ -74,5 +75,60 @@ describe("empty dashboard panels", () => {
     fireEvent.change(screen.getByPlaceholderText("Search ETLs..."), { target: { value: "missing" } });
 
     expect(screen.getByText(/No jobs or pipelines match the current filters/i)).toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      "SKU",
+      <SKUBreakdown
+        data={{
+          available: false,
+          availability: "unavailable",
+          reason_detail: "SKU detail is temporarily unavailable.",
+          skus: [],
+          total_spend: null,
+          start_date: "2026-01-01",
+          end_date: "2026-01-31",
+        }}
+        isLoading={false}
+      />,
+    ],
+    [
+      "interactive",
+      <InteractiveBreakdown
+        data={{
+          available: false,
+          availability: "unavailable",
+          reason_detail: "Interactive compute detail is temporarily unavailable.",
+          items: [],
+          total_spend: null,
+          start_date: "2026-01-01",
+          end_date: "2026-01-31",
+        }}
+        isLoading={false}
+        host={null}
+      />,
+    ],
+    [
+      "pipeline",
+      <PipelineObjectsTable
+        data={{
+          available: false,
+          availability: "unavailable",
+          reason_detail: "Jobs and pipeline detail is temporarily unavailable.",
+          objects: [],
+          total_spend: null,
+          start_date: "2026-01-01",
+          end_date: "2026-01-31",
+        }}
+        isLoading={false}
+        host={null}
+      />,
+    ],
+  ])("shows a compact settled state for unavailable %s detail", (_name, panel) => {
+    render(panel);
+
+    expect(screen.getByText(/temporarily unavailable/i)).toBeVisible();
+    expect(screen.queryByText(/^Loading/i)).not.toBeInTheDocument();
   });
 });

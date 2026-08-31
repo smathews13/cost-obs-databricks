@@ -277,7 +277,7 @@ export function usePipelineObjects(dateRange?: DateRange, workspaceIds?: string[
     queryFn: ({ signal }) => fetchJson(
       buildUrlWithWs("/api/billing/pipeline-objects", dateRange, workspaceIds),
       signal,
-      35_000,
+      28_000,
     ),
     staleTime: STALE_TIME,
     enabled,
@@ -291,7 +291,7 @@ export function useInteractiveBreakdown(dateRange?: DateRange, workspaceIds?: st
     queryFn: ({ signal }) => fetchJson(
       buildUrlWithWs("/api/billing/interactive-breakdown", dateRange, workspaceIds),
       signal,
-      35_000,
+      28_000,
     ),
     staleTime: STALE_TIME,
     enabled,
@@ -384,7 +384,7 @@ export function useSKUBreakdown(dateRange?: DateRange, workspaceIds?: string[], 
     queryFn: ({ signal }) => fetchJson(
       buildUrlWithWs("/api/billing/sku-breakdown", dateRange, workspaceIds),
       signal,
-      35_000,
+      28_000,
     ),
     staleTime: STALE_TIME,
     enabled,
@@ -430,9 +430,14 @@ export interface UsersGroupsBundle {
 export function useUsersGroupsBundle(dateRange?: DateRange, workspaceIds?: string[], enabled: boolean = true) {
   return useQuery<UsersGroupsBundle>({
     queryKey: scopedQueryKey("users-groups", "bundle", dateRange, getWorkspaceScopeKey(workspaceIds)),
-    queryFn: () => fetchJson(buildUrlWithWs("/api/users-groups/bundle", dateRange, workspaceIds)),
+    queryFn: ({ signal }) => fetchSubmitAndPoll<UsersGroupsBundle>(
+      buildUrlWithWs("/api/users-groups/bundle", dateRange, workspaceIds),
+      signal,
+      { timeoutMs: 90_000 },
+    ),
     staleTime: STALE_TIME,
     enabled,
+    retry: false,
   });
 }
 
@@ -561,11 +566,16 @@ function abortableDelay(delayMs: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-function timeoutError(url: string, timeoutMs: number): Error {
+function timeoutError(timeoutMs: number): HttpRequestError {
   const duration = timeoutMs % 60_000 === 0
     ? `${timeoutMs / 60_000} minute${timeoutMs === 60_000 ? "" : "s"}`
     : `${Math.ceil(timeoutMs / 1000)} seconds`;
-  return new Error(`Timed out waiting for ${url} after ${duration}. Please retry.`);
+  return new HttpRequestError(
+    `The data request timed out after ${duration}. Please retry.`,
+    408,
+    undefined,
+    "REQUEST_TIMEOUT",
+  );
 }
 
 /**
@@ -604,7 +614,7 @@ export async function fetchSubmitAndPoll<T>(
     }
   } catch (error) {
     if (signal?.aborted) throw abortError();
-    if (operation.signal.aborted) throw timeoutError(url, timeoutMs);
+    if (operation.signal.aborted) throw timeoutError(timeoutMs);
     throw error;
   } finally {
     window.clearTimeout(timeout);
@@ -638,6 +648,7 @@ export function useAppsDashboardBundle(dateRange?: DateRange, workspaceIds?: str
       fetchSubmitAndPoll<AppsDashboardBundle>(
         buildUrlWithWs("/api/apps/dashboard-bundle", dateRange, workspaceIds),
         signal,
+        { timeoutMs: 90_000 },
       ),
     enabled,
     retry: false,
@@ -800,7 +811,9 @@ export function useKPIsBundle(dateRange?: DateRange, workspaceIds?: string[], en
   return useQuery<KPIsBundleResponse>({
     queryKey: scopedQueryKey("billing", "kpis-bundle", dateRange, getWorkspaceScopeKey(workspaceIds)),
     queryFn: () => fetchJson(buildUrlWithWs("/api/billing/kpis-bundle", dateRange, workspaceIds)),
-    staleTime: 5 * 60 * 1000,
+    // KPI data changes only through explicit filters, source scope, or manual
+    // refresh. Revisiting an already-loaded tab must not trigger a surprise reload.
+    staleTime: Infinity,
     enabled,
   });
 }

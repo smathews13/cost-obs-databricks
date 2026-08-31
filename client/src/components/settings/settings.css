@@ -44,8 +44,8 @@
 
 .settings-user-action {
   display: inline-flex;
-  width: 104px;
-  min-width: 104px;
+  width: 112px;
+  min-width: 112px;
   height: 32px;
   align-items: center;
   justify-content: center;
@@ -90,6 +90,12 @@
   color: var(--dob-text-faint, #8CA0B0);
   cursor: not-allowed;
   opacity: 0.72;
+}
+
+.settings-user-action-cell {
+  display: grid;
+  width: 112px;
+  justify-self: end;
 }
 
 .settings-grant-row {
@@ -240,7 +246,7 @@
 
 @media (max-width: 760px) {
   .settings-access-user-grid {
-    grid-template-columns: minmax(200px, 1fr) 90px 132px 112px;
+    grid-template-columns: minmax(200px, 1fr) 90px 112px 112px;
   }
 }
 

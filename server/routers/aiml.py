@@ -26,6 +26,7 @@ from server.db import (
     selected_source_labels,
     start_bundle_compute,
 )
+from server.queries.pricing import apply_temporal_list_price_join
 from server.request_limits import default_date_range, parse_workspace_ids, validate_date_range
 
 
@@ -84,7 +85,23 @@ def get_default_end_date() -> str:
 # SQL Queries for AI/ML cost analysis
 
 AIML_SUMMARY = """
-WITH aiml_usage AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND (
+      u.billing_origin_product = 'MODEL_SERVING'
+      OR u.billing_origin_product = 'VECTOR_SEARCH'
+      OR u.sku_name LIKE '%SERVERLESS_REAL_TIME_INFERENCE%'
+      OR u.sku_name LIKE '%ANTHROPIC%'
+      OR u.sku_name LIKE '%OPENAI%'
+      OR u.sku_name LIKE '%GEMINI%'
+      OR u.sku_name LIKE '%INFERENCE%'
+      OR u.sku_name LIKE '%FINE_TUNING%'
+    )
+),
+aiml_usage AS (
   SELECT
     u.usage_date,
     u.workspace_id,
@@ -103,23 +120,8 @@ WITH aiml_usage AS (
       WHEN u.billing_origin_product = 'MODEL_SERVING' THEN 'Model Serving'
       ELSE 'Other AI/ML'
     END as category
-  FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND (
-      u.billing_origin_product = 'MODEL_SERVING'
-      OR u.billing_origin_product = 'VECTOR_SEARCH'
-      OR u.sku_name LIKE '%SERVERLESS_REAL_TIME_INFERENCE%'
-      OR u.sku_name LIKE '%ANTHROPIC%'
-      OR u.sku_name LIKE '%OPENAI%'
-      OR u.sku_name LIKE '%GEMINI%'
-      OR u.sku_name LIKE '%INFERENCE%'
-      OR u.sku_name LIKE '%FINE_TUNING%'
-    )
+  FROM filtered_usage u
+  /* TEMPORAL_LIST_PRICE_JOIN */
 ),
 aiml_by_day AS (
   SELECT
@@ -179,10 +181,7 @@ WITH provider_usage AS (
       ELSE 'Other'
     END as provider
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND (
@@ -216,10 +215,7 @@ WITH inference_usage AS (
       ELSE 'Steady State'
     END as cost_type
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.sku_name LIKE '%SERVERLESS_REAL_TIME_INFERENCE%'
@@ -261,10 +257,7 @@ WITH aiml_usage AS (
       ELSE 'Other AI/ML'
     END as category
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND (
@@ -289,7 +282,23 @@ ORDER BY total_spend DESC
 """
 
 AIML_TIMESERIES = """
-WITH aiml_usage AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND (
+      u.billing_origin_product = 'MODEL_SERVING'
+      OR u.billing_origin_product = 'VECTOR_SEARCH'
+      OR u.sku_name LIKE '%SERVERLESS_REAL_TIME_INFERENCE%'
+      OR u.sku_name LIKE '%ANTHROPIC%'
+      OR u.sku_name LIKE '%OPENAI%'
+      OR u.sku_name LIKE '%GEMINI%'
+      OR u.sku_name LIKE '%INFERENCE%'
+      OR u.sku_name LIKE '%FINE_TUNING%'
+    )
+),
+aiml_usage AS (
   SELECT
     u.usage_date,
     u.sku_name,
@@ -304,23 +313,8 @@ WITH aiml_usage AS (
       WHEN u.sku_name LIKE '%FINE_TUNING%' THEN 'Fine Tuning'
       ELSE 'Other Model Serving'
     END as category
-  FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND (
-      u.billing_origin_product = 'MODEL_SERVING'
-      OR u.billing_origin_product = 'VECTOR_SEARCH'
-      OR u.sku_name LIKE '%SERVERLESS_REAL_TIME_INFERENCE%'
-      OR u.sku_name LIKE '%ANTHROPIC%'
-      OR u.sku_name LIKE '%OPENAI%'
-      OR u.sku_name LIKE '%GEMINI%'
-      OR u.sku_name LIKE '%INFERENCE%'
-      OR u.sku_name LIKE '%FINE_TUNING%'
-    )
+  FROM filtered_usage u
+  /* TEMPORAL_LIST_PRICE_JOIN */
 )
 SELECT
   usage_date,
@@ -369,10 +363,7 @@ model_usage AS (
       'Unknown'
     ) as model_name
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   LEFT JOIN cluster_names cn
     ON u.usage_metadata.cluster_id = cn.cluster_id
   WHERE u.usage_date BETWEEN :start_date AND :end_date
@@ -438,10 +429,7 @@ WITH model_usage AS (
       ELSE NULL
     END as model_type
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND (
@@ -519,10 +507,7 @@ SELECT
 FROM cluster_meta cm
 INNER JOIN system.billing.usage u
   ON u.usage_metadata.cluster_id = cm.cluster_id
-LEFT JOIN system.billing.list_prices p
-  ON u.sku_name = p.sku_name
-  AND u.cloud = p.cloud
-  AND p.price_end_time IS NULL
+/* TEMPORAL_LIST_PRICE_JOIN */
 WHERE u.usage_date BETWEEN :start_date AND :end_date
   AND u.usage_quantity > 0
 GROUP BY cm.cluster_name, cm.cluster_id, cm.spark_version, cm.owned_by
@@ -619,10 +604,7 @@ SELECT
   MAX(u.usage_date) as last_seen,
   SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) / NULLIF(COUNT(DISTINCT u.usage_date), 0) as avg_daily_spend
 FROM system.billing.usage u
-LEFT JOIN system.billing.list_prices p
-  ON u.sku_name = p.sku_name
-  AND u.cloud = p.cloud
-  AND p.price_end_time IS NULL
+/* TEMPORAL_LIST_PRICE_JOIN */
 LEFT JOIN serving_endpoints_by_id sei
   ON u.usage_metadata.endpoint_id = sei.serving_endpoint_id
 LEFT JOIN serving_endpoints_by_name sen
@@ -673,10 +655,7 @@ SELECT
   MAX(u.usage_date) as last_seen,
   SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) / NULLIF(COUNT(DISTINCT u.usage_date), 0) as avg_daily_spend
 FROM system.billing.usage u
-LEFT JOIN system.billing.list_prices p
-  ON u.sku_name = p.sku_name
-  AND u.cloud = p.cloud
-  AND p.price_end_time IS NULL
+/* TEMPORAL_LIST_PRICE_JOIN */
 WHERE u.usage_date BETWEEN :start_date AND :end_date
   AND u.usage_quantity > 0
   AND u.billing_origin_product IN ('AGENT_BRICKS', 'SUPERVISOR_AGENT', 'KNOWLEDGE_AGENT')
@@ -693,10 +672,7 @@ SELECT DISTINCT
   SUM(u.usage_quantity) as total_dbus,
   SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend
 FROM system.billing.usage u
-LEFT JOIN system.billing.list_prices p
-  ON u.sku_name = p.sku_name
-  AND u.cloud = p.cloud
-  AND p.price_end_time IS NULL
+/* TEMPORAL_LIST_PRICE_JOIN */
 WHERE u.usage_date BETWEEN :start_date AND :end_date
   AND u.usage_quantity > 0
   AND (
@@ -710,6 +686,10 @@ WHERE u.usage_date BETWEEN :start_date AND :end_date
 GROUP BY u.sku_name, u.billing_origin_product, u.usage_type
 ORDER BY total_spend DESC
 """
+
+for _query_name, _query_value in list(globals().items()):
+    if isinstance(_query_value, str) and "/* TEMPORAL_LIST_PRICE_JOIN */" in _query_value:
+        globals()[_query_name] = apply_temporal_list_price_join(_query_value)
 
 
 @router.get("/debug-ml-clusters")
@@ -1096,7 +1076,12 @@ def _compute_aiml_bundle(
             "timeseries",
         }
         try:
-            results = execute_queries_parallel(queries, timeout=90.0)
+            results = execute_queries_parallel(
+                queries,
+                timeout=55.0,
+                required_names=required_queries,
+                max_concurrency=2,
+            )
             optional_failures: dict[str, str] = {}
         except SQLExecutionError as exc:
             results, optional_failures = recover_optional_bundle_queries(

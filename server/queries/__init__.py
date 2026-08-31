@@ -550,7 +550,17 @@ LIMIT 200
 
 # Pipeline objects query - fallback (billing-only, no system.lakeflow.pipelines)
 PIPELINE_OBJECTS = """
-WITH pipeline_usage AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND (
+      u.billing_origin_product IN ('JOBS', 'DLT')
+      OR u.usage_metadata.dlt_pipeline_id IS NOT NULL
+    )
+),
+pipeline_usage AS (
   SELECT
     u.usage_date,
     u.workspace_id,
@@ -563,11 +573,8 @@ WITH pipeline_usage AS (
     u.sku_name,
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu
-  FROM system.billing.usage u
+  FROM filtered_usage u
   /* TEMPORAL_LIST_PRICE_JOIN */
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND (u.billing_origin_product IN ('JOBS', 'DLT') OR u.usage_metadata.dlt_pipeline_id IS NOT NULL)
 )
 SELECT
   CASE
@@ -623,7 +630,14 @@ ORDER BY total_spend DESC
 
 # Interactive compute breakdown query (by notebook, user, cluster)
 INTERACTIVE_BREAKDOWN = """
-WITH interactive_usage AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.sku_name LIKE '%ALL_PURPOSE%'
+),
+interactive_usage AS (
   SELECT
     u.usage_date,
     u.workspace_id,
@@ -634,17 +648,19 @@ WITH interactive_usage AS (
     u.sku_name,
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu
-  FROM system.billing.usage u
+  FROM filtered_usage u
   /* TEMPORAL_LIST_PRICE_JOIN */
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.sku_name LIKE '%ALL_PURPOSE%'
 ),
 cluster_info AS (
   SELECT
     cluster_id,
     MAX(cluster_name) as cluster_name
   FROM system.compute.clusters
+  WHERE cluster_id IN (
+    SELECT DISTINCT cluster_id
+    FROM interactive_usage
+    WHERE cluster_id IS NOT NULL
+  )
   GROUP BY cluster_id
 )
 SELECT
@@ -895,17 +911,21 @@ ORDER BY usage_date
 
 # SKU breakdown query
 SKU_BREAKDOWN = """
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date >= :start_date
+    AND u.usage_date <= :end_date
+    AND u.usage_quantity > 0
+)
 SELECT
   u.sku_name as product,
   COUNT(DISTINCT u.workspace_id) as workspaces_using,
   SUM(u.usage_quantity) as total_dbus,
   SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend,
   ROUND(100.0 * SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) / SUM(SUM(u.usage_quantity * COALESCE(p.pricing.default, 0))) OVER (), 2) as percentage
-FROM system.billing.usage u
+FROM filtered_usage u
 /* TEMPORAL_LIST_PRICE_JOIN */
-WHERE u.usage_date >= :start_date
-  AND u.usage_date <= :end_date
-  AND u.usage_quantity > 0
 GROUP BY u.sku_name
 ORDER BY total_spend DESC
 LIMIT 100

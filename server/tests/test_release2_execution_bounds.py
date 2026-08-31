@@ -1,4 +1,5 @@
 import asyncio
+import json
 import multiprocessing
 import threading
 import time
@@ -461,6 +462,141 @@ def test_expired_bundle_lease_is_recoverable(monkeypatch, tmp_path):
     replacement = db.try_acquire_bundle_lease("recoverable", lease_seconds=1)
     assert replacement is not None
     replacement.release()
+
+
+def test_deadline_releases_only_matching_local_bundle_owner(monkeypatch, tmp_path):
+    monkeypatch.setattr(db, "_BUNDLE_LEASE_DIR", str(tmp_path))
+    lease = db.try_acquire_bundle_lease(
+        "deadline-owner",
+        lease_seconds=90,
+        hard_deadline_seconds=90,
+    )
+    assert lease is not None
+    with open(lease.state_path) as state_file:
+        state = json.load(state_file)
+    state["deadline_at"] = time.time() - 1
+    with open(lease.state_path, "w") as state_file:
+        json.dump(state, state_file)
+    with db._bundle_inflight_lock:
+        db._bundle_inflight["deadline-owner"] = lease.owner
+
+    failed = db.get_bundle_compute_state("deadline-owner")
+
+    assert failed is not None
+    assert failed["state"] == "failed"
+    with db._bundle_inflight_lock:
+        assert "deadline-owner" not in db._bundle_inflight
+
+
+def test_wait_for_remote_reports_failure_and_removes_local_payload(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(db, "_BUNDLE_LEASE_DIR", str(tmp_path))
+    lease = db.try_acquire_bundle_lease("remote-failure", lease_seconds=30)
+    assert lease is not None
+    owner_token = db._bundle_lease_owner.set(("remote-failure", lease.owner))
+    write_token = db._bundle_remote_write_result.set(None)
+    try:
+        monkeypatch.setattr(db, "_ensure_response_cache_table", lambda: True)
+        monkeypatch.setattr(db, "get_catalog_schema", lambda: ("catalog", "schema"))
+        monkeypatch.setattr(
+            db,
+            "execute_query",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("write failed")),
+        )
+
+        written = db.delta_cache_put(
+            "remote-failure",
+            "apps:dashboard-bundle:all",
+            {"value": "private"},
+            wait_for_remote=True,
+        )
+
+        assert written is False
+        assert db._bundle_remote_write_result.get() is False
+        assert "remote-failure" not in db._delta_l1
+    finally:
+        db._bundle_remote_write_result.reset(write_token)
+        db._bundle_lease_owner.reset(owner_token)
+        lease.release(succeeded=False)
+
+
+def test_owner_expiring_during_remote_write_deletes_late_row(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(db, "_BUNDLE_LEASE_DIR", str(tmp_path))
+    lease = db.try_acquire_bundle_lease("stolen-write", lease_seconds=30)
+    assert lease is not None
+    owner_token = db._bundle_lease_owner.set(("stolen-write", lease.owner))
+    calls: list[str] = []
+
+    def execute(sql, *_args, **_kwargs):
+        calls.append(sql)
+        if sql.startswith("MERGE"):
+            with open(lease.state_path) as state_file:
+                state = json.load(state_file)
+            state["owner"] = "new-worker-owner"
+            with open(lease.state_path, "w") as state_file:
+                json.dump(state, state_file)
+        return []
+
+    try:
+        monkeypatch.setattr(db, "_ensure_response_cache_table", lambda: True)
+        monkeypatch.setattr(db, "get_catalog_schema", lambda: ("catalog", "schema"))
+        monkeypatch.setattr(db, "execute_query", execute)
+
+        written = db.delta_cache_put(
+            "stolen-write",
+            "apps:dashboard-bundle:all",
+            {"late": True},
+            wait_for_remote=True,
+        )
+
+        assert written is False
+        assert "stolen-write" not in db._delta_l1
+        assert any(
+            sql.startswith("DELETE FROM") and "cache_key = :key" in sql
+            for sql in calls
+        )
+    finally:
+        db._bundle_lease_owner.reset(owner_token)
+
+
+def test_bundle_remote_write_failure_publishes_terminal_state(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(db, "_BUNDLE_LEASE_DIR", str(tmp_path))
+    monkeypatch.setattr(db, "delta_cache_get", lambda _key: None)
+    monkeypatch.setattr(db, "_ensure_response_cache_table", lambda: False)
+    finished = threading.Event()
+
+    def producer():
+        assert db.delta_cache_put(
+            "required-remote",
+            "users:dashboard-bundle",
+            {"available": True},
+            wait_for_remote=True,
+        ) is False
+        finished.set()
+
+    assert db.start_bundle_compute(
+        "required-remote",
+        producer,
+        lease_seconds=30,
+        hard_deadline_seconds=30,
+    )
+    assert finished.wait(timeout=2)
+    deadline = time.monotonic() + 2
+    state = None
+    while time.monotonic() < deadline:
+        state = db.get_bundle_compute_state("required-remote")
+        if state and state.get("state") == "failed":
+            break
+        time.sleep(0.01)
+
+    assert state is not None
+    assert state["state"] == "failed"
+    assert state["error_code"] == "BUNDLE_REMOTE_CACHE_WRITE_FAILED"
 
 
 def test_active_bundle_renews_owner_fenced_lease(monkeypatch, tmp_path):

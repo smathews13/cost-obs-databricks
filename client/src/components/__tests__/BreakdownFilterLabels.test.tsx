@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type {
   ProductBreakdownResponse,
   SKUBreakdownResponse,
@@ -53,5 +53,38 @@ describe("breakdown workspace filter labels", () => {
 
     expect(screen.getByRole("button", { name: "Workspace" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Workspaces" })).not.toBeInTheDocument();
+  });
+
+  it("keeps an unfiltered product chart account-wide when workspace metadata is absent", () => {
+    render(<ProductBreakdown data={productData} isLoading={false} workspaces={undefined} />);
+
+    expect(screen.getByText("Spend by Product")).toBeVisible();
+    expect(screen.queryByText(/No product spend matches/i)).not.toBeInTheDocument();
+  });
+
+  it("shows no-matches copy only after an explicit workspace filter is cleared", () => {
+    render(<ProductBreakdown data={productData} isLoading={false} workspaces={workspaces} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(screen.getByText(/No product spend matches the selected workspace filters/i))
+      .toBeVisible();
+  });
+
+  it("shows null selection as all checked and first click deselects only that workspace", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    render(<ProductBreakdown data={productData} isLoading={false} workspaces={workspaces} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    const first = screen.getByRole("button", { name: "Workspace 1" });
+    const second = screen.getByRole("button", { name: "Workspace 2" });
+    expect(first.querySelector("svg")).not.toBeNull();
+    expect(second.querySelector("svg")).not.toBeNull();
+
+    fireEvent.click(first);
+
+    expect(first.querySelector("svg")).toBeNull();
+    expect(second.querySelector("svg")).not.toBeNull();
   });
 });

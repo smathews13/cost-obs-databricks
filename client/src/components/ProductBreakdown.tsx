@@ -90,7 +90,12 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
     [workspaces],
   );
   const [workspaceSelection, setWorkspaceSelection] = useState<string[] | null>(null);
-  const selectedWorkspaces = workspaceSelection ?? allWsIds;
+  // Null means the user has not applied a workspace filter. It must stay
+  // account-wide even when workspace metadata is late, partial, or unavailable.
+  const selectedWorkspaces = useMemo(
+    () => workspaceSelection ?? [],
+    [workspaceSelection],
+  );
   const [filterResult, setFilterResult] = useState<FilterResult>({
     key: "",
     error: false,
@@ -99,9 +104,16 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
   const [wsSearch, setWsSearch] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const isAll = selectedWorkspaces.length === allWsIds.length && allWsIds.length > 0;
-  const isPartial = selectedWorkspaces.length > 0 && selectedWorkspaces.length < allWsIds.length;
-  const isEmpty = selectedWorkspaces.length === 0;
+  const hasExplicitWorkspaceFilter = workspaceSelection !== null;
+  const isAll = !hasExplicitWorkspaceFilter || (
+    allWsIds.length > 0
+    && selectedWorkspaces.length === allWsIds.length
+    && allWsIds.every((id) => selectedWorkspaces.includes(id))
+  );
+  const isPartial = hasExplicitWorkspaceFilter
+    && selectedWorkspaces.length > 0
+    && !isAll;
+  const isEmpty = hasExplicitWorkspaceFilter && selectedWorkspaces.length === 0;
   const needsFilteredData = !isAll && !isEmpty;
 
   const wsKey = useMemo(() => [...selectedWorkspaces].sort().join(','), [selectedWorkspaces]);
@@ -208,7 +220,10 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
         : [...previous, wsId];
     });
   }, [allWsIds]);
-  const selectedSet = useMemo(() => new Set(selectedWorkspaces), [selectedWorkspaces]);
+  const selectedSet = useMemo(
+    () => new Set(workspaceSelection ?? allWsIds),
+    [allWsIds, workspaceSelection],
+  );
   const wsItems = useMemo(
     () => (workspaces || []).map((ws) => {
       const wsId = String(ws.workspace_id);

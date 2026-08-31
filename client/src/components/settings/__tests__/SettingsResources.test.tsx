@@ -116,19 +116,21 @@ function renderResources() {
 }
 
 describe("SettingsResources", () => {
-  it("groups authoritative runtime, inventory, source, and refresh metadata", async () => {
+  it("keeps useful runtime, inventory, and source metadata without duplicated data-table operations", async () => {
     renderResources();
 
     expect(await screen.findByText("App runtime")).toBeVisible();
     expect(screen.getByText("Managed data inventory")).toBeVisible();
     expect(screen.getByText("Data sources & scope")).toBeVisible();
-    expect(screen.getByText("Refresh operations")).toBeVisible();
     expect(screen.getByText("app-cost-obs")).toBeVisible();
     expect(screen.getByText("Aggregate tables (2)")).toBeVisible();
     expect(screen.getByText("Shared data sources (1)")).toBeVisible();
     expect(screen.getByText("Cloud-cost connections (1)")).toBeVisible();
-    expect(screen.getByText("Fresh")).toBeVisible();
-    expect(screen.getByText("Refresh history (1)")).toBeVisible();
+    expect(screen.queryByText("Observed table availability")).not.toBeInTheDocument();
+    expect(screen.queryByText("Refresh operations")).not.toBeInTheDocument();
+    expect(screen.queryByText("Freshness")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Refresh history/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Schedule")).not.toBeInTheDocument();
   });
 
   it("renders only valid HTTPS Databricks identity links and no secrets", async () => {

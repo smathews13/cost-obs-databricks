@@ -9,22 +9,27 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from server import cache_ttls
 from server import workspace_filter as wf
 from server.db import (
+    BundleOverloadedError,
     SQLExecutionError,
     bundle_cache_key,
+    bundle_compute_is_pending,
     capture_cache_generation,
     delta_cache_get,
     delta_cache_put,
     execute_queries_parallel,
     execute_query,
+    get_bundle_compute_state,
     get_local_source_label,
     get_workspace_client,
     recover_optional_bundle_queries,
+    start_bundle_compute,
 )
 from server.email_service import send_alert_email
 from server.queries.pricing import apply_temporal_list_price_join
@@ -36,20 +41,47 @@ router = APIRouter()
 SETTINGS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", ".settings")
 USER_REPORTS_FILE = os.path.join(SETTINGS_DIR, "user_reports.json")
 
+
+def _users_failure_payload(
+    start_date: str,
+    end_date: str,
+    error_code: str = "USERS_BUNDLE_FAILED",
+) -> dict[str, Any]:
+    return {
+        "available": False,
+        "availability": "unavailable",
+        "retryable": True,
+        "reason": "producer_failed",
+        "reason_detail": "User summary data is temporarily unavailable. Retry shortly.",
+        "error_code": error_code,
+        "summary": {},
+        "top_users": [],
+        "timeseries": [],
+        "timeseries_users": [],
+        "by_workspace": [],
+        "user_growth": [],
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+
 # ── SQL Queries ───────────────────────────────────────────────────────────────
 
 USERS_SUMMARY = """
-WITH usage_with_price AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.identity_metadata.run_as IS NOT NULL
+),
+usage_with_price AS (
   SELECT
     u.identity_metadata.run_as AS user_email,
     u.workspace_id,
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend,
     u.usage_quantity AS dbus
-  FROM system.billing.usage u
+  FROM filtered_usage u
   /* TEMPORAL_LIST_PRICE_JOIN */
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.identity_metadata.run_as IS NOT NULL
 )
 SELECT
   COUNT(DISTINCT user_email)   AS user_count,
@@ -61,7 +93,14 @@ FROM usage_with_price
 """
 
 USERS_TOP_SPEND = """
-WITH usage_with_price AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.identity_metadata.run_as IS NOT NULL
+),
+usage_with_price AS (
   SELECT
     u.identity_metadata.run_as AS user_email,
     u.billing_origin_product   AS product,
@@ -69,11 +108,8 @@ WITH usage_with_price AS (
     u.workspace_id,
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend,
     u.usage_quantity                                   AS dbus
-  FROM system.billing.usage u
+  FROM filtered_usage u
   /* TEMPORAL_LIST_PRICE_JOIN */
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.identity_metadata.run_as IS NOT NULL
 )
 SELECT
   user_email,
@@ -87,7 +123,14 @@ ORDER BY total_spend DESC
 """
 
 USERS_PRODUCT_BREAKDOWN = """
-WITH usage_with_price AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.identity_metadata.run_as IS NOT NULL
+),
+usage_with_price AS (
   SELECT
     u.identity_metadata.run_as AS user_email,
     CASE
@@ -107,11 +150,8 @@ WITH usage_with_price AS (
       ELSE 'Other'
     END AS product_category,
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend
-  FROM system.billing.usage u
+  FROM filtered_usage u
   /* TEMPORAL_LIST_PRICE_JOIN */
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.identity_metadata.run_as IS NOT NULL
 )
 SELECT
   user_email,
@@ -124,29 +164,36 @@ LIMIT 5000
 """
 
 USERS_TIMESERIES = """
-WITH top_users AS (
-  SELECT u.identity_metadata.run_as AS user_email,
-         SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS total_spend
+WITH filtered_usage AS (
+  SELECT *
   FROM system.billing.usage u
-  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.identity_metadata.run_as IS NOT NULL
-  GROUP BY u.identity_metadata.run_as
+),
+priced_usage AS (
+  SELECT
+    u.usage_date,
+    u.identity_metadata.run_as AS user_email,
+    u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend
+  FROM filtered_usage u
+  /* TEMPORAL_LIST_PRICE_JOIN */
+),
+top_users AS (
+  SELECT user_email, SUM(spend) AS total_spend
+  FROM priced_usage
+  GROUP BY user_email
   ORDER BY total_spend DESC
   LIMIT 6
 ),
 daily AS (
   SELECT
     u.usage_date,
-    u.identity_metadata.run_as AS user_email,
-    SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS daily_spend
-  FROM system.billing.usage u
-  /* TEMPORAL_LIST_PRICE_JOIN */
-  INNER JOIN top_users tu ON u.identity_metadata.run_as = tu.user_email
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-  GROUP BY u.usage_date, u.identity_metadata.run_as
+    u.user_email,
+    SUM(u.spend) AS daily_spend
+  FROM priced_usage u
+  INNER JOIN top_users tu ON u.user_email = tu.user_email
+  GROUP BY u.usage_date, u.user_email
 )
 SELECT usage_date AS date, user_email, daily_spend
 FROM daily
@@ -154,16 +201,20 @@ ORDER BY date, daily_spend DESC
 """
 
 USERS_BY_WORKSPACE = """
-WITH usage_with_price AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.identity_metadata.run_as IS NOT NULL
+),
+usage_with_price AS (
   SELECT
     u.workspace_id,
     u.identity_metadata.run_as AS user_email,
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend
-  FROM system.billing.usage u
+  FROM filtered_usage u
   /* TEMPORAL_LIST_PRICE_JOIN */
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.identity_metadata.run_as IS NOT NULL
 )
 SELECT
   workspace_id,
@@ -177,7 +228,14 @@ LIMIT 20
 
 
 USERS_BY_WORKSPACE_DETAIL = """
-WITH usage_with_price AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.identity_metadata.run_as IS NOT NULL
+),
+usage_with_price AS (
   SELECT
     u.workspace_id,
     u.identity_metadata.run_as AS user_email,
@@ -191,11 +249,8 @@ WITH usage_with_price AS (
       ELSE 'Other'
     END AS product_category,
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend
-  FROM system.billing.usage u
+  FROM filtered_usage u
   /* TEMPORAL_LIST_PRICE_JOIN */
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.identity_metadata.run_as IS NOT NULL
 )
 SELECT
   workspace_id,
@@ -210,15 +265,19 @@ LIMIT 2000
 
 
 USERS_SPEND_GROWTH = """
-WITH usage_with_price AS (
-  SELECT
-    u.usage_date,
-    u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend
+WITH filtered_usage AS (
+  SELECT *
   FROM system.billing.usage u
-  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.identity_metadata.run_as IS NOT NULL
+),
+usage_with_price AS (
+  SELECT
+    u.usage_date,
+    u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend
+  FROM filtered_usage u
+  /* TEMPORAL_LIST_PRICE_JOIN */
 )
 SELECT
   CASE WHEN usage_date <= :mid_date THEN 'first_half' ELSE 'second_half' END AS period,
@@ -475,8 +534,7 @@ class UserAlertConfig(BaseModel):
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
-@router.get("/bundle")
-async def get_users_groups_bundle(
+async def _compute_users_groups_bundle(
     start_date: str = Query(default=None),
     end_date: str = Query(default=None),
     workspace_ids: str = Query(default=None),
@@ -526,9 +584,15 @@ async def get_users_groups_bundle(
         ("spend_growth", lambda: execute_query(_scope_user_sql(USERS_SPEND_GROWTH, id_list), growth_params)),
         ("user_growth", lambda: execute_query(_scope_user_sql(USERS_GROWTH, id_list), growth_date_params)),
     ]
-    required_queries = {"summary", "top_users", "timeseries"}
+    required_queries = {"summary", "top_users"}
     try:
-        results = await asyncio.to_thread(execute_queries_parallel, queries, timeout=90.0)
+        results = await asyncio.to_thread(
+            execute_queries_parallel,
+            queries,
+            timeout=32.0,
+            required_names=required_queries,
+            max_concurrency=2,
+        )
         optional_failures: dict[str, str] = {}
     except SQLExecutionError as exc:
         try:
@@ -539,31 +603,18 @@ async def get_users_groups_bundle(
             logger.error("users dashboard-bundle required query failed: %s", exc)
             return {
                 **availability,
-                "availability": "error",
-                "summary": {},
-                "top_users": [],
-                "timeseries": [],
-                "timeseries_users": [],
-                "by_workspace": [],
-                "user_growth": [],
-                "start_date": start_date,
-                "end_date": end_date,
-                "error": str(exc),
-                "error_code": exc.code,
+                **_users_failure_payload(start_date, end_date, exc.code),
+                "reason": "required_query_failed",
             }
     except Exception as e:
         logger.error("users dashboard-bundle failed: %s", e)
         return {
             **availability,
-            "summary": {},
-            "top_users": [],
-            "timeseries": [],
-            "timeseries_users": [],
-            "by_workspace": [],
-            "user_growth": [],
-            "start_date": start_date,
-            "end_date": end_date,
-            "error": str(e),
+            **_users_failure_payload(
+                start_date,
+                end_date,
+                str(getattr(e, "code", "QUERY_FAILED")),
+            ),
         }
 
     # Summary
@@ -681,8 +732,115 @@ async def get_users_groups_bundle(
             else cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE
         ),
         generation=_cache_generation,
+        wait_for_remote=True,
     )
     return _resp
+
+
+@router.get("/bundle")
+async def get_users_groups_bundle(
+    start_date: str = Query(default=None),
+    end_date: str = Query(default=None),
+    workspace_ids: str = Query(default=None),
+    source_labels: list[str] = Query(default=None),
+) -> dict[str, Any]:
+    """Submit/coalesce the bounded Users bundle and poll until it settles."""
+    validated_start, validated_end, id_list, labels = validate_request_scope(
+        start_date, end_date, workspace_ids, source_labels
+    )
+    identity_available, availability = _identity_scope(labels)
+    if not identity_available:
+        return {
+            **availability,
+            "summary": {},
+            "top_users": [],
+            "timeseries": [],
+            "timeseries_users": [],
+            "by_workspace": [],
+            "user_growth": [],
+            "start_date": validated_start,
+            "end_date": validated_end,
+        }
+
+    cache_key = bundle_cache_key(
+        "users:dashboard-bundle", validated_start, validated_end, id_list
+    )
+    producer_state = await asyncio.to_thread(get_bundle_compute_state, cache_key)
+    if producer_state and producer_state.get("state") == "failed":
+        shared_code = str(producer_state.get("error_code") or "")
+        deadline_failure = shared_code in {
+            "BUNDLE_PRODUCER_DEADLINE",
+            "BUNDLE_PRODUCER_LEASE_EXPIRED",
+        }
+        failure = _users_failure_payload(
+            validated_start,
+            validated_end,
+            "USERS_PRODUCER_DEADLINE" if deadline_failure else "USERS_PRODUCER_FAILED",
+        )
+        if deadline_failure:
+            failure["reason"] = "producer_deadline_exceeded"
+            failure["reason_detail"] = (
+                "User data exceeded its 90-second deadline. Retry shortly to start "
+                "a fresh producer."
+            )
+        return JSONResponse(
+            status_code=503,
+            content=failure,
+            headers={"Retry-After": "2"},
+        )
+    if bundle_compute_is_pending(cache_key):
+        return JSONResponse(
+            status_code=202,
+            content={"status": "pending"},
+            headers={"Retry-After": "1"},
+        )
+    if (cached := await asyncio.to_thread(delta_cache_get, cache_key)) is not None:
+        return cached
+
+    generation = capture_cache_generation("users:dashboard-bundle")
+
+    def produce() -> None:
+        payload = asyncio.run(
+            _compute_users_groups_bundle(
+                validated_start,
+                validated_end,
+                workspace_ids,
+                source_labels,
+            )
+        )
+        if payload.get("availability") == "unavailable":
+            delta_cache_put(
+                cache_key,
+                "users:dashboard-bundle",
+                payload,
+                ttl_seconds=15,
+                generation=generation,
+                wait_for_remote=True,
+            )
+
+    try:
+        start_bundle_compute(
+            cache_key,
+            produce,
+            name="users-bundle",
+            lease_seconds=90,
+            hard_deadline_seconds=90,
+        )
+    except BundleOverloadedError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": "User data is busy. Retry shortly.",
+                "error_code": exc.code,
+                "retryable": True,
+            },
+            headers={"Retry-After": "2"},
+        ) from exc
+    return JSONResponse(
+        status_code=202,
+        content={"status": "pending"},
+        headers={"Retry-After": "1"},
+    )
 
 
 @router.get("/user-growth")

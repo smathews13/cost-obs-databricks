@@ -156,6 +156,38 @@ describe("AppsCostCenter metadata detail", () => {
     expect(screen.getByTestId("apps-selected-kpi")).toHaveTextContent(kpi);
   });
 
+  it("shows a settled retryable state when the producer exceeds its deadline", () => {
+    const onRetry = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <AppsCostCenter
+          data={{
+            available: false,
+            availability: "unavailable",
+            retryable: true,
+            reason_detail: "Failed /api/apps?workspace_ids=987654321",
+            summary: {},
+            apps: {},
+            timeseries: { timeseries: [], categories: [] },
+            connected_artifacts: [],
+            active_only: false,
+            start_date: "2026-08-01",
+            end_date: "2026-08-30",
+          } as unknown as AppsDashboardBundle}
+          isLoading={false}
+          onRetry={onRetry}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Apps data is temporarily unavailable")).toBeVisible();
+    expect(screen.getByText("The background producer did not finish. Retry shortly.")).toBeVisible();
+    expect(screen.queryByText(/987654321/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
   it("uses the same active count contract for the KPI and status breakdown", () => {
     renderApps([metadataApp, historicalApp]);
 

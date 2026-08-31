@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from "react";
+import { flushSync } from "react-dom";
 import {
   QueryClient,
   QueryClientProvider,
@@ -38,6 +39,10 @@ import {
   WarehouseHealthCheckBanner,
 } from "@/components/WarehouseGuidanceBanner";
 import { Bot, Check, Copy, Settings } from "lucide-react";
+import type {
+  WarehouseHealthData,
+  WarehouseIdleTimeData,
+} from "@/components/SQLWarehousing360";
 
 // Retry a dynamic import on failure. First retry handles transient network blips.
 // If the second attempt also fails (stale deployment: browser has old index.html with
@@ -96,11 +101,15 @@ import { CostObsLockup, VersionPill, PageHero, Chip, InfoPanel } from "@/compone
 import { LoadingPanels, Spinner } from "@/components/Spinner";
 import {
   buildExportScopeKey,
-  cancelExportPreparationQueries,
-  cancelRunningSubmitAndPollForTab,
-  isTabDataRequested,
+  createTabDemandState,
+  isTabDemandUnresolved,
+  isTabProducerActive,
+  queueTabDemand,
+  requeueTabDemand,
+  settleTabDemand,
 } from "@/utils/tabDemand";
 import {
+  isDashboardQuery,
   isQueryOwnedByTab,
   refreshSourceScopeData,
   refreshTabData,
@@ -460,6 +469,7 @@ function SpGrantsBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
 
 function Dashboard() {
   useKeepAlive();
+  const rqClient = useQueryClient();
   const tabFetching = useTabFetchingMap();
   const [appSettings, setAppSettings] = useState<AppSettings>(loadAppSettings);
   const { data: runtimeSettings } = useQuery<UnifiedSettings | null>({
@@ -489,6 +499,98 @@ function Dashboard() {
   const [showSettings, setShowSettings] = useState(false);
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
   const [tabVisibility, setTabVisibility] = useState<TabVisibility>(loadTabVisibility);
+  const visibleDashboardTabs = useMemo(
+    () => DASHBOARD_TABS.map(({ id }) => id).filter((tab) => tabVisibility[tab]),
+    [tabVisibility],
+  );
+  const tabDemandScopeKey = useMemo(
+    () => JSON.stringify([
+      dateRange.startDate,
+      dateRange.endDate,
+      [...selectedWorkspaceIds].sort(),
+      sourceScopeVersion,
+      [...visibleDashboardTabs].sort(),
+    ]),
+    [
+      dateRange.endDate,
+      dateRange.startDate,
+      selectedWorkspaceIds,
+      sourceScopeVersion,
+      visibleDashboardTabs,
+    ],
+  );
+  const [tabDemand, setTabDemand] = useState(
+    () => createTabDemandState(tabDemandScopeKey, activeTab),
+  );
+  const tabDemandRef = useRef(tabDemand);
+  tabDemandRef.current = tabDemand;
+  const [demandRefreshPhase, setDemandRefreshPhase] = useState<
+    Partial<Record<ViewTab, "waiting" | "fetching">>
+  >({});
+  const requeueDemandTabs = useCallback(async (
+    tabs: readonly ViewTab[],
+    markVisited = true,
+  ) => {
+    if (tabs.length === 0) return;
+    let demoted: ViewTab[] = [];
+    flushSync(() => {
+      setDemandRefreshPhase((current) => {
+        const next = { ...current };
+        tabs.forEach((tab) => { next[tab] = "waiting"; });
+        return next;
+      });
+      setTabDemand((current) => {
+        const next = requeueTabDemand(
+          current,
+          tabs,
+          activeTab,
+          undefined,
+          markVisited,
+        );
+        demoted = current.active.filter((tab) => !next.active.includes(tab));
+        return next;
+      });
+    });
+    await Promise.all(demoted.map((tab) => rqClient.cancelQueries({
+      predicate: (query) => isQueryOwnedByTab(tab, query.queryKey),
+    })));
+  }, [activeTab, rqClient]);
+  useEffect(() => {
+    let disposed = false;
+    const reconcile = async () => {
+      if (tabDemand.scopeKey !== tabDemandScopeKey) {
+        setDemandRefreshPhase({});
+        await rqClient.cancelQueries({
+          predicate: (query) => isDashboardQuery(query.queryKey),
+        });
+      }
+      if (disposed) return;
+      const currentDemand = tabDemandRef.current;
+      const nextDemand = queueTabDemand(currentDemand, {
+        scopeKey: tabDemandScopeKey,
+        currentTab: activeTab,
+        visibleTabs: visibleDashboardTabs,
+        exportTabs: exportDemand?.tabs,
+      });
+      const preempted = currentDemand.active.filter(
+        (tab) => !nextDemand.active.includes(tab),
+      );
+      setTabDemand(nextDemand);
+      await Promise.all(preempted.map((tab) => rqClient.cancelQueries({
+        predicate: (query) => isQueryOwnedByTab(tab, query.queryKey),
+      })));
+    };
+    void reconcile();
+    return () => { disposed = true; };
+  }, [
+    activeTab,
+    exportDemand?.scope,
+    exportDemand?.tabs,
+    rqClient,
+    tabDemand.scopeKey,
+    tabDemandScopeKey,
+    visibleDashboardTabs,
+  ]);
   const appSettingsRef = useRef(appSettings);
   const tabVisibilityRef = useRef(tabVisibility);
   const settingsHydratedRef = useRef(false);
@@ -542,32 +644,21 @@ function Dashboard() {
   // Stored so onLaunchWizard can abort the in-flight status check and prevent it from
   // overriding the manually-triggered wizard with a stale "ready" response.
   const setupStatusAbortRef = useRef<AbortController | null>(null);
-  const rqClient = useQueryClient();
   const [explicitRefreshingTab, setExplicitRefreshingTab] = useState<ViewTab | null>(null);
   const [refreshErrors, setRefreshErrors] = useState<Partial<Record<ViewTab, string>>>({});
-  const previousActiveTabRef = useRef(activeTab);
-
-  useEffect(() => {
-    const previousTab = previousActiveTabRef.current;
-    previousActiveTabRef.current = activeTab;
-    if (previousTab !== activeTab) {
-      void cancelRunningSubmitAndPollForTab(rqClient, previousTab);
-    }
-  }, [activeTab, rqClient]);
-
   const handleTabRefresh = async () => {
     if (explicitRefreshingTab !== null) return;
     const tab = activeTab;
     setExplicitRefreshingTab(tab);
     setRefreshErrors((current) => ({ ...current, [tab]: undefined }));
     try {
+      await requeueDemandTabs([tab]);
       await refreshTabData(rqClient, tab);
     } catch (error) {
       console.error(`Failed to refresh ${tab} tab`, error);
-      const detail = error instanceof Error ? error.message : "Unknown error";
       setRefreshErrors((current) => ({
         ...current,
-        [tab]: `This tab could not be refreshed: ${detail}`,
+        [tab]: "This tab could not be refreshed. Retry shortly.",
       }));
     } finally {
       setExplicitRefreshingTab(null);
@@ -670,8 +761,27 @@ function Dashboard() {
     return startScopedAutoRefresh(
       rqClient,
       appSettings.refreshIntervalMinutes * 60 * 1000,
+      document,
+      globalThis,
+      async () => {
+        const tabs = tabDemand.visited.filter((tab) => tabVisibility[tab]);
+        await requeueDemandTabs(tabs);
+        await rqClient.invalidateQueries({
+          type: "active",
+          predicate: (query) => tabs.some(
+            (tab) => isQueryOwnedByTab(tab, query.queryKey),
+          ),
+          refetchType: "active",
+        });
+      },
     );
-  }, [appSettings.refreshIntervalMinutes, rqClient]);
+  }, [
+    appSettings.refreshIntervalMinutes,
+    requeueDemandTabs,
+    rqClient,
+    tabDemand.visited,
+    tabVisibility,
+  ]);
 
   // Density → compact-mode CSS class on root
   useEffect(() => {
@@ -812,7 +922,9 @@ function Dashboard() {
 
   const exportPreparationRequested = showExportDialog && exportDemand !== null;
   const requested = (tab: ViewTab) =>
-    warehouseQueriesAllowed && isTabDataRequested(tab, activeTab, exportDemand?.tabs);
+    warehouseQueriesAllowed
+    && tabDemand.scopeKey === tabDemandScopeKey
+    && isTabProducerActive(tabDemand, tab);
   const dbuRequested = requested("dbu");
   const sqlRequested = requested("sql");
   const infraRequested = requested("infra");
@@ -938,21 +1050,15 @@ function Dashboard() {
 
   const { data: dbsqlData, isLoading: dbsqlLoading, isError: dbsqlError } = useDBSQLQueryCosts(dateRange, _wsIds, sqlRequested);
   const { data: dbsqlTopQueriesData, isLoading: dbsqlTopQueriesLoading, isError: dbsqlTopQueriesError } = useDBSQLTopQueries(dateRange, _wsIds, sqlRequested);
-  const { data: usersGroupsData, isLoading: usersGroupsLoading, isError: usersGroupsError } = useUsersGroupsBundle(dateRange, _wsIds, usersRequested);
+  const {
+    data: usersGroupsData,
+    isLoading: usersGroupsLoading,
+    isError: usersGroupsError,
+    refetch: refetchUsersGroups,
+  } = useUsersGroupsBundle(dateRange, _wsIds, usersRequested);
 
   // Optimizer queries run when its tab or the report exporter requests them.
-  const { data: optimizeRightsizingData, isLoading: optimizeRightsizingLoading, isError: optimizeRightsizingError } = useQuery<{
-    available: boolean;
-    warehouses_analyzed: number;
-    recommendations: Array<{
-      warehouse_id: string;
-      warehouse_name: string | null;
-      warehouse_size: string | null;
-      workspace_id: string;
-      recommendation_type: string;
-      recommendation_text: string;
-    }>;
-  }>({
+  const { data: optimizeRightsizingData, isLoading: optimizeRightsizingLoading, isError: optimizeRightsizingError } = useQuery<WarehouseHealthData>({
     queryKey: ["warehouse-health"],
     queryFn: async () => {
       const response = await fetch("/api/sql/warehouse-health");
@@ -965,23 +1071,7 @@ function Dashboard() {
     // this prefetched at Dashboard mount and could starve concurrent bundles.
     enabled: optimizerRequested,
   });
-  const { data: optimizeIdleData, isLoading: optimizeIdleLoading, isError: optimizeIdleError } = useQuery<{
-    available: boolean;
-    serverless_detected: boolean;
-    warehouses: Array<{
-      warehouse_id: string;
-      warehouse_name: string;
-      warehouse_size: string;
-      warehouse_type: string;
-      workspace_id: string;
-      total_running_minutes: number;
-      total_query_minutes: number;
-      idle_minutes: number;
-      idle_pct: number;
-      total_spend: number;
-      estimated_idle_spend: number;
-    }>;
-  }>({
+  const { data: optimizeIdleData, isLoading: optimizeIdleLoading, isError: optimizeIdleError } = useQuery<WarehouseIdleTimeData>({
     queryKey: ["warehouse-idle-time", dateRange.startDate, dateRange.endDate, _wsIds?.join(",")],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -997,6 +1087,13 @@ function Dashboard() {
     // Deferred: only fire when the Optimize tab is actually opened.
     enabled: optimizerRequested,
   });
+  const retryScheduledTab = useCallback(
+    async (tab: ViewTab, refetch: () => Promise<unknown>) => {
+      await requeueDemandTabs([tab]);
+      await refetch();
+    },
+    [requeueDemandTabs],
+  );
 
   const tabLoading: Record<ViewTab, boolean> = {
     dbu: bundleLoading || skuLoading || pipelineLoading || interactiveLoading,
@@ -1030,9 +1127,9 @@ function Dashboard() {
       [bundle?.summary, true],
       [bundle?.products, true],
       [bundle?.workspaces, true],
-      [skuBreakdown, true],
-      [pipelineObjects, true],
-      [interactiveBreakdown, true],
+      [skuBreakdown],
+      [pipelineObjects],
+      [interactiveBreakdown],
     ),
     sql: firstPayloadIssue(
       [sqlBreakdown, true],
@@ -1068,10 +1165,102 @@ function Dashboard() {
     tagging: reportPayloadIssues.tagging || (taggingError ? "Tagging data failed to load." : undefined),
     "users-groups": reportPayloadIssues["users-groups"] || (usersGroupsError ? "Users data failed to load." : undefined),
   };
+  const tabErrorsRef = useRef(tabErrors);
+  tabErrorsRef.current = tabErrors;
+  const tabHasOutcome = useMemo<Record<ViewTab, boolean>>(() => ({
+    dbu: Boolean(bundle || bundleError)
+      && Boolean(skuBreakdown || skuError)
+      && Boolean(pipelineObjects || pipelineError)
+      && Boolean(interactiveBreakdown || interactiveError),
+    sql: Boolean(sqlBreakdown || sqlError)
+      && Boolean(dbsqlData || dbsqlError)
+      && Boolean(dbsqlTopQueriesData || dbsqlTopQueriesError),
+    infra: Boolean(cloudCostsBundle || infraBundleError),
+    optimizer: Boolean(optimizeRightsizingData || optimizeRightsizingError)
+      && Boolean(optimizeIdleData || optimizeIdleError),
+    kpis: Boolean(kpisBundle || kpisBundleError),
+    aiml: Boolean(aimlData || aimlError),
+    apps: Boolean(appsData || appsError),
+    tagging: Boolean(taggingData || taggingError),
+    "users-groups": Boolean(usersGroupsData || usersGroupsError),
+  }), [
+    aimlData,
+    aimlError,
+    appsData,
+    appsError,
+    bundle,
+    bundleError,
+    cloudCostsBundle,
+    dbsqlData,
+    dbsqlError,
+    dbsqlTopQueriesData,
+    dbsqlTopQueriesError,
+    infraBundleError,
+    interactiveBreakdown,
+    interactiveError,
+    kpisBundle,
+    kpisBundleError,
+    optimizeIdleData,
+    optimizeIdleError,
+    optimizeRightsizingData,
+    optimizeRightsizingError,
+    pipelineObjects,
+    pipelineError,
+    skuBreakdown,
+    skuError,
+    sqlBreakdown,
+    sqlError,
+    taggingData,
+    taggingError,
+    usersGroupsData,
+    usersGroupsError,
+  ]);
+  useEffect(() => {
+    setDemandRefreshPhase((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [tab, phase] of Object.entries(current) as Array<
+        [ViewTab, "waiting" | "fetching"]
+      >) {
+        if (phase === "waiting" && tabFetching[tab]) {
+          next[tab] = "fetching";
+          changed = true;
+        } else if (phase === "fetching" && !tabFetching[tab]) {
+          delete next[tab];
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [tabFetching]);
+  useEffect(() => {
+    const completed = tabDemand.active.filter(
+      (tab) => tabHasOutcome[tab] && !demandRefreshPhase[tab],
+    );
+    if (completed.length === 0) return;
+    setTabDemand((current) => settleTabDemand(current, completed, activeTab));
+  }, [
+    activeTab,
+    demandRefreshPhase,
+    tabDemand.active,
+    tabHasOutcome,
+  ]);
+  const unresolvedTabDemand = Object.fromEntries(
+    visibleDashboardTabs.map((tab) => [
+      tab,
+      tabDemand.scopeKey !== tabDemandScopeKey
+        ? tab === activeTab || tabDemand.visited.includes(tab)
+        : isTabDemandUnresolved(tabDemand, tab),
+    ]),
+  ) as Partial<Record<ViewTab, boolean>>;
   const activeTabInitialLoading = !warehouseQueriesAllowed || tabPrimaryLoading[activeTab];
   const showActiveTabLoading = activeTabInitialLoading || explicitRefreshingTab === activeTab;
   const exportDataLoading = exportPreparationRequested &&
-    Boolean(exportDemand?.tabs.some((tab) => tabLoading[tab]));
+    Boolean(exportDemand?.tabs.some(
+      (tab) => tabDemand.scopeKey !== tabDemandScopeKey
+        || isTabDemandUnresolved(tabDemand, tab)
+        || tabLoading[tab],
+    ));
   const exportHasErrors = exportPreparationRequested &&
     Boolean(exportDemand?.tabs.some((tab) => Boolean(tabErrors[tab])));
   const exportDataPrepared = Boolean(
@@ -1098,12 +1287,29 @@ function Dashboard() {
     setShowExportDialog(true);
   };
 
+  const releaseExportDemand = useCallback(() => {
+    const currentDemand = tabDemandRef.current;
+    const exportOnlyTabs = (exportDemand?.tabs ?? []).filter(
+      (tab) => tab !== activeTab && !currentDemand.visited.includes(tab),
+    );
+    setExportDemand(null);
+    setPreparedExportScope(null);
+    setExportPreparationArmed(false);
+    if (exportOnlyTabs.length === 0) return;
+    setDemandRefreshPhase((current) => {
+      const next = { ...current };
+      exportOnlyTabs.forEach((tab) => { delete next[tab]; });
+      return next;
+    });
+    void Promise.all(exportOnlyTabs.map((tab) => rqClient.cancelQueries({
+      predicate: (query) => isQueryOwnedByTab(tab, query.queryKey),
+    })));
+  }, [activeTab, exportDemand?.tabs, rqClient]);
+
   const closeExportDialog = useCallback(() => {
     setShowExportDialog(false);
-    setExportDemand(null);
-    setExportPreparationArmed(false);
-    void cancelExportPreparationQueries(rqClient, activeTab);
-  }, [activeTab, rqClient]);
+    releaseExportDemand();
+  }, [releaseExportDemand]);
 
   const prepareExportData = useCallback((sections: ExportSections) => {
     const tabs = getRequiredExportTabs(sections, tabVisibility) as ViewTab[];
@@ -1117,30 +1323,46 @@ function Dashboard() {
     setPreparedExportScope(null);
     setExportPreparationArmed(false);
     setExportDemand({ scope, tabs });
+    void (async () => {
+      await requeueDemandTabs(tabs, false);
+      await rqClient.invalidateQueries({
+        predicate: (query) => tabs.some(
+          (tab) => isQueryOwnedByTab(tab, query.queryKey),
+        ),
+        refetchType: "active",
+      });
+    })();
   }, [
     dateRange.endDate,
     dateRange.startDate,
     selectedWorkspaceIds,
     sourceScopeVersion,
     tabVisibility,
+    requeueDemandTabs,
+    rqClient,
   ]);
 
   const resetExportDemand = useCallback(() => {
     if (!exportDemand) return;
-    void cancelExportPreparationQueries(rqClient, activeTab);
-    setExportDemand(null);
-    setPreparedExportScope(null);
-    setExportPreparationArmed(false);
-  }, [activeTab, exportDemand, rqClient]);
+    releaseExportDemand();
+  }, [exportDemand, releaseExportDemand]);
 
   const retryFailedExportData = useCallback(async () => {
     const tabs = exportDemand?.tabs ?? [];
+    const failedTabs = tabs.filter((tab) => Boolean(tabErrorsRef.current[tab]));
+    await requeueDemandTabs(failedTabs);
+    await rqClient.invalidateQueries({
+      predicate: (query) => failedTabs.some(
+        (tab) => isQueryOwnedByTab(tab, query.queryKey),
+      ),
+      refetchType: "none",
+    });
     await rqClient.refetchQueries({
       type: "active",
       predicate: (query) => query.state.status === "error"
-        && tabs.some((tab) => isQueryOwnedByTab(tab, query.queryKey)),
+        && failedTabs.some((tab) => isQueryOwnedByTab(tab, query.queryKey)),
     });
-  }, [exportDemand?.tabs, rqClient]);
+  }, [exportDemand?.tabs, requeueDemandTabs, rqClient]);
 
   // Workspace list for the filter dropdown: SQL-backed, only fire when warehouse is ready.
   const { data: wsListData, isLoading: wsListLoading } = useQuery<{ workspaces: { id: string; name: string; historical?: boolean }[] }>({
@@ -1591,6 +1813,7 @@ function Dashboard() {
             visibility={tabVisibility}
             loading={{
               ...tabFetching,
+              ...unresolvedTabDemand,
               ...(explicitRefreshingTab ? { [explicitRefreshingTab]: true } : {}),
             }}
             onChange={setActiveTab}
@@ -1713,8 +1936,18 @@ function Dashboard() {
               title="Optimize"
               subtitle="Rightsizing recommendations and cost optimization insights"
             />
-            <WarehouseIdleTimeView host={accountInfo?.host} startDate={dateRange.startDate} endDate={dateRange.endDate} workspaceIds={_wsIds} />
-            <WarehouseRightsizingView host={accountInfo?.host} />
+            <WarehouseIdleTimeView
+              host={accountInfo?.host}
+              data={optimizeIdleData}
+              isLoading={optimizeIdleLoading}
+              isError={optimizeIdleError}
+            />
+            <WarehouseRightsizingView
+              host={accountInfo?.host}
+              data={optimizeRightsizingData}
+              isLoading={optimizeRightsizingLoading}
+              isError={optimizeRightsizingError}
+            />
           </div>
           </TabErrorBoundary>
         ) : activeTab === "kpis" ? (
@@ -1738,7 +1971,7 @@ function Dashboard() {
             isLoading={aimlLoading}
             isError={aimlError}
             error={aimlErrorObj}
-            onRetry={() => void refetchAiml()}
+            onRetry={() => { void retryScheduledTab("aiml", refetchAiml); }}
             startDate={dateRange.startDate}
             endDate={dateRange.endDate}
             host={accountInfo?.host}
@@ -1753,7 +1986,7 @@ function Dashboard() {
             isLoading={appsLoading}
             isError={appsError}
             error={appsErrorObj}
-            onRetry={() => void refetchApps()}
+            onRetry={() => { void retryScheduledTab("apps", refetchApps); }}
             host={accountInfo?.host}
             startDate={dateRange.startDate}
             endDate={dateRange.endDate}
@@ -1794,7 +2027,10 @@ function Dashboard() {
           <UsersGroups
             startDate={dateRange.startDate}
             endDate={dateRange.endDate}
-            dateRange={dateRange}
+            data={usersGroupsData}
+            isLoading={usersGroupsLoading}
+            isError={usersGroupsError}
+            onRetry={() => { void retryScheduledTab("users-groups", refetchUsersGroups); }}
             anonymizeUsers={appSettings.anonymizeUsers}
             workspaceIds={_wsIds}
             workspaceNameMap={workspaceNameMap}

@@ -6,6 +6,8 @@ import asyncio
 import time
 from unittest.mock import patch
 
+import pytest
+
 from server import db
 from server.routers import aiml, apps, billing, dbsql_base, users_groups
 
@@ -35,7 +37,7 @@ def _dbsql_compute():
     )
 
 
-def test_apps_required_failure_is_not_cached():
+def test_apps_required_failure_is_typed_and_short_cached_for_pollers():
     partial = {
         "summary": None,
         "apps": [],
@@ -46,7 +48,7 @@ def test_apps_required_failure_is_not_cached():
         "service_principals": [],
     }
     with (
-        patch.object(apps, "_get_app_registry", return_value={}),
+        patch.object(apps, "_app_name_cache", {}),
         patch.object(apps, "_check_mv_available", return_value=False),
         patch.object(
             apps,
@@ -62,7 +64,12 @@ def test_apps_required_failure_is_not_cached():
             "apps-key",
             db.CacheGeneration("apps:dashboard-bundle:all", 0),
         )
-    cache_put.assert_not_called()
+    payload = cache_put.call_args.args[2]
+    assert payload["availability"] == "unavailable"
+    assert payload["retryable"] is True
+    assert payload["error_code"] == "SQL_TIMEOUT"
+    assert "timed out" not in repr(payload).lower()
+    assert cache_put.call_args.kwargs["ttl_seconds"] == 15
 
 
 def test_apps_optional_failure_is_partial_and_short_cached():
@@ -76,7 +83,16 @@ def test_apps_optional_failure_is_partial_and_short_cached():
         "service_principals": [],
     }
     with (
-        patch.object(apps, "_get_app_registry", return_value={}),
+        patch.object(
+            apps,
+            "_app_name_cache",
+            {"app-id": {"name": "app", "url": "", "metadata": {}}},
+        ),
+        patch.object(
+            apps,
+            "_app_details_cache",
+            {"app-id": {"metadata": {}, "resources": []}},
+        ),
         patch.object(apps, "_check_mv_available", return_value=False),
         patch.object(
             apps,
@@ -96,6 +112,114 @@ def test_apps_optional_failure_is_partial_and_short_cached():
     assert payload["availability"] == "partial"
     assert payload["partial_reasons"] == {"workspaces": "SQL_TIMEOUT"}
     assert cache_put.call_args.kwargs["ttl_seconds"] == 60
+
+
+@pytest.mark.parametrize(
+    "cache_outcome",
+    [False, RuntimeError("remote cache unavailable")],
+    ids=["false-return", "exception"],
+)
+def test_apps_durable_cache_failure_is_typed_and_never_completed(cache_outcome):
+    partial = {
+        "summary": [],
+        "apps": [],
+        "timeseries": [],
+        "avg_cost_per_app": [],
+        "sku_breakdown": [],
+        "workspaces": None,
+        "service_principals": [],
+    }
+    cache_key = "apps-durable-failure"
+    cache_side_effect = [cache_outcome, cache_outcome]
+    with (
+        patch.object(apps, "_app_name_cache", {}),
+        patch.object(apps, "_app_details_cache", {}),
+        patch.object(apps, "_check_mv_available", return_value=False),
+        patch.object(
+            apps,
+            "execute_queries_parallel",
+            side_effect=_failure("workspaces", partial),
+        ),
+        patch.object(apps, "delta_cache_put", side_effect=cache_side_effect),
+    ):
+        with pytest.raises(apps._AppsCacheWriteError):
+            apps._compute_apps_bundle(
+                PARAMS,
+                None,
+                False,
+                cache_key,
+                db.CacheGeneration("apps:dashboard-bundle:all", 0),
+            )
+
+    with apps._apps_bundle_status_lock:
+        status = dict(apps._apps_bundle_status[cache_key])
+        failure = dict(apps._apps_bundle_failures[cache_key])
+        apps._apps_bundle_status.pop(cache_key, None)
+        apps._apps_bundle_failures.pop(cache_key, None)
+    assert status["state"] == "failed"
+    assert status["error_code"] == "APPS_CACHE_WRITE_FAILED"
+    assert failure["error_code"] == "APPS_CACHE_WRITE_FAILED"
+    assert failure["availability"] == "unavailable"
+
+
+@pytest.mark.parametrize(
+    "cache_outcome",
+    [False, RuntimeError("remote cache unavailable")],
+    ids=["false-return", "exception"],
+)
+def test_apps_durable_cache_failure_releases_lease_as_failed(
+    monkeypatch, tmp_path, cache_outcome
+):
+    partial = {
+        "summary": [],
+        "apps": [],
+        "timeseries": [],
+        "avg_cost_per_app": [],
+        "sku_breakdown": [],
+        "workspaces": None,
+        "service_principals": [],
+    }
+    cache_key = f"apps-lease-{type(cache_outcome).__name__}"
+    monkeypatch.setattr(db, "_BUNDLE_LEASE_DIR", str(tmp_path))
+    with (
+        patch.object(db, "delta_cache_get", return_value=None),
+        patch.object(apps, "_app_name_cache", {}),
+        patch.object(apps, "_app_details_cache", {}),
+        patch.object(apps, "_check_mv_available", return_value=False),
+        patch.object(
+            apps,
+            "execute_queries_parallel",
+            side_effect=_failure("workspaces", partial),
+        ),
+        patch.object(
+            apps,
+            "delta_cache_put",
+            side_effect=[cache_outcome, cache_outcome],
+        ),
+    ):
+        assert db.start_bundle_compute(
+            cache_key,
+            lambda: apps._compute_apps_bundle(
+                PARAMS,
+                None,
+                False,
+                cache_key,
+                db.CacheGeneration("apps:dashboard-bundle:all", 0),
+            ),
+            lease_seconds=30,
+            hard_deadline_seconds=30,
+        )
+        deadline = time.monotonic() + 2
+        state = None
+        while time.monotonic() < deadline:
+            state = db.get_bundle_compute_state(cache_key)
+            if state and state.get("state") == "failed":
+                break
+            time.sleep(0.01)
+
+    assert state is not None
+    assert state["state"] == "failed"
+    assert state["error_code"] == "APPS_CACHE_WRITE_FAILED"
 
 
 def test_aiml_required_failure_is_not_cached():
@@ -160,7 +284,7 @@ def test_aiml_optional_failure_is_partial_and_short_cached():
     assert cache_put.call_args.kwargs["ttl_seconds"] == 60
 
 
-def test_users_required_failure_returns_error_without_cache_write():
+def test_users_required_failure_returns_typed_unavailable_without_cache_write():
     partial = {
         "summary": None,
         "top_users": [],
@@ -181,14 +305,15 @@ def test_users_required_failure_returns_error_without_cache_write():
         patch.object(users_groups, "delta_cache_put") as cache_put,
     ):
         response = asyncio.run(
-            users_groups.get_users_groups_bundle(
+            users_groups._compute_users_groups_bundle(
                 start_date=START,
                 end_date=END,
                 workspace_ids=None,
                 source_labels=None,
             )
         )
-    assert response["availability"] == "error"
+    assert response["availability"] == "unavailable"
+    assert response["retryable"] is True
     assert response["error_code"] == "SQL_TIMEOUT"
     cache_put.assert_not_called()
 
@@ -218,7 +343,7 @@ def test_users_optional_failure_is_partial_and_short_cached():
         patch.object(users_groups, "delta_cache_put") as cache_put,
     ):
         response = asyncio.run(
-            users_groups.get_users_groups_bundle(
+            users_groups._compute_users_groups_bundle(
                 start_date=START,
                 end_date=END,
                 workspace_ids=None,

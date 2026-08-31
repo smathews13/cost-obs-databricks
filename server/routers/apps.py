@@ -25,11 +25,13 @@ from server.db import (
     SQLExecutionError,
     apply_mv_overrides,
     bundle_cache_key,
+    bundle_compute_is_pending,
     capture_cache_generation,
     delta_cache_get,
     delta_cache_put,
     execute_queries_parallel,
     execute_query,
+    get_bundle_compute_state,
     get_catalog_schema,
     get_workspace_client,
     recover_optional_bundle_queries,
@@ -58,6 +60,52 @@ logger = logging.getLogger(__name__)
 
 _apps_bundle_inflight: set[str] = set()
 _apps_bundle_inflight_lock = threading.Lock()
+_apps_bundle_failures: TTLCache[str, dict[str, Any]] = TTLCache(maxsize=100, ttl=30)
+_apps_bundle_status: dict[str, dict[str, Any]] = {}
+_apps_bundle_status_lock = threading.Lock()
+
+
+class _AppsCacheWriteError(RuntimeError):
+    code = "APPS_CACHE_WRITE_FAILED"
+
+
+def _apps_failure_payload(
+    params: dict[str, str],
+    code: str = "APPS_BUNDLE_FAILED",
+) -> dict[str, Any]:
+    return {
+        "available": False,
+        "availability": "unavailable",
+        "retryable": True,
+        "reason": "producer_failed",
+        "reason_detail": "Apps cost data is temporarily unavailable. Retry shortly.",
+        "error_code": code,
+        "summary": {},
+        "apps": {},
+        "timeseries": {"timeseries": [], "categories": []},
+        "connected_artifacts": [],
+        "workspaces": [],
+        "start_date": params["start_date"],
+        "end_date": params["end_date"],
+    }
+
+
+def _set_apps_producer_status(cache_key: str, state: str, **detail: Any) -> None:
+    now = time.monotonic()
+    with _apps_bundle_status_lock:
+        current = dict(_apps_bundle_status.get(cache_key) or {})
+        current.update(detail)
+        current.update({"state": state, "heartbeat_at": now})
+        current.setdefault("started_at", now)
+        _apps_bundle_status[cache_key] = current
+
+
+def _refresh_apps_metadata() -> None:
+    """Best-effort optional SDK enrichment; never fail a billing producer."""
+    try:
+        _get_app_details(_get_app_registry())
+    except BaseException:
+        logger.warning("Optional Apps metadata refresh failed", exc_info=True)
 
 
 def get_default_start_date() -> str:
@@ -454,7 +502,14 @@ def _resolve_app_name(app_id: str, registry: dict[str, dict[str, Any]]) -> str:
 # ── SQL Queries ──────────────────────────────────────────────────────────
 
 APPS_SUMMARY = """
-WITH apps_usage AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.billing_origin_product = 'APPS'
+),
+apps_usage AS (
   SELECT
     u.usage_date,
     u.workspace_id,
@@ -462,11 +517,8 @@ WITH apps_usage AS (
     u.usage_quantity,
     u.usage_metadata,
     COALESCE(p.pricing.default, 0) as price_per_dbu
-  FROM system.billing.usage u
+  FROM filtered_usage u
   /* TEMPORAL_LIST_PRICE_JOIN */
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.billing_origin_product = 'APPS'
 ),
 apps_by_day AS (
   SELECT
@@ -504,18 +556,22 @@ FROM apps_totals t, apps_avg a
 # Returns per-app breakdown with last_usage_date for active filtering.
 # app_id here is the raw UUID from billing; names are resolved in Python.
 APPS_BY_APP_FULL = """
-WITH apps_usage AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.billing_origin_product = 'APPS'
+),
+apps_usage AS (
   SELECT
     u.usage_date,
     u.workspace_id,
     u.usage_quantity,
     COALESCE(u.usage_metadata.app_id, 'Unknown') as app_id,
     COALESCE(p.pricing.default, 0) as price_per_dbu
-  FROM system.billing.usage u
+  FROM filtered_usage u
   /* TEMPORAL_LIST_PRICE_JOIN */
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.billing_origin_product = 'APPS'
 )
 SELECT
   app_id,
@@ -600,32 +656,40 @@ def _query_app_workspaces(params: dict[str, Any], ws_clause: str = "") -> list[d
 
 
 APPS_TIMESERIES = """
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.billing_origin_product = 'APPS'
+)
 SELECT
   u.usage_date,
   SUM(u.usage_quantity) as total_dbus,
   SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend
-FROM system.billing.usage u
+FROM filtered_usage u
 /* TEMPORAL_LIST_PRICE_JOIN */
-WHERE u.usage_date BETWEEN :start_date AND :end_date
-  AND u.usage_quantity > 0
-  AND u.billing_origin_product = 'APPS'
 GROUP BY u.usage_date
 ORDER BY u.usage_date
 """
 
 # Per-app SKU breakdown — what cost categories make up each app's total
 APPS_BY_APP_SKU = """
-WITH apps_usage AS (
+WITH filtered_usage AS (
+  SELECT *
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.billing_origin_product = 'APPS'
+),
+apps_usage AS (
   SELECT
     COALESCE(u.usage_metadata.app_id, 'Unknown') as app_id,
     u.sku_name,
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu
-  FROM system.billing.usage u
+  FROM filtered_usage u
   /* TEMPORAL_LIST_PRICE_JOIN */
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.billing_origin_product = 'APPS'
 )
 SELECT
   app_id,
@@ -834,8 +898,9 @@ def _process_apps(
             })
             apps_in_list.add(uid)
 
-        # (B) Unregistered billing rows with old last_usage (deleted apps)
-        for r in inactive_rows:
+        # (B) Every unregistered billing row. Metadata is optional, so a cold or
+        # unavailable Apps registry must not erase otherwise valid cost rows.
+        for r in unregistered_rows:
             raw_id = r.get("app_id") or r.get("app_name") or "Unknown"
             if raw_id in apps_in_list:
                 continue
@@ -1011,6 +1076,7 @@ def _compute_apps_bundle(
     import time as _time
     _endpoint = f"apps:dashboard-bundle:{'active' if active_only else 'all'}"
     _start = _time.time()
+    _set_apps_producer_status(dkey, "running")
 
     try:
         ws_clause = wf.build_ws_filter_clause(id_list=id_list)
@@ -1018,39 +1084,49 @@ def _compute_apps_bundle(
         def _ws(sql: str) -> str:
             return wf.inject_ws_filter(sql, ws_clause)
 
-        registry = _get_app_registry()  # TTL-cached (1h); always populated before filter is built
+        # Billing totals are required; live Apps API metadata is optional. Never
+        # hold the bundle behind an unbounded SDK list/get call.
+        registry = dict(_app_name_cache)
         app_filter = _build_app_id_filter(registry)
 
         filtered_timeseries = f"""
+        WITH filtered_usage AS (
+          SELECT *
+          FROM system.billing.usage u
+          WHERE u.usage_date BETWEEN :start_date AND :end_date
+            AND u.usage_quantity > 0
+            AND u.billing_origin_product = 'APPS'
+            {app_filter}
+            {ws_clause}
+        )
         SELECT
           u.usage_date,
           SUM(u.usage_quantity) as total_dbus,
           SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend
-        FROM system.billing.usage u
+        FROM filtered_usage u
         {temporal_list_price_join()}
-        WHERE u.usage_date BETWEEN :start_date AND :end_date
-          AND u.usage_quantity > 0
-          AND u.billing_origin_product = 'APPS'
-          {app_filter}
-          {ws_clause}
         GROUP BY u.usage_date
         ORDER BY u.usage_date
         """
 
         # Mean-of-daily-ratios: matches the kpi-trend drilldown methodology exactly.
         avg_cost_per_app_query = f"""
-        SELECT COALESCE(AVG(daily_cost_per_app), 0) as avg_cost_per_app
-        FROM (
-          SELECT u.usage_date,
-            SUM(u.usage_quantity * COALESCE(p.pricing.default, 0))
-              / NULLIF(COUNT(DISTINCT u.usage_metadata.app_id), 0) as daily_cost_per_app
+        WITH filtered_usage AS (
+          SELECT *
           FROM system.billing.usage u
-          {temporal_list_price_join()}
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND u.billing_origin_product = 'APPS'
             {app_filter}
             {ws_clause}
+        )
+        SELECT COALESCE(AVG(daily_cost_per_app), 0) as avg_cost_per_app
+        FROM (
+          SELECT u.usage_date,
+            SUM(u.usage_quantity * COALESCE(p.pricing.default, 0))
+              / NULLIF(COUNT(DISTINCT u.usage_metadata.app_id), 0) as daily_cost_per_app
+          FROM filtered_usage u
+          {temporal_list_price_join()}
           GROUP BY u.usage_date
         ) t
         """
@@ -1099,12 +1175,20 @@ def _compute_apps_bundle(
 
         required_queries = {"summary", "apps", "timeseries"}
         try:
-            results = execute_queries_parallel(queries, 75.0)
+            results = execute_queries_parallel(
+                queries,
+                55.0,
+                required_names=required_queries,
+                max_concurrency=2,
+            )
             optional_failures: dict[str, str] = {}
         except SQLExecutionError as exc:
             results, optional_failures = recover_optional_bundle_queries(
                 exc, required_queries
             )
+        _set_apps_producer_status(dkey, "running", phase="formatting")
+        if not registry:
+            optional_failures["app_registry"] = "METADATA_REFRESH_PENDING"
 
         # Build workspace lookup per app_id
         workspace_rows = results.get("workspaces", []) or []
@@ -1167,20 +1251,9 @@ def _compute_apps_bundle(
             key=lambda x: x["date"],
         )
 
-        # First call: block until details are populated so the initial page load
-        # shows both app metadata and Connected Resources. Subsequent calls reuse
-        # the same stale cache and refresh it in the background.
-        if not _app_details_cache:
-            details_by_app = _get_app_details(registry)
-        else:
-            details_by_app = _app_details_cache
-            resource_context = contextvars.copy_context()
-            threading.Thread(
-                target=resource_context.run,
-                args=(_get_app_details, registry),
-                daemon=True,
-                name="apps-details-bg",
-            ).start()
+        details_by_app = dict(_app_details_cache)
+        if registry and not details_by_app:
+            optional_failures["app_details"] = "METADATA_REFRESH_PENDING"
 
         for app in apps_result["apps"]:
             app_id = app["app_id"]
@@ -1292,7 +1365,8 @@ def _compute_apps_bundle(
         else:
             cache_ttl = 60 if not registry else (600 if id_list else 1800)
         try:
-            delta_cache_put(
+            _set_apps_producer_status(dkey, "running", phase="cache_write")
+            cache_written = delta_cache_put(
                 dkey,
                 _endpoint,
                 _resp,
@@ -1301,13 +1375,55 @@ def _compute_apps_bundle(
                 wait_for_remote=True,
             )
         except Exception as _ce:
-            logger.debug("Delta cache write failed for apps/dashboard-bundle: %s", _ce)
+            raise _AppsCacheWriteError(
+                "Apps dashboard data could not be made durable."
+            ) from _ce
+        if not cache_written:
+            raise _AppsCacheWriteError(
+                "Apps dashboard data could not be made durable."
+            )
         logger.info(
             "apps dashboard-bundle background compute complete: %.1fs workspaces=%s apps=%d",
             _time.time() - _start, id_list or "all", apps_result.get("total_app_count", 0),
         )
+        _set_apps_producer_status(dkey, "complete")
+
+        # Refresh optional registry/resource metadata only after required billing
+        # data is durable and visible to pollers.
+        if {
+            "app_registry",
+            "app_details",
+        }.intersection(optional_failures):
+            resource_context = contextvars.copy_context()
+            threading.Thread(
+                target=resource_context.run,
+                args=(_refresh_apps_metadata,),
+                daemon=True,
+                name="apps-metadata-bg",
+            ).start()
     except Exception as e:
         logger.error("apps dashboard-bundle background compute failed: %s", e, exc_info=True)
+        code = str(getattr(e, "code", "APPS_BUNDLE_FAILED"))
+        failure = _apps_failure_payload(params, code)
+        with _apps_bundle_status_lock:
+            _apps_bundle_failures[dkey] = failure
+        _set_apps_producer_status(dkey, "failed", error_code=code)
+        failure_written = False
+        try:
+            failure_written = delta_cache_put(
+                dkey,
+                _endpoint,
+                failure,
+                ttl_seconds=15,
+                generation=cache_generation,
+                wait_for_remote=True,
+            )
+        except Exception:
+            logger.warning("Could not persist typed Apps producer failure", exc_info=True)
+        if isinstance(e, _AppsCacheWriteError) or not failure_written:
+            raise _AppsCacheWriteError(
+                "Apps producer failed before terminal state became durable."
+            ) from e
 
 
 @router.get("/dashboard-bundle")
@@ -1329,9 +1445,56 @@ async def get_apps_dashboard_bundle(
     _endpoint = f"apps:dashboard-bundle:{'active' if active_only else 'all'}"
     _dkey = bundle_cache_key(_endpoint, params["start_date"], params["end_date"], id_list)
 
+    producer_status = await asyncio.to_thread(get_bundle_compute_state, _dkey)
+    if producer_status and producer_status.get("state") == "failed":
+        shared_code = str(producer_status.get("error_code") or "")
+        deadline_failure = shared_code in {
+            "BUNDLE_PRODUCER_DEADLINE",
+            "BUNDLE_PRODUCER_LEASE_EXPIRED",
+        }
+        if shared_code in {
+            "BUNDLE_REMOTE_CACHE_WRITE_FAILED",
+            "APPS_CACHE_WRITE_FAILED",
+        }:
+            public_error_code = "APPS_CACHE_WRITE_FAILED"
+        elif deadline_failure:
+            public_error_code = "APPS_PRODUCER_DEADLINE"
+        else:
+            public_error_code = "APPS_PRODUCER_FAILED"
+        failure = _apps_failure_payload(params, public_error_code)
+        if deadline_failure:
+            failure["reason"] = "producer_deadline_exceeded"
+            failure["reason_detail"] = (
+                "Apps data exceeded its 90-second deadline. Retry shortly to start "
+                "a fresh producer."
+            )
+        return JSONResponse(
+            status_code=503,
+            content=failure,
+            headers={"Retry-After": "2"},
+        )
+    if bundle_compute_is_pending(_dkey):
+        started_at = float(
+            (producer_status or {}).get("started_at")
+            or (producer_status or {}).get("created_at")
+            or time.time()
+        )
+        age_seconds = max(0.0, time.time() - started_at)
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "pending",
+                "producer_state": producer_status.get("state", "claimed"),
+                "age_seconds": round(age_seconds, 1),
+            },
+            headers={"Retry-After": "2"},
+        )
+
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         if isinstance(_dcached, dict) and "_error" in _dcached:
-            raise HTTPException(status_code=500, detail=_dcached.get("_error", "Bundle compute failed"))
+            return _apps_failure_payload(params)
+        if isinstance(_dcached, dict) and _dcached.get("availability") == "unavailable":
+            return _dcached
         try:
             _validate_active_count_contract(
                 _dcached.get("summary", {}),
@@ -1343,8 +1506,18 @@ async def get_apps_dashboard_bundle(
             # recompute under the same date/workspace/source-scoped cache key.
             logger.info("Ignoring stale Apps bundle with legacy active-count contract")
 
+    with _apps_bundle_status_lock:
+        local_failure = _apps_bundle_failures.get(_dkey)
+    if local_failure:
+        return local_failure
+
     cache_generation = capture_cache_generation(_endpoint)
     try:
+        with _apps_bundle_status_lock:
+            if (_apps_bundle_status.get(_dkey) or {}).get("restart_ready"):
+                _apps_bundle_status.pop(_dkey, None)
+                _apps_bundle_failures.pop(_dkey, None)
+        _set_apps_producer_status(_dkey, "queued")
         started = await asyncio.to_thread(
             start_bundle_compute,
             _dkey,
@@ -1356,6 +1529,8 @@ async def get_apps_dashboard_bundle(
                 cache_generation,
             ),
             name="apps-bundle",
+            lease_seconds=90,
+            hard_deadline_seconds=90,
         )
         if started:
             logger.info("apps dashboard-bundle: started background compute for %s", _dkey)
@@ -1370,7 +1545,7 @@ async def get_apps_dashboard_bundle(
 
     return JSONResponse(
         status_code=202,
-        content={"status": "pending", "cache_key": _dkey},
+        content={"status": "pending", "producer_state": "queued"},
         headers={"Retry-After": "2"},
     )
 

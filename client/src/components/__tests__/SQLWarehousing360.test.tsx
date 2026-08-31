@@ -383,20 +383,19 @@ describe("Optimize table pagination", () => {
       recommendation_type: "OVER_SCALED",
       recommendation_text: "Reduce max clusters.",
     }));
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({
+    renderOptimizeView(
+      <WarehouseRightsizingView
+        data={{
         available: true,
         recommendations,
         warehouses_analyzed: 21,
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+        }}
+        isLoading={false}
+        isError={false}
+      />,
     );
 
-    renderOptimizeView(<WarehouseRightsizingView />);
-
-    expect(await screen.findByText("Warehouse 1")).toBeInTheDocument();
+    expect(screen.getByText("Warehouse 1")).toBeInTheDocument();
     expect(screen.getAllByRole("row")).toHaveLength(11);
     expect(screen.getByLabelText("Showing 1 to 10 of 21 recommendations")).toBeInTheDocument();
     expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
@@ -431,20 +430,19 @@ describe("Optimize table pagination", () => {
       estimated_idle_spend: 3,
       low_confidence: false,
     }));
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({
+    renderOptimizeView(
+      <WarehouseIdleTimeView
+        data={{
         available: true,
         serverless_detected: false,
         warehouses,
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+        }}
+        isLoading={false}
+        isError={false}
+      />,
     );
 
-    renderOptimizeView(<WarehouseIdleTimeView />);
-
-    expect(await screen.findByText("Idle Warehouse 1")).toBeInTheDocument();
+    expect(screen.getByText("Idle Warehouse 1")).toBeInTheDocument();
     expect(screen.getAllByRole("row")).toHaveLength(11);
     expect(screen.getByLabelText("Showing 1 to 10 of 12 warehouses")).toBeInTheDocument();
     expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();

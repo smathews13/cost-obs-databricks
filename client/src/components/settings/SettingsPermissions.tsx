@@ -18,7 +18,7 @@ import type {
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const USER_GRID_STYLE = {
-  "--settings-access-grid-columns": "minmax(210px, 1fr) 90px 132px 112px",
+  "--settings-access-grid-columns": "minmax(210px, 1fr) 90px 112px 112px",
 } as React.CSSProperties;
 const ROLE_OPTIONS = [
   { value: "consumer", label: "Consumer" },
@@ -467,7 +467,7 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           The only explicit admin cannot be removed or changed to Consumer. Add another admin first.
         </p>
       )}
-      <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflowX: "auto" }}>
+      <div data-testid="settings-users-table" style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflowX: "auto" }}>
         <div className="settings-access-user-grid settings-access-user-header" style={{ ...USER_GRID_STYLE, padding: "7px 16px", backgroundColor: T.navBg, borderBottom: `1px solid ${T.borderRow}` }}>
           <span>User</span>
           <span>Persona</span>
@@ -499,7 +499,7 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
                 disabled={saveMutation.isPending || protectedAdmin}
                 ariaLabel={`Role for ${email}`}
               />
-              <span style={{ justifySelf: "end" }}>
+              <span className="settings-user-action-cell">
                 <button
                   type="button"
                   onClick={() => removeUser(email)}
@@ -528,20 +528,13 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           </div>
           <span className="settings-persona settings-persona--member">User</span>
           <RoleMenuSelect value={newUserRole} onChange={setNewUserRole} ariaLabel="Role for new user" />
-          <span style={{ display: "grid" }}>
+          <span className="settings-user-action-cell">
             <button type="button" className="settings-user-action settings-user-action--add" onClick={addUser} disabled={!newUserEmail.trim() || saveMutation.isPending}>
               {saveMutation.isPending ? "Saving…" : "Add User"}
             </button>
           </span>
         </div>
       </div>
-      {permissionTable && (
-        <p style={{ fontSize: 11, color: T.textSecondary, margin: "6px 2px 20px" }}>
-          Roles are stored in <MonoChip>{permissionTable}</MonoChip> and persist across deploys.
-          {permissions?.owner?.verified && <> Owner is sourced from the current Databricks Apps deployment creator.</>}
-        </p>
-      )}
-
       {/* ── Role capabilities ── */}
       <div data-testid="settings-role-capabilities" style={{ margin: "0 0 20px" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 7 }}>Permission roles</div>
@@ -559,6 +552,12 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
             </div>
           ))}
         </div>
+        {permissionTable && (
+          <p style={{ fontSize: 11, color: T.textSecondary, margin: "6px 2px 0" }}>
+            Roles are stored in <MonoChip>{permissionTable}</MonoChip> and persist across deploys.
+            {permissions?.owner?.verified && <> Owner is sourced from the current Databricks Apps deployment creator.</>}
+          </p>
+        )}
       </div>
 
       {/* ── Future metastore browser ── */}
@@ -606,16 +605,6 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
 
       {/* ── Service principal ── */}
       <section data-testid="settings-service-principal-section" aria-label="App service principal">
-        <div style={{ border: `1px solid ${bannerTone.border}`, backgroundColor: bannerTone.bg, borderRadius: 8, padding: "10px 14px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: bannerTone.fg, flexShrink: 0 }} />
-            <span style={{ fontSize: 13, color: bannerTone.fg, fontWeight: 500 }}>{bannerLabel}</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-            <LinkButton onClick={handleReadinessRecheck}>Re-check</LinkButton>
-            <LinkButton onClick={() => setReadinessOpen(o => !o)}>{readinessOpen ? "Hide details" : "View details"}</LinkButton>
-          </div>
-        </div>
         <Group label="App service principal">
           <Row
             first
@@ -630,6 +619,28 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
               </span>
             }
           />
+          <div
+            data-testid="service-principal-verification-banner"
+            style={{
+              borderTop: `1px solid ${bannerTone.border}`,
+              borderBottom: `1px solid ${bannerTone.border}`,
+              backgroundColor: bannerTone.bg,
+              padding: "10px 14px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: bannerTone.fg, flexShrink: 0 }} />
+              <span style={{ fontSize: 13, color: bannerTone.fg, fontWeight: 500 }}>{bannerLabel}</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+              <LinkButton onClick={handleReadinessRecheck}>Re-check</LinkButton>
+              <LinkButton onClick={() => setReadinessOpen(o => !o)}>{readinessOpen ? "Hide details" : "View details"}</LinkButton>
+            </div>
+          </div>
           <Row
             label="Execution identity"
             helper={resources?.service_principal?.execution_explanation ?? "Dashboard queries and managed-data maintenance run as the app service principal."}

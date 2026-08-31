@@ -533,7 +533,7 @@ def test_sku_breakdown_has_a_bounded_optional_query_deadline():
         )
 
     assert result["skus"] == []
-    assert execute.call_args.kwargs["timeout"] == 30
+    assert execute.call_args.kwargs["timeout"] == 22
     assert execute.call_args.kwargs["max_rows"] == 100
 
 

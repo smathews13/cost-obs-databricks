@@ -3,10 +3,31 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import type { AIMLDashboardBundle } from "@/types/billing";
 import { AIMLCostCenter } from "../AIMLCostCenter";
+import {
+  AIML_CATEGORY_COLORS,
+  buildAimlCategoryColorMap,
+} from "../aimlCategoryColors";
 
 vi.mock("../KPITrendModal", () => ({
   KPITrendModal: ({ kpi }: { kpi: string }) => <div data-testid="aiml-selected-kpi">{kpi}</div>,
 }));
+
+it("assigns distinct colors to the AI categories shown together", () => {
+  const colors = Object.values(AIML_CATEGORY_COLORS);
+  expect(new Set(colors).size).toBe(colors.length);
+});
+
+it("allocates stable unique fallback colors beyond the base palette", () => {
+  const categories = [
+    ...Object.keys(AIML_CATEGORY_COLORS),
+    ...Array.from({ length: 30 }, (_, index) => `Future AI category ${index}`),
+  ];
+  const first = buildAimlCategoryColorMap(categories);
+  const second = buildAimlCategoryColorMap([...categories].reverse());
+
+  expect(second).toEqual(first);
+  expect(new Set(Object.values(first)).size).toBe(categories.length);
+});
 
 const DATA: AIMLDashboardBundle = {
   summary: {
@@ -56,6 +77,69 @@ describe("AIMLCostCenter error state", () => {
     expect(screen.getByTestId("aiml-selected-kpi")).toHaveTextContent(kpi);
   });
 
+  it("keeps zero-value KPI cards noninteractive", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const zeroData = {
+      ...DATA,
+      summary: {
+        ...DATA.summary,
+        total_spend: 0,
+        total_dbus: 0,
+        endpoint_count: 0,
+        avg_cost_per_endpoint: 0,
+      },
+    };
+    render(
+      <QueryClientProvider client={client}>
+        <AIMLCostCenter
+          data={zeroData}
+          isLoading={false}
+          startDate="2026-08-01"
+          endDate="2026-08-30"
+        />
+      </QueryClientProvider>,
+    );
+
+    for (const title of [
+      "Total AI/ML Spend",
+      "Total DBUs",
+      "Active Endpoints",
+      "Endpoint Cost",
+    ]) {
+      expect(screen.queryByRole("button", { name: `See ${title} trend` })).toBeNull();
+    }
+  });
+
+  it("keeps all four KPI cards static when their underlying values are zero", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const zeroData: AIMLDashboardBundle = {
+      ...DATA,
+      summary: {
+        ...DATA.summary,
+        total_dbus: 0,
+        total_spend: 0,
+        endpoint_count: 0,
+        avg_cost_per_endpoint: 0,
+      },
+    };
+    render(
+      <QueryClientProvider client={client}>
+        <AIMLCostCenter
+          data={zeroData}
+          isLoading={false}
+          startDate="2026-08-01"
+          endDate="2026-08-30"
+        />
+      </QueryClientProvider>,
+    );
+
+    for (const title of ["Total AI/ML Spend", "Total DBUs", "Active Endpoints", "Endpoint Cost"]) {
+      expect(screen.queryByRole("button", { name: `See ${title} trend` })).not.toBeInTheDocument();
+      expect(screen.getByText(title).closest(".co-kpi-card")?.tagName).toBe("DIV");
+    }
+    expect(screen.queryByText("See trend")).not.toBeInTheDocument();
+  });
+
   it("shows a settled error instead of a loading or blank state", () => {
     const onRetry = vi.fn();
     const client = new QueryClient({
@@ -68,14 +152,15 @@ describe("AIMLCostCenter error state", () => {
           data={undefined}
           isLoading
           isError
-          error={new Error("Timed out waiting for AI/ML data")}
+          error={new Error("Failed /api/aiml?workspace_ids=987654321")}
           onRetry={onRetry}
         />
       </QueryClientProvider>,
     );
 
     expect(screen.getByText("Failed to load AI/ML data")).toBeInTheDocument();
-    expect(screen.getByText("Timed out waiting for AI/ML data")).toBeInTheDocument();
+    expect(screen.getByText("AI/ML data is temporarily unavailable. Retry shortly.")).toBeInTheDocument();
+    expect(screen.queryByText(/987654321/)).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: /loading/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));

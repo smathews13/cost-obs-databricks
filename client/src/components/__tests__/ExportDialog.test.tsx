@@ -88,10 +88,11 @@ describe("ExportDialog report data loading", () => {
 
   it("allows an explicit complete export after failed sections are deselected", async () => {
     const onExport = vi.fn();
+    const onClose = vi.fn();
     render(
       <ExportDialog
         isOpen
-        onClose={vi.fn()}
+        onClose={onClose}
         onExport={onExport}
         tabVisibility={visibility}
         dataPrepared
@@ -103,6 +104,23 @@ describe("ExportDialog report data loading", () => {
     await userEvent.click(screen.getByRole("button", { name: /Export 14 sections as PDF/ }));
     expect(onExport).toHaveBeenCalledOnce();
     expect(onExport.mock.calls[0][0].apps).toBe(false);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("runs export-demand cleanup when the dialog is cancelled", async () => {
+    const onClose = vi.fn();
+    render(
+      <ExportDialog
+        isOpen
+        onClose={onClose}
+        onExport={vi.fn()}
+        tabVisibility={visibility}
+        requiredTabs={["apps"]}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("hides architecture export when the feature is disabled", () => {
@@ -133,10 +151,34 @@ describe("ExportDialog report data loading", () => {
       />,
     );
 
-    expect(screen.getByText("Architecture PDF")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Architecture PDF" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Cost report" })).toBeVisible();
+    expect(screen.getByText(/Export selected cost and usage sections/)).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Download Architecture PDF" }));
     expect(onExportArchitecture).toHaveBeenCalledOnce();
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  });
+
+  it("labels the architecture and cost report as separate ordered export products", () => {
+    render(
+      <ExportDialog
+        isOpen
+        onClose={vi.fn()}
+        onExport={vi.fn()}
+        enableArchitectureView
+        onExportArchitecture={vi.fn()}
+        tabVisibility={visibility}
+      />,
+    );
+
+    const architecture = screen.getByRole("heading", { name: "Architecture PDF" });
+    const costReport = screen.getByRole("heading", { name: "Cost report" });
+    const fileFormat = screen.getByText("File format");
+    const reportSections = screen.getByText("Report sections");
+
+    expect(architecture.compareDocumentPosition(costReport) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(costReport.compareDocumentPosition(fileFormat) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(costReport.compareDocumentPosition(reportSections) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows architecture export progress while the download is pending", async () => {

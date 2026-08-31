@@ -166,7 +166,7 @@ function MetadataValue({ label, value }: { label: string; value?: string | numbe
   );
 }
 
-export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host, startDate, endDate, workspaceIds, workspaceNameMap }: AppsCostCenterProps) {
+export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startDate, endDate, workspaceIds, workspaceNameMap }: AppsCostCenterProps) {
   const MINIMIZE_KEY = "cost-obs-minimize-apps-info";
 
   const [infoMinimized, setInfoMinimized] = useState(() => {
@@ -395,12 +395,12 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
         count: appsData.inactive_count,
       });
     }
-    if (appsData.unregistered_summary.count > 0) {
+    if ((appsData.unregistered_summary?.count ?? 0) > 0) {
       slices.push({
         name: "Historical",
-        value: appsData.unregistered_summary.count,
+        value: appsData.unregistered_summary?.count ?? 0,
         fill: PIE_COLORS.historical,
-        count: appsData.unregistered_summary.count,
+        count: appsData.unregistered_summary?.count ?? 0,
       });
     }
     return slices;
@@ -417,16 +417,34 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
     ]} />;
   }
 
+  if (data?.availability === "unavailable" || data?.available === false) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
+        <p className="font-medium text-amber-900">Apps data is temporarily unavailable</p>
+        <p className="mt-1 text-sm text-amber-800">
+          The background producer did not finish. Retry shortly.
+        </p>
+        {onRetry && (
+          <button
+            type="button"
+            className="mt-3 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900"
+            onClick={onRetry}
+          >
+            Retry
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (isError && !data) {
-    const errMsg = error instanceof Error ? error.message : null;
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-6">
         <div className="flex flex-col items-center justify-center gap-3 py-4">
           <p className="text-base font-medium text-red-800">Failed to load Apps data</p>
-          {errMsg
-            ? <p className="text-sm text-red-700 font-mono text-center">{errMsg}</p>
-            : <p className="text-sm text-red-700">Check server logs for details.</p>
-          }
+          <p className="text-center text-sm text-red-700">
+            Apps data is temporarily unavailable. Retry shortly.
+          </p>
           {onRetry && (
             <button
               onClick={onRetry}

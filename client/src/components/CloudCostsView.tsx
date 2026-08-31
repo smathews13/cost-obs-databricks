@@ -115,48 +115,6 @@ function getClusterUrl(host: string | null | undefined, clusterId: string | null
   return workspaceUrl(host, `/compute/interactive${workspaceParam}`);
 }
 
-type CloudProvider = "AWS" | "AZURE" | "GCP";
-
-function getInstancePricingUrl(instanceType: string | null, cloud: CloudProvider): string {
-  if (cloud === "AZURE") {
-    if (!instanceType) return "https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/";
-    const seriesMatch = instanceType.match(/^Standard_([A-Z]+)/i);
-    const series = seriesMatch ? seriesMatch[1].toUpperCase() : null;
-    const azureFamilyUrls: Record<string, string> = {
-      'D': 'https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/#d-series',
-      'E': 'https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/#e-series',
-      'F': 'https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/#f-series',
-      'L': 'https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/#l-series',
-      'M': 'https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/#m-series',
-      'NC': 'https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/#nc-series',
-      'ND': 'https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/#nd-series',
-    };
-    return series && azureFamilyUrls[series]
-      ? azureFamilyUrls[series]
-      : "https://azure.microsoft.com/en-us/pricing/details/virtual-machines/linux/";
-  }
-  if (cloud === "GCP") {
-    return "https://cloud.google.com/compute/vm-instance-pricing";
-  }
-  if (!instanceType) return "https://aws.amazon.com/ec2/pricing/on-demand/";
-  const family = instanceType.split('.')[0];
-  const familyUrls: Record<string, string> = {
-    'i3': 'https://aws.amazon.com/ec2/instance-types/i3/',
-    'i3en': 'https://aws.amazon.com/ec2/instance-types/i3en/',
-    'm5': 'https://aws.amazon.com/ec2/instance-types/m5/',
-    'm5d': 'https://aws.amazon.com/ec2/instance-types/m5/',
-    'm6i': 'https://aws.amazon.com/ec2/instance-types/m6i/',
-    'r5': 'https://aws.amazon.com/ec2/instance-types/r5/',
-    'r5d': 'https://aws.amazon.com/ec2/instance-types/r5/',
-    'c5': 'https://aws.amazon.com/ec2/instance-types/c5/',
-    'c5d': 'https://aws.amazon.com/ec2/instance-types/c5/',
-    'g4dn': 'https://aws.amazon.com/ec2/instance-types/g4/',
-    'g5': 'https://aws.amazon.com/ec2/instance-types/g5/',
-    'p3': 'https://aws.amazon.com/ec2/instance-types/p3/',
-  };
-  return familyUrls[family] || "https://aws.amazon.com/ec2/pricing/on-demand/";
-}
-
 export function CloudCostsView({
   data,
   isLoading,
@@ -283,7 +241,6 @@ export function CloudCostsView({
   const cloudDisplayName = cloud.toUpperCase() === "AZURE" ? "Azure" : cloud.toUpperCase() === "GCP" ? "GCP" : "AWS";
   const isAzure = cloud.toUpperCase() === "AZURE";
   const isGCP = cloud.toUpperCase() === "GCP";
-  const cloudProvider: CloudProvider = isAzure ? "AZURE" : isGCP ? "GCP" : "AWS";
   const daysCount = startDate && endDate
     ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1
     : null;
@@ -806,9 +763,25 @@ export function CloudCostsView({
         )}
         {hasBillingSummary ? (
           <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <KPICard title="Databricks Compute Spend" value={formatKpiCurrency(billingSummary.databricks_compute_spend ?? 0)} subtitle={`${billingSummary.days_in_range ?? 0} days (all-purpose + jobs + DLT)`} />
+            <KPICard
+              title="Databricks Compute Spend"
+              value={formatKpiCurrency(billingSummary.databricks_compute_spend ?? 0)}
+              subtitle={`${billingSummary.days_in_range ?? 0} days (all-purpose + jobs + DLT)`}
+              onActivate={(billingSummary.databricks_compute_spend ?? 0) > 0 && startDate && endDate
+                ? () => setSelectedKPI({ kpi: "infra_cost", label: "Daily Databricks Compute Spend" })
+                : undefined}
+              ariaLabel="See Databricks Compute Spend trend"
+            />
             <KPICard title="Avg Active Clusters / Day" value={formatNumber(billingSummary.avg_clusters_per_day ?? 0)} subtitle="daily average" />
-            <KPICard title="Databricks Spend / Cluster" value={formatKpiCurrency(billingSummary.avg_databricks_spend_per_cluster ?? 0)} subtitle="per cluster per day" />
+            <KPICard
+              title="Databricks Spend / Cluster"
+              value={formatKpiCurrency(billingSummary.avg_databricks_spend_per_cluster ?? 0)}
+              subtitle="per cluster per day"
+              onActivate={(billingSummary.avg_databricks_spend_per_cluster ?? 0) > 0 && startDate && endDate
+                ? () => setSelectedKPI({ kpi: "avg_cost_per_cluster", label: "Daily Databricks Spend per Cluster" })
+                : undefined}
+              ariaLabel="See Databricks Spend / Cluster trend"
+            />
           </div>
         ) : (
           <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
@@ -824,6 +797,18 @@ export function CloudCostsView({
                 "No matching classic cluster_id usage was found for the selected workspaces and date range."}
             </p>
           </div>
+        )}
+        {selectedKPI && startDate && endDate && (
+          <KPITrendModal
+            kpi={selectedKPI.kpi}
+            kpiLabel={selectedKPI.label}
+            isOpen
+            onClose={() => setSelectedKPI(null)}
+            startDate={startDate}
+            endDate={endDate}
+            workspaceIds={workspaceIds}
+            queryKeyPrefix="infra-kpi-trend"
+          />
         )}
         {IntegrationWizard}
       </div>
@@ -896,13 +881,15 @@ export function CloudCostsView({
             const dailyAvg = cloudSummary.databricksSpend > 0 ? cloudSummary.databricksSpend / days : 0;
             return `${formatCurrency(dailyAvg)}/day avg · ${days} days`;
           })() : undefined}
+          onActivate={cloudSummary.databricksSpend > 0 && startDate && endDate ? () => setSelectedKPI({ kpi: "infra_cost", label: "Daily Databricks Compute Spend" }) : undefined}
+          ariaLabel="See Databricks Compute Spend trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
         />
         <KPICard
           title="Total Cluster DBUs"
           value={formatNumber(cloudSummary.totalDBUHours)}
           subtitle={`across ${cloudSummary.totalClusterCount} clusters`}
-          onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "infra_dbu_hours", label: "Daily Cluster DBUs" }) : undefined}
+          onActivate={cloudSummary.totalDBUHours > 0 && startDate && endDate ? () => setSelectedKPI({ kpi: "infra_dbu_hours", label: "Daily Cluster DBUs" }) : undefined}
           ariaLabel="See Total Cluster DBUs trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
         />
@@ -911,7 +898,7 @@ export function CloudCostsView({
           value={formatNumber(cloudSummary.avgActiveClustersPerDay)}
           subtitle="daily average"
           infoText="Average number of distinct clusters with billing activity per day in the selected period. Includes all cluster types (job clusters, interactive clusters)."
-          onActivate={startDate && endDate ? () => setSelectedKPI({ kpi: "infra_clusters", label: `Daily Active ${cloudDisplayName} Clusters` }) : undefined}
+          onActivate={cloudSummary.avgActiveClustersPerDay > 0 && startDate && endDate ? () => setSelectedKPI({ kpi: "infra_clusters", label: `Daily Active ${cloudDisplayName} Clusters` }) : undefined}
           ariaLabel="See Active Clusters trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>}
         />
@@ -920,6 +907,8 @@ export function CloudCostsView({
           value={formatKpiCurrency(cloudSummary.avgDatabricksSpendPerCluster)}
           subtitle={startDate && endDate ? `average over ${Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1} days` : undefined}
           infoText="Databricks DBU spend divided by active clusters. This is not a cloud VM cost estimate."
+          onActivate={cloudSummary.avgDatabricksSpendPerCluster > 0 && startDate && endDate ? () => setSelectedKPI({ kpi: "avg_cost_per_cluster", label: "Daily Databricks Spend per Cluster" }) : undefined}
+          ariaLabel="See Databricks Spend / Cluster trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
         />
       </div>
@@ -1083,7 +1072,7 @@ export function CloudCostsView({
                   className="co-filter flex h-auto items-center gap-1.5 px-3 py-1 text-xs"
                   style={isTableWorkspaceFilterActive ? { borderColor: C.lava, color: C.lava } : undefined}
                 >
-                  {!isTableWorkspaceFilterActive ? "Workspaces" : tableWorkspace.length === 1 ? resolveWsName(tableWorkspace[0]) : `${tableWorkspace.length} Workspaces`}
+                  {!isTableWorkspaceFilterActive ? "Workspace" : tableWorkspace.length === 1 ? resolveWsName(tableWorkspace[0]) : `${tableWorkspace.length} workspaces`}
                   <svg className={`h-3 w-3 transition-transform ${workspaceFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
@@ -1102,7 +1091,7 @@ export function CloudCostsView({
                     </div>
                     <div>
                       <div className="sticky top-0 flex items-center justify-between bg-white px-3 py-2" style={{ borderBottom: `1px solid ${C.hairline}` }}>
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Workspaces</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Workspace</span>
                         <div className="flex items-center gap-2 text-xs">
                           <button onClick={(e) => { e.stopPropagation(); setTableWorkspace([...availableTableWorkspaces]); setCurrentPage(1); }} className="text-gray-500 hover:text-gray-800">All</button>
                           <span className="text-gray-300">·</span>
@@ -1222,7 +1211,7 @@ export function CloudCostsView({
                   direction={sortDirection}
                   onSort={(field) => handleSort(field as SortField)}
                   align="right"
-                  className="w-28 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500"
+                  className="w-28 whitespace-nowrap px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500"
                   accessory={<InfoTooltip className="" stopClick text={`Databricks ${accountPricingApplied ? "account-price" : "list-price"} spend from billed DBU usage. This is not cloud VM cost; connect cloud billing to see VM, disk, network, and infrastructure costs.`} />}
                 >
                   DBU Spend
@@ -1287,21 +1276,23 @@ export function CloudCostsView({
                         {cluster.driver_instance_type && (
                           <div className="inline-flex items-center gap-1">
                             <span className="inline-flex max-w-full truncate rounded bg-blue-50 px-2 py-0.5 text-xs font-mono text-blue-700" title={`D: ${cluster.driver_instance_type}`}>D: {cluster.driver_instance_type}</span>
-                            <a href={getInstancePricingUrl(cluster.driver_instance_type, cloudProvider)} target="_blank" rel="noopener noreferrer" className="transition-colors" style={{ color: C.lava }} title={`View ${isAzure ? "Azure" : isGCP ? "GCP" : "AWS"} pricing for this instance type`}>
-                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                            </a>
+                            <InfoTooltip
+                              className=""
+                              size="compact"
+                              label="About driver instance type"
+                              text="D means driver node. The instance type comes from current cluster metadata and may be unavailable for historical, deleted, or inaccessible clusters."
+                            />
                           </div>
                         )}
                         {cluster.worker_instance_type && (
                           <div className="group relative inline-flex items-center gap-1">
                             <span className="inline-flex max-w-full truncate rounded bg-green-50 px-2 py-0.5 text-xs font-mono text-green-700" title={`W: ${cluster.worker_instance_type}`}>W: {cluster.worker_instance_type}</span>
-                            <a href={getInstancePricingUrl(cluster.worker_instance_type, cloudProvider)} target="_blank" rel="noopener noreferrer" className="transition-colors" style={{ color: C.lava }} title={`View ${isAzure ? "Azure" : isGCP ? "GCP" : "AWS"} pricing for this instance type`}>
-                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                            </a>
+                            <InfoTooltip
+                              className=""
+                              size="compact"
+                              label="About worker instance type"
+                              text="W means worker nodes. The instance type comes from current cluster metadata and may be unavailable for historical, deleted, or inaccessible clusters."
+                            />
                           </div>
                         )}
                         {!cluster.driver_instance_type && !cluster.worker_instance_type && (

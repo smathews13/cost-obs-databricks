@@ -98,8 +98,14 @@ export interface PipelineObject {
 }
 
 export interface PipelineObjectsResponse {
+  available?: boolean;
+  availability?: "available" | "partial" | "unavailable";
+  retryable?: boolean;
+  reason?: string;
+  reason_detail?: string;
+  error_code?: string;
   objects: PipelineObject[];
-  total_spend: number;
+  total_spend: number | null;
   start_date: string;
   end_date: string;
   error?: string;
@@ -120,8 +126,14 @@ export interface InteractiveItem {
 }
 
 export interface InteractiveBreakdownResponse {
+  available?: boolean;
+  availability?: "available" | "partial" | "unavailable";
+  retryable?: boolean;
+  reason?: string;
+  reason_detail?: string;
+  error_code?: string;
   items: InteractiveItem[];
-  total_spend: number;
+  total_spend: number | null;
   start_date: string;
   end_date: string;
   error?: string;
@@ -279,8 +291,14 @@ export interface SKUItem {
 }
 
 export interface SKUBreakdownResponse {
+  available?: boolean;
+  availability?: "available" | "partial" | "unavailable";
+  retryable?: boolean;
+  reason?: string;
+  reason_detail?: string;
+  error_code?: string;
   skus: SKUItem[];
-  total_spend: number;
+  total_spend: number | null;
   start_date: string;
   end_date: string;
   error?: string;
@@ -618,6 +636,13 @@ export interface AppsConnectedArtifact {
 }
 
 export interface AppsDashboardBundle {
+  available?: boolean;
+  availability?: "available" | "partial" | "unavailable";
+  retryable?: boolean;
+  reason?: string;
+  reason_detail?: string;
+  error_code?: string;
+  partial_reasons?: Record<string, string>;
   summary: AppsSummary;
   apps: AppsAppsResponse;
   timeseries: TimeseriesResponse;

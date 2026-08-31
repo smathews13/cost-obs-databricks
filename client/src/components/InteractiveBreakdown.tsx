@@ -222,6 +222,17 @@ export const InteractiveBreakdown = memo(function InteractiveBreakdown({ data, i
     );
   }
 
+  if (data?.availability === "unavailable" || data?.available === false) {
+    return (
+      <div className="rounded-lg border bg-white p-5" style={{ borderColor: C.hairline }}>
+        <h3 className="text-base font-semibold text-gray-900">Interactive Compute Leaderboard</h3>
+        <p className="mt-2 text-sm text-amber-700">
+          Interactive compute detail is temporarily unavailable. Retry shortly.
+        </p>
+      </div>
+    );
+  }
+
   if (data?.error) {
     return (
       <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>

@@ -13,6 +13,8 @@ import {
   useDashboardBundleFast,
   useDBSQLQueryCosts,
   useDBSQLTopQueries,
+  useKPIsBundle,
+  useUsersGroupsBundle,
 } from "./useBillingData";
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -106,13 +108,16 @@ describe("fetchSubmitAndPoll", () => {
 
   it("settles with a clear error when polling times out", async () => {
     fetchMock.mockResolvedValue(jsonResponse(202));
-    const request = fetchSubmitAndPoll("/api/bundle", undefined, { timeoutMs: 5000 });
+    const sensitiveUrl = "/api/bundle?workspace_ids=123456789&token=private";
+    const request = fetchSubmitAndPoll(sensitiveUrl, undefined, { timeoutMs: 5000 });
     const rejection = expect(request).rejects.toThrow(
-      "Timed out waiting for /api/bundle after 5 seconds. Please retry.",
+      "The data request timed out after 5 seconds. Please retry.",
     );
 
     await vi.advanceTimersByTimeAsync(5000);
     await rejection;
+    await expect(request).rejects.not.toThrow("123456789");
+    await expect(request).rejects.not.toThrow("private");
   });
 
   it("settles immediately on a server error", async () => {
@@ -153,6 +158,59 @@ describe("fetchSubmitAndPoll", () => {
       );
     },
   );
+});
+
+describe("Users bundle polling", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("polls a 202 producer and settles on the typed bundle response", async () => {
+    const payload = {
+      availability: "partial",
+      partial_reasons: { timeseries: "SQL_TIMEOUT" },
+      summary: { user_count: 2 },
+      top_users: [],
+      timeseries: [],
+      timeseries_users: [],
+      by_workspace: [],
+      user_growth: [],
+      start_date: "2026-08-01",
+      end_date: "2026-08-30",
+    };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(202, { status: "pending" }, { "Retry-After": "1" }))
+      .mockResolvedValueOnce(jsonResponse(200, payload));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    const hook = renderHook(
+      () => useUsersGroupsBundle(
+        { startDate: "2026-08-01", endDate: "2026-08-30" },
+        ["2", "1"],
+      ),
+      { wrapper },
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    await act(() => vi.advanceTimersByTimeAsync(1));
+
+    expect(hook.result.current.isSuccess).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const url = new URL(String(fetchMock.mock.calls[0][0]), "https://example.test");
+    expect(url.pathname).toBe("/api/users-groups/bundle");
+    expect(url.searchParams.get("workspace_ids")).toBe("1,2");
+    expect(hook.result.current.data?.availability).toBe("partial");
+  });
 });
 
 describe("Cloud Costs recovery", () => {
@@ -407,5 +465,37 @@ describe("DBSQL unavailable polling", () => {
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(fetchMock.mock.calls.length).toBe(callsAfterRemount);
     second.unmount();
+  });
+});
+
+describe("KPI tab cache", () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(jsonResponse(200, { availability: "available" }));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("does not refetch settled KPI data when the tab is revisited", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const range = { startDate: "2026-08-01", endDate: "2026-08-30" };
+    const hook = renderHook(
+      ({ enabled }) => useKPIsBundle(range, undefined, enabled),
+      { initialProps: { enabled: true }, wrapper },
+    );
+
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    hook.rerender({ enabled: false });
+    hook.rerender({ enabled: true });
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

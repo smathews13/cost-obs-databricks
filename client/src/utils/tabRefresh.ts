@@ -98,6 +98,7 @@ export function startScopedAutoRefresh(
   intervalMs: number,
   visibilityDocument: VisibilityDocument = document,
   timers: TimerApi = globalThis,
+  onRefresh?: () => void | Promise<void>,
 ): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -112,12 +113,14 @@ export function startScopedAutoRefresh(
     if (intervalMs <= 0 || visibilityDocument.visibilityState !== "visible") return;
     timer = timers.setTimeout(() => {
       timer = null;
-      void queryClient.invalidateQueries({
-        type: "active",
-        predicate: (query) => isDashboardQuery(query.queryKey),
-        refetchType: "active",
-      });
-      schedule();
+      const refresh = onRefresh
+        ? onRefresh()
+        : queryClient.invalidateQueries({
+            type: "active",
+            predicate: (query) => isDashboardQuery(query.queryKey),
+            refetchType: "active",
+          });
+      void Promise.resolve(refresh).finally(schedule);
     }, intervalMs);
   };
   const onVisibilityChange = () => schedule();

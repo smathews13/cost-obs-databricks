@@ -101,6 +101,13 @@ export function KPITrendModal({
             <div className="flex h-80 items-center justify-center">
               <Spinner size="md" />
             </div>
+          ) : data?.available === false ? (
+            <div className="flex h-64 flex-col items-center justify-center text-center" style={{ color: C.slate }}>
+              <p className="text-lg font-medium">Trend temporarily unavailable</p>
+              <p className="mt-1 max-w-lg text-sm">
+                The warehouse query did not finish. Close and retry shortly.
+              </p>
+            </div>
           ) : data?.data_points && data.data_points.length > 0 ? (
             <>
               <div className="mb-6 grid grid-cols-4 gap-4">

@@ -103,6 +103,36 @@ _CLOUD_FAILURE_MESSAGES = {
     ),
 }
 
+_OPTIONAL_BREAKDOWN_COPY = {
+    "sku": "SKU detail is temporarily unavailable. The rest of DBU Overview is still available.",
+    "pipeline": "Jobs and pipeline detail is temporarily unavailable. The rest of DBU Overview is still available.",
+    "interactive": "Interactive compute detail is temporarily unavailable. The rest of DBU Overview is still available.",
+}
+
+
+def _optional_breakdown_unavailable(
+    kind: str,
+    collection: str,
+    params: dict[str, Any],
+    exc: Exception,
+) -> dict[str, Any]:
+    """Return a safe, settled 200 contract for non-critical DBU detail."""
+    code = str(getattr(exc, "code", "QUERY_FAILED"))
+    reason = "query_timeout" if code == "SQL_TIMEOUT" else "query_failed"
+    logger.warning("%s breakdown unavailable (%s): %s", kind, code, exc)
+    return {
+        "available": False,
+        "availability": "unavailable",
+        "retryable": True,
+        "reason": reason,
+        "reason_detail": _OPTIONAL_BREAKDOWN_COPY[kind],
+        "error_code": code,
+        collection: [],
+        "total_spend": None,
+        "start_date": params["start_date"],
+        "end_date": params["end_date"],
+    }
+
 
 def _safe_cloud_failure(
     exc: BaseException,
@@ -657,7 +687,7 @@ async def get_pipeline_objects(
             execute_query,
             _inject_ws_filter(PIPELINE_OBJECTS, ws_clause),
             params,
-            timeout=25,
+            timeout=22,
             max_rows=200,
         )
         raw_copy = [dict(r) for r in (raw or [])]
@@ -699,6 +729,8 @@ async def get_pipeline_objects(
             )
 
         _resp = {
+            "available": True,
+            "availability": "available",
             "objects": objects,
             "total_spend": total_spend,
             "start_date": params["start_date"],
@@ -707,13 +739,7 @@ async def get_pipeline_objects(
         delta_cache_put(_dkey, "billing:pipeline-objects", _resp, ttl_seconds=cache_ttls.BUNDLE, generation=_cache_generation)
         return _resp
     except Exception as e:
-        return {
-            "objects": [],
-            "total_spend": 0,
-            "start_date": params["start_date"],
-            "end_date": params["end_date"],
-            "error": f"Pipeline objects not available: {str(e)}",
-        }
+        return _optional_breakdown_unavailable("pipeline", "objects", params, e)
 
 
 @router.get("/interactive-breakdown")
@@ -736,7 +762,7 @@ async def get_interactive_breakdown(
             execute_query,
             _inject_ws_filter(INTERACTIVE_BREAKDOWN, ws_clause),
             params,
-            timeout=30,
+            timeout=22,
             max_rows=100,
         )
 
@@ -768,6 +794,8 @@ async def get_interactive_breakdown(
             )
 
         _resp = {
+            "available": True,
+            "availability": "available",
             "items": items,
             "total_spend": total_spend,
             "start_date": params["start_date"],
@@ -776,13 +804,7 @@ async def get_interactive_breakdown(
         delta_cache_put(_dkey, "billing:interactive-breakdown", _resp, ttl_seconds=cache_ttls.BUNDLE, generation=_cache_generation)
         return _resp
     except Exception as e:
-        return {
-            "items": [],
-            "total_spend": 0,
-            "start_date": params["start_date"],
-            "end_date": params["end_date"],
-            "error": f"Interactive breakdown not available: {str(e)}",
-        }
+        return _optional_breakdown_unavailable("interactive", "items", params, e)
 
 
 @router.get("/infra-costs")
@@ -2837,13 +2859,16 @@ async def get_sku_breakdown(
         return _dcached
     _cache_generation = capture_cache_generation("billing:sku-breakdown")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
-    results = await asyncio.to_thread(
-        execute_query,
-        _inject_ws_filter(SKU_BREAKDOWN, ws_clause),
-        params,
-        timeout=30,
-        max_rows=100,
-    )
+    try:
+        results = await asyncio.to_thread(
+            execute_query,
+            _inject_ws_filter(SKU_BREAKDOWN, ws_clause),
+            params,
+            timeout=22,
+            max_rows=100,
+        )
+    except Exception as exc:
+        return _optional_breakdown_unavailable("sku", "skus", params, exc)
 
     skus = []
     total_spend = 0.0
@@ -2860,6 +2885,8 @@ async def get_sku_breakdown(
         total_spend += sku["total_spend"]
 
     _resp = {
+        "available": True,
+        "availability": "available",
         "skus": skus,
         "total_spend": total_spend,
         "start_date": params["start_date"],
@@ -3531,18 +3558,15 @@ async def get_kpi_trend(
     use_mv = await asyncio.to_thread(_check_mv_available)
 
     unavailable_reason = None
-    if kpi in {"infra_cost", "avg_cost_per_cluster"}:
-        unavailable_reason = (
-            "Cloud currency trends require actual cloud billing data or "
-            "authoritative node-hours; DBU spend is not a cloud VM cost estimate."
-        )
-    elif selected_source_labels() and kpi not in {
+    if selected_source_labels() and kpi not in {
         "total_spend",
         "avg_daily_spend",
         "total_dbus",
         "workspace_count",
         "user_spend",
         "sql_spend",
+        "infra_cost",
+        "avg_cost_per_cluster",
     }:
         unavailable_reason = (
             "This KPI is derived from local-only system tables and is unavailable "
@@ -3664,23 +3688,28 @@ async def get_kpi_trend(
         """
     elif kpi == "aiml_spend":
         query = """
-        WITH usage_with_price AS (
-          SELECT
-            u.usage_date,
-            u.usage_quantity,
-            COALESCE(p.pricing.default, 0) as price_per_dbu
+        WITH filtered_usage AS (
+          SELECT *
           FROM system.billing.usage u
-          /* TEMPORAL_LIST_PRICE_JOIN */
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND (
-              u.billing_origin_product = 'MODEL_SERVING'
+              u.billing_origin_product IN ('MODEL_SERVING', 'VECTOR_SEARCH')
               OR u.sku_name LIKE '%SERVERLESS_REAL_TIME_INFERENCE%'
               OR u.sku_name LIKE '%ANTHROPIC%'
               OR u.sku_name LIKE '%OPENAI%'
               OR u.sku_name LIKE '%GEMINI%'
               OR u.sku_name LIKE '%INFERENCE%'
+              OR u.sku_name LIKE '%FINE_TUNING%'
             )
+        ),
+        usage_with_price AS (
+          SELECT
+            u.usage_date,
+            u.usage_quantity,
+            COALESCE(p.pricing.default, 0) as price_per_dbu
+          FROM filtered_usage u
+          /* TEMPORAL_LIST_PRICE_JOIN */
         )
         SELECT
           usage_date as date,
@@ -3698,12 +3727,13 @@ async def get_kpi_trend(
         WHERE usage_date BETWEEN :start_date AND :end_date
           AND usage_quantity > 0
           AND (
-            billing_origin_product = 'MODEL_SERVING'
+            billing_origin_product IN ('MODEL_SERVING', 'VECTOR_SEARCH')
             OR sku_name LIKE '%SERVERLESS_REAL_TIME_INFERENCE%'
             OR sku_name LIKE '%ANTHROPIC%'
             OR sku_name LIKE '%OPENAI%'
             OR sku_name LIKE '%GEMINI%'
             OR sku_name LIKE '%INFERENCE%'
+            OR sku_name LIKE '%FINE_TUNING%'
           )
         GROUP BY usage_date
         ORDER BY usage_date
@@ -3717,9 +3747,13 @@ async def get_kpi_trend(
         WHERE usage_date BETWEEN :start_date AND :end_date
           AND usage_quantity > 0
           AND (
-            billing_origin_product = 'MODEL_SERVING'
+            billing_origin_product IN ('MODEL_SERVING', 'VECTOR_SEARCH')
             OR sku_name LIKE '%SERVERLESS_REAL_TIME_INFERENCE%'
+            OR sku_name LIKE '%ANTHROPIC%'
+            OR sku_name LIKE '%OPENAI%'
+            OR sku_name LIKE '%GEMINI%'
             OR sku_name LIKE '%INFERENCE%'
+            OR sku_name LIKE '%FINE_TUNING%'
           )
           AND usage_metadata.endpoint_name IS NOT NULL
         GROUP BY usage_date
@@ -3727,20 +3761,28 @@ async def get_kpi_trend(
         """
     elif kpi == "aiml_avg_endpoint_cost":
         query = """
+        WITH filtered_usage AS (
+          SELECT *
+          FROM system.billing.usage u
+          WHERE u.usage_date BETWEEN :start_date AND :end_date
+            AND u.usage_quantity > 0
+            AND u.usage_metadata.endpoint_name IS NOT NULL
+            AND (
+              u.billing_origin_product IN ('MODEL_SERVING', 'VECTOR_SEARCH')
+              OR u.sku_name LIKE '%SERVERLESS_REAL_TIME_INFERENCE%'
+              OR u.sku_name LIKE '%ANTHROPIC%'
+              OR u.sku_name LIKE '%OPENAI%'
+              OR u.sku_name LIKE '%GEMINI%'
+              OR u.sku_name LIKE '%INFERENCE%'
+              OR u.sku_name LIKE '%FINE_TUNING%'
+            )
+        )
         SELECT
           u.usage_date as date,
           SUM(u.usage_quantity * COALESCE(p.pricing.default, 0))
             / NULLIF(COUNT(DISTINCT u.usage_metadata.endpoint_name), 0) as value
-        FROM system.billing.usage u
+        FROM filtered_usage u
         /* TEMPORAL_LIST_PRICE_JOIN */
-        WHERE u.usage_date BETWEEN :start_date AND :end_date
-          AND u.usage_quantity > 0
-          AND (
-            u.billing_origin_product = 'MODEL_SERVING'
-            OR u.sku_name LIKE '%SERVERLESS_REAL_TIME_INFERENCE%'
-            OR u.sku_name LIKE '%INFERENCE%'
-          )
-          AND u.usage_metadata.endpoint_name IS NOT NULL
         GROUP BY u.usage_date
         ORDER BY u.usage_date
         """
@@ -3786,16 +3828,27 @@ async def get_kpi_trend(
         """
     elif kpi == "infra_cost":
         query = """
-        WITH usage_with_price AS (
+        WITH filtered_usage AS (
+          SELECT *
+          FROM system.billing.usage u
+          WHERE u.usage_date BETWEEN :start_date AND :end_date
+            AND u.usage_quantity > 0
+            AND u.usage_metadata.cluster_id IS NOT NULL
+            AND (
+              u.billing_origin_product = 'DLT'
+              OR u.sku_name LIKE '%ALL_PURPOSE%'
+              OR u.sku_name LIKE '%JOBS%'
+              OR u.sku_name LIKE '%DLT%'
+            )
+            AND u.sku_name NOT LIKE '%SERVERLESS%'
+        ),
+        usage_with_price AS (
           SELECT
             u.usage_date,
             u.usage_quantity,
             COALESCE(p.pricing.default, 0) as price_per_dbu
-          FROM system.billing.usage u
+          FROM filtered_usage u
           /* TEMPORAL_LIST_PRICE_JOIN */
-          WHERE u.usage_date BETWEEN :start_date AND :end_date
-            AND u.usage_quantity > 0
-            AND (u.sku_name LIKE '%ALL_PURPOSE%' OR u.sku_name LIKE '%JOBS%' OR u.sku_name LIKE '%SQL%' OR u.sku_name LIKE '%DLT%')
         )
         SELECT
           usage_date as date,
@@ -3831,18 +3884,28 @@ async def get_kpi_trend(
         """
     elif kpi == "avg_cost_per_cluster":
         query = """
-        WITH usage_with_price AS (
+        WITH filtered_usage AS (
+          SELECT *
+          FROM system.billing.usage u
+          WHERE u.usage_date BETWEEN :start_date AND :end_date
+            AND u.usage_quantity > 0
+            AND u.usage_metadata.cluster_id IS NOT NULL
+            AND (
+              u.billing_origin_product = 'DLT'
+              OR u.sku_name LIKE '%ALL_PURPOSE%'
+              OR u.sku_name LIKE '%JOBS%'
+              OR u.sku_name LIKE '%DLT%'
+            )
+            AND u.sku_name NOT LIKE '%SERVERLESS%'
+        ),
+        usage_with_price AS (
           SELECT
             u.usage_date,
             u.usage_quantity,
             u.usage_metadata.cluster_id as cluster_id,
             COALESCE(p.pricing.default, 0) as price_per_dbu
-          FROM system.billing.usage u
+          FROM filtered_usage u
           /* TEMPORAL_LIST_PRICE_JOIN */
-          WHERE u.usage_date BETWEEN :start_date AND :end_date
-            AND u.usage_quantity > 0
-            AND u.usage_metadata.cluster_id IS NOT NULL
-            AND (u.sku_name LIKE '%ALL_PURPOSE%' OR u.sku_name LIKE '%JOBS%' OR u.sku_name LIKE '%DLT%')
         )
         SELECT
           usage_date as date,
@@ -4072,15 +4135,30 @@ async def get_kpi_trend(
         # fallback query, which references no MV table) so KPI trends include
         # Delta-shared sources when configured.
         _kpi_cat, _kpi_sch = get_catalog_schema()
-        results = await asyncio.to_thread(execute_query, apply_mv_overrides(_inject_ws_filter(query, ws_clause), _kpi_cat, _kpi_sch), params)
+        results = await asyncio.to_thread(
+            execute_query,
+            apply_mv_overrides(_inject_ws_filter(query, ws_clause), _kpi_cat, _kpi_sch),
+            params,
+            timeout=25,
+        )
         if not results and mv_fallback_query and not selected_source_labels():
             logger.info(f"KPI trend MV returned empty for {kpi}, falling back to live query")
-            results = await asyncio.to_thread(execute_query, _inject_ws_filter(mv_fallback_query, ws_clause), params)
+            results = await asyncio.to_thread(
+                execute_query,
+                _inject_ws_filter(mv_fallback_query, ws_clause),
+                params,
+                timeout=25,
+            )
     except Exception as e:
         logger.error(f"KPI trend query failed for {kpi}: {e}")
         if mv_fallback_query and not selected_source_labels():
             try:
-                results = await asyncio.to_thread(execute_query, _inject_ws_filter(mv_fallback_query, ws_clause), params)
+                results = await asyncio.to_thread(
+                    execute_query,
+                    _inject_ws_filter(mv_fallback_query, ws_clause),
+                    params,
+                    timeout=25,
+                )
             except Exception as fallback_e:
                 logger.warning(f"KPI trend fallback query also failed for {kpi}: {fallback_e}")
                 results = []
@@ -4088,6 +4166,11 @@ async def get_kpi_trend(
             return {
                 "kpi": kpi,
                 "granularity": granularity,
+                "available": False,
+                "retryable": True,
+                "unavailable_reason": (
+                    "Trend data is temporarily unavailable because the warehouse query did not finish."
+                ),
                 "data_points": [],
                 "summary": {
                     "period_start_value": 0,
@@ -4110,7 +4193,12 @@ async def get_kpi_trend(
         })
 
     # KPIs that represent averages/rates — use AVG when grouping into buckets
-    AVG_KPIS = {"avg_cost_per_cluster", "avg_daily_spend", "avg_spend_per_user"}
+    AVG_KPIS = {
+        "avg_cost_per_cluster",
+        "avg_daily_spend",
+        "avg_spend_per_user",
+        "aiml_avg_endpoint_cost",
+    }
 
     # Group into weekly/monthly buckets if needed
     if granularity == "weekly" and daily_points:
@@ -4175,6 +4263,7 @@ async def get_kpi_trend(
     return _resp({
         "kpi": kpi,
         "granularity": granularity,
+        "available": True,
         "data_points": data_points,
         "summary": {
             "period_start_value": round(period_start_value, 2),
