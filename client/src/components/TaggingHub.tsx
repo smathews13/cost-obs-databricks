@@ -19,6 +19,7 @@ import {
 import type { TaggingDashboardBundle } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
+import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import {
@@ -54,14 +55,6 @@ const COLORS = {
 
 const TAG_PAGE_SIZE = 10;
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-
 function InfoTooltip({ text }: { text: string }) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   return (
@@ -84,12 +77,6 @@ function InfoTooltip({ text }: { text: string }) {
     </span>
   );
 }
-
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
 
 export function TaggingHub({ data, isLoading, host, startDate, endDate, workspaceIds, workspaceNameMap }: TaggingHubProps) {
   const [activeUntaggedTab, setActiveUntaggedTab] = useState<UntaggedTab>("all");
@@ -358,7 +345,9 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
     Object.entries(row).some(([key, value]) => key !== "date" && typeof value === "number" && value > 0),
   );
   const hasTagData = (data?.cost_by_tag?.tags?.length ?? 0) > 0;
-  const hasUntaggedData = Object.values(untaggedCounts).some((count) => count > 0);
+  const hasUntaggedData =
+    data?.local_detail_in_scope === false
+    || Object.values(untaggedCounts).some((count) => count > 0);
 
   const handleToggleTagFilter = useCallback((key: string) => {
     setSelectedTagFilters(prev =>
@@ -446,7 +435,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Tagged Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(summary.tagged_spend)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.tagged_spend)}</p>
               <p className="text-sm text-gray-500">{(summary.tagged_percentage ?? 0).toFixed(1)}% of {daysDiff}-day spend</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
@@ -466,7 +455,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Untagged Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(summary.untagged_spend)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.untagged_spend)}</p>
               <p className="text-sm text-gray-500">{(summary.untagged_percentage ?? 0).toFixed(1)}% of {daysDiff}-day spend</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
@@ -487,7 +476,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Cost Per-Tag</p>
               <p className="text-2xl font-semibold text-gray-900">
-                {data?.avg_cost_per_tag != null ? formatCurrency(data.avg_cost_per_tag) : "N/A"}
+                {data?.avg_cost_per_tag != null ? formatKpiCurrency(data.avg_cost_per_tag) : "N/A"}
               </p>
               <p className="text-sm text-gray-500">avg. over {daysDiff} days</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
@@ -511,7 +500,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                 Total Tags
                 <InfoTooltip text="Distinct tag key-value pairs applied across all resources over the full date range. The trend drilldown shows per-day counts: a tag on a long-running resource is counted each day it appears, so daily totals are lower than this cumulative figure." />
               </p>
-              <p className="text-2xl font-semibold text-gray-900">{data?.total_tag_count?.toLocaleString() ?? "N/A"}</p>
+              <p className="text-2xl font-semibold text-gray-900">{data?.total_tag_count != null ? formatNumber(data.total_tag_count) : "N/A"}</p>
               <p className="text-sm text-gray-500">unique key:value pairs</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
@@ -621,24 +610,33 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
             {availableTagValues.length > 0 && (
               <div className="relative" data-tag-value-filter-dropdown>
                 <button
+                  type="button"
                   onClick={() => { setTagValueFilterDropdownOpen(!tagValueFilterDropdownOpen); setTagValueFilterSearch(""); }}
-                  className="co-filter inline-flex items-center gap-1.5 px-3"
+                  className="inline-flex min-w-[88px] items-center justify-between gap-1.5 rounded-full border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:shadow-(--focus)"
+                  aria-label="Filter spend by tag value"
+                  aria-haspopup="menu"
+                  aria-expanded={tagValueFilterDropdownOpen}
+                  aria-controls="tag-value-filter-menu"
                 >
-                  Value
+                  <span>Value</span>
                   {isTagValueFilterActive && (
                     <span className="inline-flex items-center justify-center rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-gray-600">
                       {selectedTagValueFilters.length}
                     </span>
                   )}
+                  <svg className={`h-3 w-3 shrink-0 transition-transform ${tagValueFilterDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </button>
                 {tagValueFilterDropdownOpen && (
-                  <div className="co-filter-menu absolute right-0 top-full z-50 mt-2 w-72">
+                  <div id="tag-value-filter-menu" role="menu" aria-label="Tag value filters" className="co-filter-menu absolute right-0 top-full z-50 mt-2 w-72">
                     <div className="p-2">
                       <input
                         type="text"
                         value={tagValueFilterSearch}
                         onChange={(e) => setTagValueFilterSearch(e.target.value)}
                         placeholder="Search tags..."
+                        aria-label="Search tag values"
                         className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                         autoFocus
                       />
@@ -778,24 +776,33 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
             {availableTagKeys.length > 0 && (
               <div className="relative" data-tag-filter-dropdown>
                 <button
+                  type="button"
                   onClick={() => { setTagFilterDropdownOpen(!tagFilterDropdownOpen); setTagFilterSearch(""); }}
-                  className="co-filter inline-flex items-center gap-1.5 px-3"
+                  className="inline-flex min-w-[82px] items-center justify-between gap-1.5 rounded-full border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:shadow-(--focus)"
+                  aria-label="Filter spend by tag key"
+                  aria-haspopup="menu"
+                  aria-expanded={tagFilterDropdownOpen}
+                  aria-controls="tag-key-filter-menu"
                 >
-                  Tag
+                  <span>Tag</span>
                   {isTagFilterActive && (
                     <span className="inline-flex items-center justify-center rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-bold text-gray-600">
                       {selectedTagFilters.length}
                     </span>
                   )}
+                  <svg className={`h-3 w-3 shrink-0 transition-transform ${tagFilterDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </button>
                 {tagFilterDropdownOpen && (
-                  <div className="co-filter-menu absolute right-0 top-full z-50 mt-2 w-64">
+                  <div id="tag-key-filter-menu" role="menu" aria-label="Tag key filters" className="co-filter-menu absolute right-0 top-full z-50 mt-2 w-64">
                     <div className="p-2">
                       <input
                         type="text"
                         value={tagFilterSearch}
                         onChange={(e) => setTagFilterSearch(e.target.value)}
                         placeholder="Search tag keys..."
+                        aria-label="Search tag keys"
                         className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                         autoFocus
                       />

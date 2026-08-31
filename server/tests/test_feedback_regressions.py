@@ -47,6 +47,34 @@ def test_tag_value_drilldown_remains_scoped():
     assert execute.call_args.args[1]["tag_value"] == "Confidential"
 
 
+def test_tagging_bundle_excludes_local_resource_details_when_source_filter_excludes_local():
+    def run_queries(query_funcs, *_args, **_kwargs):
+        return {name: func() for name, func in query_funcs}
+
+    with (
+        patch.object(tagging, "delta_cache_get", return_value=None),
+        patch.object(tagging, "delta_cache_put"),
+        patch.object(tagging, "capture_cache_generation"),
+        patch.object(tagging, "_check_mv_available", return_value=False),
+        patch.object(tagging, "local_source_is_selected", return_value=False),
+        patch.object(tagging, "execute_query", return_value=[]) as execute,
+        patch.object(tagging, "execute_queries_parallel", side_effect=run_queries),
+    ):
+        result = asyncio.run(
+            tagging.get_tagging_dashboard_bundle(
+                start_date="2026-08-01",
+                end_date="2026-08-28",
+                workspace_ids=None,
+            )
+        )
+
+    # Only the aggregate summary and tag-stat queries run. Local resource,
+    # tag-detail, and timeseries queries must not leak into this source scope.
+    assert execute.call_count == 2
+    assert result["local_detail_in_scope"] is False
+    assert all(group["items"] == [] for group in result["untagged"].values())
+
+
 def test_compute_kpi_query_counts_sql_warehouses():
     assert "COUNT(DISTINCT usage_metadata.cluster_id) as total_clusters" in BILLING_KPIS_FAST
     assert "usage_metadata.warehouse_id" in BILLING_KPIS_FAST

@@ -15,6 +15,7 @@ interface MvSource {
   cloud?: Cloud;
   added_at?: string;
   share_last_updated?: string;
+  catalog_explorer_tables?: Array<{ fqn: string; url: string }>;
 }
 
 // Cloud → { logo, label font color } per spec: Google red, AWS gold, Azure light green.
@@ -54,7 +55,15 @@ export function MvSourcesSection() {
   // detail=1 asks the server for each source's share_last_updated (DESCRIBE DETAIL).
   // The top-nav SourceLabelFilter fetches ["mv-sources"] WITHOUT detail, so this
   // heavier query is separate and only runs in the settings modal.
-  const { data, isLoading } = useQuery<{ sources: MvSource[]; local_label: string }>({
+  const { data, isLoading } = useQuery<{
+    sources: MvSource[];
+    local_label: string;
+    recipient_refresh?: {
+      supported: boolean;
+      mode: "provider_managed";
+      check_action: "metadata_and_local_bindings_only";
+    };
+  }>({
     queryKey: ["mv-sources", "detail"],
     queryFn: () => fetch("/api/settings/mv-sources?detail=1").then((r) => r.json()).catch(() => ({ sources: [], local_label: "" })),
     staleTime: 30 * 1000,
@@ -218,7 +227,9 @@ export function MvSourcesSection() {
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h4 className="text-sm font-semibold text-gray-900">Additional data (shared views)</h4>
-          <p className="mt-0.5 text-xs text-gray-500">Add cost data from other workspaces/clouds through OpenSharing</p>
+          <p className="mt-0.5 text-xs text-gray-500">
+            Provider updates appear automatically through OpenSharing. Re-checking only reads current metadata and rebuilds this app&apos;s local view bindings.
+          </p>
         </div>
         {!open && (
           <button
@@ -258,6 +269,21 @@ export function MvSourcesSection() {
                     {added && <><span className="text-gray-300">·</span><span>Added {added}</span></>}
                     {shareUpd && <><span className="text-gray-300">·</span><span>Share updated {shareUpd}</span></>}
                     {lastChecked[s.label] && <><span className="text-gray-300">·</span><span className="text-green-700">Checked just now</span></>}
+                    {(s.catalog_explorer_tables ?? []).map((table) => (
+                      <span key={table.fqn} className="inline-flex items-center gap-1">
+                        <span className="text-gray-300">·</span>
+                        <a
+                          href={table.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-[#2272B4] hover:underline"
+                          aria-label={`Open ${table.fqn} in Catalog Explorer (opens in a new tab)`}
+                          title={table.fqn}
+                        >
+                          Open {table.fqn.split(".").at(-1)} in Catalog Explorer
+                        </a>
+                      </span>
+                    ))}
                   </div>
                 </div>
                 <div className="flex shrink-0 self-center items-center gap-1">
@@ -266,14 +292,14 @@ export function MvSourcesSection() {
                     onClick={() => checkFreshness(s.label)}
                     disabled={busy || checkingLabel !== null}
                     className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-gray-600 hover:bg-white hover:text-gray-900 disabled:opacity-50"
-                    title="Check the latest data visible from this shared source"
+                    title="Re-read shared-table metadata and rebuild local view bindings; this does not update provider data"
                   >
                     {checkingLabel === s.label ? <Spinner size="xs" /> : (
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.6m15.3 2A8 8 0 004.6 9m0 0H9m11 11v-5h-.6a8 8 0 01-15.3-2" />
                       </svg>
                     )}
-                    {checkingLabel === s.label ? "Checking…" : "Check freshness"}
+                    {checkingLabel === s.label ? "Checking…" : "Re-check metadata"}
                   </button>
                   <button
                     type="button"

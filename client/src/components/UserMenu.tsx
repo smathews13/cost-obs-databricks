@@ -253,7 +253,10 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
         }}
         className={`rail-user-trigger rail-control-border flex min-w-0 items-center gap-0 rounded-[8px] border py-[4px] px-[5px] text-[12.5px] font-medium text-[#E9EFED] transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[900px]:gap-[9px] min-[900px]:pl-[5px] min-[900px]:pr-[9px] ${open ? "bg-[#294A56] shadow-[0_1px_3px_rgba(4,18,23,.28),inset_0_1px_0_rgba(117,157,170,.12)]" : "bg-white/[.07] hover:bg-[#243F49]"}`}
       >
-        <span className="flex h-[24px] w-[24px] items-center justify-center rounded-full border border-[#D44D38] bg-[#FF5F46] text-[10px] font-bold text-white shadow-sm">
+        <span
+          data-testid="user-menu-avatar"
+          className="flex h-[24px] w-[24px] items-center justify-center rounded-full bg-[#FF5F46] text-[10px] font-bold text-white"
+        >
           {initials}
         </span>
         <UserRound

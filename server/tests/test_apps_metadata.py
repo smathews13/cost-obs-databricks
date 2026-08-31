@@ -95,6 +95,59 @@ def test_public_thumbnail_contract_allows_conventional_icons_without_false_boole
     ) is None
 
 
+def test_active_count_uses_one_registered_population_and_inclusive_seven_day_window():
+    registry = {
+        "active-id": {"name": "active-app", "url": "", "metadata": {}},
+        "old-id": {"name": "old-app", "url": "", "metadata": {}},
+    }
+    result = apps._process_apps(
+        [
+            {
+                "app_id": "active-id",
+                "last_usage_date": "2026-08-24",
+                "total_spend": 10,
+            },
+            {
+                "app_id": "old-id",
+                "last_usage_date": "2026-08-23",
+                "total_spend": 5,
+            },
+            {
+                "app_id": "historical-id",
+                "last_usage_date": "2026-08-30",
+                "total_spend": 3,
+            },
+        ],
+        False,
+        "2026-08-01",
+        "2026-08-30",
+        registry,
+    )
+
+    assert result["active_window"] == {
+        "start_date": "2026-08-24",
+        "end_date": "2026-08-30",
+        "days": 7,
+        "definition": "Currently registered apps with positive Apps compute usage",
+    }
+    assert result["active_count"] == 1
+    assert {
+        app["app_id"]: app["status"]
+        for app in result["apps"]
+        if app["is_registered"]
+    } == {"active-id": "active", "old-id": "inactive"}
+
+
+def test_active_count_contract_rejects_disagreement():
+    with pytest.raises(ValueError, match="active count contract mismatch"):
+        apps._validate_active_count_contract(
+            {"active_app_count": 155},
+            {"active_count": 179},
+        )
+    with pytest.raises(ValueError, match="active count contract mismatch"):
+        apps._validate_active_count_contract({}, {})
+
+
 def test_app_detail_cache_reuses_existing_single_get_per_app(monkeypatch):
     app_detail = SimpleNamespace(
         description="Cached app",
@@ -135,6 +188,7 @@ def test_app_detail_cache_reuses_existing_single_get_per_app(monkeypatch):
         ],
         resources=[],
         service_principal_name="app-run-as",
+        service_principal_id=123456789,
     )
 
     class FakeApps:
@@ -172,6 +226,42 @@ def test_app_detail_cache_reuses_existing_single_get_per_app(monkeypatch):
         "SQL_WAREHOUSE",
         "SERVICE_PRINCIPAL",
     }
+    service_principal = next(
+        resource
+        for resource in first["app-id"]["resources"]
+        if resource["type"] == "SERVICE_PRINCIPAL"
+    )
+    assert service_principal["id"] == "123456789"
+
+
+@pytest.mark.asyncio
+async def test_connected_artifacts_exposes_only_authoritative_service_principal_id(monkeypatch):
+    registry = {"app-id": {"name": "app", "url": "", "metadata": {}}}
+    monkeypatch.setattr(apps, "_get_app_registry", lambda: registry)
+    monkeypatch.setattr(
+        apps,
+        "_get_app_resources",
+        lambda: {
+            "app": [
+                {
+                    "name": "app-run-as",
+                    "type": "SERVICE_PRINCIPAL",
+                    "description": "Run-as identity",
+                    "id": "123456789",
+                },
+                {
+                    "name": "display-name-only",
+                    "type": "SERVICE_PRINCIPAL",
+                    "description": "Run-as identity",
+                },
+            ]
+        },
+    )
+
+    result = await apps.get_connected_artifacts()
+
+    assert result["artifacts"][0]["artifact_id"] == "123456789"
+    assert result["artifacts"][1]["artifact_id"] is None
 
 
 def test_app_detail_refresh_is_bounded_parallel_and_single_flight(monkeypatch):
@@ -323,8 +413,6 @@ async def test_thumbnail_proxy_authenticates_only_to_workspace_host(monkeypatch)
     monkeypatch.setattr(apps.httpx, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(apps, "_app_details_cache", {})
     monkeypatch.setattr(apps, "_thumbnail_cache", {})
-    monkeypatch.setattr(apps, "_thumbnail_cache_time", {})
-    monkeypatch.setattr(apps, "_thumbnail_cache_content_type", {})
 
     response = await apps.get_app_thumbnail("app-id")
 
@@ -395,13 +483,10 @@ async def test_thumbnail_proxy_rejects_lookalike_origin_before_credentials(monke
     monkeypatch.setattr(apps, "get_workspace_client", lambda: SimpleNamespace(config=config))
     monkeypatch.setattr(apps.httpx, "AsyncClient", Client)
     monkeypatch.setattr(apps, "_thumbnail_cache", {})
-    monkeypatch.setattr(apps, "_thumbnail_cache_time", {})
-    monkeypatch.setattr(apps, "_thumbnail_cache_content_type", {})
 
     response = await apps.get_app_thumbnail("app-id")
 
-    assert response.status_code == 200
-    assert response.media_type == "image/svg+xml"
+    assert response.status_code == 404
     assert auth_calls == 0
 
 
@@ -456,11 +541,62 @@ async def test_thumbnail_proxy_aborts_stream_over_hard_cap(monkeypatch):
     monkeypatch.setattr(apps, "get_workspace_client", lambda: SimpleNamespace(config=config))
     monkeypatch.setattr(apps.httpx, "AsyncClient", Client)
     monkeypatch.setattr(apps, "_thumbnail_cache", {})
-    monkeypatch.setattr(apps, "_thumbnail_cache_time", {})
-    monkeypatch.setattr(apps, "_thumbnail_cache_content_type", {})
 
     response = await apps.get_app_thumbnail("app-id")
 
-    assert response.status_code == 200
-    assert response.media_type == "image/svg+xml"
+    assert response.status_code == 404
     assert yielded == 3
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_proxy_rejects_malformed_id_before_registry_or_sdk(monkeypatch):
+    registry_calls = 0
+    sdk_calls = 0
+
+    def registry():
+        nonlocal registry_calls
+        registry_calls += 1
+        return {}
+
+    def workspace_client():
+        nonlocal sdk_calls
+        sdk_calls += 1
+        return SimpleNamespace()
+
+    cache = {}
+    monkeypatch.setattr(apps, "_get_app_registry", registry)
+    monkeypatch.setattr(apps, "get_workspace_client", workspace_client)
+    monkeypatch.setattr(apps, "_thumbnail_cache", cache)
+
+    response = await apps.get_app_thumbnail("../../arbitrary-target")
+
+    assert response.status_code == 400
+    assert registry_calls == 0
+    assert sdk_calls == 0
+    assert cache == {}
+
+
+@pytest.mark.asyncio
+async def test_thumbnail_proxy_rejects_unknown_registry_id_without_caching(monkeypatch):
+    sdk_calls = 0
+
+    def workspace_client():
+        nonlocal sdk_calls
+        sdk_calls += 1
+        return SimpleNamespace()
+
+    cache = {}
+    monkeypatch.setattr(apps, "_get_app_registry", lambda: {})
+    monkeypatch.setattr(apps, "get_workspace_client", workspace_client)
+    monkeypatch.setattr(apps, "_thumbnail_cache", cache)
+
+    response = await apps.get_app_thumbnail("unknown-app-id")
+
+    assert response.status_code == 404
+    assert sdk_calls == 0
+    assert cache == {}
+
+
+def test_thumbnail_cache_is_bounded_ttl_lru():
+    assert apps._thumbnail_cache.maxsize == 128
+    assert apps._thumbnail_cache.ttl == apps.cache_ttls.THUMBNAIL

@@ -16,10 +16,12 @@ import {
   Bar,
   LabelList,
 } from "recharts";
+import type { BarRectangleItem } from "recharts";
 import { format, parseISO } from "date-fns";
 import type { GranularBreakdownResponse, DBSQLDashboardBundle } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
 import { LoadingPanels, Spinner } from "./Spinner";
+import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import {
@@ -106,19 +108,58 @@ function InfoTooltip({ text, stopClick }: { text: string; stopClick?: boolean })
   );
 }
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(value);
-
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
+function OptimizeTablePagination({
+  currentPage,
+  totalPages,
+  totalItems,
+  pageSize,
+  itemLabel,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  itemLabel: string;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalItems === 0) return null;
+  const start = (currentPage - 1) * pageSize + 1;
+  const end = Math.min(currentPage * pageSize, totalItems);
+  return (
+    <div className="mt-4 flex items-center justify-between border-t border-gray-200 pt-4">
+      <p
+        className="text-sm text-gray-700"
+        aria-label={`Showing ${start} to ${end} of ${totalItems} ${itemLabel}`}
+      >
+        Showing <span className="font-medium">{start}</span> to{" "}
+        <span className="font-medium">{end}</span> of{" "}
+        <span className="font-medium">{totalItems}</span> {itemLabel}
+      </p>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+          disabled={currentPage === 1}
+          className="rounded border border-gray-300 px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Previous
+        </button>
+        <span className="px-1 text-sm text-gray-500">
+          Page {currentPage} of {totalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+          disabled={currentPage === totalPages}
+          className="rounded border border-gray-300 px-3 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
 
 const formatDuration = (seconds: number) => {
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
@@ -137,7 +178,16 @@ const formatDate = (dateStr: string) => {
 type SortField = "cost" | "dbus" | "duration_seconds" | "executed_by";
 type SortDirection = "asc" | "desc";
 
+type UserBarDatum = {
+  rawUser: string;
+  user: string;
+};
 
+function isUserBarDatum(value: unknown): value is UserBarDatum {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.rawUser === "string" && typeof candidate.user === "string";
+}
 
 interface SourceQuery {
   statement_id: string;
@@ -151,7 +201,7 @@ interface SourceQuery {
   source_url: string | null;
 }
 
-export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryData, isLoading, isError, topQueriesData, topQueriesLoading, host, startDate, endDate, workspaceIds, workspaceNameMap }: SQLWarehousing360Props) {
+export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesData, topQueriesLoading, host, startDate, endDate, workspaceIds, workspaceNameMap }: SQLWarehousing360Props) {
   const spNameMap = useSpNameMap();
   const [sortField, setSortField] = useState<SortField>("cost");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -163,7 +213,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [sourceQueriesCache, setSourceQueriesCache] = useState<Record<string, SourceQuery[]>>({});
   const [sourceQueriesLoading, setSourceQueriesLoading] = useState(false);
-  const [querySourceFilters, setQuerySourceFilters] = useState<string[]>([]);
+  const [querySourceFilters, setQuerySourceFilters] = useState<string[] | null>(null);
   const [querySourceDropdownOpen, setQuerySourceDropdownOpen] = useState(false);
   const [querySearch, setQuerySearch] = useState("");
 
@@ -171,8 +221,9 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
   const sourceQueries = selectedSource ? (sourceQueriesCache[selectedSource] || []) : [];
 
   // Prefetch top queries for ALL source types when data loads
-  const prefetchSourceTypes = queryData?.by_source?.sources?.map((s) => s.query_source_type) || [];
+  const sourceBreakdowns = queryData?.by_source?.sources;
   useEffect(() => {
+    const prefetchSourceTypes = sourceBreakdowns?.map((source) => source.query_source_type) ?? [];
     if (!startDate || !endDate || prefetchSourceTypes.length === 0) return;
     let cancelled = false;
     const fetchAll = async () => {
@@ -195,7 +246,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
     };
     fetchAll();
     return () => { cancelled = true; };
-  }, [startDate, endDate, prefetchSourceTypes.join(",")]);
+  }, [startDate, endDate, sourceBreakdowns]);
 
   const handleSourceClick = (sourceType: string) => {
     setSelectedSource(sourceType);
@@ -289,21 +340,15 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
     staleTime: 5 * 60 * 1000,
   });
 
-  const _STALE_MS = 25 * 24 * 60 * 60 * 1000;
-  const freshUserQueries = useMemo(() => {
-    if (!userQueriesData?.queries) return [];
-    return userQueriesData.queries
-      .filter(q => !q.start_time || Date.now() - new Date(q.start_time).getTime() <= _STALE_MS)
-      .sort((a, b) => b.cost - a.cost);
-  }, [userQueriesData]);
-  const staleUserQueries = useMemo(() => {
-    if (!userQueriesData?.queries) return [];
-    return userQueriesData.queries
-      .filter(q => q.start_time && Date.now() - new Date(q.start_time).getTime() > _STALE_MS)
-      .sort((a, b) => b.cost - a.cost);
-  }, [userQueriesData]);
+  const [userQueryStaleCutoff] = useState(() => Date.now() - 25 * 24 * 60 * 60 * 1000);
+  const freshUserQueries = (userQueriesData?.queries ?? [])
+    .filter(q => !q.start_time || new Date(q.start_time).getTime() >= userQueryStaleCutoff)
+    .sort((a, b) => b.cost - a.cost);
+  const staleUserQueries = (userQueriesData?.queries ?? [])
+    .filter(q => q.start_time && new Date(q.start_time).getTime() < userQueryStaleCutoff)
+    .sort((a, b) => b.cost - a.cost);
 
-  const userBarData = useMemo(() => {
+  const userBarData = (() => {
     if (!queryData?.by_user?.users) return [];
     const byUser: Record<string, { user: string; rawUser: string; total_spend: number; query_count: number }> = {};
     for (const u of queryData.by_user.users) {
@@ -317,43 +362,36 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
       .sort((a, b) => b.total_spend - a.total_spend)
       .slice(0, 10)
       .map(u => ({ ...u, user: formatIdentity(u.user, spNameMap) }));
-  }, [queryData?.by_user, spNameMap]);
+  })();
 
-  const timeseriesData = useMemo(() => {
+  const timeseriesData = (() => {
     if (!queryData?.timeseries?.timeseries) return [];
     return queryData.timeseries.timeseries.map((point) => ({
       ...point,
       date: formatDate(point.date as string),
     }));
-  }, [queryData?.timeseries]);
+  })();
 
-  const querySourceTypes = useMemo(() => {
+  const querySourceTypes = (() => {
     if (!topQueriesData?.queries) return [];
     const types = new Set(topQueriesData.queries.map((q) => q.query_source_type));
     return Array.from(types).sort();
-  }, [topQueriesData]);
-
-  const querySourceTypesInitialized = useRef(false);
-  useEffect(() => {
-    if (!querySourceTypesInitialized.current && querySourceTypes.length > 0) {
-      setQuerySourceFilters([...querySourceTypes]);
-      querySourceTypesInitialized.current = true;
-    }
-  }, [querySourceTypes]);
+  })();
+  const activeQuerySourceFilters = querySourceFilters ?? querySourceTypes;
 
   const isHistoricalQuery = (q: { executed_by: string; statement_preview: string }) =>
     !q.executed_by || q.executed_by === "Unknown" || q.statement_preview === "N/A";
   const allQueries = topQueriesData?.queries || [];
   const historicalQueryCount = allQueries.filter(isHistoricalQuery).length;
 
-  const filteredQueries = useMemo(() => {
+  const filteredQueries = (() => {
     if (!topQueriesData?.queries) return [];
     let queries = [...topQueriesData.queries];
     if (!showHistoricalQueries) {
       queries = queries.filter((q) => !isHistoricalQuery(q));
     }
-    if (querySourceFilters.length > 0) {
-      queries = queries.filter((q) => querySourceFilters.includes(q.query_source_type));
+    if (activeQuerySourceFilters.length > 0) {
+      queries = queries.filter((q) => activeQuerySourceFilters.includes(q.query_source_type));
     }
     queries.sort((a, b) => {
       let aVal: number | string = 0;
@@ -382,7 +420,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
       return sortDirection === "asc" ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
     });
     return queries;
-  }, [topQueriesData, sortField, sortDirection, showHistoricalQueries, querySourceFilters]);
+  })();
 
   const searchedQueries = querySearch
     ? filteredQueries.filter(q =>
@@ -572,7 +610,7 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 <div className="ml-4">
                   <div className="text-sm font-medium text-gray-500">Total Query Spend</div>
                   <div className="text-2xl font-semibold text-gray-900">
-                    {summary != null ? formatCurrency(summary.total_spend ?? 0) : "N/A"}
+                    {summary != null ? formatKpiCurrency(summary.total_spend ?? 0) : "N/A"}
                   </div>
                   <div className="mt-1 text-xs text-gray-500">
                     {summary != null ? `${formatNumber(summary.total_dbus ?? 0)} DBUs · over ${startDate && endDate ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1 : "?"} days` : "N/A"}
@@ -723,8 +761,16 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                       dataKey="total_spend"
                       radius={[0, 4, 4, 0]}
                       isAnimationActive={false}
-                      onClick={(entry: any) => {
-                        setSelectedUser({ raw: entry.rawUser, display: entry.user });
+                      onClick={(entry: BarRectangleItem) => {
+                        const payload: unknown = entry.payload;
+                        const user = isUserBarDatum(entry)
+                          ? entry
+                          : isUserBarDatum(payload)
+                            ? payload
+                            : null;
+                        if (user) {
+                          setSelectedUser({ raw: user.rawUser, display: user.user });
+                        }
                       }}
                     >
                       {userBarData.map((_entry, idx) => (
@@ -926,14 +972,14 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                 <div className="relative">
                   <button
                     onClick={() => setQuerySourceDropdownOpen((o) => !o)}
-                    className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${querySourceFilters.length > 0 && querySourceFilters.length < querySourceTypes.length ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
+                    className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${activeQuerySourceFilters.length > 0 && activeQuerySourceFilters.length < querySourceTypes.length ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
                   >
                     <span className="max-w-[140px] truncate">
-                      {querySourceFilters.length === 0 || querySourceFilters.length === querySourceTypes.length
+                      {activeQuerySourceFilters.length === 0 || activeQuerySourceFilters.length === querySourceTypes.length
                         ? "Sources"
-                        : querySourceFilters.length === 1
-                        ? querySourceFilters[0]
-                        : `${querySourceFilters.length} Sources`}
+                        : activeQuerySourceFilters.length === 1
+                        ? activeQuerySourceFilters[0]
+                        : `${activeQuerySourceFilters.length} Sources`}
                     </span>
                     <svg
                       className={`ml-0.5 h-4 w-4 shrink-0 text-gray-500 transition-transform ${querySourceDropdownOpen ? "rotate-180" : ""}`}
@@ -956,11 +1002,19 @@ export function SQLWarehousing360({ sqlBreakdownData: _sqlBreakdownData, queryDa
                         return (
                           <button
                             key={type}
-                            onClick={() => { setQuerySourceFilters((prev) => prev.includes(type) ? prev.filter((x) => x !== type) : [...prev, type]); setQueriesPage(1); }}
+                            onClick={() => {
+                              setQuerySourceFilters((previous) => {
+                                const current = previous ?? querySourceTypes;
+                                return current.includes(type)
+                                  ? current.filter((value) => value !== type)
+                                  : [...current, type];
+                              });
+                              setQueriesPage(1);
+                            }}
                             className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs hover:bg-gray-50"
                           >
-                            <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${querySourceFilters.includes(type) ? "border-orange-500 bg-orange-500" : "border-gray-300"}`}>
-                              {querySourceFilters.includes(type) && <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                            <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${activeQuerySourceFilters.includes(type) ? "border-orange-500 bg-orange-500" : "border-gray-300"}`}>
+                              {activeQuerySourceFilters.includes(type) && <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                             </div>
                             <span className="truncate text-gray-700">{type}</span>
                           </button>
@@ -1284,7 +1338,11 @@ export function OptimizeMethodologyPanel() {
   );
   const toggle = (v: boolean) => {
     setMinimized(v);
-    v ? localStorage.setItem(MINIMIZE_KEY, "true") : localStorage.removeItem(MINIMIZE_KEY);
+    if (v) {
+      localStorage.setItem(MINIMIZE_KEY, "true");
+    } else {
+      localStorage.removeItem(MINIMIZE_KEY);
+    }
   };
   return (
     <InfoPanel title="Optimize tab methodology" minimized={minimized} onToggle={toggle}>
@@ -1501,28 +1559,14 @@ export function WarehouseRightsizingView({ host }: { host?: string | null }) {
                 </tbody>
               </table>
             </div>
-            {totalPages > 1 && (
-              <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
-                <span>{filtered.length} recommendation{filtered.length !== 1 ? "s" : ""}{healthIssueFilter.length > 0 && healthIssueFilter.length < HEALTH_ISSUE_OPTIONS.length ? ` (filtered)` : ""}</span>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setHealthPage((p) => Math.max(1, p - 1))}
-                    disabled={safePage <= 1}
-                    className="rounded px-2 py-1 disabled:opacity-40 hover:bg-gray-100"
-                  >
-                    ‹ Prev
-                  </button>
-                  <span className="px-2">Page {safePage} of {totalPages}</span>
-                  <button
-                    onClick={() => setHealthPage((p) => Math.min(totalPages, p + 1))}
-                    disabled={safePage >= totalPages}
-                    className="rounded px-2 py-1 disabled:opacity-40 hover:bg-gray-100"
-                  >
-                    Next ›
-                  </button>
-                </div>
-              </div>
-            )}
+            <OptimizeTablePagination
+              currentPage={safePage}
+              totalPages={totalPages}
+              totalItems={filtered.length}
+              pageSize={HEALTH_PAGE_SIZE}
+              itemLabel={filtered.length === 1 ? "recommendation" : "recommendations"}
+              onPageChange={setHealthPage}
+            />
           </>
         );
       })()}
@@ -1765,8 +1809,8 @@ export function WarehouseIdleTimeView({
       ) : !data?.available || !data.warehouses.length ? (
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500">
           {data?.available === false
-            ? (data as any).error
-              ? `Idle time query failed: ${(data as any).error}`
+            ? data.error
+              ? `Idle time query failed: ${data.error}`
               : "Idle time data unavailable. Requires access to system.compute.warehouse_events and system.query.history."
             : data?.serverless_detected
             ? "Idle time via lifecycle events is not available for Serverless SQL Warehouses. Serverless warehouses scale per-query and do not emit start/stop events."
@@ -1882,16 +1926,14 @@ export function WarehouseIdleTimeView({
                 </tbody>
               </table>
             </div>
-            {totalIdlePages > 1 && (
-              <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
-                <span>{filteredWarehouses.length} warehouse{filteredWarehouses.length !== 1 ? "s" : ""}{filteredWarehouses.length !== data.warehouses.length ? ` of ${data.warehouses.length}` : ""}</span>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => setIdlePage((p) => Math.max(1, p - 1))} disabled={safeIdlePage <= 1} className="rounded px-2 py-1 disabled:opacity-40 hover:bg-gray-100">‹ Prev</button>
-                  <span className="px-2">Page {safeIdlePage} of {totalIdlePages}</span>
-                  <button onClick={() => setIdlePage((p) => Math.min(totalIdlePages, p + 1))} disabled={safeIdlePage >= totalIdlePages} className="rounded px-2 py-1 disabled:opacity-40 hover:bg-gray-100">Next ›</button>
-                </div>
-              </div>
-            )}
+            <OptimizeTablePagination
+              currentPage={safeIdlePage}
+              totalPages={totalIdlePages}
+              totalItems={filteredWarehouses.length}
+              pageSize={IDLE_PAGE_SIZE}
+              itemLabel={filteredWarehouses.length === 1 ? "warehouse" : "warehouses"}
+              onPageChange={setIdlePage}
+            />
           </>
         );
       })()}

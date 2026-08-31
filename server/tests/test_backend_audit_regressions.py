@@ -15,7 +15,7 @@ from fastapi import BackgroundTasks, HTTPException
 
 from server import db
 from server.queries import PLATFORM_KPIS_FAST
-from server.routers import aiml, apps, billing, dbsql_base, health, settings
+from server.routers import aiml, apps, billing, dbsql_base, health, settings, user
 
 
 class _Request:
@@ -47,6 +47,37 @@ class _ImmediateThread:
 
     def start(self):
         self.target(*self.args)
+
+
+def test_user_payload_exposes_route_capabilities():
+    request = SimpleNamespace(headers={"X-Forwarded-Email": "viewer@example.com"})
+    with patch.object(user, "_get_user_role", return_value="consumer"):
+        payload = asyncio.run(user.get_current_user(request))
+
+    assert payload["role"] == "consumer"
+    assert payload["capabilities"]["can_view_dashboards"] is True
+    assert payload["capabilities"]["can_manage_settings"] is False
+    assert payload["capabilities"]["can_manage_data"] is False
+
+
+def test_settings_permissions_payload_includes_both_role_capabilities():
+    request = SimpleNamespace(headers={"X-Forwarded-Email": "admin@example.com"})
+    with (
+        patch.object(
+            settings,
+            "_load_user_permissions",
+            return_value={
+                "admins": ["admin@example.com"],
+                "consumers": ["viewer@example.com"],
+            },
+        ),
+        patch("server.db.get_catalog_schema", return_value=("main", "cost_obs")),
+    ):
+        payload = asyncio.run(settings.get_user_permissions(request))
+
+    assert payload["current_role"] == "admin"
+    assert payload["role_capabilities"]["admin"]["can_manage_users"] is True
+    assert payload["role_capabilities"]["consumer"]["can_manage_users"] is False
 
 
 def _dashboard_endpoint(router):

@@ -77,6 +77,7 @@ export function SettingsConfig() {
         duration_seconds: number;
         lookback_days: number | null;
         trigger: "manual" | "scheduled" | "startup" | "config";
+        operation?: "rebuild" | "source_added" | "source_removed" | "other";
         note?: string;
         error?: string;
         block_reason?: string;
@@ -305,20 +306,35 @@ export function SettingsConfig() {
 
       {/* Rebuild history */}
       {tablesStatus && (() => {
-        const history = rs?.refresh_history ?? [];
+        // Backend filters these too. Keep this guard for legacy/cached payloads
+        // restored from an older deployment.
+        const history = (rs?.refresh_history ?? []).filter((entry) => !(
+          entry.trigger === "startup" && entry.status === "skipped"
+        ) && (
+          entry.operation === "source_added"
+          || entry.operation === "rebuild"
+          || (!entry.operation && ["manual", "scheduled", "startup"].includes(entry.trigger))
+          || (!entry.operation && entry.trigger === "config" && entry.note?.startsWith("Added shared source"))
+        ));
         const fmtWindow = (d: number) => (!d ? "N/A" : d === 180 ? "6 months" : d === 365 ? "1 year" : d === 730 ? "2 years" : d === 1095 ? "3 years" : `${d} days`);
         const fmtDuration = (s: number) => (s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`);
         const fmtTs = (ts: string) => { try { return new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }); } catch { return ts; } };
         const toneFor = (s: string) => s === "success" ? T.successFg : ["partial_error", "skipped", "blocked"].includes(s) ? T.warningFg : s === "config" ? T.primary : s === "dropped" ? T.textFaint : T.dangerFg;
-        const resultLabel = (s: string) => s === "partial_error" ? "Partial" : s === "config" ? "Config" : s;
+        const resultLabel = (entry: (typeof history)[number]) => (
+          entry.operation === "source_added" || entry.note?.startsWith("Added shared source")
+            ? "Added"
+            : entry.status === "partial_error"
+              ? "Partial"
+              : entry.status
+        );
         return (
           <div style={{ marginTop: 16 }}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>Rebuild history</span>
-              <span style={{ fontSize: 10, color: T.textSecondary }}>Last 10 operations</span>
+              <span style={{ fontSize: 10, color: T.textSecondary }}>Last 10 rebuilds and source additions</span>
             </div>
             {history.length === 0 ? (
-              <p style={{ fontSize: 12, color: T.textSecondary, fontStyle: "italic", margin: "0 2px" }}>No operations recorded yet. History appears here after the first manual or nightly rebuild.</p>
+              <p style={{ fontSize: 12, color: T.textSecondary, fontStyle: "italic", margin: "0 2px" }}>No rebuilds or source additions recorded yet.</p>
             ) : (
               <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflowX: "auto" }}>
                 <table style={{ width: "100%", minWidth: 760, tableLayout: "fixed", borderCollapse: "collapse" }}>
@@ -348,7 +364,7 @@ export function SettingsConfig() {
                         </td>
                         <td style={{ ...td, textAlign: "right", color: T.textSecondary }}>{e.status === "config" ? "N/A" : fmtWindow(e.lookback_days ?? 0)}</td>
                         <td style={{ ...td, textAlign: "right", color: T.textSecondary, fontVariantNumeric: "tabular-nums" }}>{e.status === "dropped" || e.status === "config" ? "N/A" : fmtDuration(e.duration_seconds)}</td>
-                        <td style={{ ...td, textAlign: "right", color: toneFor(e.status), fontWeight: 600, textTransform: "capitalize" }} title={e.error || e.block_reason}>{resultLabel(e.status)}</td>
+                        <td style={{ ...td, textAlign: "right", color: toneFor(e.status), fontWeight: 600, textTransform: "capitalize" }} title={e.error || e.block_reason}>{resultLabel(e)}</td>
                       </tr>
                     ))}
                   </tbody>

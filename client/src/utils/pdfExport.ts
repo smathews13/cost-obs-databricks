@@ -615,7 +615,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
     );
     yPos += 5;
     doc.text(
-      `${formatNumber(data.awsCosts.total_dbu_hours)} Databricks DBUs across ${data.awsCosts.clusters.length} clusters`,
+      `${formatCurrency(data.awsCosts.total_databricks_spend || 0)} Databricks list-price spend and ${formatNumber(data.awsCosts.total_dbu_hours)} DBUs across ${data.awsCosts.clusters.length} clusters`,
       14,
       yPos
     );
@@ -644,13 +644,13 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
           : c.cluster_name || c.cluster_id || "Unknown",
         c.driver_instance_type || "-",
         c.worker_instance_type || "-",
-        "Unavailable",
+        formatCurrency(c.databricks_spend || 0),
         formatNumber(c.total_dbu_hours),
       ]);
 
       autoTable(doc, {
         startY: yPos,
-        head: [["Cluster", "Driver Type", "Worker Type", "VM Cost", "DBUs"]],
+        head: [["Cluster", "Driver Type", "Worker Type", "DBU Spend", "DBUs"]],
         body: clusterData,
         theme: "striped",
         headStyles: { fillColor: DB_HEADER, fontSize: 8 },

@@ -40,6 +40,36 @@ _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SLACK_TEAM_PATTERN = re.compile(r"^T[A-Z0-9]{8,}$")
 _SLACK_MEMBER_PATTERN = re.compile(r"^[UW][A-Z0-9]{8,}$")
 
+ROLE_CAPABILITIES = {
+    "admin": {
+        "summary": (
+            "View dashboards and manage shared app settings, users, data sources, "
+            "rebuilds, alerts, setup, and experimental features."
+        ),
+        "can_view_dashboards": True,
+        "can_view_settings": True,
+        "can_manage_settings": True,
+        "can_manage_users": True,
+        "can_manage_data": True,
+    },
+    "consumer": {
+        "summary": (
+            "View dashboards and basic app information. Cannot change shared app "
+            "settings or run administrative actions."
+        ),
+        "can_view_dashboards": True,
+        "can_view_settings": True,
+        "can_manage_settings": False,
+        "can_manage_users": False,
+        "can_manage_data": False,
+    },
+}
+
+
+def get_role_capabilities(role: str) -> dict[str, Any]:
+    """Return a copy of the route/UI capabilities for an app role."""
+    return dict(ROLE_CAPABILITIES.get(role, ROLE_CAPABILITIES["consumer"]))
+
 
 def _safe_https_url(value: str, *, host: str | None = None) -> str | None:
     candidate = value.strip()
@@ -244,10 +274,12 @@ async def get_current_user(request: Request):
     user_email = request.headers.get("X-Forwarded-Email", os.getenv("USER", "dev@local"))
     user_name = request.headers.get("X-Forwarded-User", user_email.split("@")[0] if "@" in user_email else user_email)
 
+    role = _get_user_role(user_email)
     return {
         "email": user_email,
         "name": user_name,
-        "role": _get_user_role(user_email),
+        "role": role,
+        "capabilities": get_role_capabilities(role),
     }
 
 

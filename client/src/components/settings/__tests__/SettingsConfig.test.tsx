@@ -194,6 +194,16 @@ describe("SettingsConfig: rebuild history recovery state", () => {
         last_refresh_utc: "2026-08-28T05:00:00Z",
         refresh_history: [
           {
+            id: "startup-probe",
+            timestamp: "2026-08-27T01:00:00Z",
+            status: "skipped",
+            duration_seconds: 0,
+            lookback_days: 180,
+            trigger: "startup",
+            operation: "rebuild",
+            note: "Managed data is fresh; startup rebuild not needed.",
+          },
+          {
             id: "blocked-run",
             timestamp: "2026-08-27T05:00:00Z",
             status: "blocked",
@@ -210,6 +220,16 @@ describe("SettingsConfig: rebuild history recovery state", () => {
             lookback_days: 180,
             trigger: "scheduled",
           },
+          {
+            id: "source-added",
+            timestamp: "2026-08-28T06:00:00Z",
+            status: "config",
+            duration_seconds: 0,
+            lookback_days: null,
+            trigger: "config",
+            operation: "source_added",
+            note: "Added shared source 'west' (west.cost_obs, 1 view)",
+          },
         ],
       },
     });
@@ -217,6 +237,9 @@ describe("SettingsConfig: rebuild history recovery state", () => {
     expect(await screen.findByText(/^blocked$/i)).toBeInTheDocument();
     expect(screen.getByText(/^success$/i)).toBeInTheDocument();
     expect(screen.getAllByText(/^scheduled$/i)).toHaveLength(2);
+    expect(screen.getByText("Added shared source 'west' (west.cost_obs, 1 view)")).toBeVisible();
+    expect(screen.getByText(/^added$/i)).toBeVisible();
+    expect(screen.queryByText(/startup rebuild not needed/i)).not.toBeInTheDocument();
   });
 
   it("surfaces Delta persistence failures", async () => {

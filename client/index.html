@@ -6,6 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>cost-obs</title>
     <style>
+      :root {
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      html, body, button, input, select, textarea, dialog,
+      [role="dialog"], [role="listbox"], [role="menu"], [role="tooltip"] {
+        font-family: var(--sans);
+      }
+      button, input, select, textarea { font: inherit; }
       @keyframes co-spin { to { transform: rotate(360deg); } }
       @keyframes co-pulse { 50% { opacity: .5; } }
       @keyframes co-bounce {
@@ -19,7 +27,7 @@
   </head>
   <body>
     <div id="root">
-      <div style="display:flex;flex-direction:column;min-height:100vh;background:#F9F7F4;font-family:'DM Sans',-apple-system,sans-serif;">
+      <div style="display:flex;flex-direction:column;min-height:100vh;background:#F9F7F4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
         <div style="background:#1B3139;padding:0 24px;height:46px;display:flex;align-items:center;gap:24px;flex-shrink:0;">
           <div style="color:#fff;font-size:16px;font-weight:700;">cost-obs</div>
         </div>

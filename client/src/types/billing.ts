@@ -137,9 +137,9 @@ export interface AWSClusterCost {
   workspace_name?: string | null;
   state: string | null;
   total_dbu_hours: number;
-  estimated_aws_cost: number | null;
+  databricks_spend: number;
   days_active: number;
-  percentage: number | null;
+  percentage: number;
 }
 
 export interface AWSInstanceFamily {
@@ -152,7 +152,13 @@ export interface AWSCostsResponse {
   clusters: AWSClusterCost[];
   instance_families: AWSInstanceFamily[];
   total_estimated_cost: number | null;
+  total_databricks_spend: number;
   total_dbu_hours: number;
+  total_cluster_count?: number;
+  detail_limit?: number;
+  detail_truncated?: boolean;
+  full_first_usage_date?: string | null;
+  full_last_usage_date?: string | null;
   currency_estimate_available?: boolean;
   estimate_unavailable_reason?: string;
   start_date: string;
@@ -169,9 +175,10 @@ export interface InfraClusterCost {
   worker_instance_type: string | null;
   cluster_source: string | null;
   total_dbu_hours: number;
+  databricks_spend: number;
   estimated_cost: number | null;
   days_active: number;
-  percentage: number | null;
+  percentage: number;
   workspace_id?: string | null;
   workspace_name?: string | null;
 }
@@ -195,9 +202,9 @@ export type InfraErrorKind = "permission" | "metadata" | "query_failure" | null;
 
 export interface InfraMetadataQuality {
   total_rows: number;
-  priced_rows: number;
-  omitted_rows: number;
-  omitted_dbu_hours: number;
+  complete_rows: number;
+  incomplete_rows: number;
+  incomplete_dbu_hours: number;
 }
 
 export interface InfraQueryStatus {
@@ -213,7 +220,13 @@ export interface InfraCostsResponse {
   clusters: InfraClusterCost[];
   instance_families: InfraInstanceFamily[];
   total_estimated_cost: number | null;
+  total_databricks_spend: number;
   total_dbu_hours: number;
+  total_cluster_count?: number;
+  detail_limit?: number;
+  detail_truncated?: boolean;
+  full_first_usage_date?: string | null;
+  full_last_usage_date?: string | null;
   currency_estimate_available?: boolean;
   estimate_unavailable_reason?: string;
   billing_summary?: InfraBillingSummary;
@@ -469,7 +482,7 @@ export interface AppsSummary {
   total_dbus: number;
   total_spend: number;
   app_count: number;
-  avg_daily_apps: number;
+  active_app_count: number;
   workspace_count: number;
   days_in_range: number;
   avg_daily_spend: number;
@@ -531,6 +544,7 @@ export interface AppsResourceBinding {
   name: string;
   type: string;
   description: string;
+  id?: string | null;
 }
 
 export interface AppsApp {
@@ -566,6 +580,12 @@ export interface AppsAppsResponse {
   total_app_count: number;
   active_count: number;
   inactive_count: number;
+  active_window: {
+    start_date: string;
+    end_date: string;
+    days: number;
+    definition: string;
+  };
   inactive_summary: AppsInactiveSummary;
   unregistered_summary: AppsInactiveSummary;
 }
@@ -576,6 +596,7 @@ export interface AppsConnectedArtifact {
   artifact_name: string;
   artifact_type: string;
   artifact_description: string;
+  artifact_id?: string | null;
   workspace_id?: string | null;
 }
 
@@ -722,6 +743,7 @@ export interface TaggingDashboardBundle {
   avg_cost_per_tag?: number | null;
   total_tag_count?: number | null;
   lakeflow_available?: boolean;
+  local_detail_in_scope?: boolean;
   enrichment_note?: string | null;
 }
 

@@ -10,8 +10,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SQLWarehousing360 } from "../SQLWarehousing360";
+import {
+  SQLWarehousing360,
+  WarehouseIdleTimeView,
+  WarehouseRightsizingView,
+} from "../SQLWarehousing360";
 import type { DBSQLDashboardBundle } from "@/types/billing";
 
 // ---------------------------------------------------------------------------
@@ -68,6 +73,15 @@ function renderSQLView(
         topQueriesData={opts.topQueriesData}
       />
     </QueryClientProvider>
+  );
+}
+
+function renderOptimizeView(view: React.ReactNode) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      {view}
+    </QueryClientProvider>,
   );
 }
 
@@ -191,6 +205,31 @@ describe("SQLWarehousing360: available=true with zero-value summary renders $0",
   });
 });
 
+describe("SQLWarehousing360: magnitude-aware KPI formatting", () => {
+  it("compacts million-dollar query spend into a single KPI value", () => {
+    renderSQLView({
+      ...BASE_BUNDLE_AVAILABLE,
+      summary: {
+        available: true,
+        total_spend: 1_687_075.63,
+        total_dbus: 24_560,
+        total_queries: 22_008_909,
+        unique_users: 5_500,
+        unique_warehouses: 149,
+        avg_cost_per_query: 0.08,
+        avg_duration_seconds: 2.3,
+        start_date: "2026-01-01",
+        end_date: "2026-01-31",
+      },
+    });
+
+    const value = screen.getByText("$1.69M");
+    expect(value).toHaveClass("text-2xl", "font-semibold");
+    expect(value.closest(".co-kpi-grid")).not.toBeNull();
+    expect(screen.queryByText("$1,687,075.63")).not.toBeInTheDocument();
+  });
+});
+
 describe("SQLWarehousing360: dashboard polish", () => {
   const source = {
     query_source_type: "JOB",
@@ -262,5 +301,92 @@ describe("SQLWarehousing360: dashboard polish", () => {
     expect(screen.getByText("Warehouse Count by Size")).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Search workspaces...")).not.toBeInTheDocument();
     expect(screen.queryByText(/Filtered to/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("Optimize table pagination", () => {
+  it("shows 10 rightsizing rows per page with normal counts and disabled states", async () => {
+    const recommendations = Array.from({ length: 21 }, (_, index) => ({
+      warehouse_id: `warehouse-${index + 1}`,
+      warehouse_name: `Warehouse ${index + 1}`,
+      warehouse_size: "SMALL",
+      workspace_id: "1",
+      recommendation_type: "OVER_SCALED",
+      recommendation_text: "Reduce max clusters.",
+    }));
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({
+        available: true,
+        recommendations,
+        warehouses_analyzed: 21,
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    renderOptimizeView(<WarehouseRightsizingView />);
+
+    expect(await screen.findByText("Warehouse 1")).toBeInTheDocument();
+    expect(screen.getAllByRole("row")).toHaveLength(11);
+    expect(screen.getByLabelText("Showing 1 to 10 of 21 recommendations")).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 3")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.queryByText("Warehouse 1")).not.toBeInTheDocument();
+    expect(screen.getByText("Warehouse 11")).toBeInTheDocument();
+    expect(screen.getByLabelText("Showing 11 to 20 of 21 recommendations")).toBeInTheDocument();
+    expect(screen.getByText("Page 2 of 3")).toBeInTheDocument();
+  });
+
+  it("shows 10 idle-time rows per page and disables Next on the last page", async () => {
+    const warehouses = Array.from({ length: 12 }, (_, index) => ({
+      warehouse_id: `warehouse-${index + 1}`,
+      warehouse_name: `Idle Warehouse ${index + 1}`,
+      warehouse_size: "SMALL",
+      warehouse_type: "CLASSIC",
+      workspace_id: "1",
+      uptime_source: "events",
+      total_running_minutes: 60,
+      busy_union_minutes: 10,
+      idle_minutes: 50,
+      idle_pct: 83.3,
+      warm_hold_minutes: 5,
+      keep_alive_score: 8.3,
+      auto_stop_mins: 10,
+      max_num_clusters: 1,
+      total_spend: 4,
+      estimated_idle_spend: 3,
+      low_confidence: false,
+    }));
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({
+        available: true,
+        serverless_detected: false,
+        warehouses,
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    renderOptimizeView(<WarehouseIdleTimeView />);
+
+    expect(await screen.findByText("Idle Warehouse 1")).toBeInTheDocument();
+    expect(screen.getAllByRole("row")).toHaveLength(11);
+    expect(screen.getByLabelText("Showing 1 to 10 of 12 warehouses")).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.queryByText("Idle Warehouse 1")).not.toBeInTheDocument();
+    expect(screen.getByText("Idle Warehouse 11")).toBeInTheDocument();
+    expect(screen.getAllByRole("row")).toHaveLength(3);
+    expect(screen.getByLabelText("Showing 11 to 12 of 12 warehouses")).toBeInTheDocument();
+    expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
 });

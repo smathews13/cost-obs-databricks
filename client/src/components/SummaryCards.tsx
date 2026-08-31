@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import type { BillingSummary } from "@/types/billing";
-import { formatCurrency, formatNumber } from "@/utils/formatters";
+import { formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { KPITrendModal } from "./KPITrendModal";
 import { C, FONT_MONO } from "@/theme";
 import { Spinner } from "./Spinner";
@@ -80,8 +80,8 @@ function Card({ title, value, subtitle, infoTooltip, icon, isLoading, onClick }:
             </div>
           ) : (
             <p
-              className="mt-1 text-[28px] font-medium tracking-tight"
-              style={{ color: muted ? C.muted : C.ink, fontFamily: FONT_MONO, letterSpacing: "-0.02em" }}
+              className="mt-1 max-w-full whitespace-nowrap font-medium tracking-tight"
+              style={{ color: muted ? C.muted : C.ink, fontFamily: FONT_MONO, fontSize: "clamp(20px, 2vw, 28px)", lineHeight: 1.15, letterSpacing: "-0.02em" }}
             >
               {value}
             </p>
@@ -139,7 +139,7 @@ export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card
           title="Total Spend"
-          value={formatCurrency(data?.total_spend ?? 0)}
+          value={formatKpiCurrency(data?.total_spend ?? 0)}
           subtitle={data?.days_in_range != null ? `over ${data.days_in_range} days` : undefined}
           isLoading={isLoading}
           onClick={() => handleCardClick("total_spend", "Total Spend")}
@@ -163,7 +163,7 @@ export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds
         />
         <Card
           title="Average Daily Spend"
-          value={formatCurrency(data?.avg_daily_spend ?? 0)}
+          value={formatKpiCurrency(data?.avg_daily_spend ?? 0)}
           subtitle={data?.workspace_count != null ? `across ${data.workspace_count} workspaces` : "daily average"}
           isLoading={isLoading}
           onClick={() => handleCardClick("avg_daily_spend", "Average Daily Spend")}
@@ -175,7 +175,7 @@ export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds
         />
         <Card
           title="Workspaces"
-          value={String(data?.workspace_count ?? 0)}
+          value={formatNumber(data?.workspace_count ?? 0)}
           subtitle="active workspaces"
           infoTooltip="Average number of distinct workspaces with billable usage per day in the selected period. Matches the daily trend average."
           isLoading={isLoading}

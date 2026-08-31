@@ -1,6 +1,6 @@
 import { useCallback, useState, useRef, useEffect } from "react";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
-import { workspaceUrl } from "@/utils/formatters";
+import { formatCurrency, formatNumber, workspaceUrl } from "@/utils/formatters";
 import type { TaggingDashboardBundle } from "@/types/billing";
 import { C } from "@/theme";
 
@@ -17,18 +17,18 @@ const TYPE_LABELS: Record<string, string> = {
   clusters: "Cluster", jobs: "Job", pipelines: "Pipeline", warehouses: "Warehouse", endpoints: "Endpoint",
 };
 
-function getClusterUrl(host: string | null | undefined, _clusterId: string, workspaceId?: string): string | null {
+function getClusterUrl(host: string | null | undefined, workspaceId?: string): string | null {
   if (!host) return null;
   const workspaceParam = workspaceId ? `?o=${workspaceId}` : '';
   return workspaceUrl(host, `/compute/interactive${workspaceParam}`);
 }
 
-function getJobUrl(host: string | null | undefined, jobId: string, _workspaceId?: string): string | null {
+function getJobUrl(host: string | null | undefined, jobId: string): string | null {
   if (!host || !jobId) return null;
   return workspaceUrl(host, `/jobs/${jobId}`);
 }
 
-function getPipelineUrl(host: string | null | undefined, pipelineId: string, _workspaceId?: string): string | null {
+function getPipelineUrl(host: string | null | undefined, pipelineId: string): string | null {
   if (!host || !pipelineId) return null;
   return workspaceUrl(host, `/pipelines/${pipelineId}`);
 }
@@ -44,12 +44,6 @@ function getEndpointUrl(host: string | null | undefined, endpointName: string, w
   const workspaceParam = workspaceId ? `?o=${workspaceId}` : '';
   return workspaceUrl(host, `/ml/endpoints/${endpointName}${workspaceParam}`);
 }
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
-
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 
 interface SuggestedTag { key: string; usageCount: number; examples: string[] }
 interface UntaggedCounts { clusters: number; jobs: number; pipelines: number; warehouses: number; endpoints: number }
@@ -77,9 +71,21 @@ const SUGGESTED_TAGS_KEY = "cost-obs-minimize-suggested-tags";
 
 const ALL_RESOURCE_TYPES: Exclude<UntaggedTab, "all">[] = ["clusters", "jobs", "pipelines", "warehouses", "endpoints"];
 
+function SortIndicator({
+  field,
+  sortField,
+  sortDirection,
+}: {
+  field: string;
+  sortField: string;
+  sortDirection: "asc" | "desc";
+}) {
+  if (sortField !== field) return <span className="ml-1 text-gray-300">↕</span>;
+  return <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>;
+}
+
 export function UntaggedResourcesTable({
   data, host, suggestedTags, untaggedCounts,
-  activeUntaggedTab: _activeUntaggedTab, onTabChange: _onTabChange,
   searchQuery, onSearchChange,
   currentPage, onPageChange,
   sortField, sortDirection, onSort,
@@ -101,7 +107,10 @@ export function UntaggedResourcesTable({
   const isAllTypesSelected = selectedResourceTypes.length === ALL_RESOURCE_TYPES.length;
   const singleTypeSelected: Exclude<UntaggedTab, "all"> | null = selectedResourceTypes.length === 1 ? selectedResourceTypes[0] : null;
   const activeUntaggedTab: UntaggedTab = singleTypeSelected ?? "all";
-  const toggleResourceType = (t: Exclude<UntaggedTab, "all">) => setSelectedResourceTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+  const toggleResourceType = (t: Exclude<UntaggedTab, "all">) => {
+    setSelectedResourceTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+    onPageChange(1);
+  };
 
   useEffect(() => {
     if (!tabDropdownOpen) return;
@@ -133,7 +142,7 @@ export function UntaggedResourcesTable({
 
   const getItems = () => {
     if (!singleTypeSelected) {
-      const items: any[] = [];
+      const items: UntaggedItem[] = [];
       // Empty selection (from Clear) is treated as "show all" so Clear doesn't hide every row.
       const has = (t: Exclude<UntaggedTab, "all">) => selectedResourceTypes.length === 0 || selectedResourceTypes.includes(t);
       if (has("clusters")) items.push(...(data.untagged.clusters?.items || []).map(i => ({ ...i, _name: i.cluster_name, _id: i.cluster_id, _type: "clusters" })));
@@ -202,21 +211,54 @@ export function UntaggedResourcesTable({
     if (typeof aVal === "string" && typeof bVal === "string") return aVal.localeCompare(bVal) * modifier;
     return ((aVal as number) - (bVal as number)) * modifier;
   });
+  const filteredUntaggedSpend = sortedItems.reduce(
+    (total, item) => total + (Number(item.total_spend) || 0),
+    0,
+  );
 
   const totalPages = Math.ceil(sortedItems.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedItems = sortedItems.slice(startIndex, startIndex + itemsPerPage);
+  const localDetailInScope = data.local_detail_in_scope !== false;
+  const aggregateUntaggedSpend = Number(data.summary?.untagged_spend);
 
-  const SortIcon = ({ field }: { field: string }) => {
-    if (sortField !== field) return <span className="ml-1 text-gray-300">↕</span>;
-    return <span className="ml-1">{sortDirection === "asc" ? "↑" : "↓"}</span>;
-  };
+  if (!localDetailInScope) {
+    return (
+      <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <h3 className="text-lg font-semibold text-gray-900">Untagged Resources</h3>
+          {Number.isFinite(aggregateUntaggedSpend) && aggregateUntaggedSpend > 0 ? (
+            <span className="text-sm text-red-600">
+              {formatCurrency(aggregateUntaggedSpend)} aggregate untagged spend
+            </span>
+          ) : (
+            <span className="text-sm text-gray-500">Aggregate untagged spend unavailable</span>
+          )}
+        </div>
+        <div
+          role="status"
+          className="rounded-lg border px-4 py-5"
+          style={{ borderColor: C.amber, backgroundColor: C.amberTint }}
+        >
+          <p className="text-sm font-semibold" style={{ color: C.amberInk }}>
+            Resource details unavailable for this source scope
+          </p>
+          <p className="mt-1 text-sm text-gray-700">
+            Coverage totals still reflect the selected shared sources, but resource-level
+            rows are only available when the local source is included.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">Untagged Resources</h3>
-        <span className="text-sm text-red-600">{formatCurrency(data.summary.untagged_spend)} untagged spend</span>
+        <span className="text-sm text-red-600" aria-live="polite">
+          {formatCurrency(filteredUntaggedSpend)} untagged spend
+        </span>
       </div>
 
       {suggestedTags.length > 0 && allItems.length > 0 && (
@@ -292,7 +334,7 @@ export function UntaggedResourcesTable({
             </svg>
           </button>
           {tabDropdownOpen && (
-            <div className="co-filter-menu absolute left-0 top-full z-9999 mt-2 min-w-[210px]">
+            <div className="co-filter-menu absolute left-0 top-full z-9999 mt-2 min-w-52.5">
               <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Resource Type</span>
                 <div className="flex items-center gap-2 text-xs">
@@ -354,21 +396,21 @@ export function UntaggedResourcesTable({
             <thead className="bg-gray-50">
               <tr>
                 <th className="cursor-pointer px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => onSort(resourceConfig.idKey)}>
-                  {resourceConfig.label} <SortIcon field={resourceConfig.idKey} />
+                  {resourceConfig.label} <SortIndicator field={resourceConfig.idKey} sortField={sortField} sortDirection={sortDirection} />
                 </th>
                 {extraColumns.map((col) => (
                   <th key={col.key} className="cursor-pointer px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => onSort(col.key)}>
-                    {col.label} <SortIcon field={col.key} />
+                    {col.label} <SortIndicator field={col.key} sortField={sortField} sortDirection={sortDirection} />
                   </th>
                 ))}
                 <th className="cursor-pointer px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => onSort("total_dbus")}>
-                  DBUs <SortIcon field="total_dbus" />
+                  DBUs <SortIndicator field="total_dbus" sortField={sortField} sortDirection={sortDirection} />
                 </th>
                 <th className="cursor-pointer px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => onSort("total_spend")}>
-                  Spend <SortIcon field="total_spend" />
+                  Spend <SortIndicator field="total_spend" sortField={sortField} sortDirection={sortDirection} />
                 </th>
                 <th className="cursor-pointer px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => onSort("days_active")}>
-                  Days Active <SortIcon field="days_active" />
+                  Days Active <SortIndicator field="days_active" sortField={sortField} sortDirection={sortDirection} />
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Suggested Tags</th>
                 <th className="px-6 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Actions</th>
@@ -380,9 +422,9 @@ export function UntaggedResourcesTable({
                 const workspaceId = item.workspace_id;
                 const effectiveType = activeUntaggedTab === "all" ? (item._type as string) : activeUntaggedTab;
                 switch (effectiveType) {
-                  case "clusters": resourceUrl = getClusterUrl(host, item.cluster_id as string, workspaceId); break;
-                  case "jobs": resourceUrl = getJobUrl(host, item.job_id as string, workspaceId); break;
-                  case "pipelines": resourceUrl = getPipelineUrl(host, item.pipeline_id as string, workspaceId); break;
+                  case "clusters": resourceUrl = getClusterUrl(host, workspaceId); break;
+                  case "jobs": resourceUrl = getJobUrl(host, item.job_id as string); break;
+                  case "pipelines": resourceUrl = getPipelineUrl(host, item.pipeline_id as string); break;
                   case "warehouses": resourceUrl = getWarehouseUrl(host, item.warehouse_id as string, workspaceId); break;
                   case "endpoints": resourceUrl = getEndpointUrl(host, item.endpoint_name as string, workspaceId); break;
                 }
@@ -400,7 +442,7 @@ export function UntaggedResourcesTable({
                         <div className="flex flex-col gap-0.5">
                           <a href={resourceUrl} target="_blank" rel="noopener noreferrer" className="group flex max-w-xs items-center gap-1 truncate font-medium text-lava hover:text-lava-hover">
                             <span className="truncate">{displayName}</span>
-                            <svg className="h-3 w-3 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <svg className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                             </svg>
                           </a>

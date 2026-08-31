@@ -49,6 +49,7 @@ describe("UserMenu", () => {
     expect(trigger.className).not.toContain("border-white");
     expect(trigger).toHaveAttribute("data-state", "closed");
     expect(screen.getByTestId("user-menu-silhouette")).toBeInTheDocument();
+    expect(screen.getByTestId("user-menu-avatar")).not.toHaveClass("border", "shadow-sm");
     expect(screen.getByText(props.email)).toHaveClass(
       "hidden",
       "min-[900px]:block",

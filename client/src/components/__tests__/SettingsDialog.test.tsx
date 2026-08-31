@@ -18,6 +18,31 @@ it("animates the save spinner while respecting reduced motion", () => {
   expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.settings-save-spinner\s*\{[^}]*animation:\s*none/s);
 });
 
+it("labels the admin section Permissions & Access everywhere", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({}),
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  render(
+    <QueryClientProvider client={client}>
+      <SettingsDialog
+        isOpen
+        onClose={vi.fn()}
+        onTabVisibilityChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        tabVisibility={loadTabVisibility()}
+        appSettings={loadAppSettings()}
+      />
+    </QueryClientProvider>,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "Permissions & Access" }));
+  expect(screen.getByRole("heading", { name: "Permissions & Access" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Access" })).not.toBeInTheDocument();
+});
+
 it("discards saved settings for the removed Use Cases feature", () => {
   localStorage.setItem("coc-tab-visibility", JSON.stringify({ "use-cases": true }));
   localStorage.setItem("coc-app-settings", JSON.stringify({

@@ -8,6 +8,7 @@ import { useUsersGroupsBundle } from "@/hooks/useBillingData";
 import { KPITrendModal } from "@/components/KPITrendModal";
 import { Bot } from "lucide-react";
 import { LoadingPanels } from "@/components/Spinner";
+import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 
 function InfoTooltip({ text }: { text: string }) {
   const [show, setShow] = useState(false);
@@ -43,19 +44,6 @@ import {
 import { C, productColor, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 
-function fmt(n: number) {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n.toFixed(2)}`;
-}
-
-function formatNumber(n: number) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
-}
-
-
 // ── User Detail Modal ─────────────────────────────────────────────────────────
 
 function UserDetailModal({ user, displayName, onClose }: { user: UserSpend; displayName: string; onClose: () => void }) {
@@ -77,7 +65,7 @@ function UserDetailModal({ user, displayName, onClose }: { user: UserSpend; disp
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
               <p className="text-xs text-gray-500">Total spend</p>
-              <p className="text-lg font-bold text-gray-900">{fmt(user.total_spend)}</p>
+              <p className="text-lg font-bold text-gray-900">{formatCurrency(user.total_spend)}</p>
             </div>
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
               <p className="text-xs text-gray-500">Share of total</p>
@@ -86,7 +74,7 @@ function UserDetailModal({ user, displayName, onClose }: { user: UserSpend; disp
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
               <p className="text-xs text-gray-500">Total DBUs</p>
               <p className="text-lg font-bold text-gray-900">{(user.total_dbus ?? 0).toFixed(0)}</p>
-              <p className="text-xs text-gray-500 mt-0.5">{fmt(user.total_spend)} spend</p>
+              <p className="text-xs text-gray-500 mt-0.5">{formatCurrency(user.total_spend)} spend</p>
             </div>
             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
               <p className="text-xs text-gray-500">Primary product</p>
@@ -104,7 +92,7 @@ function UserDetailModal({ user, displayName, onClose }: { user: UserSpend; disp
                     <div key={p.product}>
                       <div className="flex justify-between text-xs mb-1">
                         <span className="text-gray-600">{p.product}</span>
-                        <span className="font-medium text-gray-800">{fmt(p.spend)}</span>
+                        <span className="font-medium text-gray-800">{formatCurrency(p.spend)}</span>
                       </div>
                       <div className="h-1.5 w-full rounded-full bg-gray-100">
                         <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, backgroundColor: productColor(p.product) }} />
@@ -166,7 +154,7 @@ function ProductDrilldown({ topUsers, displayIdentity }: { topUsers: UserSpend[]
                     {product}
                     <span className="ml-1 text-gray-500 text-[10px]">{isSelected ? '▲' : '▼'}</span>
                   </span>
-                  <span className="font-medium text-gray-800">{fmt(spend)} <span className="text-gray-500">({pct.toFixed(1)}%)</span></span>
+                  <span className="font-medium text-gray-800">{formatCurrency(spend)} <span className="text-gray-500">({pct.toFixed(1)}%)</span></span>
                 </div>
                 <div className="h-2 w-full rounded-full bg-gray-100">
                   <div className="h-2 rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: isSelected ? C.lava : productColor(product) }} />
@@ -182,7 +170,7 @@ function ProductDrilldown({ topUsers, displayIdentity }: { topUsers: UserSpend[]
                           <span className="text-gray-500 w-3 shrink-0">{i + 1}.</span>
                           <span className="text-gray-700 truncate">{displayIdentity(u.email)}</span>
                         </div>
-                        <span className="ml-3 font-medium text-gray-800 shrink-0">{fmt(u.spend)}</span>
+                        <span className="ml-3 font-medium text-gray-800 shrink-0">{formatCurrency(u.spend)}</span>
                       </div>
                     ))}
                   </div>
@@ -350,7 +338,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                 Unique Active Users
                 <InfoTooltip text="Distinct users (humans and service principals) with any DBU spend in the selected date range, across all products." />
               </p>
-              <p className="text-2xl font-semibold text-gray-900">{summary?.user_count?.toLocaleString() ?? "N/A"}</p>
+              <p className="text-2xl font-semibold text-gray-900">{summary?.user_count != null ? formatNumber(summary.user_count) : "N/A"}</p>
               <p className="text-xs text-gray-500">across {summary?.workspace_count ?? "N/A"} workspaces</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
@@ -367,7 +355,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                 User Spend
                 <InfoTooltip text="Total list-price spend in the date range divided by the number of distinct active users. Includes all products." />
               </p>
-              <p className="text-2xl font-semibold text-gray-900">{summary ? fmt(summary.avg_spend_per_user) : "N/A"}</p>
+              <p className="text-2xl font-semibold text-gray-900">{summary ? formatKpiCurrency(summary.avg_spend_per_user) : "N/A"}</p>
               <p className="text-xs text-gray-500">Per-user spend over {daysDiff} days</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
@@ -385,7 +373,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                 <InfoTooltip text="Users whose spend accounts for ≥10% of total spend in the selected period. These high-impact users drive the majority of platform costs." />
               </p>
               <p className="text-2xl font-semibold text-gray-900">{powerUsers.length}</p>
-              <p className="text-xs text-gray-500">{fmt(powerUsersSpend)} spend over {daysDiff} days</p>
+              <p className="text-xs text-gray-500">{formatCurrency(powerUsersSpend)} spend over {daysDiff} days</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
@@ -408,7 +396,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
               ) : (
                 <p className="text-2xl font-semibold" style={{ color: C.muted }}>N/A</p>
               )}
-              <p className="text-[11px] text-gray-500">{summary?.user_count?.toLocaleString() ?? "N/A"} total users · {daysDiff} days</p>
+              <p className="text-[11px] text-gray-500">{summary?.user_count != null ? formatNumber(summary.user_count) : "N/A"} total users · {daysDiff} days</p>
               <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
           </div>
@@ -439,9 +427,9 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
           </div>
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={barData} layout="vertical" margin={{ left: 8, right: 24, top: 0, bottom: 0 }}>
-              <XAxis type="number" tickFormatter={v => fmt(v)} stroke={C.muted} fontSize={12} tickMargin={8} />
+              <XAxis type="number" tickFormatter={v => formatCurrency(v)} stroke={C.muted} fontSize={12} tickMargin={8} />
               <YAxis type="category" dataKey="user" width={140} stroke={C.muted} fontSize={12} tickMargin={8} interval={0} />
-              <Tooltip formatter={(v: number | undefined) => fmt(v ?? 0)} />
+              <Tooltip formatter={(v: number | undefined) => formatCurrency(v ?? 0)} />
               <Bar dataKey="spend" radius={[0, 4, 4, 0]} isAnimationActive={false} onClick={(d: unknown) => {
                 const rawEmail = (d as { rawEmail?: string }).rawEmail;
                 const u = topUsers.find(u => u.user_email === rawEmail);
@@ -645,7 +633,7 @@ export default function UsersGroups({ startDate, endDate, dateRange, anonymizeUs
                         <span className="text-gray-500 text-xs w-10 text-right">{(u.percentage ?? 0).toFixed(1)}%</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-600">{fmt(u.total_spend)}</td>
+                    <td className="px-4 py-3 text-right text-gray-600">{formatCurrency(u.total_spend)}</td>
                     <td className="px-4 py-3 text-right text-gray-600">{formatNumber(u.total_dbus ?? 0)}</td>
                     <td className="px-4 py-3 text-right text-gray-600">{u.active_days}</td>
                     <td className="px-4 py-3">

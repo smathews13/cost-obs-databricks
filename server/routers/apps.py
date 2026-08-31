@@ -11,28 +11,33 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
-# Matches standard Databricks service principal UUID format
-_SP_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{8,12}$",
-    re.IGNORECASE,
-)
-
 import httpx
+from cachetools import TTLCache
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
-from server.db import execute_query, execute_queries_parallel, get_workspace_client, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation, CacheGeneration, apply_mv_overrides, get_catalog_schema, selected_source_labels, source_label_filter_clause
-from server import workspace_filter as wf
 from server import cache_ttls
-from server.materialized_views import (
-    MV_APPS_SUMMARY,
-    MV_APPS_BY_APP_FULL,
-    MV_APPS_BY_APP_SKU,
-    MV_APPS_TIMESERIES,
-    MV_APPS_FILTERED_AVG,
-    MV_APPS_AVG_COST_PER_APP,
+from server import workspace_filter as wf
+from server.db import (
+    CacheGeneration,
+    apply_mv_overrides,
+    bundle_cache_key,
+    capture_cache_generation,
+    delta_cache_get,
+    delta_cache_put,
+    execute_queries_parallel,
+    execute_query,
+    get_catalog_schema,
+    get_workspace_client,
+    selected_source_labels,
+    source_label_filter_clause,
 )
+from server.materialized_views import MV_APPS_AVG_COST_PER_APP
 from server.routers.billing import _check_mv_available
+
+# Workspace service-principal detail routes use the numeric SCIM object ID.
+# Client/application UUIDs and display names are not interchangeable with it.
+_SP_WORKSPACE_ID_RE = re.compile(r"^\d+$")
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -326,10 +331,17 @@ def _fetch_one_app_details(
         )
         app_resources = [_resource_binding(resource) for resource in resources]
 
-        # The display name is useful; client/application IDs are intentionally omitted.
+        # Only the workspace SCIM object ID can safely form an admin-console URL.
+        # OAuth/client IDs remain intentionally omitted.
         sp_name = str(getattr(app_detail, "service_principal_name", None) or "")
+        sp_id = str(getattr(app_detail, "service_principal_id", None) or "").strip()
         if sp_name:
-            app_resources.append({"name": sp_name, "type": "SERVICE_PRINCIPAL", "description": "Run-as identity"})
+            app_resources.append({
+                "name": sp_name,
+                "type": "SERVICE_PRINCIPAL",
+                "description": "Run-as identity",
+                "id": sp_id if _SP_WORKSPACE_ID_RE.fullmatch(sp_id) else "",
+            })
 
         metadata = _extract_app_metadata(app_detail)
         registry_entry["url"] = _safe_app_url(
@@ -708,6 +720,7 @@ ORDER BY app_id, total_spend DESC
 def _process_apps(
     raw_apps: list[dict[str, Any]],
     active_only: bool,
+    start_date_str: str,
     end_date_str: str,
     registry: dict[str, dict[str, Any]],
     sku_rows: list[dict[str, Any]] | None = None,
@@ -722,15 +735,31 @@ def _process_apps(
     Returns a dict with keys: apps, inactive_summary, total_app_count,
     active_count, inactive_count, total_spend, unregistered_summary.
     """
-    end_dt = datetime.strptime(end_date_str, "%Y-%m-%d").date()
-    active_cutoff = end_dt - timedelta(days=ACTIVE_DAYS)
+    selected_start = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+    selected_end = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+    # Inclusive seven-day window: end date plus the six preceding dates.
+    active_window_start = max(
+        selected_start,
+        selected_end - timedelta(days=ACTIVE_DAYS - 1),
+    )
 
     active_rows: list[dict[str, Any]] = []
     inactive_rows: list[dict[str, Any]] = []
 
     for r in raw_apps:
         last = r.get("last_usage_date")
-        is_active = last is not None and last >= active_cutoff
+        if isinstance(last, datetime):
+            last_date = last.date()
+        elif isinstance(last, date):
+            last_date = last
+        elif last:
+            try:
+                last_date = datetime.strptime(str(last)[:10], "%Y-%m-%d").date()
+            except ValueError:
+                last_date = None
+        else:
+            last_date = None
+        is_active = last_date is not None and last_date >= active_window_start
         r["_is_active"] = is_active
         if is_active:
             active_rows.append(r)
@@ -855,6 +884,12 @@ def _process_apps(
         "total_app_count": len(apps),
         "active_count": sum(1 for a in apps if a.get("status") == "active"),
         "inactive_count": sum(1 for a in apps if a.get("status") == "inactive"),
+        "active_window": {
+            "start_date": active_window_start.isoformat(),
+            "end_date": selected_end.isoformat(),
+            "days": (selected_end - active_window_start).days + 1,
+            "definition": "Currently registered apps with positive Apps compute usage",
+        },
         "inactive_summary": {
             "count": len(inactive_rows),
             "total_spend": inactive_spend,
@@ -870,6 +905,26 @@ def _process_apps(
             "percentage": (unreg_spend / total_spend_all * 100) if total_spend_all > 0 else 0,
         },
     }
+
+
+def _validate_active_count_contract(
+    summary: dict[str, Any],
+    apps_result: dict[str, Any],
+) -> None:
+    """Reject bundles whose KPI and status breakdown use different populations."""
+    summary_count = summary.get("active_app_count")
+    breakdown_count = apps_result.get("active_count")
+    active_window = apps_result.get("active_window")
+    if (
+        not isinstance(summary_count, int)
+        or not isinstance(breakdown_count, int)
+        or summary_count != breakdown_count
+        or not isinstance(active_window, dict)
+    ):
+        raise ValueError(
+            "Apps active count contract mismatch: "
+            f"summary={summary_count!r}, breakdown={breakdown_count!r}"
+        )
 
 
 @router.get("/summary")
@@ -918,9 +973,16 @@ async def get_apps_summary(
 
 def _empty_bundle(params: dict, active_only: bool) -> dict[str, Any]:
     """Return a valid zero-data bundle — used when workspace filter finds no Apps rows."""
+    selected_start = datetime.strptime(params["start_date"], "%Y-%m-%d").date()
+    selected_end = datetime.strptime(params["end_date"], "%Y-%m-%d").date()
+    active_window_start = max(
+        selected_start,
+        selected_end - timedelta(days=ACTIVE_DAYS - 1),
+    )
     return {
-        "summary": {"total_dbus": 0, "total_spend": 0, "workspace_count": 0, "app_count": 0, "days_in_range": 1, "avg_daily_spend": 0, "avg_daily_apps": 0, "avg_cost_per_app": 0},
+        "summary": {"total_dbus": 0, "total_spend": 0, "workspace_count": 0, "app_count": 0, "active_app_count": 0, "days_in_range": 1, "avg_daily_spend": 0, "avg_cost_per_app": 0},
         "apps": {"apps": [], "total_spend": 0, "total_app_count": 0, "active_count": 0, "inactive_count": 0,
+                 "active_window": {"start_date": active_window_start.isoformat(), "end_date": selected_end.isoformat(), "days": (selected_end - active_window_start).days + 1, "definition": "Currently registered apps with positive Apps compute usage"},
                  "inactive_summary": {"count": 0, "total_spend": 0, "total_dbus": 0, "percentage": 0},
                  "unregistered_summary": {"count": 0, "total_spend": 0, "total_dbus": 0, "percentage": 0}},
         "timeseries": {"timeseries": [], "categories": ["Total"]},
@@ -970,20 +1032,6 @@ def _compute_apps_bundle(
           {ws_clause}
         GROUP BY u.usage_date
         ORDER BY u.usage_date
-        """
-
-        filtered_avg_apps_query = f"""
-        SELECT COALESCE(AVG(daily_apps), 0) as avg_daily_apps
-        FROM (
-          SELECT usage_date, COUNT(DISTINCT u.usage_metadata.app_id) as daily_apps
-          FROM system.billing.usage u
-          WHERE u.usage_date BETWEEN :start_date AND :end_date
-            AND u.usage_quantity > 0
-            AND u.billing_origin_product = 'APPS'
-            {app_filter}
-            {ws_clause}
-          GROUP BY usage_date
-        ) t
         """
 
         # Mean-of-daily-ratios: matches the kpi-trend drilldown methodology exactly.
@@ -1039,7 +1087,6 @@ def _compute_apps_bundle(
             ("summary", lambda: _mv_query("summary", MV_APPS_SUMMARY, lambda: execute_query(_ws(APPS_SUMMARY), params))),
             ("apps", lambda: _mv_query("apps", MV_APPS_BY_APP_FULL, lambda: execute_query(_ws(APPS_BY_APP_FULL), params))),
             ("timeseries", lambda: _mv_query("timeseries", MV_APPS_TIMESERIES, lambda: execute_query(filtered_timeseries, params), app_filter=_mv_app_filter)),
-            ("filtered_avg_apps", lambda: _mv_query("filtered_avg_apps", MV_APPS_FILTERED_AVG, lambda: execute_query(filtered_avg_apps_query, params), app_filter=_mv_app_filter)),
             ("avg_cost_per_app", lambda: _mv_query("avg_cost_per_app", MV_APPS_AVG_COST_PER_APP, lambda: execute_query(avg_cost_per_app_query, params), app_filter=_mv_app_filter)),
             ("sku_breakdown", lambda: _mv_query("sku_breakdown", MV_APPS_BY_APP_SKU, lambda: execute_query(_ws(APPS_BY_APP_SKU), params))),
             ("workspaces", lambda: _query_app_workspaces(params, ws_clause)),
@@ -1067,14 +1114,16 @@ def _compute_apps_bundle(
         _start_dt = datetime.strptime(params["start_date"], "%Y-%m-%d")
         _end_dt = datetime.strptime(params["end_date"], "%Y-%m-%d")
         days_in_range = (_end_dt - _start_dt).days + 1
-        avg_daily_apps = 0
-        filtered_avg_data = results.get("filtered_avg_apps", []) or []
-        if filtered_avg_data:
-            avg_daily_apps = round(float(filtered_avg_data[0].get("avg_daily_apps") or 0))
-
         raw_apps = results.get("apps", []) or []
         sku_rows = results.get("sku_breakdown", []) or []
-        apps_result = _process_apps(raw_apps, active_only, params["end_date"], registry, sku_rows)
+        apps_result = _process_apps(
+            raw_apps,
+            active_only,
+            params["start_date"],
+            params["end_date"],
+            registry,
+            sku_rows,
+        )
 
         for app in apps_result["apps"]:
             app["workspace_names"] = app_workspace_map.get(app["app_id"], [])
@@ -1092,11 +1141,14 @@ def _compute_apps_bundle(
             "total_spend": total_spend_all,
             "workspace_count": len(all_workspaces),
             "app_count": int(apps_result.get("total_app_count") or 0),
-            "avg_daily_apps": avg_daily_apps,
+            # Same processed rows, filters, registration scope, and trailing
+            # activity window used by the status breakdown below.
+            "active_app_count": int(apps_result.get("active_count") or 0),
             "days_in_range": days_in_range,
             "avg_daily_spend": avg_daily_spend,
             "avg_cost_per_app": avg_cost_per_app,
         }
+        _validate_active_count_contract(summary, apps_result)
 
         timeseries_data = results.get("timeseries", []) or []
         timeseries = sorted(
@@ -1163,6 +1215,7 @@ def _compute_apps_bundle(
                     "artifact_name": str(res.get("name", "")),
                     "artifact_type": str(res.get("type", "")),
                     "artifact_description": str(res.get("description", "")),
+                    "artifact_id": str(res.get("id", "")) or None,
                 })
 
         sp_rows = results.get("service_principals", []) or []
@@ -1183,6 +1236,7 @@ def _compute_apps_bundle(
                 "artifact_name": run_as,
                 "artifact_type": "SERVICE_PRINCIPAL",
                 "artifact_description": "Run-as identity",
+                "artifact_id": None,
             })
 
         _resp = {
@@ -1268,7 +1322,16 @@ async def get_apps_dashboard_bundle(
     if (_dcached := delta_cache_get(_dkey)) is not None:
         if isinstance(_dcached, dict) and "_error" in _dcached:
             raise HTTPException(status_code=500, detail=_dcached.get("_error", "Bundle compute failed"))
-        return _dcached
+        try:
+            _validate_active_count_contract(
+                _dcached.get("summary", {}),
+                _dcached.get("apps", {}),
+            )
+            return _dcached
+        except (AttributeError, ValueError):
+            # Ignore bundles written by the previous, mismatched contract and
+            # recompute under the same date/workspace/source-scoped cache key.
+            logger.info("Ignoring stale Apps bundle with legacy active-count contract")
 
     with _apps_bundle_inflight_lock:
         if _dkey not in _apps_bundle_inflight:
@@ -1536,11 +1599,12 @@ async def get_apps_kpi_trend(
 
 # ── Thumbnail proxy ──────────────────────────────────────────────────
 
-# Cache thumbnails in memory to avoid repeated HTTP calls
-_thumbnail_cache: dict[str, bytes | None] = {}
-_thumbnail_cache_time: dict[str, float] = {}
-_thumbnail_cache_content_type: dict[str, str] = {}
-THUMBNAIL_CACHE_TTL = 600  # 10 minutes
+# Cache only validated registry IDs. TTLCache is both bounded and LRU-evicting.
+_thumbnail_cache: TTLCache[str, tuple[bytes | None, str | None]] = TTLCache(
+    maxsize=128,
+    ttl=cache_ttls.THUMBNAIL,
+)
+_THUMBNAIL_APP_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024
 _ALLOWED_IMAGE_TYPES = {
     "image/png",
@@ -1581,23 +1645,19 @@ async def get_app_thumbnail(
     app_id: str = Query(..., description="App UUID"),
 ) -> Response:
     """Proxy a trusted app thumbnail without exposing workspace credentials."""
-    now = time.time()
-
-    # Check cache
-    if app_id in _thumbnail_cache:
-        cached_time = _thumbnail_cache_time.get(app_id, 0)
-        if (now - cached_time) < THUMBNAIL_CACHE_TTL:
-            data = _thumbnail_cache[app_id]
-            if data:
-                content_type = _thumbnail_cache_content_type.get(app_id, "image/png")
-                return Response(content=data, media_type=content_type)
-            return Response(status_code=404)
+    if not _THUMBNAIL_APP_ID_RE.fullmatch(app_id):
+        return Response(status_code=400)
 
     registry = _get_app_registry()
     entry = registry.get(app_id)
     if not entry:
-        _thumbnail_cache[app_id] = None
-        _thumbnail_cache_time[app_id] = now
+        return Response(status_code=404)
+
+    cached = _thumbnail_cache.get(app_id)
+    if cached is not None:
+        data, content_type = cached
+        if data:
+            return Response(content=data, media_type=content_type or "image/png")
         return Response(status_code=404)
 
     app_url = str(entry["url"]).strip()
@@ -1699,9 +1759,7 @@ async def get_app_thumbnail(
                         if exceeded or size < 16:
                             continue
                         content = b"".join(chunks)
-                        _thumbnail_cache[app_id] = content
-                        _thumbnail_cache_time[app_id] = now
-                        _thumbnail_cache_content_type[app_id] = content_type
+                        _thumbnail_cache[app_id] = (content, content_type)
                         logger.info("Thumbnail found for app %s", entry.get("name"))
                         return Response(content=content, media_type=content_type)
                 except (TypeError, ValueError):
@@ -1710,20 +1768,12 @@ async def get_app_thumbnail(
                     logger.debug("Thumbnail fetch failed for app %s: %s", entry.get("name"), e)
                     continue
 
-    logger.info("No custom thumbnail found for app %s (%s); using fallback", entry.get("name"), app_url)
-    label = str(entry.get("name") or app_id or "?").strip()[:1].upper() or "?"
-    if not label.isalnum():
-        label = "?"
-    fallback = (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">'
-        '<rect width="96" height="96" rx="12" fill="#2272B4"/>'
-        f'<text x="48" y="61" text-anchor="middle" font-family="Arial,sans-serif" '
-        f'font-size="42" font-weight="700" fill="white">{label}</text></svg>'
-    ).encode("utf-8")
-    _thumbnail_cache[app_id] = fallback
-    _thumbnail_cache_time[app_id] = now
-    _thumbnail_cache_content_type[app_id] = "image/svg+xml"
-    return Response(content=fallback, media_type="image/svg+xml")
+    logger.info("No custom thumbnail found for app %s (%s)", entry.get("name"), app_url)
+    # A miss must stay a miss so the browser can render its deterministic,
+    # identity-colored initials. Returning one generated blue image here made
+    # every app without a platform thumbnail look identical.
+    _thumbnail_cache[app_id] = (None, None)
+    return Response(status_code=404)
 
 
 # ── Connected artifacts ──────────────────────────────────────────────
@@ -1760,6 +1810,7 @@ async def get_connected_artifacts() -> dict[str, Any]:
                 "artifact_name": res["name"],
                 "artifact_type": res["type"],
                 "artifact_description": res["description"],
+                "artifact_id": str(res.get("id", "")) or None,
             })
 
     return {

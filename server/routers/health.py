@@ -6,9 +6,13 @@ import logging
 import os
 import threading
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
+from cachetools import TTLCache
 from fastapi import APIRouter, BackgroundTasks, Request
+
+from server import cache_ttls
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,129 @@ _warehouse_probe_last_result: dict[str, Any] | None = None
 _WAREHOUSE_PROBE_MIN_INTERVAL = 60.0
 _WAREHOUSE_PROBE_LOCK_PATH = "/tmp/cost-obs-warehouse-probe.lock"
 _WAREHOUSE_PROBE_STATE_PATH = "/tmp/cost-obs-warehouse-probe.json"
+_deployment_metadata_cache: TTLCache[str, dict[str, Any]] = TTLCache(
+    maxsize=8,
+    ttl=cache_ttls.DEPLOYMENT_METADATA,
+)
+_deployment_metadata_lock = threading.Lock()
+_deployment_metadata_inflight: dict[str, Future[dict[str, Any]]] = {}
+_deployment_metadata_executor = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="deployment-metadata",
+)
+_DEPLOYMENT_METADATA_TIMEOUT_SECONDS = 5.0
+
+
+def _metadata_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _deployment_metadata_from_app(app: Any) -> dict[str, Any]:
+    """Select the current app deployment's public provenance fields."""
+    deployment = getattr(app, "active_deployment", None)
+    git_source = (
+        getattr(deployment, "git_source", None)
+        or getattr(app, "git_source", None)
+        or getattr(app, "default_git_source", None)
+    )
+    deployed_at = _metadata_text(getattr(deployment, "create_time", None))
+    deployer = _metadata_text(getattr(deployment, "creator", None))
+    commit_sha = _metadata_text(
+        getattr(git_source, "resolved_commit", None)
+        or getattr(git_source, "commit", None)
+    )
+    return {
+        "deployed_at": deployed_at,
+        "deployer": deployer,
+        "commit_sha": commit_sha,
+        "available": any((deployed_at, deployer, commit_sha)),
+        "source": "databricks_apps_api",
+    }
+
+
+def _deployment_metadata_from_env() -> dict[str, Any]:
+    """Read optional release-provided values without inventing build timestamps."""
+    deployed_at = _metadata_text(os.getenv("COST_OBS_DEPLOYED_AT"))
+    deployer = _metadata_text(os.getenv("COST_OBS_DEPLOYER"))
+    commit_sha = _metadata_text(os.getenv("COST_OBS_COMMIT_SHA"))
+    return {
+        "deployed_at": deployed_at,
+        "deployer": deployer,
+        "commit_sha": commit_sha,
+        "available": any((deployed_at, deployer, commit_sha)),
+        "source": "release_environment",
+    }
+
+
+def _fetch_deployment_metadata(app_name: str) -> dict[str, Any]:
+    from server.db import get_workspace_client
+
+    app_detail = get_workspace_client().apps.get(app_name)
+    return _deployment_metadata_from_app(app_detail)
+
+
+def _finish_deployment_metadata_fetch(
+    app_name: str,
+    future: Future[dict[str, Any]],
+) -> None:
+    try:
+        metadata = future.result()
+    except Exception as exc:
+        logger.debug("Current app deployment metadata is unavailable: %s", exc)
+        metadata = None
+    with _deployment_metadata_lock:
+        if metadata and metadata["available"]:
+            _deployment_metadata_cache[app_name] = dict(metadata)
+        if _deployment_metadata_inflight.get(app_name) is future:
+            _deployment_metadata_inflight.pop(app_name, None)
+
+
+@router.get("/deployment")
+async def deployment_metadata() -> dict[str, Any]:
+    """Return authoritative metadata for the deployment currently serving the app."""
+    app_name = (os.getenv("DATABRICKS_APP_NAME") or "").strip()
+    if app_name:
+        started_fetch = False
+        with _deployment_metadata_lock:
+            cached = _deployment_metadata_cache.get(app_name)
+            future = _deployment_metadata_inflight.get(app_name)
+            if cached is not None:
+                return dict(cached)
+            if future is None:
+                future = _deployment_metadata_executor.submit(
+                    _fetch_deployment_metadata,
+                    app_name,
+                )
+                _deployment_metadata_inflight[app_name] = future
+                started_fetch = True
+        if started_fetch:
+            future.add_done_callback(
+                lambda completed, name=app_name: _finish_deployment_metadata_fetch(
+                    name,
+                    completed,
+                )
+            )
+        try:
+            metadata = await asyncio.wait_for(
+                asyncio.shield(asyncio.wrap_future(future)),
+                timeout=_DEPLOYMENT_METADATA_TIMEOUT_SECONDS,
+            )
+            if metadata["available"]:
+                return metadata
+        except Exception as exc:
+            logger.debug("Current app deployment metadata is unavailable: %s", exc)
+
+    fallback = _deployment_metadata_from_env()
+    if fallback["available"]:
+        return fallback
+    return {
+        "deployed_at": None,
+        "deployer": None,
+        "commit_sha": None,
+        "available": False,
+        "source": "unavailable",
+    }
 
 
 def _read_shared_probe_result() -> tuple[float, dict[str, Any] | None]:

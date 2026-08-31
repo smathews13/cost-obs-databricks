@@ -1154,8 +1154,8 @@ GROUP BY usage_date, product_category
 ORDER BY usage_date, product_category
 """
 
-# Multi-cloud infrastructure cost estimation query
-# Uses dynamic pricing based on cloud provider
+# Multi-cloud cluster metadata and Databricks spend query.
+# Cloud VM currency cost is intentionally not inferred from DBU usage.
 INFRA_COST_ESTIMATE = """
 WITH usage_filtered AS (
   SELECT
@@ -1163,8 +1163,14 @@ WITH usage_filtered AS (
     u.workspace_id,
     u.usage_metadata.cluster_id AS cluster_id,
     u.cloud,
-    u.usage_quantity            AS estimated_dbu_hours
+    u.usage_quantity AS estimated_dbu_hours,
+    u.usage_quantity * COALESCE(p.pricing.default, 0) AS databricks_spend
   FROM system.billing.usage u
+  LEFT JOIN system.billing.list_prices p
+    ON u.sku_name = p.sku_name
+    AND u.cloud = p.cloud
+    AND u.usage_start_time >= p.price_start_time
+    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.usage_metadata.cluster_id IS NOT NULL
@@ -1184,23 +1190,36 @@ cluster_info AS (
   FROM system.compute.clusters c
   INNER JOIN cluster_ids ci ON c.cluster_id = ci.cluster_id
   GROUP BY c.cluster_id
+),
+cluster_rollup AS (
+  SELECT
+    uf.cluster_id,
+    MAX(ci.cluster_name)         AS cluster_name,
+    MAX(ci.driver_instance_type) AS driver_instance_type,
+    MAX(ci.worker_instance_type) AS worker_instance_type,
+    MAX(ci.cluster_source)       AS cluster_source,
+    MAX(uf.workspace_id)         AS workspace_id,
+    MAX(wsl.workspace_name)      AS workspace_name,
+    MAX(uf.cloud)                AS cloud,
+    SUM(uf.estimated_dbu_hours)  AS total_dbu_hours,
+    SUM(uf.databricks_spend)     AS databricks_spend,
+    COUNT(DISTINCT uf.usage_date) AS days_active,
+    MIN(uf.usage_date)           AS first_usage_date,
+    MAX(uf.usage_date)           AS last_usage_date
+  FROM usage_filtered uf
+  LEFT JOIN cluster_info ci ON uf.cluster_id = ci.cluster_id
+  LEFT JOIN system.access.workspaces_latest wsl
+    ON CAST(uf.workspace_id AS BIGINT) = CAST(wsl.workspace_id AS BIGINT)
+  GROUP BY uf.cluster_id
 )
 SELECT
-  uf.cluster_id,
-  MAX(ci.cluster_name)         AS cluster_name,
-  MAX(ci.driver_instance_type) AS driver_instance_type,
-  MAX(ci.worker_instance_type) AS worker_instance_type,
-  MAX(ci.cluster_source)       AS cluster_source,
-  MAX(uf.workspace_id)         AS workspace_id,
-  MAX(wsl.workspace_name)      AS workspace_name,
-  MAX(uf.cloud)                AS cloud,
-  SUM(uf.estimated_dbu_hours)  AS total_dbu_hours,
-  COUNT(DISTINCT uf.usage_date) AS days_active
-FROM usage_filtered uf
-LEFT JOIN cluster_info ci ON uf.cluster_id = ci.cluster_id
-LEFT JOIN system.access.workspaces_latest wsl
-  ON CAST(uf.workspace_id AS BIGINT) = CAST(wsl.workspace_id AS BIGINT)
-GROUP BY uf.cluster_id
+  cr.*,
+  COUNT(*) OVER ()                       AS full_cluster_count,
+  SUM(cr.total_dbu_hours) OVER ()        AS full_total_dbu_hours,
+  SUM(cr.databricks_spend) OVER ()       AS full_databricks_spend,
+  MIN(cr.first_usage_date) OVER ()       AS full_first_usage_date,
+  MAX(cr.last_usage_date) OVER ()        AS full_last_usage_date
+FROM cluster_rollup cr
 ORDER BY total_dbu_hours DESC
 LIMIT 100
 """

@@ -257,3 +257,17 @@ describe("PlatformKPIsView: managed query-user population", () => {
     }
   });
 });
+
+describe("PlatformKPIsView: compact KPI values", () => {
+  it("keeps a large compute duration and its unit in one value element", () => {
+    renderView({}, {
+      ...SAMPLE_DATA,
+      total_compute_seconds: 21_924.7 * 24 * 60 * 60,
+    });
+
+    const value = screen.getByText("21.9K days");
+    expect(value.tagName).toBe("P");
+    expect(value).toHaveClass("text-2xl", "font-semibold");
+    expect(value.closest(".co-kpi-card")).toHaveTextContent("Compute Time");
+  });
+});

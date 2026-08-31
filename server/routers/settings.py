@@ -10,6 +10,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -319,6 +320,48 @@ def load_refresh_log(*, restore_if_missing: bool = True) -> dict | None:
     return restore_refresh_log_from_delta()
 
 
+def classify_refresh_history_entry(entry: dict) -> str:
+    """Return the user-facing operation class for a durable history entry."""
+    explicit = entry.get("operation")
+    if explicit:
+        return str(explicit)
+    trigger = str(entry.get("trigger") or "")
+    note = str(entry.get("note") or "")
+    if trigger in {"manual", "scheduled", "startup"}:
+        return "rebuild"
+    if trigger == "config" and note.startswith("Added shared source"):
+        return "source_added"
+    if trigger == "config" and note.startswith("Removed shared source"):
+        return "source_removed"
+    return "other"
+
+
+def visible_refresh_history(entries: Any) -> list[dict]:
+    """Normalize and filter history for Settings.
+
+    Startup freshness checks are maintenance probes, not rebuild attempts. Keep
+    actual automatic/manual rebuild results and successful source additions.
+    """
+    if not isinstance(entries, list):
+        return []
+    visible: list[dict] = []
+    for raw in entries:
+        if not isinstance(raw, dict):
+            continue
+        entry = dict(raw)
+        operation = classify_refresh_history_entry(entry)
+        entry["operation"] = operation
+        if (
+            entry.get("trigger") == "startup"
+            and entry.get("status") == "skipped"
+        ):
+            continue
+        if operation not in {"rebuild", "source_added"}:
+            continue
+        visible.append(entry)
+    return visible
+
+
 def persist_refresh_log(log_data: dict, history_entry: dict | None = None) -> dict:
     """Persist one refresh result and optionally append exactly one history entry."""
     global _tables_cache, _tables_cache_ts
@@ -335,7 +378,11 @@ def persist_refresh_log(log_data: dict, history_entry: dict | None = None) -> di
                 merged = dict(current)
                 merged.update(log_data)
                 if history_entry is not None:
+                    history_entry = dict(history_entry)
                     history_entry.setdefault("id", uuid.uuid4().hex)
+                    history_entry.setdefault(
+                        "operation", classify_refresh_history_entry(history_entry)
+                    )
                     prior = current.get("refresh_history")
                     history = list(prior) if isinstance(prior, list) else []
                     history.append(history_entry)
@@ -357,7 +404,8 @@ def persist_refresh_log(log_data: dict, history_entry: dict | None = None) -> di
 def append_refresh_history(status: str, trigger: str, *, lookback_days: int | None = None,
                            duration_seconds: float = 0, note: str | None = None,
                            error: str | None = None,
-                           block_reason: str | None = None) -> None:
+                           block_reason: str | None = None,
+                           operation: str | None = None) -> None:
     """Append one entry to the rebuild-history log (file + Delta), keeping the last 20.
 
     Used for refresh runs that don't go through app._run_mv_refresh (the startup/auto
@@ -380,6 +428,8 @@ def append_refresh_history(status: str, trigger: str, *, lookback_days: int | No
             entry["error"] = error[:200]
         if block_reason:
             entry["block_reason"] = block_reason[:500]
+        if operation:
+            entry["operation"] = operation
         persist_refresh_log({}, entry)
     except Exception as e:
         logger.debug("append_refresh_history (non-fatal): %s", e)
@@ -478,7 +528,9 @@ def get_refresh_log_status(*, block_reason: str | None = None) -> dict | None:
         "stale": hours_since is None or hours_since > 26,
         "status": status,
         "lookback_days": log_data.get("lookback_days"),
-        "refresh_history": log_data.get("refresh_history", []),
+        "refresh_history": visible_refresh_history(
+            log_data.get("refresh_history", [])
+        ),
     }
     if log_data.get("error"):
         result["error"] = log_data["error"]
@@ -1206,6 +1258,31 @@ def _share_last_updated(catalog: str, schema: str, tables: list[str] | None) -> 
     return latest[1] if latest else None
 
 
+def _catalog_explorer_table_links(
+    catalog: str, schema: str, tables: list[str] | None
+) -> list[dict[str, str]]:
+    """Build workspace-local Catalog Explorer links for exact shared tables."""
+    from server.db import get_host_url
+    from server.materialized_views import _MV_TABLES
+
+    host = get_host_url().rstrip("/")
+    if not host or not catalog or not schema:
+        return []
+    links = []
+    for table in tables or _MV_TABLES:
+        if not table:
+            continue
+        fqn = f"{catalog}.{schema}.{table}"
+        path = "/".join(quote(part, safe="") for part in (catalog, schema, table))
+        links.append(
+            {
+                "fqn": fqn,
+                "url": f"{host}/explore/data/{path}",
+            }
+        )
+    return links
+
+
 @router.get("/mv-sources")
 async def get_mv_sources_endpoint(detail: bool = False) -> dict:
     """Additional MV source locations unioned into every MV read, plus this
@@ -1244,9 +1321,20 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
                     s["share_last_updated"] = _share_last_updated(
                         s.get("catalog"), s.get("schema"), s.get("tables")
                     )
+                    s["catalog_explorer_tables"] = _catalog_explorer_table_links(
+                        s.get("catalog"), s.get("schema"), s.get("tables")
+                    )
                 return current_sources
         sources = await asyncio.to_thread(_enrich)
-    return {"sources": sources, "local_label": get_local_source_label()}
+    return {
+        "sources": sources,
+        "local_label": get_local_source_label(),
+        "recipient_refresh": {
+            "supported": False,
+            "mode": "provider_managed",
+            "check_action": "metadata_and_local_bindings_only",
+        },
+    }
 
 
 @router.get("/mv-sources/preview")
@@ -1439,6 +1527,7 @@ async def add_mv_source(request: Request, body: dict) -> dict:
     await asyncio.to_thread(
         append_refresh_history, "config", "config",
         note=f"Added shared source '{label}' ({catalog}.{schema}, {n_views} view{'s' if n_views != 1 else ''})",
+        operation="source_added",
     )
     return {"ok": True, "sources": sources, "build": summary}
 
@@ -1504,7 +1593,9 @@ async def remove_mv_source(request: Request, label: str = None) -> dict:
     sources, summary = await asyncio.to_thread(_remove)
     _invalidate_mv_caches()
     await asyncio.to_thread(
-        append_refresh_history, "config", "config", note=f"Removed shared source '{label}'",
+        append_refresh_history, "config", "config",
+        note=f"Removed shared source '{label}'",
+        operation="source_removed",
     )
     return {"ok": True, "sources": sources, "build": summary}
 
@@ -2152,8 +2243,24 @@ async def get_user_permissions(request: Request) -> dict:
         perms["table_location"] = f"{catalog}.{schema}.app_user_permissions"
     except Exception:
         perms["table_location"] = None
-    # Tell the UI who the current user is so it can show implicit admin status
-    perms["current_user"] = request.headers.get("X-Forwarded-Email", os.getenv("USER", "dev@local"))
+    # Tell the UI who the current user is and expose the same capability policy
+    # used by /api/user/me. Protected mutation routes still enforce _require_admin.
+    current_user = request.headers.get(
+        "X-Forwarded-Email", os.getenv("USER", "dev@local")
+    )
+    current_role = (
+        "admin"
+        if not perms.get("admins") or current_user in perms.get("admins", [])
+        else "consumer"
+    )
+    from server.routers.user import ROLE_CAPABILITIES
+
+    perms["current_user"] = current_user
+    perms["current_role"] = current_role
+    perms["role_capabilities"] = {
+        role: dict(capabilities)
+        for role, capabilities in ROLE_CAPABILITIES.items()
+    }
     return perms
 
 

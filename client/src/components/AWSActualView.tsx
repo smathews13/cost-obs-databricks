@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import { format, parseISO } from "date-fns";
 import type { AWSActualDashboardBundle } from "@/types/billing";
-import { formatCurrency } from "@/utils/formatters";
+import { formatCurrency, formatKpiCurrency } from "@/utils/formatters";
 import { C } from "@/theme";
 
 const CHARGE_TYPE_COLORS: Record<string, string> = {
@@ -67,7 +67,7 @@ export function AWSActualView({ actualData, cloudTabSwitcher, onSwitchToEstimate
               <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs">From CUR 2.0</span>
               <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs">Account-wide · workspace filter not applied</span>
             </div>
-            <p className="mt-1 text-3xl font-bold">{formatCurrency(summary?.total_net_unblended || 0)}</p>
+            <p className="mt-1 whitespace-nowrap text-3xl font-bold">{formatKpiCurrency(summary?.total_net_unblended || 0)}</p>
             <p className="mt-1 text-sm text-green-100">
               Across {summary?.cluster_count || 0} clusters and {summary?.warehouse_count || 0} warehouses
             </p>

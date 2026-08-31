@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import type { AppsApp, AppsDashboardBundle } from "@/types/billing";
+import { getAppFallbackColor } from "@/utils/apps";
 import { AppsCostCenter } from "../AppsCostCenter";
 
 const metadataApp: AppsApp = {
@@ -79,12 +80,13 @@ const historicalApp: AppsApp = {
 };
 
 function bundle(apps: AppsApp[]): AppsDashboardBundle {
+  const activeCount = apps.filter(app => app.status === "active").length;
   return {
     summary: {
       total_dbus: 42,
       total_spend: 123.45,
       app_count: apps.length,
-      avg_daily_apps: 1,
+      active_app_count: activeCount,
       workspace_count: 1,
       days_in_range: 30,
       avg_daily_spend: 4.12,
@@ -94,8 +96,14 @@ function bundle(apps: AppsApp[]): AppsDashboardBundle {
       apps,
       total_spend: 123.45,
       total_app_count: apps.length,
-      active_count: apps.filter(app => app.status === "active").length,
+      active_count: activeCount,
       inactive_count: apps.filter(app => app.status === "inactive").length,
+      active_window: {
+        start_date: "2026-08-24",
+        end_date: "2026-08-30",
+        days: 7,
+        definition: "Currently registered apps with positive Apps compute usage",
+      },
       inactive_summary: { count: 0, total_spend: 0, total_dbus: 0, percentage: 0 },
       unregistered_summary: {
         count: apps.filter(app => !app.is_registered).length,
@@ -129,6 +137,25 @@ function renderApps(apps: AppsApp[]) {
 }
 
 describe("AppsCostCenter metadata detail", () => {
+  it("uses the same active count contract for the KPI and status breakdown", () => {
+    renderApps([metadataApp, historicalApp]);
+
+    expect(screen.getByTestId("active-apps-kpi-value")).toHaveTextContent("1");
+    expect(screen.getByTestId("active-apps-breakdown-count")).toHaveTextContent("1 Active");
+    expect(screen.getByText("last 7 days · 1 workspace")).toBeVisible();
+  });
+
+  it("falls back to deterministic identity-colored initials when thumbnail loading fails", () => {
+    renderApps([metadataApp]);
+    fireEvent.error(screen.getByAltText("Metadata App icon"));
+
+    const fallback = screen.getByLabelText("Metadata App fallback icon");
+    expect(fallback).toHaveTextContent("MA");
+    expect(fallback).toHaveStyle({
+      backgroundColor: getAppFallbackColor(metadataApp.app_id),
+    });
+  });
+
   it("shows safe app, compute, deployment, workspace, and resource metadata", () => {
     renderApps([metadataApp]);
 
@@ -204,5 +231,66 @@ describe("AppsCostCenter metadata detail", () => {
     );
 
     expect(screen.getByText(/account-wide, not filtered by date, workspace, or source/i)).toBeVisible();
+  });
+
+  it("links a service principal only when the server supplies its workspace object ID", () => {
+    const data = bundle([metadataApp]);
+    data.connected_artifacts = [{
+      app_id: "app-123",
+      app_name: "Metadata App",
+      artifact_name: "app-run-as",
+      artifact_type: "SERVICE_PRINCIPAL",
+      artifact_description: "Run-as identity",
+      artifact_id: "123456789",
+    }];
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <AppsCostCenter
+          data={data}
+          isLoading={false}
+          host="https://workspace.example.com/"
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByRole("link", { name: "app-run-as" })).toHaveAttribute(
+      "href",
+      "https://workspace.example.com/settings/identity-and-access/service-principals/123456789",
+    );
+    expect(screen.getByTestId("service-principal-external-link")).toBeInTheDocument();
+  });
+
+  it("keeps service-principal display names plain when no valid object ID is present", () => {
+    const data = bundle([metadataApp]);
+    data.connected_artifacts = [
+      {
+        app_id: "app-123",
+        app_name: "Metadata App",
+        artifact_name: "display-name-only",
+        artifact_type: "SERVICE_PRINCIPAL",
+        artifact_description: "Run-as identity",
+      },
+      {
+        app_id: "app-123",
+        app_name: "Metadata App",
+        artifact_name: "client-id-is-not-a-workspace-id",
+        artifact_type: "SERVICE_PRINCIPAL",
+        artifact_description: "Run-as identity",
+        artifact_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      },
+    ];
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <AppsCostCenter data={data} isLoading={false} host="https://workspace.example.com" />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("display-name-only").closest("a")).toBeNull();
+    expect(screen.getByText("client-id-is-not-a-workspace-id").closest("a")).toBeNull();
+    expect(screen.queryByTestId("service-principal-external-link")).not.toBeInTheDocument();
   });
 });

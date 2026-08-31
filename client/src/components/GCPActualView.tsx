@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { format, parseISO } from "date-fns";
 import type { GCPActualDashboardBundle } from "@/types/billing";
-import { formatCurrency } from "@/utils/formatters";
+import { formatCurrency, formatKpiCurrency } from "@/utils/formatters";
 import { C } from "@/theme";
 
 const GCP_COLORS = ["#4285F4", "#34A853", "#FBBC05", "#EA4335", "#8AB4F8", "#81C995", "#FDD663", "#F28B82", "#A8C7FA", "#CCFF90"];
@@ -56,8 +56,8 @@ export function GCPActualView({ gcpActualData, cloudTabSwitcher, onSwitchToEstim
               <span className="rounded-full px-2 py-0.5 text-xs" style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>From BigQuery Billing Export</span>
               <span className="rounded-full px-2 py-0.5 text-xs" style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>Account-wide · workspace filter not applied</span>
             </div>
-            <p className="mt-1 text-3xl font-bold">
-              {formatCurrency(summary?.total_cost || 0)}{" "}
+            <p className="mt-1 whitespace-nowrap text-3xl font-bold">
+              {formatKpiCurrency(summary?.total_cost || 0)}{" "}
               <span className="text-base font-normal opacity-75">{summary?.currency || "USD"}</span>
             </p>
             <p className="mt-1 text-sm" style={{ color: 'rgba(255,255,255,0.85)' }}>

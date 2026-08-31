@@ -180,6 +180,15 @@ interface UserPermissions {
   consumers: string[];
   table_location?: string | null;
   current_user?: string | null;
+  current_role?: UserRole;
+  role_capabilities?: Record<UserRole, {
+    summary: string;
+    can_view_dashboards: boolean;
+    can_view_settings: boolean;
+    can_manage_settings: boolean;
+    can_manage_users: boolean;
+    can_manage_data: boolean;
+  }>;
 }
 
 interface AuthStatus {
@@ -196,6 +205,27 @@ interface AuthStatus {
   sp_display_name: string;
   catalog: string;
   schema: string;
+}
+
+function PermissionState({
+  state,
+  children,
+}: {
+  state: "verified" | "missing" | "required" | "unverified";
+  children: React.ReactNode;
+}) {
+  const tone = state === "verified"
+    ? { fg: T.successFg, bg: T.successBg, border: T.successBorder }
+    : state === "missing"
+      ? { fg: T.dangerFg, bg: T.dangerBg, border: T.dangerBorder }
+      : state === "required"
+        ? { fg: T.warningFg, bg: T.warningBg, border: T.warningBorder }
+        : { fg: T.textSecondary, bg: T.navBg, border: T.borderGroup };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", borderRadius: 999, border: `1px solid ${tone.border}`, backgroundColor: tone.bg, color: tone.fg, padding: "2px 9px", fontSize: 11, fontWeight: 600 }}>
+      {children}
+    </span>
+  );
 }
 
 export function SettingsPermissions() {
@@ -326,18 +356,27 @@ export function SettingsPermissions() {
     : overall === "core_ready" ? { fg: T.warningFg, bg: T.warningBg, border: T.warningBorder }
     : overall ? { fg: T.dangerFg, bg: T.dangerBg, border: T.dangerBorder }
     : { fg: T.textSecondary, bg: T.navBg, border: T.borderGroup };
-  const bannerLabel = ready ? "System tables access verified: billing.usage · query.history · schema grants"
-    : overall === "core_ready" ? "Core system tables verified: some optional grants missing"
-    : overall === "needs_action" ? "System-table grants pending: some metrics show unavailable"
-    : overall === "not_ready" ? "System tables not accessible: run the grants below"
-    : readinessLoading ? "Checking system-table access…" : "System-table access status unknown";
+  const bannerLabel = ready ? "Service principal verified: warehouse and required system tables are accessible"
+    : overall === "core_ready" ? "Required service-principal checks passed: some optional system tables are unavailable"
+    : overall === "needs_action" ? "Service-principal permissions need attention: some metrics are unavailable"
+    : overall === "not_ready" ? "Service principal cannot access required Databricks resources"
+    : readinessLoading ? "Checking service-principal access…" : "Service-principal access has not been verified";
 
   const spName = authStatus?.sp_display_name || authStatus?.sp_client_id || "<service-principal>";
   const cat = authStatus?.catalog || "<your_catalog>";
   const sch = authStatus?.schema || "<your_schema>";
   const userEmail = authStatus?.user_email;
+  const readinessChecks = [...(readiness?.core ?? []), ...(readiness?.enhanced ?? [])];
+  const verifiedTableCount = readinessChecks.filter((check) => check.granted).length;
+  const missingRequiredTables = readinessChecks.filter((check) => check.required && !check.granted);
+  const missingOptionalTables = readinessChecks.filter((check) => !check.required && !check.granted);
+  const roleCapabilities = permissions?.role_capabilities;
+  const adminSummary = roleCapabilities?.admin?.summary
+    ?? "View dashboards and manage shared app settings, users, data sources, rebuilds, alerts, setup, and experimental features.";
+  const consumerSummary = roleCapabilities?.consumer?.summary
+    ?? "View dashboards and basic app information. Cannot change shared app settings or run administrative actions.";
   const appGrants =
-`-- System tables (billing + query history + compute + lakeflow)
+`-- System tables (billing + query history + compute + lakeflow + serving + access)
 -- WHO: Must be run by a metastore admin or account admin.
 -- WHEN: Required once when the app is first created (SP is tied to the app, not the code).
 GRANT USE CATALOG ON CATALOG system TO \`${spName}\`;
@@ -349,10 +388,17 @@ GRANT USE SCHEMA ON SCHEMA system.query TO \`${spName}\`;
 GRANT SELECT ON TABLE system.query.history TO \`${spName}\`;
 GRANT USE SCHEMA ON SCHEMA system.compute TO \`${spName}\`;
 GRANT SELECT ON TABLE system.compute.clusters TO \`${spName}\`;
+GRANT SELECT ON TABLE system.compute.warehouses TO \`${spName}\`;
+GRANT SELECT ON TABLE system.compute.warehouse_events TO \`${spName}\`;
 GRANT USE SCHEMA ON SCHEMA system.lakeflow TO \`${spName}\`;
+GRANT SELECT ON TABLE system.lakeflow.jobs TO \`${spName}\`;
 GRANT SELECT ON TABLE system.lakeflow.pipelines TO \`${spName}\`;
+GRANT SELECT ON TABLE system.lakeflow.job_run_timeline TO \`${spName}\`;
 GRANT USE SCHEMA ON SCHEMA system.serving TO \`${spName}\`;
 GRANT SELECT ON TABLE system.serving.served_entities TO \`${spName}\`;
+GRANT USE SCHEMA ON SCHEMA system.access TO \`${spName}\`;
+GRANT SELECT ON TABLE system.access.audit TO \`${spName}\`;
+GRANT SELECT ON TABLE system.access.workspaces_latest TO \`${spName}\`;
 
 -- App schema (materialized views)
 GRANT USE CATALOG ON CATALOG \`${cat}\` TO \`${spName}\`;
@@ -412,10 +458,83 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
         )}
       </div>
 
+      {/* ── Effective app identity and permissions ── */}
+      <Group label="App service principal">
+        <Row
+          first
+          label="Identity"
+          helper="Databricks Apps injects this identity. No credentials or secrets are exposed."
+          control={
+            <span className="inline-flex flex-wrap items-center justify-end gap-2">
+              <MonoChip>{authStatus?.sp_display_name || "Service principal"}</MonoChip>
+              {authStatus?.sp_client_id && authStatus.sp_client_id !== authStatus.sp_display_name && (
+                <MonoChip>{authStatus.sp_client_id}</MonoChip>
+              )}
+            </span>
+          }
+        />
+        <Row
+          label="SQL warehouse CAN USE"
+          helper={readiness
+            ? readiness.warehouse.granted
+              ? "Verified by successfully querying the bound warehouse as the app service principal."
+              : `Effective warehouse access is missing${readiness.warehouse.error ? `: ${readiness.warehouse.error}` : "."}`
+            : "Not verified yet. Re-check readiness to run the service-principal probe."}
+          control={
+            <PermissionState state={!readiness ? "unverified" : readiness.warehouse.granted ? "verified" : "missing"}>
+              {!readiness ? "Not verified" : readiness.warehouse.granted ? "Verified" : "Missing"}
+            </PermissionState>
+          }
+        />
+        <Row
+          label="System-table access"
+          helper={!readiness
+            ? "Not verified yet."
+            : missingRequiredTables.length > 0
+              ? `Missing required: ${missingRequiredTables.map((check) => check.table).join(", ")}.`
+              : missingOptionalTables.length > 0
+                ? `All required tables verified; optional access missing for ${missingOptionalTables.map((check) => check.table).join(", ")}.`
+                : "Every system table in the readiness probe is accessible to the app service principal."}
+          control={
+            <PermissionState state={!readiness ? "unverified" : missingRequiredTables.length > 0 ? "missing" : "verified"}>
+              {!readiness ? "Not verified" : `${verifiedTableCount} of ${readinessChecks.length} verified`}
+            </PermissionState>
+          }
+        />
+        <Row
+          label="App catalog & schema"
+          helper={`Rebuilds require USE CATALOG, USE SCHEMA, CREATE TABLE, and SELECT on ${cat}.${sch}. These DDL privileges are required and listed in the SQL below; the readiness probe does not independently verify them.`}
+          control={<PermissionState state="required">Required · not verified</PermissionState>}
+        />
+      </Group>
+
+      {/* ── Role capabilities ── */}
+      <div style={{ margin: "20px 0" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 7 }}>Role capabilities</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 8 }}>
+          {([
+            ["admin", "Admin", adminSummary],
+            ["consumer", "Consumer", consumerSummary],
+          ] as const).map(([role, label, summary]) => (
+            <div key={role} style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, padding: "10px 12px", backgroundColor: T.navBg }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{label}</span>
+                {permissions?.current_role === role && <PermissionState state="verified">Your role</PermissionState>}
+              </div>
+              <div style={{ fontSize: 12, lineHeight: 1.45, color: T.textSecondary }}>{summary}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* ── Users ── */}
       <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 4, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <span>Users</span>
-        <span style={{ fontSize: 12, fontWeight: 400, color: T.textSecondary }}>Anyone not listed is a Consumer (dashboards only)</span>
+        <span style={{ fontSize: 12, fontWeight: 400, color: T.textSecondary }}>
+          {explicitAdminCount === 0
+            ? "Bootstrap mode: every authenticated user is an implicit Admin"
+            : "Anyone not listed is a Consumer (dashboards only)"}
+        </span>
       </div>
       {explicitAdminCount === 1 && (
         <p id="last-admin-explanation" role="status" style={{ margin: "0 2px 8px", fontSize: 12, color: T.warningFg }}>
@@ -425,8 +544,10 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
       <div style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, overflowX: "auto" }}>
         {allUsers.length === 0 ? (
           <div style={{ padding: "12px 16px", fontSize: 12, color: T.textSecondary, fontStyle: "italic" }}>
-            {permissions?.current_user ? `${permissions.current_user} (you) is the implicit default admin. ` : ""}
-            No users explicitly configured: everyone is a Consumer. Add users below to elevate access.
+            No administrators are explicitly configured. The server currently treats every
+            authenticated user{permissions?.current_user ? `, including ${permissions.current_user} (you),` : ""} as
+            an implicit Admin so setup cannot lock itself out. Saving the first explicit Admin
+            ends bootstrap mode; unlisted users then become Consumers.
           </div>
         ) : (
           allUsers.map(({ email, role }, i) => (

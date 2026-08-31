@@ -2,15 +2,29 @@
 
 import asyncio
 import logging
+import threading as _threading
 import time as _time
 from datetime import date, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, execute_queries_parallel, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation, get_workspace_client, apply_mv_overrides, get_catalog_schema, selected_source_labels, source_label_filter_clause
-from server import workspace_filter as wf
 from server import cache_ttls
+from server import workspace_filter as wf
+from server.db import (
+    apply_mv_overrides,
+    bundle_cache_key,
+    capture_cache_generation,
+    delta_cache_get,
+    delta_cache_put,
+    execute_queries_parallel,
+    execute_query,
+    get_catalog_schema,
+    get_workspace_client,
+    local_source_is_selected,
+    selected_source_labels,
+    source_label_filter_clause,
+)
 from server.materialized_views import MV_TAG_STATS, MV_TAGGING_SUMMARY
 from server.routers.billing import _check_mv_available
 
@@ -21,7 +35,6 @@ logger = logging.getLogger(__name__)
 # Prevents every request from burning 45s waiting for a timeout when lakeflow is unavailable.
 # Circuit-breaker state is shared across worker threads — guard with a lock so we never
 # read a torn (available, last_failure) pair or flip-flop the flag on interleaved writes.
-import threading as _threading
 _lakeflow_lock = _threading.Lock()
 _lakeflow_available: bool = True
 _lakeflow_last_failure: float = 0.0
@@ -1214,17 +1227,25 @@ async def get_tagging_dashboard_bundle(
         flag[0] = False
         return execute_query(fallback_sql, query_params)
 
+    local_details_selected = local_source_is_selected()
+
+    # Resource-level tagging details come from local system tables. If the
+    # top-level source filter excludes this workspace, return no local rows
+    # rather than leaking them into a shared-source-only table.
+    def local_detail(query_fn):
+        return query_fn() if local_details_selected else []
+
     queries = [
         ("summary", lambda: summary_query(params)),
-        ("clusters", lambda: query_with_fallback(_ws(UNTAGGED_CLUSTERS_ENRICHED), _ws(UNTAGGED_CLUSTERS), params)),
-        ("jobs", lambda: lakeflow_query("lakeflow_jobs", _ws(UNTAGGED_JOBS_ENRICHED), _ws(UNTAGGED_JOBS), params, jobs_ok)),
-        ("pipelines", lambda: lakeflow_query("lakeflow_pipelines", _ws(UNTAGGED_PIPELINES_ENRICHED), _ws(UNTAGGED_PIPELINES), params, pipelines_ok)),
-        ("warehouses", lambda: query_with_fallback(_ws(UNTAGGED_WAREHOUSES_ENRICHED), _ws(UNTAGGED_WAREHOUSES), params)),
-        ("endpoints", lambda: execute_query(_ws(UNTAGGED_ENDPOINTS), params)),
-        ("cost_by_tag", lambda: execute_query(_ws(COST_BY_TAG), params)),
+        ("clusters", lambda: local_detail(lambda: query_with_fallback(_ws(UNTAGGED_CLUSTERS_ENRICHED), _ws(UNTAGGED_CLUSTERS), params))),
+        ("jobs", lambda: local_detail(lambda: lakeflow_query("lakeflow_jobs", _ws(UNTAGGED_JOBS_ENRICHED), _ws(UNTAGGED_JOBS), params, jobs_ok))),
+        ("pipelines", lambda: local_detail(lambda: lakeflow_query("lakeflow_pipelines", _ws(UNTAGGED_PIPELINES_ENRICHED), _ws(UNTAGGED_PIPELINES), params, pipelines_ok))),
+        ("warehouses", lambda: local_detail(lambda: query_with_fallback(_ws(UNTAGGED_WAREHOUSES_ENRICHED), _ws(UNTAGGED_WAREHOUSES), params))),
+        ("endpoints", lambda: local_detail(lambda: execute_query(_ws(UNTAGGED_ENDPOINTS), params))),
+        ("cost_by_tag", lambda: local_detail(lambda: execute_query(_ws(COST_BY_TAG), params))),
         ("tag_stats", lambda: tag_stats_query(params)),
-        ("tag_keys", lambda: execute_query(_ws(COST_BY_TAG_KEY), params)),
-        ("timeseries", lambda: execute_query(_ws(TAG_COVERAGE_TIMESERIES), params)),
+        ("tag_keys", lambda: local_detail(lambda: execute_query(_ws(COST_BY_TAG_KEY), params))),
+        ("timeseries", lambda: local_detail(lambda: execute_query(_ws(TAG_COVERAGE_TIMESERIES), params))),
     ]
 
     try:
@@ -1321,6 +1342,7 @@ async def get_tagging_dashboard_bundle(
         "avg_cost_per_tag": (lambda v: float(v) if v is not None else None)((results.get("tag_stats") or [{}])[0].get("avg_cost_per_tag")),
         "total_tag_count": (lambda v: int(v) if v is not None else None)((results.get("tag_stats") or [{}])[0].get("total_tag_count")),
         "lakeflow_available": jobs_ok[0] and pipelines_ok[0],
+        "local_detail_in_scope": local_details_selected,
         "enrichment_note": (
             None if (jobs_ok[0] and pipelines_ok[0]) else
             "Job names may be incomplete — Lakeflow enrichment was unavailable." if (not jobs_ok[0] and pipelines_ok[0]) else

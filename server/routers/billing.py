@@ -709,6 +709,7 @@ async def get_infra_costs(
             "clusters": [],
             "instance_families": [],
             "total_estimated_cost": None,
+            "total_databricks_spend": 0,
             "total_dbu_hours": 0,
             "available": False,
             "availability": "unavailable",
@@ -741,8 +742,8 @@ async def get_infra_costs(
                     break
 
         clusters = []
-        total_estimated_cost = 0
-        total_dbu_hours = 0
+        detail_databricks_spend = 0.0
+        detail_dbu_hours = 0.0
         family_agg: dict[str, dict] = {}
 
         for row in cluster_results:
@@ -753,7 +754,9 @@ async def get_infra_costs(
             # DBUs are not node-hours. Without an authoritative node timeline
             # and worker counts, no currency estimate can be derived here.
             estimated_cost = None
-            total_dbu_hours += dbu_hours
+            databricks_spend = float(row.get("databricks_spend") or 0)
+            detail_databricks_spend += databricks_spend
+            detail_dbu_hours += dbu_hours
 
             clusters.append({
                 "cluster_id": row.get("cluster_id"),
@@ -764,6 +767,7 @@ async def get_infra_costs(
                 "workspace_id": str(row.get("workspace_id") or ""),
                 "workspace_name": row.get("workspace_name"),
                 "total_dbu_hours": dbu_hours,
+                "databricks_spend": databricks_spend,
                 "estimated_cost": estimated_cost,
                 "days_active": row.get("days_active") or 0,
             })
@@ -779,10 +783,26 @@ async def get_infra_costs(
                     else:
                         family_agg[family] = {"instance_family": family, "total_dbu_hours": dbu_hours, "days_active": days}
 
+        aggregate_row = cluster_results[0] if cluster_results else {}
+        total_cluster_count = int(
+            aggregate_row.get("full_cluster_count") or len(cluster_results)
+        )
+        total_databricks_spend = float(
+            aggregate_row.get("full_databricks_spend")
+            if aggregate_row.get("full_databricks_spend") is not None
+            else detail_databricks_spend
+        )
+        total_dbu_hours = float(
+            aggregate_row.get("full_total_dbu_hours")
+            if aggregate_row.get("full_total_dbu_hours") is not None
+            else detail_dbu_hours
+        )
+
         for cluster in clusters:
             cluster["percentage"] = (
-                (cluster["estimated_cost"] / total_estimated_cost * 100)
-                if total_estimated_cost > 0 else 0
+                cluster["databricks_spend"] / total_databricks_spend * 100
+                if total_databricks_spend > 0
+                else 0
             )
         instance_families = sorted(family_agg.values(), key=lambda f: f["total_dbu_hours"], reverse=True)
 
@@ -792,7 +812,13 @@ async def get_infra_costs(
             "clusters": clusters,
             "instance_families": instance_families,
             "total_estimated_cost": None,
+            "total_databricks_spend": total_databricks_spend,
             "total_dbu_hours": total_dbu_hours,
+            "total_cluster_count": total_cluster_count,
+            "detail_limit": 100,
+            "detail_truncated": total_cluster_count > len(cluster_results),
+            "full_first_usage_date": aggregate_row.get("full_first_usage_date"),
+            "full_last_usage_date": aggregate_row.get("full_last_usage_date"),
             "currency_estimate_available": False,
             "estimate_unavailable_reason": (
                 "Cloud VM cost is unavailable because this deployment has no "
@@ -812,6 +838,7 @@ async def get_infra_costs(
             "clusters": [],
             "instance_families": [],
             "total_estimated_cost": 0,
+            "total_databricks_spend": 0,
             "total_dbu_hours": 0,
             "start_date": params["start_date"],
             "end_date": params["end_date"],
@@ -1030,6 +1057,7 @@ async def get_infra_bundle(
                 "clusters": [],
                 "instance_families": [],
                 "total_estimated_cost": None,
+                "total_databricks_spend": 0,
                 "total_dbu_hours": 0,
                 "currency_estimate_available": False,
             },
@@ -1041,10 +1069,10 @@ async def get_infra_bundle(
         }
 
     # Delta cross-worker cache
-    _dkey = bundle_cache_key("billing:infra-bundle", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("billing:infra-bundle:v2", params["start_date"], params["end_date"], id_list)
     if (_dcached := delta_cache_get(_dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("billing:infra-bundle")
+    _cache_generation = capture_cache_generation("billing:infra-bundle:v2")
 
     _ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
@@ -1058,7 +1086,10 @@ async def get_infra_bundle(
         COALESCE(p.pricing.default, 0) as price_per_dbu
       FROM system.billing.usage u
       LEFT JOIN system.billing.list_prices p
-        ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+        ON u.sku_name = p.sku_name
+        AND u.cloud = p.cloud
+        AND u.usage_start_time >= p.price_start_time
+        AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
       WHERE u.usage_date BETWEEN :start_date AND :end_date
         AND u.usage_quantity > 0
         AND u.usage_metadata.cluster_id IS NOT NULL
@@ -1139,20 +1170,19 @@ async def get_infra_bundle(
                     break
 
         # --- Build clusters and instance families in one pass ---
-        # Both node types are required for the estimate formula. Rows without
-        # that metadata are omitted and reported as partial/unavailable rather
-        # than surfaced as apparently valid $0 estimates.
-        priced_cluster_results = [
+        # Instance metadata completeness is tracked separately from DBU spend.
+        # Spend remains authoritative even when a deleted cluster has no node types.
+        complete_cluster_results = [
             row
             for row in cluster_results
             if str(row.get("driver_instance_type") or "").strip()
             and str(row.get("worker_instance_type") or "").strip()
         ]
-        missing_cluster_results = [
-            row for row in cluster_results if row not in priced_cluster_results
+        incomplete_cluster_results = [
+            row for row in cluster_results if row not in complete_cluster_results
         ]
-        missing_cluster_dbu_hours = sum(
-            float(row.get("total_dbu_hours") or 0) for row in missing_cluster_results
+        incomplete_cluster_dbu_hours = sum(
+            float(row.get("total_dbu_hours") or 0) for row in incomplete_cluster_results
         )
 
         # Instance types remain useful for cluster analysis, but DBU quantity is
@@ -1165,14 +1195,17 @@ async def get_infra_bundle(
         family_map = {t: get_instance_family(t, cloud) for t in all_types if t}
 
         clusters = []
-        total_dbu_hours = 0
+        detail_databricks_spend = 0.0
+        detail_dbu_hours = 0.0
         family_agg: dict[str, dict] = {}
 
         for row in cluster_results:
             dbu_hours = float(row.get("total_dbu_hours") or 0)
+            databricks_spend = float(row.get("databricks_spend") or 0)
             driver_type = row.get("driver_instance_type")
             worker_type = row.get("worker_instance_type")
-            total_dbu_hours += dbu_hours
+            detail_databricks_spend += databricks_spend
+            detail_dbu_hours += dbu_hours
             clusters.append({
                 "cluster_id": row.get("cluster_id"),
                 "cluster_name": row.get("cluster_name"),
@@ -1182,6 +1215,7 @@ async def get_infra_bundle(
                 "workspace_id": str(row.get("workspace_id") or ""),
                 "workspace_name": row.get("workspace_name"),
                 "total_dbu_hours": dbu_hours,
+                "databricks_spend": databricks_spend,
                 "estimated_cost": None,
                 "days_active": row.get("days_active") or 0,
             })
@@ -1196,32 +1230,53 @@ async def get_infra_bundle(
                     else:
                         family_agg[family] = {"instance_family": family, "total_dbu_hours": dbu_hours, "days_active": days}
 
+        aggregate_row = cluster_results[0] if cluster_results else {}
+        total_cluster_count = int(
+            aggregate_row.get("full_cluster_count") or len(cluster_results)
+        )
+        total_databricks_spend = float(
+            aggregate_row.get("full_databricks_spend")
+            if aggregate_row.get("full_databricks_spend") is not None
+            else detail_databricks_spend
+        )
+        total_dbu_hours = float(
+            aggregate_row.get("full_total_dbu_hours")
+            if aggregate_row.get("full_total_dbu_hours") is not None
+            else detail_dbu_hours
+        )
+        detail_limit = 100
+        detail_truncated = total_cluster_count > len(cluster_results)
+
         for cluster in clusters:
-            cluster["percentage"] = None
+            cluster["percentage"] = (
+                cluster["databricks_spend"] / total_databricks_spend * 100
+                if total_databricks_spend > 0
+                else 0
+            )
         instance_families = sorted(family_agg.values(), key=lambda f: f["total_dbu_hours"], reverse=True)
         metadata_quality = {
             "total_rows": len(cluster_results),
-            "priced_rows": len(priced_cluster_results),
-            "omitted_rows": len(missing_cluster_results),
-            "omitted_dbu_hours": missing_cluster_dbu_hours,
+            "complete_rows": len(complete_cluster_results),
+            "incomplete_rows": len(incomplete_cluster_results),
+            "incomplete_dbu_hours": incomplete_cluster_dbu_hours,
         }
-        if cluster_status["available"] and clusters and missing_cluster_results:
+        if cluster_status["available"] and clusters and incomplete_cluster_results:
             availability = "partial"
             reason = "metadata_partial"
             reason_detail = (
-                f"{len(missing_cluster_results)} of {len(cluster_results)} classic cluster rows "
-                "were omitted because driver or worker instance metadata was unavailable."
+                f"{len(incomplete_cluster_results)} of {len(cluster_results)} classic cluster rows "
+                "had incomplete driver or worker instance metadata. DBU spend is still included."
             )
         elif cluster_status["available"] and clusters:
             availability = "available"
             reason = None
             reason_detail = None
-        elif cluster_status["available"] and missing_cluster_results:
+        elif cluster_status["available"] and incomplete_cluster_results:
             availability = "unavailable"
             reason = "metadata_unavailable"
             reason_detail = (
                 "Classic cluster billing usage exists, but no rows had both driver and worker "
-                "instance metadata required for infrastructure pricing."
+                "instance metadata needed to identify VM families."
             )
         elif cluster_status["available"]:
             availability = "empty"
@@ -1242,12 +1297,12 @@ async def get_infra_bundle(
             )
 
         # --- Build timeseries ---
-        # The timeseries query carries the same node metadata as the detail
-        # query so both views omit exactly the rows that cannot be priced.
+        # The timeseries query carries the same node metadata as the detail query,
+        # while preserving DBU usage from rows with incomplete metadata.
         timeseries_by_date: dict[str, dict[str, Any]] = {}
         timeseries_missing_rows = 0
         timeseries_missing_dbu_hours = 0.0
-        timeseries_priced_rows = 0
+        timeseries_complete_rows = 0
         for row in ts_results:
             dbu_hours = float(row.get("total_dbu_hours") or 0)
             driver_type = row.get("driver_instance_type")
@@ -1259,7 +1314,7 @@ async def get_infra_bundle(
                 timeseries_missing_rows += 1
                 timeseries_missing_dbu_hours += dbu_hours
             else:
-                timeseries_priced_rows += 1
+                timeseries_complete_rows += 1
             date_key = str(row.get("usage_date"))
             daily = timeseries_by_date.setdefault(
                 date_key,
@@ -1271,9 +1326,9 @@ async def get_infra_bundle(
         ]
         timeseries_metadata_quality = {
             "total_rows": len(ts_results),
-            "priced_rows": timeseries_priced_rows,
-            "omitted_rows": timeseries_missing_rows,
-            "omitted_dbu_hours": timeseries_missing_dbu_hours,
+            "complete_rows": timeseries_complete_rows,
+            "incomplete_rows": timeseries_missing_rows,
+            "incomplete_dbu_hours": timeseries_missing_dbu_hours,
         }
         if not timeseries_status["available"]:
             timeseries_availability = "unavailable"
@@ -1285,8 +1340,8 @@ async def get_infra_bundle(
             timeseries_availability = "partial"
             timeseries_reason = "metadata_partial"
             timeseries_reason_detail = (
-                f"{timeseries_missing_rows} infrastructure timeseries rows were omitted because "
-                "driver or worker instance metadata was unavailable."
+                f"{timeseries_missing_rows} infrastructure timeseries rows had incomplete driver "
+                "or worker instance metadata. Their DBU usage is still included."
             )
         elif timeseries:
             timeseries_availability = "available"
@@ -1297,7 +1352,7 @@ async def get_infra_bundle(
             timeseries_reason = "metadata_unavailable"
             timeseries_reason_detail = (
                 "Infrastructure billing history exists, but no rows had both driver and worker "
-                "instance metadata required for pricing."
+                "instance metadata needed to identify VM families."
             )
         else:
             timeseries_availability = "empty"
@@ -1322,7 +1377,13 @@ async def get_infra_bundle(
                 "clusters": clusters,
                 "instance_families": instance_families,
                 "total_estimated_cost": None,
+                "total_databricks_spend": total_databricks_spend,
                 "total_dbu_hours": total_dbu_hours,
+                "total_cluster_count": total_cluster_count,
+                "detail_limit": detail_limit,
+                "detail_truncated": detail_truncated,
+                "full_first_usage_date": aggregate_row.get("full_first_usage_date"),
+                "full_last_usage_date": aggregate_row.get("full_last_usage_date"),
                 "currency_estimate_available": False,
                 "estimate_unavailable_reason": (
                     "Cloud VM cost is unavailable because this project grants "
@@ -1381,7 +1442,7 @@ async def get_infra_bundle(
             },
         }
         if cluster_status["available"] and timeseries_status["available"]:
-            delta_cache_put(_dkey, "billing:infra-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=_cache_generation)
+            delta_cache_put(_dkey, "billing:infra-bundle:v2", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=_cache_generation)
         return _resp
     except Exception as e:
         logger.error(f"Infra bundle error: {e}")
@@ -1403,6 +1464,7 @@ async def get_infra_bundle(
                 "clusters": [],
                 "instance_families": [],
                 "total_estimated_cost": None,
+                "total_databricks_spend": 0,
                 "total_dbu_hours": 0,
                 "currency_estimate_available": False,
                 "available": False,
@@ -1443,6 +1505,7 @@ async def get_aws_costs(
             "clusters": [],
             "instance_families": [],
             "total_estimated_cost": None,
+            "total_databricks_spend": 0,
             "total_dbu_hours": 0,
             "currency_estimate_available": False,
             "reason": "shared_scope_unsupported",
@@ -1455,11 +1518,14 @@ async def get_aws_costs(
         cluster_results = await asyncio.to_thread(execute_query, INFRA_COST_ESTIMATE, params)
 
         clusters = []
-        total_dbu_hours = 0
+        detail_databricks_spend = 0.0
+        detail_dbu_hours = 0.0
 
         for row in cluster_results:
             dbu_hours = float(row.get("total_dbu_hours") or 0)
-            total_dbu_hours += dbu_hours
+            databricks_spend = float(row.get("databricks_spend") or 0)
+            detail_databricks_spend += databricks_spend
+            detail_dbu_hours += dbu_hours
             clusters.append(
                 {
                     "cluster_id": row.get("cluster_id"),
@@ -1468,13 +1534,32 @@ async def get_aws_costs(
                     "worker_instance_type": row.get("worker_instance_type"),
                     "cluster_source": row.get("cluster_source"),
                     "total_dbu_hours": dbu_hours,
-                    "estimated_aws_cost": None,
+                    "databricks_spend": databricks_spend,
                     "days_active": row.get("days_active") or 0,
                 }
             )
 
+        aggregate_row = cluster_results[0] if cluster_results else {}
+        total_cluster_count = int(
+            aggregate_row.get("full_cluster_count") or len(cluster_results)
+        )
+        total_databricks_spend = float(
+            aggregate_row.get("full_databricks_spend")
+            if aggregate_row.get("full_databricks_spend") is not None
+            else detail_databricks_spend
+        )
+        total_dbu_hours = float(
+            aggregate_row.get("full_total_dbu_hours")
+            if aggregate_row.get("full_total_dbu_hours") is not None
+            else detail_dbu_hours
+        )
+
         for cluster in clusters:
-            cluster["percentage"] = None
+            cluster["percentage"] = (
+                cluster["databricks_spend"] / total_databricks_spend * 100
+                if total_databricks_spend > 0
+                else 0
+            )
 
         # Get instance family breakdown
         family_results = await asyncio.to_thread(execute_query, AWS_COST_BY_INSTANCE_TYPE, params)
@@ -1492,7 +1577,13 @@ async def get_aws_costs(
             "clusters": clusters,
             "instance_families": instance_families,
             "total_estimated_cost": None,
+            "total_databricks_spend": total_databricks_spend,
             "total_dbu_hours": total_dbu_hours,
+            "total_cluster_count": total_cluster_count,
+            "detail_limit": 100,
+            "detail_truncated": total_cluster_count > len(cluster_results),
+            "full_first_usage_date": aggregate_row.get("full_first_usage_date"),
+            "full_last_usage_date": aggregate_row.get("full_last_usage_date"),
             "currency_estimate_available": False,
             "estimate_unavailable_reason": (
                 "AWS VM cost is unavailable without authoritative node-hours "
@@ -1509,6 +1600,7 @@ async def get_aws_costs(
             "clusters": [],
             "instance_families": [],
             "total_estimated_cost": None,
+            "total_databricks_spend": 0,
             "total_dbu_hours": 0,
             "start_date": params["start_date"],
             "end_date": params["end_date"],

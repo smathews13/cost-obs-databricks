@@ -42,6 +42,7 @@ import type { PieLabelRenderProps, LegendPayload } from "recharts";
 import type { AIMLDashboardBundle } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
+import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import {
@@ -77,20 +78,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   "AI Search": C.s5,
   "Fine Tuning": C.s1,
 };
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-
 function buildUrl(host: string | null | undefined, path: string): string | null {
   if (!host) return null;
   const base = host.replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -342,14 +329,14 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
   const resolveWsName = (wsId: string) =>
     workspaceNameMap?.[wsId] || endpointWorkspaceNames[wsId] || `Workspace ${wsId}`;
 
-  const endpointWorkspaces = useMemo(() => {
+  const endpointWorkspaces = (() => {
     if (!data?.endpoints?.endpoints) return [];
     const ids = new Set<string>();
     for (const e of data.endpoints.endpoints) {
       if (e.workspace_id && e.endpoint_name && e.endpoint_name !== 'UNKNOWN') ids.add(e.workspace_id);
     }
     return Array.from(ids).sort((a, b) => resolveWsName(a).localeCompare(resolveWsName(b)));
-  }, [data, workspaceNameMap, endpointWorkspaceNames]);
+  })();
 
   const endpointsWorkspaceFiltered = useMemo(() => {
     if (!data?.endpoints?.endpoints) return [];
@@ -514,7 +501,7 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Total AI/ML Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(summary.total_spend)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.total_spend)}</p>
               <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
               <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>
@@ -574,7 +561,7 @@ export function AIMLCostCenter({ data, isLoading, isError, error, onRetry, start
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Endpoint Cost</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(summary.avg_cost_per_endpoint || 0)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.avg_cost_per_endpoint || 0)}</p>
               <p className="mt-1 text-xs text-gray-500">daily per-endpoint</p>
               <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>
             </div>

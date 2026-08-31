@@ -293,7 +293,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
     { key: "tabs", label: "Dashboard tabs" },
     { key: "data", label: "Data & tables", admin: true },
     { key: "alerts", label: "Alerts & notifications", admin: true },
-    { key: "access", label: "Access", admin: true },
+    { key: "access", label: "Permissions & Access", admin: true },
     { key: "resources", label: "Resources" },
     { key: "experimental", label: "Experimental", admin: true },
   ];

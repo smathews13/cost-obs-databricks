@@ -28,7 +28,7 @@ import type {
   InfraCostsTimeseriesResponse,
   InfraBillingSummary,
 } from "@/types/billing";
-import { formatCurrency, workspaceUrl } from "@/utils/formatters";
+import { formatCurrency, formatKpiCurrency, formatNumber, workspaceUrl } from "@/utils/formatters";
 import { getCloudInstanceFamily } from "@/utils/cloudCosts";
 import { StatusIndicator } from "./StatusIndicator";
 import { AzureActualView } from "./AzureActualView";
@@ -70,16 +70,10 @@ interface CloudCostsViewProps {
   detectedCloud?: string;
   workspaceNameMap?: Record<string, string>;
   workspaceIds?: string[];
+  accountPricingApplied?: boolean;
 }
 
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-type SortField = "cluster_name" | "estimated_aws_cost" | "total_dbu_hours" | "days_active";
+type SortField = "cluster_name" | "databricks_spend" | "total_dbu_hours" | "days_active";
 type SortDirection = "asc" | "desc";
 
 const FAMILY_PALETTE = [
@@ -228,8 +222,9 @@ export function CloudCostsView({
   detectedCloud,
   workspaceNameMap,
   workspaceIds,
+  accountPricingApplied = false,
 }: CloudCostsViewProps) {
-  const [sortField, setSortField] = useState<SortField>("estimated_aws_cost");
+  const [sortField, setSortField] = useState<SortField>("databricks_spend");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [currentPage, setCurrentPage] = useState(1);
   const [showHistoricalClusters, setShowHistoricalClusters] = useState(false);
@@ -440,7 +435,7 @@ export function CloudCostsView({
                 : "text-gray-600 hover:text-gray-900"
             }`}
           >
-            Estimated
+            Usage & Metadata
           </button>
         </div>
         {cloudIntegrations.length < 3 && (
@@ -466,19 +461,22 @@ export function CloudCostsView({
     >
       {isAzure ? (
         <ul className="list-inside list-disc space-y-1">
-          <li>Shows Databricks DBUs, active clusters, and Azure VM instance metadata</li>
+          <li>Shows Databricks DBUs, {accountPricingApplied ? "account-price" : "list-price"} spend, active clusters, and Azure VM instance metadata</li>
+          <li>Databricks spend comes from billed DBU usage {accountPricingApplied ? "with the account pricing factor applied" : "joined to the applicable system list price"}</li>
           <li>DBUs are not VM node-hours, so the app does not infer an Azure currency cost from them</li>
           <li>Connect Azure Cost Management for authoritative VM, disk, and network costs</li>
         </ul>
       ) : isGCP ? (
         <ul className="list-inside list-disc space-y-1">
-          <li>Shows Databricks DBUs, active clusters, and GCP machine-type metadata</li>
+          <li>Shows Databricks DBUs, {accountPricingApplied ? "account-price" : "list-price"} spend, active clusters, and GCP machine-type metadata</li>
+          <li>Databricks spend comes from billed DBU usage {accountPricingApplied ? "with the account pricing factor applied" : "joined to the applicable system list price"}</li>
           <li>DBUs are not VM node-hours, so the app does not infer a GCP currency cost from them</li>
           <li>Connect GCP Billing Export for authoritative VM, disk, storage, and network costs</li>
         </ul>
       ) : (
         <ul className="list-inside list-disc space-y-1">
-          <li>Shows Databricks DBUs, active clusters, and EC2 instance-type metadata</li>
+          <li>Shows Databricks DBUs, {accountPricingApplied ? "account-price" : "list-price"} spend, active clusters, and EC2 instance-type metadata</li>
+          <li>Databricks spend comes from billed DBU usage {accountPricingApplied ? "with the account pricing factor applied" : "joined to the applicable system list price"}</li>
           <li>DBUs are not VM node-hours, so the app does not infer an AWS currency cost from them</li>
           <li>Connect AWS CUR 2.0 for authoritative EC2, EBS, network, and discount-adjusted costs</li>
         </ul>
@@ -509,7 +507,7 @@ export function CloudCostsView({
                 costMode === "estimated" ? "bg-white text-orange-600 shadow" : "text-gray-500 hover:text-gray-900"
               }`}
             >
-              Estimated
+              Usage & Metadata
             </button>
           </div>
           <span className="flex items-center gap-1.5 text-sm text-gray-500">
@@ -587,13 +585,13 @@ export function CloudCostsView({
   const instanceFamilies = data?.instance_families ?? EMPTY_INSTANCE_FAMILIES;
 
   const cloudSummary = useMemo(() => {
-    if (!data) return { databricksSpend: 0, totalDBUHours: 0, avgActiveClustersPerDay: 0, avgDatabricksSpendPerCluster: 0 };
+    if (!data) return { databricksSpend: 0, totalDBUHours: 0, totalClusterCount: 0, avgActiveClustersPerDay: 0, avgDatabricksSpendPerCluster: 0 };
     const bs = billingSummary;
-    const totalDBUHours = data.clusters.reduce((sum, c) => sum + (c.total_dbu_hours || 0), 0);
     const clustersWithTypes = data.clusters.filter(c => c.driver_instance_type || c.worker_instance_type);
     return {
-      databricksSpend: bs?.databricks_compute_spend ?? 0,
-      totalDBUHours,
+      databricksSpend: bs?.databricks_compute_spend ?? data.total_databricks_spend ?? 0,
+      totalDBUHours: data.total_dbu_hours ?? 0,
+      totalClusterCount: data.total_cluster_count ?? data.clusters.length,
       avgActiveClustersPerDay: bs?.avg_clusters_per_day ?? clustersWithTypes.length,
       avgDatabricksSpendPerCluster: bs?.avg_databricks_spend_per_cluster ?? 0,
     };
@@ -695,6 +693,16 @@ export function CloudCostsView({
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedClusters = sortedClusters.slice(startIndex, endIndex);
+  const filteredDatabricksSpend = sortedClusters.reduce(
+    (sum, cluster) => sum + (cluster.databricks_spend || 0),
+    0,
+  );
+  const filteredDbuHours = sortedClusters.reduce(
+    (sum, cluster) => sum + (cluster.total_dbu_hours || 0),
+    0,
+  );
+  const detailLimit = data?.detail_limit ?? 100;
+  const detailTruncated = data?.detail_truncated === true;
 
   const familyChartData = instanceFamilies
     .filter((f) => f.instance_family && f.instance_family !== "unknown")
@@ -784,10 +792,10 @@ export function CloudCostsView({
         {ModeToggle}
         {CurSetupBanner}
         {hasBillingSummary ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
               <p className="text-sm font-medium text-gray-500">Databricks Compute Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(billingSummary.databricks_compute_spend ?? 0)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(billingSummary.databricks_compute_spend ?? 0)}</p>
               <p className="mt-1 text-xs text-gray-500">{billingSummary.days_in_range ?? 0} days (all-purpose + jobs + DLT)</p>
             </div>
             <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
@@ -797,7 +805,7 @@ export function CloudCostsView({
             </div>
             <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
               <p className="text-sm font-medium text-gray-500">Databricks Spend / Cluster</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(billingSummary.avg_databricks_spend_per_cluster ?? 0)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(billingSummary.avg_databricks_spend_per_cluster ?? 0)}</p>
               <p className="mt-1 text-xs text-gray-500">per cluster per day</p>
             </div>
           </div>
@@ -808,7 +816,7 @@ export function CloudCostsView({
                 ? "No cloud usage matches this selection"
                 : infraData?.reason === "serverless_only"
                   ? "Only serverless usage was found"
-                  : "No classic cluster infrastructure to estimate"}
+                  : "No classic cluster usage found"}
             </h3>
             <p className="mt-2 text-sm text-gray-500">
               {infraData?.reason_detail ||
@@ -834,7 +842,7 @@ export function CloudCostsView({
         title="Cloud Costs"
         subtitle={
           <>
-            Estimated cloud infrastructure costs and cluster analytics
+            Classic cluster usage, Databricks spend, and cloud instance metadata
             {workspaceIds && workspaceIds.length > 0 ? (
               <Chip kind="workspace">
                 {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
@@ -854,7 +862,7 @@ export function CloudCostsView({
           role="status"
         >
           <p className="text-sm font-semibold" style={{ color: C.amberInk }}>
-            Infrastructure estimate is partial
+            Cluster metadata is partial
           </p>
           <p className="mt-1 text-sm" style={{ color: C.body }}>
             {infraData.reason_detail ||
@@ -876,7 +884,7 @@ export function CloudCostsView({
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Databricks Compute Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(cloudSummary.databricksSpend)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(cloudSummary.databricksSpend)}</p>
               {startDate && endDate && (() => {
                 const days = Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1;
                 const dailyAvg = cloudSummary.databricksSpend > 0 ? cloudSummary.databricksSpend / days : 0;
@@ -899,7 +907,7 @@ export function CloudCostsView({
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Total Cluster DBUs</p>
               <p className="text-2xl font-semibold text-gray-900">{formatNumber(cloudSummary.totalDBUHours)}</p>
-              <p className="mt-1 text-xs text-gray-500">across {data.clusters.length} clusters</p>
+              <p className="mt-1 text-xs text-gray-500">across {cloudSummary.totalClusterCount} clusters</p>
               {startDate && endDate && <p className="mt-0.5 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
             </div>
           </div>
@@ -935,7 +943,7 @@ export function CloudCostsView({
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Databricks Spend / Cluster<InfoTooltip text="Databricks DBU spend divided by active clusters. This is not a cloud VM cost estimate." /></p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(cloudSummary.avgDatabricksSpendPerCluster)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(cloudSummary.avgDatabricksSpendPerCluster)}</p>
               {startDate && endDate && <p className="mt-1 text-xs text-gray-500">average over {Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1} days</p>}
             </div>
           </div>
@@ -1045,7 +1053,9 @@ export function CloudCostsView({
         ) : null}
 
         <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
-          <h3 className="mb-4 text-lg font-semibold text-gray-900">Usage by Instance Family</h3>
+          <h3 className="mb-4 text-lg font-semibold text-gray-900">
+            Usage by Instance Family{detailTruncated ? ` · top ${detailLimit} cluster detail` : ""}
+          </h3>
           <ResponsiveContainer width="100%" height={320}>
             <BarChart data={familyChartData} layout="vertical" margin={{ left: 10, right: 20 }}>
               <XAxis type="number" tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} stroke={C.muted} fontSize={12} tickMargin={8} />
@@ -1074,12 +1084,15 @@ export function CloudCostsView({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span className="pointer-events-none absolute top-5 left-0 z-[9999] w-72 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-normal text-gray-600 opacity-0 shadow-lg transition-opacity group-hover:opacity-100">
-                  VM currency cost is unavailable because this project does not have authoritative node-hour and worker-count data. Connect cloud billing for actual costs.
+                  Databricks spend uses billed DBU usage and system list prices. Cloud VM currency cost still requires a cloud billing integration or authoritative node-hour data.
                 </span>
               </span>
             </h3>
             <p className="text-sm text-gray-500">
-              {sortedClusters.length} cluster{sortedClusters.length !== 1 ? "s" : ""}{selectedFamilies.size > 0 ? ` · ${[...selectedFamilies].join(", ")} only` : ""}{isTableFamilyFilterActive ? ` · filtered to ${tableFamily.length} families` : ""}{isTableWorkspaceFilterActive ? ` · filtered to ${tableWorkspace.length} workspaces` : ""}
+              {detailTruncated
+                ? `Showing top ${detailLimit} of ${cloudSummary.totalClusterCount} clusters by DBU usage`
+                : `${sortedClusters.length} cluster${sortedClusters.length !== 1 ? "s" : ""}`}
+              {selectedFamilies.size > 0 ? ` · ${[...selectedFamilies].join(", ")} only` : ""}{isTableFamilyFilterActive ? ` · filtered to ${tableFamily.length} families` : ""}{isTableWorkspaceFilterActive ? ` · filtered to ${tableWorkspace.length} workspaces` : ""}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1244,23 +1257,11 @@ export function CloudCostsView({
                   Cluster <SortIndicator field="cluster_name" activeField={sortField} direction={sortDirection} />
                 </th>
                 <th className="w-44 px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Instance Types</th>
-                <th className="w-28 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+                <th className="w-28 cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => handleSort("databricks_spend")}>
                   <div className="flex items-center justify-end gap-1">
-                    <span className="cursor-pointer hover:text-gray-700" onClick={() => handleSort("estimated_aws_cost")}>
-                      VM Cost
-                    </span>
-                    <div className="group relative">
-                      <svg className="h-3.5 w-3.5 cursor-help text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <div className="invisible absolute right-0 top-6 z-10 w-72 rounded-lg bg-gray-900 p-3 text-xs text-white opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
-                        <p className="font-semibold mb-1.5">Cost Estimate Details</p>
-                        <ul className="space-y-1 text-gray-200">
-                          <li>Unavailable without authoritative node-hours and worker counts</li>
-                          <li>Use a cloud billing integration for currency costs</li>
-                        </ul>
-                      </div>
-                    </div>
+                    <span>DBU Spend</span>
+                    <InfoTooltip text={`Databricks ${accountPricingApplied ? "account-price" : "list-price"} spend from billed DBU usage. This is not cloud VM cost; connect cloud billing to see VM, disk, network, and infrastructure costs.`} />
+                    <SortIndicator field="databricks_spend" activeField={sortField} direction={sortDirection} />
                   </div>
                 </th>
                 <th className="w-28 cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => handleSort("total_dbu_hours")}>
@@ -1269,7 +1270,7 @@ export function CloudCostsView({
                 <th className="w-16 cursor-pointer px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 hover:text-gray-700" onClick={() => handleSort("days_active")}>
                   Days <SortIndicator field="days_active" activeField={sortField} direction={sortDirection} />
                 </th>
-                <th className="w-14 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">%</th>
+                <th className="w-16 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">% Spend</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
@@ -1356,21 +1357,27 @@ export function CloudCostsView({
                         )}
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-medium text-gray-500">Unavailable</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-medium text-gray-900">{formatCurrency(cluster.databricks_spend || 0)}</td>
                     <td className="whitespace-nowrap px-3 py-3 text-right text-sm text-gray-600">{formatNumber(cluster.total_dbu_hours)}</td>
                     <td className="whitespace-nowrap px-3 py-3 text-right text-sm text-gray-600">{cluster.days_active}</td>
-                    <td className="whitespace-nowrap px-3 py-3 text-right text-sm text-gray-500">{(cluster.percentage ?? 0).toFixed(1)}%</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right text-sm text-gray-500">
+                      {filteredDatabricksSpend > 0
+                        ? `${((cluster.databricks_spend / filteredDatabricksSpend) * 100).toFixed(1)}%`
+                        : "0.0%"}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
             <tfoot className="bg-gray-50">
               <tr>
-                <td colSpan={2} className="px-3 py-3 text-sm font-medium text-gray-700">Total ({sortedClusters.length} clusters)</td>
-                <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-bold text-gray-900">
-                  Unavailable
+                <td colSpan={2} className="px-3 py-3 text-sm font-medium text-gray-700">
+                  {detailTruncated ? `Top ${detailLimit} detail subtotal` : "Total"} ({sortedClusters.length} clusters)
                 </td>
-                <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-medium text-gray-700">{formatNumber(data.total_dbu_hours)}</td>
+                <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-bold text-gray-900">
+                  {formatCurrency(filteredDatabricksSpend)}
+                </td>
+                <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-medium text-gray-700">{formatNumber(filteredDbuHours)}</td>
                 <td colSpan={2}></td>
               </tr>
             </tfoot>

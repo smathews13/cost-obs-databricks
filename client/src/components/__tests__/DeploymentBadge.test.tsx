@@ -1,0 +1,89 @@
+import { readFileSync } from "node:fs";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { DeploymentBadge } from "../DeploymentBadge";
+import {
+  abbreviateCommit,
+  formatDeploymentBadgeDate,
+  formatDeploymentTimestamp,
+  type DeploymentMetadata,
+} from "@/utils/deploymentMetadata";
+
+const metadata: DeploymentMetadata = {
+  deployed_at: "2026-08-30T21:29:46Z",
+  deployer: "deployer@example.com",
+  commit_sha: "ed86035f1234567890",
+  available: true,
+  source: "databricks_apps_api",
+};
+
+describe("DeploymentBadge", () => {
+  it("formats a compact date and adds the year only when it disambiguates", () => {
+    expect(formatDeploymentBadgeDate(
+      metadata.deployed_at,
+      new Date("2026-12-01T00:00:00Z"),
+      "UTC",
+    )).toBe("Aug 30");
+    expect(formatDeploymentBadgeDate(
+      metadata.deployed_at,
+      new Date("2027-01-01T00:00:00Z"),
+      "UTC",
+    )).toBe("Aug 30, 2026");
+    expect(abbreviateCommit(metadata.commit_sha)).toBe("ed86035f");
+  });
+
+  it("shows authoritative details with UTC and local timezone context", () => {
+    const formatted = formatDeploymentTimestamp(
+      metadata.deployed_at,
+      "America/Denver",
+    );
+
+    expect(formatted).toContain("Aug 30, 2026, 9:29:46 PM UTC");
+    expect(formatted).toMatch(/Aug 30, 2026, 3:29:46 PM (MDT|GMT-6)/);
+  });
+
+  it("shares one tooltip between pointer hover and keyboard focus", () => {
+    render(<DeploymentBadge metadata={metadata} />);
+
+    const trigger = screen.getByRole("button", { name: /deployment information: aug 30/i });
+    const tooltip = screen.getByRole("tooltip");
+    expect(trigger).toHaveAttribute("aria-describedby", tooltip.id);
+    expect(tooltip).toHaveTextContent("by deployer@example.com");
+    expect(tooltip).toHaveTextContent("commit ed86035f");
+
+    fireEvent.mouseEnter(trigger);
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+
+    const css = readFileSync("src/index.css", "utf8");
+    expect(css).toContain(".deployment-badge:hover .deployment-badge-tooltip");
+    expect(css).toContain(".deployment-badge:focus-within .deployment-badge-tooltip");
+  });
+
+  it("keeps the full date on wide rails and collapses to an accessible icon trigger", () => {
+    render(<DeploymentBadge metadata={metadata} />);
+
+    const trigger = screen.getByRole("button", { name: /deployment information: aug 30/i });
+    const date = screen.getByTestId("deployment-badge-date");
+
+    expect(date).toHaveTextContent("Aug 30");
+    expect(date).toHaveClass("hidden", "xl:inline");
+    expect(trigger).toHaveAttribute("aria-describedby", screen.getByRole("tooltip").id);
+  });
+
+  it("labels a missing deployment timestamp without fabricating other fields", () => {
+    render(<DeploymentBadge metadata={{
+      deployed_at: null,
+      deployer: null,
+      commit_sha: null,
+      available: false,
+      source: "unavailable",
+    }} />);
+
+    expect(screen.getByRole("button", { name: /deployment information: deploy info/i }))
+      .toBeInTheDocument();
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Deployment date unavailable");
+    expect(screen.queryByText(/\bby\b/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\bcommit\b/)).not.toBeInTheDocument();
+  });
+});

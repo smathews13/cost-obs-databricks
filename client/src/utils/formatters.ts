@@ -4,32 +4,63 @@
  * a unified formatting style throughout the application.
  */
 
+function normalized(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}
+
 /**
- * Format a number as USD currency
- * @param value - The numeric value to format
- * @param decimals - Number of decimal places (default: 0)
- * @returns Formatted currency string (e.g., "$1,234,567")
+ * Format full USD values for tables, tooltips, exports, and detail views.
+ *
+ * Million-dollar values retain their full magnitude but omit cents. Whole
+ * dollar values omit cents, while smaller fractional values retain cents.
  */
-export function formatCurrency(value: number, decimals: number = 0): string {
+export function formatCurrency(value: number, decimals?: number): string {
+  const safeValue = normalized(value);
+  if (decimals != null) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(safeValue);
+  }
+
+  const magnitude = Math.abs(safeValue);
+  const fractionDigits = magnitude >= 100 || Number.isInteger(safeValue) ? 0 : 2;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(value);
+    minimumFractionDigits: magnitude > 0 && magnitude < 1 ? fractionDigits : 0,
+    maximumFractionDigits: fractionDigits,
+  }).format(safeValue);
+}
+
+/**
+ * Format USD compactly for KPI cards where horizontal space is constrained.
+ */
+export function formatKpiCurrency(value: number): string {
+  const safeValue = normalized(value);
+  if (Math.abs(safeValue) < 1_000_000) return formatCurrency(safeValue);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(safeValue);
 }
 
 /**
  * Format currency in compact form (e.g., "$1.2M", "$5K") for chart axes/labels.
  */
 export function formatCurrencyCompact(value: number): string {
-  if (value >= 1_000_000) {
-    return `$${(value / 1_000_000).toFixed(1)}M`;
-  }
-  if (value >= 1_000) {
-    return `$${(value / 1_000).toFixed(0)}K`;
-  }
-  return `$${value.toFixed(0)}`;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 1,
+  }).format(normalized(value));
 }
 
 /**
@@ -38,16 +69,20 @@ export function formatCurrencyCompact(value: number): string {
  * @returns Formatted string with appropriate suffix (e.g., "1.2M", "5.3K")
  */
 export function formatNumber(value: number): string {
-  if (value >= 1_000_000_000) {
-    return `${(value / 1_000_000_000).toFixed(1)}B`;
+  const safeValue = normalized(value);
+  const magnitude = Math.abs(safeValue);
+  if (magnitude >= 1_000) {
+    return new Intl.NumberFormat("en-US", {
+      notation: "compact",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 1,
+    }).format(safeValue);
   }
-  if (value >= 1_000_000) {
-    return `${(value / 1_000_000).toFixed(1)}M`;
-  }
-  if (value >= 1_000) {
-    return `${(value / 1_000).toFixed(1)}K`;
-  }
-  return value.toFixed(0);
+
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: Number.isInteger(safeValue) ? 0 : magnitude < 10 ? 2 : 1,
+  }).format(safeValue);
 }
 
 /**
@@ -149,11 +184,11 @@ export function formatDuration(ms: number): string {
  */
 export function formatDurationSeconds(seconds: number): string {
   const hours = seconds / 3600;
-  if (hours >= 24) return `${(hours / 24).toFixed(1)} days`;
-  if (hours >= 1) return `${hours.toFixed(1)} hours`;
+  if (hours >= 24) return `${formatNumber(hours / 24)} days`;
+  if (hours >= 1) return `${formatNumber(hours)} hours`;
   const minutes = seconds / 60;
-  if (minutes >= 1) return `${minutes.toFixed(1)} min`;
-  return `${seconds.toFixed(0)} sec`;
+  if (minutes >= 1) return `${formatNumber(minutes)} min`;
+  return `${formatNumber(seconds)} sec`;
 }
 
 /**

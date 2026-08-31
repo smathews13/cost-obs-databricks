@@ -3,7 +3,10 @@
 import asyncio
 from unittest.mock import patch
 
+import pytest
+
 from server.cloud_pricing import get_instance_family
+from server.queries import INFRA_COST_ESTIMATE
 from server.routers import aws_actual, azure_actual, billing, gcp_actual
 
 
@@ -103,6 +106,7 @@ def test_infra_bundle_keeps_dbus_but_never_invents_vm_currency_cost():
                         "driver_instance_type": "future-driver-type",
                         "worker_instance_type": "future-worker-type",
                         "total_dbu_hours": 10,
+                        "databricks_spend": 20,
                         "days_active": 2,
                     },
                     {
@@ -111,6 +115,7 @@ def test_infra_bundle_keeps_dbus_but_never_invents_vm_currency_cost():
                         "driver_instance_type": None,
                         "worker_instance_type": "n2-standard-4",
                         "total_dbu_hours": 5,
+                        "databricks_spend": 10,
                         "days_active": 1,
                     },
                 ]
@@ -149,14 +154,20 @@ def test_infra_bundle_keeps_dbus_but_never_invents_vm_currency_cost():
         "missing-driver",
     ]
     assert costs["total_dbu_hours"] == 15
+    assert costs["total_databricks_spend"] == 30
     assert costs["total_estimated_cost"] is None
     assert costs["currency_estimate_available"] is False
     assert all(row["estimated_cost"] is None for row in costs["clusters"])
+    assert [row["databricks_spend"] for row in costs["clusters"]] == [20, 10]
+    assert [row["percentage"] for row in costs["clusters"]] == pytest.approx([
+        100 * 20 / 30,
+        100 * 10 / 30,
+    ])
     assert costs["metadata_quality"] == {
         "total_rows": 2,
-        "priced_rows": 1,
-        "omitted_rows": 1,
-        "omitted_dbu_hours": 5.0,
+        "complete_rows": 1,
+        "incomplete_rows": 1,
+        "incomplete_dbu_hours": 5.0,
     }
 
     timeseries = result["infra_timeseries"]
@@ -181,6 +192,7 @@ def test_infra_bundle_keeps_cluster_dbus_when_instance_metadata_is_missing():
                         "driver_instance_type": None,
                         "worker_instance_type": None,
                         "total_dbu_hours": 8,
+                        "databricks_spend": 12,
                     }
                 ]
             ),
@@ -209,6 +221,8 @@ def test_infra_bundle_keeps_cluster_dbus_when_instance_metadata_is_missing():
     assert costs["reason"] == "metadata_partial"
     assert len(costs["clusters"]) == 1
     assert costs["clusters"][0]["total_dbu_hours"] == 8
+    assert costs["clusters"][0]["databricks_spend"] == 12
+    assert costs["total_databricks_spend"] == 12
     assert costs["total_estimated_cost"] is None
 
     timeseries = result["infra_timeseries"]
@@ -262,6 +276,67 @@ def test_infra_summary_detail_and_timeseries_share_classic_dlt_scope():
         assert "billing_origin_product <> 'SQL'" in query
     for query in (summary_query, detail_query, timeseries_query):
         assert "sku_name NOT LIKE '%SERVERLESS%'" in query
+
+
+def test_cluster_query_uses_billing_list_prices_for_dbu_spend_only():
+    assert "system.billing.list_prices" in INFRA_COST_ESTIMATE
+    assert "u.usage_quantity * COALESCE(p.pricing.default, 0) AS databricks_spend" in INFRA_COST_ESTIMATE
+    assert "u.usage_start_time >= p.price_start_time" in INFRA_COST_ESTIMATE
+    assert "SUM(uf.databricks_spend)     AS databricks_spend" in INFRA_COST_ESTIMATE
+    assert "COUNT(*) OVER ()" in INFRA_COST_ESTIMATE
+    assert "SUM(cr.total_dbu_hours) OVER ()" in INFRA_COST_ESTIMATE
+    assert "SUM(cr.databricks_spend) OVER ()" in INFRA_COST_ESTIMATE
+    assert "LIMIT 100" in INFRA_COST_ESTIMATE
+    assert "driver_hourly_cost" not in INFRA_COST_ESTIMATE
+    assert "worker_hourly_cost" not in INFRA_COST_ESTIMATE
+
+
+def test_infra_bundle_uses_full_window_totals_when_detail_is_limited():
+    detail_rows = [
+        {
+            "cluster_id": f"cluster-{index}",
+            "cloud": "AWS",
+            "driver_instance_type": "m5.xlarge",
+            "worker_instance_type": "m5.xlarge",
+            "total_dbu_hours": 10,
+            "databricks_spend": 20,
+            "days_active": 1,
+            "full_cluster_count": 150,
+            "full_total_dbu_hours": 2_500,
+            "full_databricks_spend": 5_000,
+            "full_first_usage_date": "2026-08-01",
+            "full_last_usage_date": "2026-08-28",
+        }
+        for index in range(100)
+    ]
+    result, _ = _run_bundle(
+        {
+            "clusters": _ok(detail_rows),
+            "timeseries": _ok([]),
+            "billing_summary": _ok(
+                [{
+                    "total_cost": 5_000,
+                    "avg_clusters_per_day": 50,
+                    "avg_cost_per_cluster": 100,
+                    "days_in_range": 28,
+                }]
+            ),
+            "usage_scope": _ok(
+                [{"usage_rows": 150, "cluster_usage_rows": 150, "serverless_usage_rows": 0}]
+            ),
+        }
+    )
+
+    costs = result["infra_costs"]
+    assert len(costs["clusters"]) == 100
+    assert costs["detail_limit"] == 100
+    assert costs["detail_truncated"] is True
+    assert costs["total_cluster_count"] == 150
+    assert costs["total_dbu_hours"] == 2_500
+    assert costs["total_databricks_spend"] == 5_000
+    assert costs["full_first_usage_date"] == "2026-08-01"
+    assert costs["full_last_usage_date"] == "2026-08-28"
+    assert costs["clusters"][0]["percentage"] == pytest.approx(0.4)
 
 
 def test_infra_query_errors_classify_permission_and_metadata_failures():

@@ -36,6 +36,30 @@ const SP_AUTH_STATUS = {
 };
 
 function mockApis(authStatus: object, permissionsPayload?: object, userPermissions?: object) {
+  const defaultUserPermissions = {
+    admins: ["alice@databricks.com"],
+    consumers: [],
+    current_user: "alice@databricks.com",
+    current_role: "admin",
+    role_capabilities: {
+      admin: {
+        summary: "Admin route capabilities.",
+        can_view_dashboards: true,
+        can_view_settings: true,
+        can_manage_settings: true,
+        can_manage_users: true,
+        can_manage_data: true,
+      },
+      consumer: {
+        summary: "Consumer route capabilities.",
+        can_view_dashboards: true,
+        can_view_settings: true,
+        can_manage_settings: false,
+        can_manage_users: false,
+        can_manage_data: false,
+      },
+    },
+  };
   const defaultPermissions = {
     permissions: [],
     summary: { total: 0, granted: 0, required_count: 2, required_granted: 2, all_required_granted: true, ready_to_use: true },
@@ -56,7 +80,7 @@ function mockApis(authStatus: object, permissionsPayload?: object, userPermissio
     }
     if (url.includes("/api/settings/user-permissions")) {
       return Promise.resolve(
-        new Response(JSON.stringify(userPermissions ?? { admins: [], consumers: [] }), {
+        new Response(JSON.stringify(userPermissions ?? defaultUserPermissions), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         })
@@ -124,6 +148,27 @@ describe("SettingsPermissions: SP identity panel", () => {
       expect(screen.getAllByText("cost-observer-app-sp").length).toBeGreaterThan(0);
     });
   });
+
+  it("shows verified warehouse access and clearly marks unverified schema privileges", async () => {
+    mockApis(SP_AUTH_STATUS);
+    renderPermissions();
+
+    expect(await screen.findByText("SQL warehouse CAN USE")).toBeVisible();
+    expect(screen.getByText(/successfully querying the bound warehouse as the app service principal/i)).toBeVisible();
+    expect(screen.getByText("App catalog & schema")).toBeVisible();
+    expect(screen.getByText("Required · not verified")).toBeVisible();
+    expect(screen.getByText(/readiness probe does not independently verify them/i)).toBeVisible();
+  });
+
+  it("renders role capabilities from the backend policy payload", async () => {
+    mockApis(SP_AUTH_STATUS);
+    renderPermissions();
+
+    expect(await screen.findByText("Role capabilities")).toBeVisible();
+    expect(screen.getByText("Admin route capabilities.")).toBeVisible();
+    expect(screen.getByText("Consumer route capabilities.")).toBeVisible();
+    expect(screen.getByText("Your role")).toBeVisible();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -161,6 +206,21 @@ describe("SettingsPermissions: grant bundle targets actual SP name", () => {
 });
 
 describe("SettingsPermissions: polished access controls", () => {
+  it("describes the server bootstrap policy when no admin is configured", async () => {
+    mockApis(SP_AUTH_STATUS, undefined, {
+      admins: [],
+      consumers: [],
+      current_user: "alice@databricks.com",
+      current_role: "admin",
+    });
+    renderPermissions();
+
+    expect(await screen.findByText(/bootstrap mode: every authenticated user is an implicit admin/i))
+      .toBeVisible();
+    expect(screen.getByText(/server currently treats every authenticated user/i)).toBeVisible();
+    expect(screen.queryByText(/everyone is a consumer/i)).not.toBeInTheDocument();
+  });
+
   it("renders labeled custom role menus with a lava focus treatment and chevron", async () => {
     mockApis(SP_AUTH_STATUS, undefined, {
       admins: ["admin@databricks.com", "backup@databricks.com"],

@@ -1,41 +1,5 @@
 @import "tailwindcss";
 
-@font-face {
-  font-family: "DM Sans";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/fonts/dm-sans-latin-400-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "DM Sans";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("/fonts/dm-sans-latin-500-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "DM Sans";
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url("/fonts/dm-sans-latin-700-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "DM Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("/fonts/dm-mono-latin-400-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "DM Mono";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("/fonts/dm-mono-latin-500-normal.woff2") format("woff2");
-}
-
 :root {
   --oat-page: #F9F7F4;
   --card-surface: #FFFFFF;
@@ -88,8 +52,10 @@
   --sh-menu: 0 8px 28px rgba(11, 32, 38, 0.16);
   --sh-modal: 0 24px 64px rgba(11, 32, 38, 0.30);
   --focus: 0 0 0 2px rgba(255, 54, 33, 0.35);
-  --sans: "DM Sans", -apple-system, sans-serif;
-  --mono: "DM Mono", ui-monospace, monospace;
+  /* Native stacks are available before first paint, so controls never resize
+     after a missing or delayed webfont request. */
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
@@ -173,6 +139,7 @@
 
 html {
   scroll-behavior: smooth;
+  font-family: var(--sans);
 }
 
 body {
@@ -182,6 +149,42 @@ body {
   font-family: var(--sans);
   font-size: 14px;
   line-height: 1.55;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/* The full account identifier is available on both pointer hover and keyboard
+   focus without relying on a native title tooltip. */
+.account-id-tooltip-content {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 120ms ease-out, transform 120ms ease-out, visibility 120ms;
+}
+.account-id-tooltip:hover .account-id-tooltip-content,
+.account-id-tooltip:focus-within .account-id-tooltip-content {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Deployment details use one shared tooltip for pointer hover and keyboard focus. */
+.deployment-badge-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 120ms ease-out, transform 120ms ease-out, visibility 120ms;
+}
+.deployment-badge:hover .deployment-badge-tooltip,
+.deployment-badge:focus-within .deployment-badge-tooltip {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
 }
 
 /* ── Animations ────────────────────────────────────────── */
@@ -310,9 +313,17 @@ body {
 .co-kpi-card .text-2xl.font-semibold {
   color: var(--ink) !important;
   font-family: var(--mono);
-  font-size: 28px;
+  font-size: clamp(20px, 2vw, 28px);
   font-weight: 500;
   letter-spacing: -0.02em;
+  line-height: 1.15;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.co-kpi-grid > div > .flex.items-center > :last-child,
+.co-kpi-card > .flex.items-center > :last-child {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .co-kpi-grid .text-sm.font-medium,
 .co-kpi-card .text-sm.font-medium {

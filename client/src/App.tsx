@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback, useId, lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TabRefreshRegion } from "@/components/TabRefreshRegion";
 import { SetupWizard } from "@/components/SetupWizard";
@@ -17,6 +17,8 @@ import { PricingProvider, usePricing } from "@/context/PricingContext";
 import { SpNameMapContext } from "@/utils/identity";
 import { Footer } from "@/components/Footer";
 import { UserMenu } from "@/components/UserMenu";
+import { DeploymentBadgeFromApi } from "@/components/DeploymentBadge";
+import { applyInfraPricing } from "@/utils/cloudCosts";
 import {
   WarehouseGuidanceBanner,
   WarehouseHealthCheckBanner,
@@ -144,6 +146,31 @@ interface User {
   email: string;
   name: string;
   role?: "admin" | "consumer";
+}
+
+function AccountIdentifier({ value }: { value: string }) {
+  const tooltipId = useId();
+
+  return (
+    <span className="account-id-tooltip relative mt-[3px] min-w-0">
+      <span
+        tabIndex={0}
+        aria-describedby={tooltipId}
+        className="account-id-tooltip-trigger block max-w-[150px] truncate rounded-[4px] bg-white/[.09] px-[7px] py-[3px] text-[11px] text-[#E9EFED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
+        style={{ fontFamily: "var(--mono)" }}
+      >
+        {value}
+      </span>
+      <span
+        id={tooltipId}
+        role="tooltip"
+        className="account-id-tooltip-content pointer-events-none absolute left-0 top-full z-50 mt-2 max-w-[min(360px,80vw)] rounded-[6px] bg-[#0B2026] px-2.5 py-1.5 text-[11px] leading-snug text-white shadow-lg"
+        style={{ fontFamily: "var(--mono)" }}
+      >
+        {value}
+      </span>
+    </span>
+  );
 }
 
 function DBUMethodologyPanel() {
@@ -504,7 +531,12 @@ function Dashboard() {
     staleTime: 60 * 1000,
   });
 
-  const { applyPricing, multiplier: pricingMultiplier } = usePricing();
+  const {
+    applyPricing,
+    multiplier: pricingMultiplier,
+    useAccountPrices,
+    available: accountPricesAvailable,
+  } = usePricing();
 
   // Central warehouse warming poller: single source of truth for warehouse state.
   // Normal checks are REST-only. If the initial cold gate remains after two polls,
@@ -682,6 +714,12 @@ function Dashboard() {
   const { data: infraBundle, isLoading: infraBundleLoading, isError: infraBundleError } = useInfraBundle(dateRange, _wsIds, infraRequested);
   const infraCosts = infraBundle?.infra_costs;
   const infraCostsTimeseries = infraBundle?.infra_timeseries;
+  const infraPricingMultiplier =
+    useAccountPrices && accountPricesAvailable ? pricingMultiplier : 1;
+  const pricedInfraCosts = useMemo(
+    () => applyInfraPricing(infraCosts, infraPricingMultiplier),
+    [infraCosts, infraPricingMultiplier],
+  );
 
   const { data: kpisBundle, isLoading: kpisBundleLoading, isFetching: kpisBundleFetching, isError: kpisBundleError } = useKPIsBundle(dateRange, _wsIds, kpisRequested);
   const spendAnomalies = kpisBundle?.anomalies;
@@ -952,30 +990,36 @@ function Dashboard() {
   // and returns stale false-negatives if it fires before the background MV build completes.
 
   // Memoize infra data transformations to avoid re-creating arrays on every render
-  const infraViewData = useMemo(() => infraCosts ? {
-    clusters: (infraCosts.clusters || []).map(c => ({
+  const infraViewData = useMemo(() => pricedInfraCosts ? {
+    clusters: (pricedInfraCosts.clusters || []).map(c => ({
       cluster_id: c.cluster_id,
       cluster_name: c.cluster_name,
       driver_instance_type: c.driver_instance_type,
       worker_instance_type: c.worker_instance_type,
       cluster_source: c.cluster_source,
       total_dbu_hours: c.total_dbu_hours,
+      databricks_spend: c.databricks_spend,
       days_active: c.days_active,
       percentage: c.percentage,
       workspace_id: c.workspace_id || "",
       workspace_name: c.workspace_name ?? null,
       state: null,
-      estimated_aws_cost: c.estimated_cost,
     })),
-    instance_families: infraCosts.instance_families,
-    total_estimated_cost: infraCosts.total_estimated_cost,
-    total_dbu_hours: infraCosts.total_dbu_hours,
-    billing_summary: infraCosts.billing_summary,
-    start_date: infraCosts.start_date,
-    end_date: infraCosts.end_date,
-    disclaimer: infraCosts.disclaimer,
-    error: infraCosts.error,
-  } : undefined, [infraCosts]);
+    instance_families: pricedInfraCosts.instance_families,
+    total_estimated_cost: pricedInfraCosts.total_estimated_cost,
+    total_databricks_spend: pricedInfraCosts.total_databricks_spend,
+    total_dbu_hours: pricedInfraCosts.total_dbu_hours,
+    total_cluster_count: pricedInfraCosts.total_cluster_count,
+    detail_limit: pricedInfraCosts.detail_limit,
+    detail_truncated: pricedInfraCosts.detail_truncated,
+    full_first_usage_date: pricedInfraCosts.full_first_usage_date,
+    full_last_usage_date: pricedInfraCosts.full_last_usage_date,
+    billing_summary: pricedInfraCosts.billing_summary,
+    start_date: pricedInfraCosts.start_date,
+    end_date: pricedInfraCosts.end_date,
+    disclaimer: pricedInfraCosts.disclaimer,
+    error: pricedInfraCosts.error,
+  } : undefined, [pricedInfraCosts]);
 
   const infraViewTimeseries = useMemo(() => infraCostsTimeseries ? {
     timeseries: (infraCostsTimeseries.timeseries || []).map(t => ({
@@ -1034,27 +1078,28 @@ function Dashboard() {
         anomalies: spendAnomalies,
         pipelineObjects,
         interactiveBreakdown,
-        awsCosts: infraCosts ? {
-          clusters: (infraCosts.clusters ?? []).map(c => ({
+        awsCosts: pricedInfraCosts ? {
+          clusters: (pricedInfraCosts.clusters ?? []).map(c => ({
             cluster_id: c.cluster_id,
             cluster_name: c.cluster_name,
             driver_instance_type: c.driver_instance_type,
             worker_instance_type: c.worker_instance_type,
             cluster_source: c.cluster_source,
             total_dbu_hours: c.total_dbu_hours,
+            databricks_spend: c.databricks_spend,
             days_active: c.days_active,
             percentage: c.percentage,
             workspace_id: c.workspace_id || "",
             state: null,
-            estimated_aws_cost: c.estimated_cost,
           })),
-          instance_families: infraCosts.instance_families,
-          total_estimated_cost: infraCosts.total_estimated_cost,
-          total_dbu_hours: infraCosts.total_dbu_hours,
-          start_date: infraCosts.start_date,
-          end_date: infraCosts.end_date,
-          disclaimer: infraCosts.disclaimer,
-          error: infraCosts.error,
+          instance_families: pricedInfraCosts.instance_families,
+          total_estimated_cost: pricedInfraCosts.total_estimated_cost,
+          total_databricks_spend: pricedInfraCosts.total_databricks_spend,
+          total_dbu_hours: pricedInfraCosts.total_dbu_hours,
+          start_date: pricedInfraCosts.start_date,
+          end_date: pricedInfraCosts.end_date,
+          disclaimer: pricedInfraCosts.disclaimer,
+          error: pricedInfraCosts.error,
         } : undefined,
         aiml: aimlData,
         apps: appsData,
@@ -1203,17 +1248,13 @@ function Dashboard() {
             </span>
           </a>
 
+          <DeploymentBadgeFromApi />
+
           <span className="hidden h-[22px] w-px shrink-0 bg-white/[.16] min-[1180px]:block" aria-hidden="true" />
 
           <div className="hidden shrink-0 flex-col leading-none min-[1100px]:flex">
             <span className="text-[9px] font-semibold tracking-[.1em] text-[#E9EFED]/55">ACCOUNT</span>
-            <span
-              className="mt-[3px] max-w-[150px] truncate rounded-[4px] bg-white/[.09] px-[7px] py-[3px] text-[11px] text-[#E9EFED]"
-              style={{ fontFamily: "var(--mono)" }}
-              title={accountInfo?.account_id || accountInfo?.account_name || "Loading account"}
-            >
-              {accountInfo?.account_id || accountInfo?.account_name || "Loading…"}
-            </span>
+            <AccountIdentifier value={accountInfo?.account_id || accountInfo?.account_name || "Loading…"} />
           </div>
 
           <WorkspaceFilter
@@ -1269,32 +1310,29 @@ function Dashboard() {
                 isAdmin={user.role === "admin"}
                 workspaceHost={accountInfo?.host}
               />
-              {user.role === "admin" && (
-                <span className="hidden h-[28px] shrink-0 items-center rounded-[6px] bg-white/[.14] px-[9px] text-[12px] font-semibold text-white min-[1280px]:inline-flex">
-                  Admin
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={openExportDialog}
-                aria-label="Export"
-                className="rail-control-border inline-flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[8px] border bg-[#2272B4] px-0 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#1B5F96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4D98D0]/50 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1100px]:w-auto min-[1100px]:gap-1.5 min-[1100px]:px-[11px]"
-                title="Export"
-              >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <span className="hidden min-[1100px]:inline">Export</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSettings(true)}
-                className="-ml-[8px] flex h-[32px] w-[28px] shrink-0 items-center justify-center rounded-[6px] text-white opacity-80 transition-colors hover:bg-white/[.10] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139]"
-                title="App Settings"
-                aria-label="App Settings"
-              >
-                <Settings size={17} strokeWidth={1.8} aria-hidden="true" />
-              </button>
+              <div className="flex shrink-0 items-center gap-[4px]">
+                <button
+                  type="button"
+                  onClick={openExportDialog}
+                  aria-label="Export"
+                  className="rail-control-border inline-flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[8px] border bg-[#2272B4] px-0 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#1B5F96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4D98D0]/50 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1100px]:w-auto min-[1100px]:gap-1.5 min-[1100px]:px-[11px]"
+                  title="Export"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span className="hidden min-[1100px]:inline">Export</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSettings(true)}
+                  className="flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[6px] text-white opacity-80 transition-colors hover:bg-white/[.10] hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139]"
+                  title="App Settings"
+                  aria-label="App Settings"
+                >
+                  <Settings size={17} strokeWidth={1.8} aria-hidden="true" />
+                </button>
+              </div>
             </>
           )}
         </div>
@@ -1568,7 +1606,7 @@ function Dashboard() {
             azureActualLoading={azureActualLoading}
             gcpActualData={gcpActualData}
             gcpActualLoading={gcpActualLoading}
-            infraData={infraCosts}
+            infraData={pricedInfraCosts}
             infraLoading={infraBundleLoading}
             infraTimeseriesData={infraCostsTimeseries}
             infraTimeseriesLoading={infraBundleLoading}
@@ -1577,6 +1615,7 @@ function Dashboard() {
             detectedCloud={accountInfo?.cloud || undefined}
             workspaceNameMap={workspaceNameMap}
             workspaceIds={_wsIds}
+            accountPricingApplied={useAccountPrices && accountPricesAvailable}
           />
           </TabErrorBoundary>
         ) : activeTab === "optimizer" ? (

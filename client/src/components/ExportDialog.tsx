@@ -71,7 +71,7 @@ const sectionLabels: Record<keyof ExportSections, { label: string; description: 
   users: { label: "Users", description: "Top users by spend and product breakdown" },
   platformKPIs: { label: "Platform KPIs & Trends", description: "Platform-wide metrics and trends" },
   anomalies: { label: "Spend Anomalies", description: "Day-over-day spend changes" },
-  awsCosts: { label: "Cloud Costs", description: "Estimated cloud infrastructure costs" },
+  awsCosts: { label: "Cloud Costs", description: "Cluster usage, DBU spend, and cloud cost integration status" },
   optimize: { label: "Optimize", description: "Warehouse rightsizing and idle-time opportunities" },
 };
 

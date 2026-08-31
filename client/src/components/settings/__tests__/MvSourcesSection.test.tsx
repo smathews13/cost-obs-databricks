@@ -35,7 +35,16 @@ describe("shared source freshness", () => {
             schema: "cost_obs",
             tables: ["daily_usage_summary"],
             share_last_updated: "2026-08-28T11:00:00Z",
+            catalog_explorer_tables: [{
+              fqn: "shared.cost_obs.daily_usage_summary",
+              url: "https://dbc.example.com/explore/data/shared/cost_obs/daily_usage_summary",
+            }],
           }],
+          recipient_refresh: {
+            supported: false,
+            mode: "provider_managed",
+            check_action: "metadata_and_local_bindings_only",
+          },
         }),
       };
     });
@@ -49,9 +58,16 @@ describe("shared source freshness", () => {
       </QueryClientProvider>,
     );
 
-    const check = await screen.findByRole("button", { name: "Check freshness" });
+    const check = await screen.findByRole("button", { name: "Re-check metadata" });
     const remove = screen.getByRole("button", { name: "Remove" });
     expect(check.parentElement).toContainElement(remove);
+    expect(screen.getByText(/Provider updates appear automatically/)).toBeVisible();
+    expect(screen.getByRole("link", {
+      name: "Open shared.cost_obs.daily_usage_summary in Catalog Explorer (opens in a new tab)",
+    })).toHaveAttribute(
+      "href",
+      "https://dbc.example.com/explore/data/shared/cost_obs/daily_usage_summary",
+    );
 
     await user.click(check);
 
@@ -99,7 +115,7 @@ describe("shared source freshness", () => {
         <MvSourcesSection />
       </QueryClientProvider>,
     );
-    await userEvent.click(await screen.findByRole("button", { name: "Check freshness" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Re-check metadata" }));
 
     expect(await screen.findByText(message)).toBeInTheDocument();
     expect(screen.queryByText("Checked just now")).not.toBeInTheDocument();

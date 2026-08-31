@@ -2,13 +2,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import { getCloudInstanceFamily } from "@/utils/cloudCosts";
+import { applyInfraPricing, getCloudInstanceFamily } from "@/utils/cloudCosts";
 import { CloudCostsView } from "../CloudCostsView";
 
 const EMPTY_COSTS = {
   clusters: [],
   instance_families: [],
   total_estimated_cost: 0,
+  total_databricks_spend: 0,
   total_dbu_hours: 0,
   start_date: "2026-08-01",
   end_date: "2026-08-28",
@@ -67,6 +68,37 @@ describe("CloudCostsView empty-data controls", () => {
     expect(getCloudInstanceFamily("m6i.xlarge", "AWS")).toBe("m6i");
   });
 
+  it("applies account pricing to every DBU list-price spend value exactly once", () => {
+    const priced = applyInfraPricing({
+      ...EMPTY_COSTS,
+      cloud: "AWS",
+      cloud_display_name: "AWS",
+      clusters: [{
+        cluster_id: "cluster-1",
+        cluster_name: "Cluster 1",
+        driver_instance_type: "m5.xlarge",
+        worker_instance_type: "m5.xlarge",
+        cluster_source: "UI",
+        total_dbu_hours: 10,
+        databricks_spend: 100,
+        estimated_cost: null,
+        days_active: 1,
+        percentage: 100,
+      }],
+      total_databricks_spend: 100,
+      billing_summary: {
+        databricks_compute_spend: 100,
+        avg_databricks_spend_per_cluster: 25,
+      },
+    }, 0.8);
+
+    expect(priced?.clusters[0].databricks_spend).toBe(80);
+    expect(priced?.total_databricks_spend).toBe(80);
+    expect(priced?.billing_summary?.databricks_compute_spend).toBe(80);
+    expect(priced?.billing_summary?.avg_databricks_spend_per_cluster).toBe(20);
+    expect(applyInfraPricing(priced, 1)).toBe(priced);
+  });
+
   it("shows a failed cluster query as unavailable instead of true zero", () => {
     renderView({
       infraData: {
@@ -103,9 +135,9 @@ describe("CloudCostsView empty-data controls", () => {
     expect(screen.getByText(/has no classic cluster_id/i)).toBeInTheDocument();
   });
 
-  it("shows valid estimates with a partial metadata warning", () => {
+  it("shows authoritative DBU spend instead of a fabricated VM cost", () => {
     const reasonDetail =
-      "1 of 2 classic cluster rows were omitted because driver or worker instance metadata was unavailable.";
+      "1 of 2 classic cluster rows had incomplete driver or worker instance metadata. DBU spend is still included.";
     renderView({
       data: {
         ...EMPTY_COSTS,
@@ -119,12 +151,13 @@ describe("CloudCostsView empty-data controls", () => {
             workspace_id: "123",
             state: null,
             total_dbu_hours: 10,
-            estimated_aws_cost: 7.5,
+            databricks_spend: 7.5,
             days_active: 1,
             percentage: 100,
           },
         ],
-        total_estimated_cost: 7.5,
+        total_estimated_cost: null,
+        total_databricks_spend: 7.5,
         total_dbu_hours: 10,
       },
       infraData: {
@@ -132,7 +165,8 @@ describe("CloudCostsView empty-data controls", () => {
         cloud_display_name: "AWS",
         clusters: [],
         instance_families: [],
-        total_estimated_cost: 7.5,
+        total_estimated_cost: null,
+        total_databricks_spend: 7.5,
         total_dbu_hours: 10,
         start_date: "2026-08-01",
         end_date: "2026-08-28",
@@ -143,8 +177,52 @@ describe("CloudCostsView empty-data controls", () => {
       },
     });
 
-    expect(screen.getByText("Infrastructure estimate is partial")).toBeInTheDocument();
+    expect(screen.getByText("Cluster metadata is partial")).toBeInTheDocument();
     expect(screen.getByText(reasonDetail)).toBeInTheDocument();
     expect(screen.getByText("Priced cluster")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /DBU Spend/i })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /VM Cost/i })).not.toBeInTheDocument();
+    expect(screen.getAllByText("$7.5")).toHaveLength(3);
+  });
+
+  it("uses full-set aggregates while labeling truncated cluster detail", () => {
+    const clusters = [1, 2].map((number) => ({
+      cluster_id: `cluster-${number}`,
+      cluster_name: `Cluster ${number}`,
+      driver_instance_type: "m5.xlarge",
+      worker_instance_type: "m5.xlarge",
+      cluster_source: "UI",
+      workspace_id: "123",
+      state: null,
+      total_dbu_hours: 10,
+      databricks_spend: 15,
+      days_active: 1,
+      percentage: 0.75,
+    }));
+    const infraData = {
+      ...EMPTY_COSTS,
+      cloud: "AWS",
+      cloud_display_name: "AWS",
+      clusters,
+      total_databricks_spend: 2_000,
+      total_dbu_hours: 1_500,
+      total_cluster_count: 101,
+      detail_limit: 100,
+      detail_truncated: true,
+      billing_summary: {
+        databricks_compute_spend: 2_000,
+        avg_clusters_per_day: 20,
+        avg_databricks_spend_per_cluster: 100,
+        days_in_range: 28,
+      },
+    };
+
+    renderView({ data: infraData, infraData });
+
+    expect(screen.getByText("$2,000")).toBeInTheDocument();
+    expect(screen.getByText("1.5K")).toBeInTheDocument();
+    expect(screen.getByText(/showing top 100 of 101 clusters/i)).toBeInTheDocument();
+    expect(screen.getByText(/top 100 detail subtotal/i)).toBeInTheDocument();
+    expect(screen.getByText("$30")).toBeInTheDocument();
   });
 });

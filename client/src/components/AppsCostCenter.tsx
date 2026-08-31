@@ -17,7 +17,9 @@ import { KPITrendModal } from "./KPITrendModal";
 import { VirtualizedList } from "./VirtualizedList";
 import { LoadingPanels } from "./Spinner";
 import { formatIdentity } from "@/utils/identity";
-import { C, seriesColor } from "@/theme";
+import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
+import { getAppFallbackColor, getAppInitials } from "@/utils/apps";
+import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import {
   buildFilteredUrl,
@@ -44,19 +46,26 @@ const PIE_COLORS = {
   historical: C.muted, // gray
 };
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
+function workspaceBaseUrl(host?: string | null): string | null {
+  const candidate = host?.trim();
+  if (!candidate) return null;
+  try {
+    const url = new URL(candidate.includes("://") ? candidate : `https://${candidate}`);
+    if (url.protocol !== "https:" || url.username || url.password) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
 
-const formatNumber = (value: number) =>
-  new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
+function servicePrincipalAdminUrl(
+  hostBase: string | null,
+  servicePrincipalId?: string | null,
+): string | null {
+  const id = String(servicePrincipalId ?? "").trim();
+  if (!hostBase || !/^\d+$/.test(id)) return null;
+  return `${hostBase}/settings/identity-and-access/service-principals/${encodeURIComponent(id)}`;
+}
 
 function InfoTooltip({ text }: { text: string }) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -84,15 +93,12 @@ function InfoTooltip({ text }: { text: string }) {
 function AppThumbnail({
   app,
   size,
-  color,
 }: {
   app: AppsApp;
   size: number;
-  color: string;
 }) {
   const [failed, setFailed] = useState(false);
-
-  useEffect(() => setFailed(false), [app.app_id]);
+  const fallbackColor = getAppFallbackColor(app.app_id || app.app_name);
 
   if (app.metadata?.thumbnail_url && !failed) {
     return (
@@ -109,11 +115,11 @@ function AppThumbnail({
   return (
     <div
       className="flex items-center justify-center rounded-md text-white"
-      style={{ backgroundColor: color, width: size, height: size }}
+      style={{ backgroundColor: fallbackColor, width: size, height: size }}
       aria-label={`${app.app_name} fallback icon`}
     >
       <span className="font-bold select-none" style={{ fontSize: Math.max(14, size * 0.4) }}>
-        {(app.app_name || app.app_id || "?").charAt(0).toUpperCase()}
+        {getAppInitials(app.app_name, app.app_id)}
       </span>
     </div>
   );
@@ -179,7 +185,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
   const selectedWorkspacesSeen = useRef<Set<string>>(new Set());
   const [wsFilterOpen, setWsFilterOpen] = useState(false);
   const [wsFilterSearch, setWsFilterSearch] = useState("");
-  const [appsPage, setAppsPage] = useState(1);
+  const [appsPagination, setAppsPagination] = useState({ filterKey: "", page: 1 });
   const APPS_PAGE_SIZE = 40;
   const [artifactTypeFilters, setArtifactTypeFilters] = useState<string[]>([]);
   const artifactTypeSeen = useRef<Set<string>>(new Set());
@@ -288,39 +294,21 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
     }
   };
 
-  // Build stable color map for app names across charts
-  const appColorMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    let idx = 0;
-    const allNames = new Set<string>();
-    for (const app of data?.apps?.apps || []) {
-      allNames.add(app.app_name);
-    }
-    for (const cat of data?.timeseries?.categories || []) {
-      if (cat !== "Other") allNames.add(cat);
-    }
-    for (const name of allNames) {
-      map[name] = seriesColor(idx);
-      idx++;
-    }
-    map["Other"] = C.muted;
-    return map;
-  }, [data?.apps, data?.timeseries]);
-
   // Resolve workspace names: prefer billing-wide name map (most complete), then
   // backend name, then a formatted "Workspace <id>" so filter rows never show
   // a bare workspace ID when the name is missing (matches the top-nav pattern).
+  const workspaces = data?.workspaces;
   const resolveWsName = useCallback((wsId: string) => {
     if (workspaceNameMap?.[wsId]) return workspaceNameMap[wsId];
-    const backendWs = data?.workspaces?.find(w => w.id === wsId);
+    const backendWs = workspaces?.find(w => w.id === wsId);
     if (backendWs?.name && backendWs.name !== wsId) return backendWs.name;
     return `Workspace ${wsId}`;
-  }, [data?.workspaces, workspaceNameMap]);
+  }, [workspaces, workspaceNameMap]);
 
   // Available workspaces for filtering (resolved to names)
   const availableWorkspaces = useMemo(() => {
-    if (!data?.workspaces) return [];
-    return data.workspaces
+    if (!workspaces) return [];
+    return workspaces
       // Drop null/"None"/"null" ids so a stringified null never becomes an option.
       .filter(ws => ws.id != null && !["", "none", "null"].includes(String(ws.id).trim().toLowerCase()))
       .map(ws => {
@@ -330,7 +318,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
         return { id: ws.id, name, historical: name === `Workspace ${ws.id}` };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [data?.workspaces, resolveWsName]);
+  }, [workspaces, resolveWsName]);
 
   // Sync-add: unseen workspace IDs get added to the filter automatically.
   useEffect(() => {
@@ -347,7 +335,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
   );
 
   // Filter apps by search query and workspace
-  const filteredApps = useMemo(() => {
+  const filteredApps = (() => {
     if (!data?.apps?.apps) return [];
     // Empty or all-selected → treat as "show all" so Clear doesn't silently
     // hide every row and the default "all workspaces" state doesn't drop apps
@@ -373,7 +361,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
         || a.metadata?.description?.toLowerCase().includes(q)
         || a.metadata?.creator?.toLowerCase().includes(q)
     );
-  }, [data?.apps, searchQuery, selectedWorkspaces.length, selectedWorkspaceIds, availableWorkspaces.length]);
+  })();
   const selectedApp = selectedAppId
     ? data?.apps?.apps?.find((app) => app.app_id === selectedAppId) ?? null
     : null;
@@ -381,13 +369,10 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
     selectedAppId && data?.apps?.apps && !selectedApp,
   );
 
-  // Reset to page 1 whenever filters change
-  useEffect(() => {
-    setAppsPage(1);
-  }, [searchQuery, selectedWorkspaces]);
-
+  const appsFilterKey = `${searchQuery}\u0000${selectedWorkspaces.join("\u0000")}`;
+  const requestedAppsPage = appsPagination.filterKey === appsFilterKey ? appsPagination.page : 1;
   const totalAppsPages = Math.ceil(filteredApps.length / APPS_PAGE_SIZE);
-  const effectiveAppsPage = Math.min(appsPage, Math.max(1, totalAppsPages));
+  const effectiveAppsPage = Math.min(requestedAppsPage, Math.max(1, totalAppsPages));
   const paginatedApps = filteredApps.slice((effectiveAppsPage - 1) * APPS_PAGE_SIZE, effectiveAppsPage * APPS_PAGE_SIZE);
 
   // Build pie chart data: Active vs Inactive vs Historical (unregistered)
@@ -424,10 +409,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
   }, [data?.apps]);
 
   // Daily timeseries (raw from API, matches date picker range)
-  const dailyTimeseries = useMemo(() => {
-    if (!data?.timeseries?.timeseries?.length) return [];
-    return data.timeseries.timeseries;
-  }, [data?.timeseries]);
+  const dailyTimeseries = data?.timeseries?.timeseries ?? [];
 
   if (isLoading && !data && !isError) {
     return <LoadingPanels sections={[
@@ -476,7 +458,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
   const appsData = data.apps;
   const unregisteredSummary = appsData.unregistered_summary;
 
-  const hostBase = host ? (host.startsWith("http") ? host.replace(/\/$/, "") : `https://${host.replace(/\/$/, "")}`) : null;
+  const hostBase = workspaceBaseUrl(host);
 
   /** Live app endpoint URL (the running frontend). */
   const liveEndpoint = (app: AppsApp) => app.app_url || null;
@@ -546,7 +528,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Total App Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(summary.total_spend)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.total_spend)}</p>
               <p className="mt-1 text-xs text-gray-500">over {summary.days_in_range} days</p>
               {startDate && endDate && <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
             </div>
@@ -585,9 +567,11 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
               </svg>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500 flex items-center gap-1">Active Apps<InfoTooltip text="An app is counted as active on any day it generates compute usage. This shows the daily average: how many apps run on a typical day in the selected period. Apps that are deployed but idle (no compute) are not counted." /></p>
-              <p className="text-2xl font-semibold text-gray-900">{formatNumber(summary.avg_daily_apps ?? summary.app_count)}</p>
-              <p className="mt-1 text-xs text-gray-500">avg. over {summary.workspace_count} workspaces</p>
+              <p className="text-sm font-medium text-gray-500 flex items-center gap-1">Active Apps<InfoTooltip text={`Currently registered apps with positive Apps compute usage from ${appsData.active_window.start_date} through ${appsData.active_window.end_date}. This is the same scoped population used by App Status Breakdown.`} /></p>
+              <p data-testid="active-apps-kpi-value" className="text-2xl font-semibold text-gray-900">{formatNumber(summary.active_app_count)}</p>
+              <p className="mt-1 text-xs text-gray-500">
+                last {appsData.active_window.days} days · {summary.workspace_count} {summary.workspace_count === 1 ? "workspace" : "workspaces"}
+              </p>
               {startDate && endDate && <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
             </div>
           </div>
@@ -606,7 +590,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Per-App Spend</p>
-              <p className="text-2xl font-semibold text-gray-900">{formatCurrency(summary.avg_cost_per_app ?? 0)}</p>
+              <p className="text-2xl font-semibold text-gray-900">{formatKpiCurrency(summary.avg_cost_per_app ?? 0)}</p>
               <p className="mt-1 text-xs text-gray-500">daily average</p>
               {startDate && endDate && <p className="mt-1 text-xs font-medium" style={{ color: C.lava }}>See trend →</p>}
             </div>
@@ -616,7 +600,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
 
       {selectedKPI && startDate && endDate && (
         <KPITrendModal
-          kpi={selectedKPI.kpi as any}
+          kpi={selectedKPI.kpi}
           kpiLabel={selectedKPI.label}
           isOpen={!!selectedKPI}
           onClose={() => setSelectedKPI(null)}
@@ -634,7 +618,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
             <h3 className="mb-4 flex items-center text-lg font-semibold text-gray-900">
               App Status Breakdown
-              <InfoTooltip text="Active = apps with compute usage in the last 7 days of the selected range (cumulative count). The Active Apps KPI card above shows the daily average: fewer apps run every single day than appear active over any 7-day window, so the two numbers will differ." />
+              <InfoTooltip text={`Uses the same registered-app population, date window (${appsData.active_window.start_date} through ${appsData.active_window.end_date}), workspace filter, and source scope as the Active Apps KPI.`} />
             </h3>
             <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">
               <ResponsiveContainer width="100%" height={250} className="max-w-xs">
@@ -662,8 +646,10 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
                 <div className="flex items-center gap-3">
                   <div className="h-3 w-3 rounded-full" style={{ backgroundColor: PIE_COLORS.active }} />
                   <div>
-                    <Chip kind="serverless">{formatNumber(appsData.active_count)} Active</Chip>
-                    <p className="text-xs text-gray-500">Apps with compute usage in the last 7 days</p>
+                    <span data-testid="active-apps-breakdown-count">
+                      <Chip kind="serverless">{formatNumber(appsData.active_count)} Active</Chip>
+                    </span>
+                    <p className="text-xs text-gray-500">Apps with compute usage in the last {appsData.active_window.days} days</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -894,9 +880,9 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
                 <AppThumbnail
+                  key={`${selectedApp.app_id}:${selectedApp.metadata?.thumbnail_url ?? ""}`}
                   app={selectedApp}
                   size={56}
-                  color={appColorMap[selectedApp.app_name] || C.s1}
                 />
                 <div className="min-w-0">
                   <h4 className="text-base font-semibold text-gray-900">{selectedApp.app_name}</h4>
@@ -1101,9 +1087,8 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
         {/* Tile grid */}
         {filteredApps.length > 0 ? (
           <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
-            {paginatedApps.map((app, idx) => {
+            {paginatedApps.map((app) => {
               const isSelected = selectedApp?.app_id === app.app_id;
-              const color = appColorMap[app.app_name] || seriesColor(idx);
               const isResolved = app.app_name !== app.app_id;
 
               // Scale icon size linearly based on spend without overpowering the tile.
@@ -1127,7 +1112,11 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
                   title={`${app.app_name}${isResolved ? ` (${app.app_id})` : ""}\n${formatCurrency(app.total_spend)} · ${app.days_active}d active`}
                 >
                   <div className="transition-transform group-hover:scale-110">
-                    <AppThumbnail app={app} size={iconSize} color={color} />
+                    <AppThumbnail
+                      key={`${app.app_id}:${app.metadata?.thumbnail_url ?? ""}`}
+                      app={app}
+                      size={iconSize}
+                    />
                   </div>
                   {/* App name */}
                   <span className="mt-1.5 w-full truncate text-center text-[10px] font-medium text-gray-700">
@@ -1161,7 +1150,10 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
             {totalAppsPages > 1 && (
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setAppsPage(p => Math.max(1, p - 1))}
+                  onClick={() => setAppsPagination({
+                    filterKey: appsFilterKey,
+                    page: Math.max(1, effectiveAppsPage - 1),
+                  })}
                   disabled={effectiveAppsPage === 1}
                   className="rounded border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -1169,7 +1161,10 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
                 </button>
                 <span className="px-2 text-xs text-gray-500">{effectiveAppsPage} / {totalAppsPages}</span>
                 <button
-                  onClick={() => setAppsPage(p => Math.min(totalAppsPages, p + 1))}
+                  onClick={() => setAppsPagination({
+                    filterKey: appsFilterKey,
+                    page: Math.min(totalAppsPages, effectiveAppsPage + 1),
+                  })}
                   disabled={effectiveAppsPage >= totalAppsPages}
                   className="rounded border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -1368,6 +1363,7 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
                       artifact.artifact_type === 'SQL_WAREHOUSE' ? `${hostBase}/sql/warehouses/${artifact.artifact_name}` :
                       artifact.artifact_type === 'JOB' ? `${hostBase}/jobs/${artifact.artifact_name}` :
                       artifact.artifact_type === 'SECRET' ? `${hostBase}/secrets/scopes` :
+                      artifact.artifact_type === 'SERVICE_PRINCIPAL' ? servicePrincipalAdminUrl(hostBase, artifact.artifact_id) :
                       null
                     ) : null;
 
@@ -1398,13 +1394,20 @@ export function AppsCostCenter({ data, isLoading, isError, error, onRetry, host,
                           <div className="flex flex-col gap-0.5">
                             {artifactUrl ? (
                               <a href={artifactUrl} target="_blank" rel="noopener noreferrer" className="group flex items-center gap-1 font-medium text-lava hover:text-lava-hover">
-                                <span title={artifact.artifact_name}>{displayName}</span>
-                                <svg className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <span>{displayName}</span>
+                                <svg
+                                  data-testid={isSP ? "service-principal-external-link" : undefined}
+                                  aria-hidden="true"
+                                  className="h-3 w-3 shrink-0 opacity-60 transition-opacity group-hover:opacity-100"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                                 </svg>
                               </a>
                             ) : (
-                              <span className="text-gray-700" title={artifact.artifact_name}>{displayName}</span>
+                              <span className="text-gray-700">{displayName}</span>
                             )}
                           </div>
                         </td>

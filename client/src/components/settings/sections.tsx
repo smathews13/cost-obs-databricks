@@ -406,17 +406,17 @@ export function DataTablesSection({ localSettings, updateSetting, caps }: Common
   );
 }
 
-// ── Access ────────────────────────────────────────────────────────────────────
+// ── Permissions & Access ──────────────────────────────────────────────────────
 export function AccessSection() {
   return (
     <div>
-      <SectionTitle title="Access" subtitle="System-table readiness, who can administer the app, and how it authenticates." />
+      <SectionTitle title="Permissions & Access" subtitle="App roles, service-principal identity, and effective Databricks resource access." />
       <SettingsPermissions />
     </div>
   );
 }
 
-// ── Access grants-pending fallback helper (used inline by shell if needed) ─────
+// ── Permissions grants-pending fallback helper (used inline by shell if needed)
 export function GrantsPendingCallout({ sql }: { sql: string }) {
   return (
     <Callout tone="warning">
