@@ -4,11 +4,21 @@ import asyncio
 import logging
 import os
 import re
+import threading
 import time
 from typing import Any
-from urllib.parse import parse_qs, quote, urlencode, urlparse
+from urllib.parse import quote
 
+from cachetools import TTLCache
 from fastapi import APIRouter, Request
+
+from server.feedback import (
+    safe_feedback_slack_url,
+    safe_https_url,
+    safe_slack_deep_link,
+    safe_slack_ids_target,
+    safe_slack_profile_url,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -31,8 +41,11 @@ _DEFAULT_FEEDBACK_ISSUE_URL = (
     "https://github.com/smathews13/cost-obs-databricks-v1.0/issues/new"
 )
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_SLACK_TEAM_PATTERN = re.compile(r"^T[A-Z0-9]{8,}$")
-_SLACK_MEMBER_PATTERN = re.compile(r"^[UW][A-Z0-9]{8,}$")
+_FEEDBACK_SETTINGS_TIMEOUT_SECONDS = 0.5
+_feedback_settings_cache: TTLCache[str, str | None] = TTLCache(maxsize=1, ttl=30)
+_feedback_settings_cache_lock = threading.Lock()
+_feedback_settings_load_lock = threading.Lock()
+_feedback_settings_generation = 0
 
 ROLE_CAPABILITIES = {
     "admin": {
@@ -65,74 +78,11 @@ def get_role_capabilities(role: str) -> dict[str, Any]:
     return dict(ROLE_CAPABILITIES.get(role, ROLE_CAPABILITIES["consumer"]))
 
 
-def _safe_https_url(value: str, *, host: str | None = None) -> str | None:
-    candidate = value.strip()
-    if not candidate:
-        return None
-    parsed = urlparse(candidate)
-    if (
-        parsed.scheme != "https"
-        or not parsed.netloc
-        or parsed.username
-        or parsed.password
-        or parsed.query
-        or parsed.fragment
-        or (host and parsed.hostname != host)
-    ):
-        return None
-    return candidate
-
-
-def _safe_slack_web_url(value: str) -> str | None:
-    candidate = _safe_https_url(value)
-    if not candidate:
-        return None
-    parsed = urlparse(candidate)
-    hostname = parsed.hostname or ""
-    if (
-        not hostname.endswith(".slack.com")
-        or hostname == "hooks.slack.com"
-        or not parsed.path.startswith("/team/")
-    ):
-        return None
-    return candidate
-
-
-def _safe_slack_deep_link(value: str) -> str | None:
-    candidate = value.strip()
-    if not candidate:
-        return None
-    parsed = urlparse(candidate)
-    if (
-        parsed.scheme != "slack"
-        or parsed.netloc != "user"
-        or parsed.path not in ("", "/")
-        or parsed.username
-        or parsed.password
-        or parsed.fragment
-    ):
-        return None
-    try:
-        query = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=True)
-    except ValueError:
-        return None
-    if set(query) != {"team", "id"}:
-        return None
-    team_id = query["team"]
-    member_id = query["id"]
-    if (
-        len(team_id) != 1
-        or len(member_id) != 1
-        or not _SLACK_TEAM_PATTERN.fullmatch(team_id[0])
-        or not _SLACK_MEMBER_PATTERN.fullmatch(member_id[0])
-    ):
-        return None
-    return f"slack://user?{urlencode({'team': team_id[0], 'id': member_id[0]})}"
-
-
-def _feedback_targets_from_env() -> dict[str, Any]:
-    """Return public feedback destinations only; never return webhook credentials."""
-    configured_issue_url = _safe_https_url(
+def _feedback_targets_from_env(
+    persisted_slack_url: str | None = None,
+) -> dict[str, Any]:
+    """Return safe feedback targets, preferring runtime environment values."""
+    configured_issue_url = safe_https_url(
         os.getenv("COST_OBS_FEEDBACK_GITHUB_URL", ""),
         host="github.com",
     )
@@ -145,12 +95,13 @@ def _feedback_targets_from_env() -> dict[str, Any]:
 
     team_id = os.getenv("COST_OBS_FEEDBACK_SLACK_TEAM_ID", "").strip()
     member_id = os.getenv("COST_OBS_FEEDBACK_SLACK_MEMBER_ID", "").strip()
-    slack_web_url = _safe_slack_web_url(
+    slack_web_url = safe_slack_profile_url(
         os.getenv("COST_OBS_FEEDBACK_SLACK_WEB_URL", "")
     )
     configured_slack_url = os.getenv("COST_OBS_FEEDBACK_SLACK_URL", "")
-    slack_deep_link = _safe_slack_deep_link(configured_slack_url)
-    configured_slack_web_url = _safe_slack_web_url(configured_slack_url)
+    slack_deep_link = safe_slack_deep_link(configured_slack_url)
+    configured_slack_web_url = safe_slack_profile_url(configured_slack_url)
+    legacy_slack_deep_link = safe_slack_ids_target(team_id, member_id)
     slack = None
     if slack_deep_link:
         slack = {
@@ -162,12 +113,9 @@ def _feedback_targets_from_env() -> dict[str, Any]:
             "url": configured_slack_web_url,
             "fallback_url": None,
         }
-    elif (
-        _SLACK_TEAM_PATTERN.fullmatch(team_id)
-        and _SLACK_MEMBER_PATTERN.fullmatch(member_id)
-    ):
+    elif legacy_slack_deep_link:
         slack = {
-            "url": f"slack://user?{urlencode({'team': team_id, 'id': member_id})}",
+            "url": legacy_slack_deep_link,
             "fallback_url": slack_web_url,
         }
     elif slack_web_url:
@@ -175,12 +123,75 @@ def _feedback_targets_from_env() -> dict[str, Any]:
             "url": slack_web_url,
             "fallback_url": None,
         }
+    else:
+        runtime_slack_url = (
+            safe_feedback_slack_url(persisted_slack_url)
+            if isinstance(persisted_slack_url, str)
+            else None
+        )
+        if runtime_slack_url:
+            slack = {
+                "url": runtime_slack_url,
+                "fallback_url": None,
+            }
 
     return {
         "github_issue_url": configured_issue_url or _DEFAULT_FEEDBACK_ISSUE_URL,
         "email_href": email_href,
         "slack": slack,
     }
+
+
+def invalidate_feedback_settings_cache() -> None:
+    """Clear the bounded runtime target cache after an admin settings save."""
+    global _feedback_settings_generation
+    with _feedback_settings_cache_lock:
+        _feedback_settings_generation += 1
+        _feedback_settings_cache.clear()
+
+
+def _load_persisted_feedback_slack_url() -> str | None:
+    """Read and validate the durable target without allowing duplicate hung loads."""
+    with _feedback_settings_cache_lock:
+        if "slack_url" in _feedback_settings_cache:
+            return _feedback_settings_cache["slack_url"]
+        generation = _feedback_settings_generation
+
+    if not _feedback_settings_load_lock.acquire(blocking=False):
+        return None
+    try:
+        from server.routers.settings import get_app_settings
+
+        settings = get_app_settings()
+        raw_url = settings.get("feedback_slack_url")
+        slack_url = (
+            safe_feedback_slack_url(raw_url)
+            if isinstance(raw_url, str)
+            else None
+        )
+        with _feedback_settings_cache_lock:
+            if generation == _feedback_settings_generation:
+                _feedback_settings_cache["slack_url"] = slack_url
+        return slack_url
+    except Exception:
+        logger.warning("Could not load durable feedback target")
+        with _feedback_settings_cache_lock:
+            if generation == _feedback_settings_generation:
+                _feedback_settings_cache["slack_url"] = None
+        return None
+    finally:
+        _feedback_settings_load_lock.release()
+
+
+async def _persisted_feedback_slack_url() -> str | None:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_load_persisted_feedback_slack_url),
+            timeout=_FEEDBACK_SETTINGS_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("Durable feedback target lookup timed out")
+        return None
 
 
 def _collect_sp_names(sp_iter) -> dict[str, str]:
@@ -289,7 +300,11 @@ async def get_current_user(request: Request):
 @router.get("/feedback-targets")
 async def get_feedback_targets() -> dict[str, Any]:
     """Expose customer-safe feedback links configured at app runtime."""
-    return _feedback_targets_from_env()
+    env_targets = _feedback_targets_from_env()
+    if env_targets["slack"]:
+        return env_targets
+    persisted_slack_url = await _persisted_feedback_slack_url()
+    return _feedback_targets_from_env(persisted_slack_url)
 
 
 @router.get("/service-principals")

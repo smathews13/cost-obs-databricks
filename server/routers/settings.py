@@ -16,6 +16,8 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel
 
+from server.feedback import safe_feedback_slack_url
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -3345,9 +3347,10 @@ _APP_SETTINGS_DEFAULTS: dict = {
     "enable_architecture_view": False,
     "anonymize_users": False,
     "tab_visibility": _DEFAULT_TAB_VISIBILITY,
+    "feedback_slack_url": None,
 }
 
-# Keys the client may write into app_settings (env-bound values are never accepted).
+# Keys internal settings handlers may persist in app_settings.
 _APP_SETTINGS_ALLOWED = set(_APP_SETTINGS_DEFAULTS.keys())
 
 APP_SETTINGS_FILE = os.path.join(SETTINGS_DIR, "app_settings.json")
@@ -3373,6 +3376,12 @@ def _sanitize_app_settings(data: dict) -> dict:
         clean.get("enable_architecture_view")
         if isinstance(clean.get("enable_architecture_view"), bool)
         else False
+    )
+    feedback_slack_url = clean.get("feedback_slack_url")
+    clean["feedback_slack_url"] = (
+        safe_feedback_slack_url(feedback_slack_url)
+        if isinstance(feedback_slack_url, str)
+        else None
     )
     if isinstance(clean.get("tab_visibility"), dict):
         clean["tab_visibility"] = dict(clean["tab_visibility"])
@@ -3408,6 +3417,16 @@ def save_app_settings(partial: dict) -> dict:
     with _settings_write_lock("app-settings"):
         current = get_app_settings()
         clean = {k: v for k, v in (partial or {}).items() if k in _APP_SETTINGS_ALLOWED}
+        if "feedback_slack_url" in clean and clean["feedback_slack_url"] is not None:
+            if not isinstance(clean["feedback_slack_url"], str):
+                raise ValueError("Slack feedback URL must be a string or null.")
+            validated_slack_url = safe_feedback_slack_url(clean["feedback_slack_url"])
+            if not validated_slack_url:
+                raise ValueError(
+                    "Slack feedback URL must be a complete Slack user deep link "
+                    "or HTTPS member profile URL."
+                )
+            clean["feedback_slack_url"] = validated_slack_url
         if isinstance(clean.get("tab_visibility"), dict):
             current_visibility = current.get("tab_visibility")
             if not isinstance(current_visibility, dict):
@@ -3531,6 +3550,9 @@ def _settings_snapshot(request: Request) -> dict:
             "anomaly_sensitivity": app.get("anomaly_sensitivity", "medium"),
         },
         "webhook": _webhook_masked(),
+        "feedback": {
+            "slack_configured": bool(app.get("feedback_slack_url")),
+        },
         "pricing": {"use_account_prices": bool(_load_pricing_settings().get("use_account_prices", False))},
         "schedule": load_schedule_settings(),
         "experimental": {
@@ -3553,6 +3575,33 @@ async def put_unified_settings(request: Request) -> dict:
     """Partial settings update — dispatches each sub-object to its domain store. Admin-only."""
     await _require_admin_async(request)
     body = await request.json()
+
+    feedback_has_slack_url = False
+    feedback_slack_url: str | None = None
+    if "feedback" in body:
+        feedback = body["feedback"]
+        if not isinstance(feedback, dict):
+            raise HTTPException(status_code=422, detail="feedback must be an object.")
+        if "slack_url" in feedback:
+            feedback_has_slack_url = True
+            raw_slack_url = feedback["slack_url"]
+            if raw_slack_url is None:
+                feedback_slack_url = None
+            elif isinstance(raw_slack_url, str):
+                feedback_slack_url = safe_feedback_slack_url(raw_slack_url)
+                if not feedback_slack_url:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "feedback.slack_url must be a complete Slack user deep link "
+                            "or HTTPS member profile URL."
+                        ),
+                    )
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail="feedback.slack_url must be a string or null.",
+                )
 
     def _apply() -> dict:
         # app_settings-backed groups (general prefs, tab visibility, experimental, sensitivity)
@@ -3591,6 +3640,9 @@ async def put_unified_settings(request: Request) -> dict:
             if changed_tv:
                 app_partial["tab_visibility"] = changed_tv
                 app_updated_count += len(changed_tv)
+        if feedback_has_slack_url:
+            app_partial["feedback_slack_url"] = feedback_slack_url
+            app_updated_count += 1
 
         thresholds = body.get("thresholds")
         if isinstance(thresholds, dict):
@@ -3616,7 +3668,14 @@ async def put_unified_settings(request: Request) -> dict:
                     updated_count += len(threshold_keys)
 
         if app_partial:
-            if _run_domain("app", lambda: save_app_settings(app_partial)):
+            def _save_app_domain() -> None:
+                save_app_settings(app_partial)
+                if feedback_has_slack_url:
+                    from server.routers.user import invalidate_feedback_settings_cache
+
+                    invalidate_feedback_settings_cache()
+
+            if _run_domain("app", _save_app_domain):
                 updated_count += app_updated_count
 
         webhook = body.get("webhook")

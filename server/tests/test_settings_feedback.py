@@ -14,6 +14,175 @@ from server import auth
 from server.routers import settings, user
 
 
+class _JsonRequest:
+    headers: dict[str, str] = {}
+
+    def __init__(self, body: dict):
+        self._body = body
+
+    async def json(self) -> dict:
+        return self._body
+
+
+def test_feedback_target_is_internal_allowed_setting_with_safe_default():
+    assert settings._APP_SETTINGS_DEFAULTS["feedback_slack_url"] is None
+    assert "feedback_slack_url" in settings._APP_SETTINGS_ALLOWED
+    unsafe = "https://hooks.slack.com/services/" + "synthetic-secret"
+
+    sanitized = settings._sanitize_app_settings({"feedback_slack_url": unsafe})
+
+    assert sanitized["feedback_slack_url"] is None
+    assert "synthetic-secret" not in repr(sanitized)
+
+
+def test_admin_can_save_feedback_target_without_discarding_other_settings(
+    tmp_path,
+):
+    team_id = "T" + ("E" * 8)
+    member_id = "U" + ("F" * 8)
+    slack_url = f"slack://user?id={member_id}&team={team_id}"
+    existing = {
+        **settings._APP_SETTINGS_DEFAULTS,
+        "company_name": "Example Co",
+        "theme": "dark",
+        "tab_visibility": {
+            **settings._DEFAULT_TAB_VISIBILITY,
+            "infra": False,
+        },
+    }
+    writes: list[dict] = []
+
+    def capture_write(sql, params=None):
+        if "INSERT OVERWRITE" in sql:
+            writes.append(json.loads(params["s"]))
+
+    request = _JsonRequest({"feedback": {"slack_url": slack_url}})
+    with (
+        patch.object(
+            settings,
+            "_require_admin_async",
+            new=AsyncMock(return_value="admin@example.com"),
+        ),
+        patch.object(settings, "APP_SETTINGS_FILE", str(tmp_path / "app_settings.json")),
+        patch.object(settings, "get_app_settings", return_value=existing),
+        patch.object(settings, "_ensure_app_settings_table"),
+        patch.object(
+            settings,
+            "_config_table",
+            return_value="`catalog`.`schema`.`app_settings`",
+        ),
+        patch("server.db.execute_write", side_effect=capture_write),
+    ):
+        result = asyncio.run(settings.put_unified_settings(request))
+
+    assert result == {
+        "status": "saved",
+        "updated_count": 1,
+        "domains": {"app": {"ok": True}},
+    }
+    assert len(writes) == 1
+    persisted = writes[0]
+    assert persisted["feedback_slack_url"] == (
+        f"slack://user?team={team_id}&id={member_id}"
+    )
+    assert persisted["company_name"] == "Example Co"
+    assert persisted["theme"] == "dark"
+    assert persisted["tab_visibility"]["infra"] is False
+
+
+def test_settings_snapshot_redacts_feedback_target():
+    team_id = "T" + ("G" * 8)
+    member_id = "W" + ("H" * 8)
+    slack_url = f"slack://user?team={team_id}&id={member_id}"
+    with (
+        patch.object(settings, "get_app_settings", return_value={
+            **settings._APP_SETTINGS_DEFAULTS,
+            "feedback_slack_url": slack_url,
+        }),
+        patch.object(settings, "_load_alert_thresholds", return_value={}),
+        patch.object(settings, "_load_pricing_settings", return_value={}),
+        patch.object(settings, "load_schedule_settings", return_value={}),
+        patch.object(settings, "_webhook_masked", return_value={}),
+        patch.object(settings, "_capabilities", return_value={}),
+    ):
+        snapshot = settings._settings_snapshot(_JsonRequest({}))
+
+    assert snapshot["feedback"] == {"slack_configured": True}
+    assert team_id not in repr(snapshot)
+    assert member_id not in repr(snapshot)
+    assert "slack://" not in repr(snapshot)
+    assert "feedback_slack_url" not in repr(snapshot)
+
+
+def test_consumer_cannot_save_feedback_target():
+    member_id = "U" + ("J" * 8)
+    request = _JsonRequest({
+        "feedback": {
+            "slack_url": f"https://workspace.slack.com/team/{member_id}",
+        }
+    })
+    denied = HTTPException(status_code=403, detail="Administrator access required")
+    with (
+        patch.object(
+            settings,
+            "_require_admin_async",
+            new=AsyncMock(side_effect=denied),
+        ),
+        patch.object(settings, "save_app_settings") as save,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(settings.put_unified_settings(request))
+
+    assert exc.value.status_code == 403
+    save.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "slack_url",
+    [
+        "https://hooks.slack.com/services/" + "synthetic-secret",
+        "https://workspace.slack.com/team/" + ("U" + ("K" * 8)) + "?token=secret",
+        "https://user:secret@workspace.slack.com/team/" + ("U" + ("L" * 8)),
+        "slack://user?team=" + ("T" + ("M" * 8)),
+        "slack://user?id=" + ("U" + ("N" * 8)),
+        "https://workspace.slack.com/team/not-a-member-id",
+    ],
+)
+def test_unified_settings_rejects_unsafe_feedback_urls(slack_url):
+    request = _JsonRequest({"feedback": {"slack_url": slack_url}})
+    with (
+        patch.object(
+            settings,
+            "_require_admin_async",
+            new=AsyncMock(return_value="admin@example.com"),
+        ),
+        patch.object(settings, "save_app_settings") as save,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(settings.put_unified_settings(request))
+
+    assert exc.value.status_code == 422
+    assert "secret" not in str(exc.value.detail)
+    save.assert_not_called()
+
+
+def test_admin_can_clear_feedback_target_with_null():
+    request = _JsonRequest({"feedback": {"slack_url": None}})
+    with (
+        patch.object(
+            settings,
+            "_require_admin_async",
+            new=AsyncMock(return_value="admin@example.com"),
+        ),
+        patch.object(settings, "save_app_settings") as save,
+    ):
+        result = asyncio.run(settings.put_unified_settings(request))
+
+    save.assert_called_once_with({"feedback_slack_url": None})
+    assert result["status"] == "saved"
+    assert result["updated_count"] == 1
+
+
 def test_history_is_classified_persisted_and_filtered(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "SETTINGS_DIR", str(tmp_path))
     entries = [
