@@ -4,11 +4,13 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchSubmitAndPoll,
+  getDefaultDateRange,
   responsePayloadIssue,
   setActiveSourceLabels,
   useAppsDashboardBundle,
   useDashboardBundleFast,
   useDBSQLQueryCosts,
+  useDBSQLTopQueries,
 } from "./useBillingData";
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -22,6 +24,31 @@ function jsonResponse(status: number, body?: unknown, headers?: HeadersInit): Re
     },
   });
 }
+
+describe("default billing date ranges", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-30T12:00:00"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([7, 14, 30, 90])(
+    "returns exactly %i inclusive days ending yesterday",
+    (days) => {
+      const range = getDefaultDateRange(days);
+      const elapsedDays = (
+        Date.parse(`${range.endDate}T00:00:00Z`)
+        - Date.parse(`${range.startDate}T00:00:00Z`)
+      ) / 86_400_000;
+
+      expect(range.endDate).toBe("2026-08-29");
+      expect(elapsedDays + 1).toBe(days);
+    },
+  );
+});
 
 describe("fetchSubmitAndPoll", () => {
   beforeEach(() => {
@@ -181,6 +208,50 @@ describe("dashboard source scope", () => {
     const url = new URL(String(fetchMock.mock.calls[0][0]), "https://example.test");
     expect(url.searchParams.getAll("source_labels")).toEqual(["shared-west"]);
     expect(url.searchParams.get("workspace_ids")).toBe("1,2");
+  });
+
+  it("separates scoped SQL drilldown requests in the cache", async () => {
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(200, { available: true, queries: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const range = { startDate: "2026-08-01", endDate: "2026-08-28" };
+
+    setActiveSourceLabels(["shared-east"]);
+    const east = renderHook(
+      () => useDBSQLTopQueries(range, ["1"], true),
+      { wrapper },
+    );
+    await waitFor(() => expect(east.result.current.isSuccess).toBe(true));
+
+    setActiveSourceLabels(["shared-west"]);
+    const west = renderHook(
+      () => useDBSQLTopQueries(range, ["2"], true),
+      { wrapper },
+    );
+    await waitFor(() => expect(west.result.current.isSuccess).toBe(true));
+
+    const keys = client.getQueryCache().getAll().map((query) => query.queryKey);
+    expect(keys).toContainEqual([
+      "dbsql", "top-queries", range, "1", "shared-east",
+    ]);
+    expect(keys).toContainEqual([
+      "dbsql", "top-queries", range, "2", "shared-west",
+    ]);
+    const urls = fetchMock.mock.calls.map(([url]) =>
+      new URL(String(url), "https://example.test"));
+    expect(urls[0].searchParams.getAll("source_labels")).toEqual(["shared-east"]);
+    expect(urls[0].searchParams.get("workspace_ids")).toBe("1");
+    expect(urls[1].searchParams.getAll("source_labels")).toEqual(["shared-west"]);
+    expect(urls[1].searchParams.get("workspace_ids")).toBe("2");
+
+    east.unmount();
+    west.unmount();
   });
 });
 

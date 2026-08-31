@@ -26,12 +26,12 @@ import asyncio
 import logging
 import os
 import time
-from datetime import date, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Query
 
 from server.db import execute_query, local_source_is_selected
+from server.request_limits import default_date_range, validate_date_range
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -153,11 +153,13 @@ ORDER BY date
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _defaults(start_date, end_date):
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
-    return start_date, end_date
+    default_start, default_end = default_date_range()
+    return validate_date_range(
+        start_date,
+        end_date,
+        default_start=default_start,
+        default_end=default_end,
+    )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────

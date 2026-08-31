@@ -1,4 +1,9 @@
-"""SQL query templates for billing data."""
+"""SQL query templates for billing data.
+
+Historical list cost always uses the shared half-open temporal price lookup.
+"""
+
+from server.queries.pricing import apply_temporal_list_price_join
 
 # Account info query
 ACCOUNT_INFO = """
@@ -22,10 +27,7 @@ WITH usage_with_price AS (
     u.usage_metadata,
     COALESCE(p.pricing.default, 0) as price_per_dbu
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
 )
@@ -65,10 +67,7 @@ WITH non_sql_usage AS (
       ELSE 'Other'
     END as product_category
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.billing_origin_product != 'SQL'
@@ -98,10 +97,7 @@ sql_usage AS (
     SUM(u.usage_quantity) as total_dbus,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.billing_origin_product = 'SQL'
     AND u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
@@ -174,10 +170,7 @@ WITH non_sql_usage AS (
       ELSE 'Other'
     END as product_category
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.billing_origin_product != 'SQL'
@@ -207,10 +200,7 @@ sql_usage AS (
     SUM(u.usage_quantity) as total_dbus,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.billing_origin_product = 'SQL'
     AND u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
@@ -270,10 +260,7 @@ WITH usage_with_price AS (
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
 ),
@@ -354,10 +341,7 @@ WITH non_sql_usage AS (
       ELSE 'Other'
     END as product_category
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.billing_origin_product != 'SQL'
@@ -386,10 +370,7 @@ sql_usage AS (
     SUM(u.usage_quantity) as total_dbus,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.billing_origin_product = 'SQL'
     AND u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
@@ -469,10 +450,7 @@ sql_usage AS (
     SUM(u.usage_quantity) as total_dbus,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.billing_origin_product = 'SQL'
     AND u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
@@ -540,10 +518,7 @@ pipeline_usage AS (
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND (u.billing_origin_product IN ('JOBS', 'DLT') OR u.usage_metadata.dlt_pipeline_id IS NOT NULL)
@@ -589,10 +564,7 @@ WITH pipeline_usage AS (
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND (u.billing_origin_product IN ('JOBS', 'DLT') OR u.usage_metadata.dlt_pipeline_id IS NOT NULL)
@@ -634,10 +606,7 @@ WITH usage_with_price AS (
       ELSE NULL
     END as etl_type
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND (u.billing_origin_product IN ('JOBS', 'DLT') OR u.usage_metadata.dlt_pipeline_id IS NOT NULL)
@@ -666,10 +635,7 @@ WITH interactive_usage AS (
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.sku_name LIKE '%ALL_PURPOSE%'
@@ -936,10 +902,7 @@ SELECT
   SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend,
   ROUND(100.0 * SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) / SUM(SUM(u.usage_quantity * COALESCE(p.pricing.default, 0))) OVER (), 2) as percentage
 FROM system.billing.usage u
-LEFT JOIN system.billing.list_prices p
-  ON u.sku_name = p.sku_name
-  AND u.cloud = p.cloud
-  AND p.price_end_time IS NULL
+/* TEMPORAL_LIST_PRICE_JOIN */
 WHERE u.usage_date >= :start_date
   AND u.usage_date <= :end_date
   AND u.usage_quantity > 0
@@ -955,10 +918,7 @@ WITH daily_stats AS (
     u.usage_date,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as daily_spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date >= :start_date
     AND u.usage_date <= :end_date
     AND u.usage_quantity > 0
@@ -1100,10 +1060,7 @@ WITH usage_with_price AS (
       ELSE 'Other'
     END as product_category
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
 )
@@ -1137,10 +1094,7 @@ WITH usage_with_price AS (
       ELSE 'Other'
     END as product_category
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
 )
@@ -1166,11 +1120,7 @@ WITH usage_filtered AS (
     u.usage_quantity AS estimated_dbu_hours,
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS databricks_spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND u.usage_start_time >= p.price_start_time
-    AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.usage_metadata.cluster_id IS NOT NULL
@@ -1337,6 +1287,7 @@ WHERE usage_date >= :start_date
   AND usage_quantity > 0
 """
 
+
 AVG_DAILY_WORKSPACES = """
 SELECT ROUND(AVG(daily_count)) as avg_daily_workspaces
 FROM (
@@ -1415,3 +1366,11 @@ WHERE period_start_time >= :start_date
   AND period_end_time IS NOT NULL
   {ws_filter}
 """
+
+
+# Expand the canonical pricing fragment only after every template is declared.
+# Keeping one marker in each raw template makes divergent current-price joins
+# impossible while preserving the module's existing string constants API.
+for _query_name, _query_value in tuple(globals().items()):
+    if isinstance(_query_value, str) and "/* TEMPORAL_LIST_PRICE_JOIN */" in _query_value:
+        globals()[_query_name] = apply_temporal_list_price_join(_query_value)

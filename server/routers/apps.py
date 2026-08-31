@@ -19,7 +19,9 @@ from fastapi.responses import JSONResponse, Response
 from server import cache_ttls
 from server import workspace_filter as wf
 from server.db import (
+    BundleOverloadedError,
     CacheGeneration,
+    SQLExecutionError,
     apply_mv_overrides,
     bundle_cache_key,
     capture_cache_generation,
@@ -29,10 +31,21 @@ from server.db import (
     execute_query,
     get_catalog_schema,
     get_workspace_client,
+    recover_optional_bundle_queries,
     selected_source_labels,
     source_label_filter_clause,
+    start_bundle_compute,
 )
 from server.materialized_views import MV_APPS_AVG_COST_PER_APP
+from server.queries.pricing import (
+    apply_temporal_list_price_join,
+    temporal_list_price_join,
+)
+from server.request_limits import (
+    default_date_range,
+    parse_workspace_ids,
+    validate_date_range,
+)
 from server.routers.billing import _check_mv_available
 
 # Workspace service-principal detail routes use the numeric SCIM object ID.
@@ -48,12 +61,12 @@ _apps_bundle_inflight_lock = threading.Lock()
 
 def get_default_start_date() -> str:
     """Get default start date (last 30 days)."""
-    return (date.today() - timedelta(days=30)).isoformat()
+    return default_date_range()[0]
 
 
 def get_default_end_date() -> str:
-    """Get default end date (today)."""
-    return date.today().isoformat()
+    """Get default end date (last complete UTC day)."""
+    return default_date_range()[1]
 
 
 # The active_days param controls the "active" filter: apps with usage in
@@ -449,10 +462,7 @@ WITH apps_usage AS (
     u.usage_metadata,
     COALESCE(p.pricing.default, 0) as price_per_dbu
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.billing_origin_product = 'APPS'
@@ -501,10 +511,7 @@ WITH apps_usage AS (
     COALESCE(u.usage_metadata.app_id, 'Unknown') as app_id,
     COALESCE(p.pricing.default, 0) as price_per_dbu
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.billing_origin_product = 'APPS'
@@ -597,10 +604,7 @@ SELECT
   SUM(u.usage_quantity) as total_dbus,
   SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend
 FROM system.billing.usage u
-LEFT JOIN system.billing.list_prices p
-  ON u.sku_name = p.sku_name
-  AND u.cloud = p.cloud
-  AND p.price_end_time IS NULL
+/* TEMPORAL_LIST_PRICE_JOIN */
 WHERE u.usage_date BETWEEN :start_date AND :end_date
   AND u.usage_quantity > 0
   AND u.billing_origin_product = 'APPS'
@@ -617,10 +621,7 @@ WITH apps_usage AS (
     u.usage_quantity,
     COALESCE(p.pricing.default, 0) as price_per_dbu
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.billing_origin_product = 'APPS'
@@ -715,6 +716,10 @@ WHERE usage_date BETWEEN :start_date AND :end_date
 GROUP BY app_id, sku_name
 ORDER BY app_id, total_spend DESC
 """
+
+for _query_name, _query_value in list(globals().items()):
+    if isinstance(_query_value, str) and "/* TEMPORAL_LIST_PRICE_JOIN */" in _query_value:
+        globals()[_query_name] = apply_temporal_list_price_join(_query_value)
 
 
 def _process_apps(
@@ -1021,10 +1026,7 @@ def _compute_apps_bundle(
           SUM(u.usage_quantity) as total_dbus,
           SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend
         FROM system.billing.usage u
-        LEFT JOIN system.billing.list_prices p
-          ON u.sku_name = p.sku_name
-          AND u.cloud = p.cloud
-          AND p.price_end_time IS NULL
+        {temporal_list_price_join()}
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.billing_origin_product = 'APPS'
@@ -1042,8 +1044,7 @@ def _compute_apps_bundle(
             SUM(u.usage_quantity * COALESCE(p.pricing.default, 0))
               / NULLIF(COUNT(DISTINCT u.usage_metadata.app_id), 0) as daily_cost_per_app
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+          {temporal_list_price_join()}
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND u.billing_origin_product = 'APPS'
@@ -1077,6 +1078,8 @@ def _compute_apps_bundle(
                     )
                     mv_sql = apply_mv_overrides(mv_sql, cat, sch)
                     return execute_query(mv_sql, params)
+                except SQLExecutionError:
+                    raise
                 except Exception as e:
                     if selected_source_labels():
                         raise
@@ -1093,7 +1096,14 @@ def _compute_apps_bundle(
             ("service_principals", lambda: execute_query(_ws(APPS_SERVICE_PRINCIPALS), params)),
         ]
 
-        results = execute_queries_parallel(queries, 75.0)
+        required_queries = {"summary", "apps", "timeseries"}
+        try:
+            results = execute_queries_parallel(queries, 75.0)
+            optional_failures: dict[str, str] = {}
+        except SQLExecutionError as exc:
+            results, optional_failures = recover_optional_bundle_queries(
+                exc, required_queries
+            )
 
         # Build workspace lookup per app_id
         workspace_rows = results.get("workspaces", []) or []
@@ -1240,6 +1250,8 @@ def _compute_apps_bundle(
             })
 
         _resp = {
+            "availability": "partial" if optional_failures else "available",
+            "partial_reasons": optional_failures,
             "summary": summary,
             "apps": apps_result,
             "timeseries": {"timeseries": timeseries, "categories": ["Total"]},
@@ -1262,7 +1274,13 @@ def _compute_apps_bundle(
             and total_dbus_all == 0
             and not apps_result.get("apps")
         )
-        _degraded = _summary_missing or _apps_missing or _timeseries_missing or _bundle_empty
+        _degraded = (
+            bool(optional_failures)
+            or _summary_missing
+            or _apps_missing
+            or _timeseries_missing
+            or _bundle_empty
+        )
         if _degraded:
             cache_ttl = 60
             logger.info(
@@ -1279,6 +1297,7 @@ def _compute_apps_bundle(
                 _resp,
                 ttl_seconds=cache_ttl,
                 generation=cache_generation,
+                wait_for_remote=True,
             )
         except Exception as _ce:
             logger.debug("Delta cache write failed for apps/dashboard-bundle: %s", _ce)
@@ -1288,19 +1307,6 @@ def _compute_apps_bundle(
         )
     except Exception as e:
         logger.error("apps dashboard-bundle background compute failed: %s", e, exc_info=True)
-        try:
-            delta_cache_put(
-                dkey,
-                _endpoint,
-                {"_error": str(e), "status": "error"},
-                ttl_seconds=60,
-                generation=cache_generation,
-            )
-        except Exception:
-            pass
-    finally:
-        with _apps_bundle_inflight_lock:
-            _apps_bundle_inflight.discard(dkey)
 
 
 @router.get("/dashboard-bundle")
@@ -1311,15 +1317,18 @@ async def get_apps_dashboard_bundle(
     workspace_ids: str = Query(default=None),
 ) -> dict[str, Any]:
     """Get all Apps dashboard data in a single request (submit-and-poll: 202 on cache miss)."""
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    validated_start, validated_end = validate_date_range(
+        start_date,
+        end_date,
+        default_start=get_default_start_date(),
+        default_end=get_default_end_date(),
+    )
+    params = {"start_date": validated_start, "end_date": validated_end}
+    id_list = parse_workspace_ids(workspace_ids)
     _endpoint = f"apps:dashboard-bundle:{'active' if active_only else 'all'}"
     _dkey = bundle_cache_key(_endpoint, params["start_date"], params["end_date"], id_list)
 
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         if isinstance(_dcached, dict) and "_error" in _dcached:
             raise HTTPException(status_code=500, detail=_dcached.get("_error", "Bundle compute failed"))
         try:
@@ -1333,27 +1342,30 @@ async def get_apps_dashboard_bundle(
             # recompute under the same date/workspace/source-scoped cache key.
             logger.info("Ignoring stale Apps bundle with legacy active-count contract")
 
-    with _apps_bundle_inflight_lock:
-        if _dkey not in _apps_bundle_inflight:
-            _apps_bundle_inflight.add(_dkey)
-            request_context = contextvars.copy_context()
-            cache_generation = capture_cache_generation(_endpoint)
-            threading.Thread(
-                target=request_context.run,
-                args=(
-                    _compute_apps_bundle,
-                    params,
-                    id_list,
-                    active_only,
-                    _dkey,
-                    cache_generation,
-                ),
-                daemon=True,
-                name="apps-bundle-bg",
-            ).start()
+    cache_generation = capture_cache_generation(_endpoint)
+    try:
+        started = await asyncio.to_thread(
+            start_bundle_compute,
+            _dkey,
+            lambda: _compute_apps_bundle(
+                params,
+                id_list,
+                active_only,
+                _dkey,
+                cache_generation,
+            ),
+            name="apps-bundle",
+        )
+        if started:
             logger.info("apps dashboard-bundle: started background compute for %s", _dkey)
         else:
-            logger.debug("apps dashboard-bundle: already inflight for %s", _dkey)
+            logger.debug("apps dashboard-bundle: already claimed for %s", _dkey)
+    except BundleOverloadedError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"message": str(exc), "error_code": exc.code},
+            headers={"Retry-After": "2"},
+        ) from exc
 
     return JSONResponse(
         status_code=202,
@@ -1398,7 +1410,7 @@ async def get_apps_kpi_trend(
         params["end_date"],
         id_list,
     )
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation(cache_endpoint)
 
@@ -1416,10 +1428,7 @@ async def get_apps_kpi_trend(
             u.usage_quantity,
             COALESCE(p.pricing.default, 0) as price_per_dbu
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name
-            AND u.cloud = p.cloud
-            AND p.price_end_time IS NULL
+          {temporal_list_price_join()}
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND u.billing_origin_product = 'APPS'
@@ -1486,8 +1495,7 @@ async def get_apps_kpi_trend(
           SUM(usage_quantity * COALESCE(p.pricing.default, 0))
             / NULLIF(COUNT(DISTINCT COALESCE(u.usage_metadata.app_id, 'unknown')), 0) as value
         FROM system.billing.usage u
-        LEFT JOIN system.billing.list_prices p
-          ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+        {temporal_list_price_join()}
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.billing_origin_product = 'APPS'

@@ -26,6 +26,12 @@ from server.db import (
     source_label_filter_clause,
 )
 from server.materialized_views import MV_TAG_STATS, MV_TAGGING_SUMMARY
+from server.request_limits import (
+    cap_detail_items,
+    default_date_range,
+    parse_workspace_ids,
+    validate_date_range,
+)
 from server.routers.billing import _check_mv_available
 
 router = APIRouter()
@@ -61,12 +67,12 @@ def _lakeflow_mark_failure() -> None:
 
 def get_default_start_date() -> str:
     """Get default start date (last 30 days)."""
-    return (date.today() - timedelta(days=30)).isoformat()
+    return default_date_range()[0]
 
 
 def get_default_end_date() -> str:
-    """Get default end date (today)."""
-    return date.today().isoformat()
+    """Get default end date (last complete UTC day)."""
+    return default_date_range()[1]
 
 
 # SQL Queries for Tagging Hub
@@ -1127,13 +1133,16 @@ async def get_tagging_dashboard_bundle(
     workspace_ids: str = Query(default=None),
 ) -> dict[str, Any]:
     """Get all tagging dashboard data in a single request."""
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    validated_start, validated_end = validate_date_range(
+        start_date,
+        end_date,
+        default_start=get_default_start_date(),
+        default_end=get_default_end_date(),
+    )
+    params = {"start_date": validated_start, "end_date": validated_end}
+    id_list = parse_workspace_ids(workspace_ids)
     _dkey = bundle_cache_key("tagging:dashboard-bundle", params["start_date"], params["end_date"], id_list)
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation("tagging:dashboard-bundle")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
@@ -1299,7 +1308,14 @@ async def get_tagging_dashboard_bundle(
             if "workspace_id" in item and item["workspace_id"] is not None:
                 item["workspace_id"] = str(item["workspace_id"])
             items.append(item)
-        return {"items": items, "total_spend": total, "count": len(items)}
+        available_count = len(items)
+        items, limit_info = cap_detail_items(items)
+        return {
+            "items": items,
+            "total_spend": total,
+            "count": available_count,
+            "limits": limit_info,
+        }
 
     # Format tag costs
     tag_data = results.get("cost_by_tag", []) or []
@@ -1314,6 +1330,7 @@ async def get_tagging_dashboard_bundle(
         }
         for r in tag_data
     ]
+    tags, tag_limit_info = cap_detail_items(tags)
 
     # Format timeseries
     ts_data = results.get("timeseries", []) or []
@@ -1335,7 +1352,11 @@ async def get_tagging_dashboard_bundle(
             "warehouses": format_untagged(results.get("warehouses"), "warehouses"),
             "endpoints": format_untagged(results.get("endpoints"), "endpoints"),
         },
-        "cost_by_tag": {"tags": tags, "total_spend": tag_total},
+        "cost_by_tag": {
+            "tags": tags,
+            "total_spend": tag_total,
+            "limits": tag_limit_info,
+        },
         "timeseries": {"timeseries": timeseries, "categories": ["Tagged", "Untagged"]},
         "start_date": params["start_date"],
         "end_date": params["end_date"],

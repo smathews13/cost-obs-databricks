@@ -25,6 +25,7 @@ from server.db import (
     execute_query,
     get_catalog_schema,
 )
+from server.queries.pricing import apply_temporal_list_price_join
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +50,7 @@ WITH usage_with_price AS (
     COALESCE(p.pricing.default, 0) as price_per_dbu,
     COALESCE(p.pricing.effective_list.default, p.pricing.default, 0) as effective_price_per_dbu
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
     AND u.usage_quantity > 0
 )
@@ -97,10 +95,7 @@ WITH usage_with_price AS (
       ELSE 'Other'
     END as product_category
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
     AND u.usage_quantity > 0
 )
@@ -128,10 +123,7 @@ WITH usage_with_price AS (
     COALESCE(p.pricing.default, 0) as price_per_dbu,
     COALESCE(p.pricing.effective_list.default, p.pricing.default, 0) as effective_price_per_dbu
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
     AND u.usage_quantity > 0
 )
@@ -176,10 +168,7 @@ sql_usage AS (
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend,
     SUM(u.usage_quantity * COALESCE(p.pricing.effective_list.default, p.pricing.default, 0)) as effective_list_spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.billing_origin_product = 'SQL'
     AND u.usage_date >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
     AND u.usage_quantity > 0
@@ -247,10 +236,7 @@ warehouse_hourly_usage AS (
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS hourly_dollars,
     SUM(u.usage_quantity * COALESCE(p.pricing.effective_list.default, p.pricing.default, 0)) AS hourly_dollars_effective
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.billing_origin_product = 'SQL'
     AND u.usage_metadata.warehouse_id IS NOT NULL
     AND u.usage_start_time >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
@@ -416,14 +402,6 @@ cpq_warehouse_usage AS (
     AND usage_end_time <= (SELECT MAX(selected_end_time) FROM table_boundaries)
 ),
 
-prices AS (
-  SELECT
-    coalesce(price_end_time, date_add(current_date, 1)) as coalesced_price_end_time,
-    *
-  FROM system.billing.list_prices
-  WHERE currency_code = 'USD'
-),
-
 filtered_warehouse_usage AS (
   SELECT
     u.warehouse_id warehouse_id,
@@ -432,10 +410,7 @@ filtered_warehouse_usage AS (
     u.usage_quantity AS dbus,
     (CAST(p.pricing.default AS FLOAT) * dbus) AS usage_dollars
   FROM cpq_warehouse_usage AS u
-  LEFT JOIN prices as p
-    ON u.sku_name=p.sku_name
-    AND u.usage_unit=p.usage_unit
-    AND (u.usage_end_time between p.price_start_time and p.coalesced_price_end_time)
+  /* TEMPORAL_LIST_PRICE_JOIN */
 ),
 
 table_bound_expld AS (
@@ -834,10 +809,7 @@ WITH tagged_usage AS (
     u.custom_tags,
     COALESCE(p.pricing.default, 0) AS price_per_dbu
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
     AND u.usage_quantity > 0
     AND u.custom_tags IS NOT NULL
@@ -881,10 +853,7 @@ SELECT
   SUM(u.usage_quantity) AS total_dbus,
   SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS total_spend
 FROM system.billing.usage u
-LEFT JOIN system.billing.list_prices p
-  ON u.sku_name = p.sku_name
-  AND u.cloud = p.cloud
-  AND p.price_end_time IS NULL
+/* TEMPORAL_LIST_PRICE_JOIN */
 WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
   AND u.usage_quantity > 0
   AND u.billing_origin_product = 'APPS'
@@ -903,10 +872,7 @@ USING (
     SUM(u.usage_quantity) AS total_dbus,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS total_spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date >= DATE('{reprocess_start}')
     AND u.usage_date <= CURRENT_DATE()
     AND u.usage_quantity > 0
@@ -919,6 +885,10 @@ ON tgt.usage_date = src.usage_date
   AND tgt.sku_name = src.sku_name
 WHEN MATCHED THEN UPDATE SET *
 WHEN NOT MATCHED BY TARGET THEN INSERT *
+WHEN NOT MATCHED BY SOURCE
+  AND tgt.usage_date >= DATE('{reprocess_start}')
+  AND tgt.usage_date <= CURRENT_DATE()
+THEN DELETE
 """
 
 MERGE_DAILY_TAG_SUMMARY = """
@@ -932,10 +902,7 @@ USING (
       u.custom_tags,
       COALESCE(p.pricing.default, 0) AS price_per_dbu
     FROM system.billing.usage u
-    LEFT JOIN system.billing.list_prices p
-      ON u.sku_name = p.sku_name
-      AND u.cloud = p.cloud
-      AND p.price_end_time IS NULL
+    /* TEMPORAL_LIST_PRICE_JOIN */
     WHERE u.usage_date >= DATE('{reprocess_start}')
       AND u.usage_date <= CURRENT_DATE()
       AND u.usage_quantity > 0
@@ -970,6 +937,10 @@ ON tgt.usage_date = src.usage_date
   AND tgt.tag_value = src.tag_value
 WHEN MATCHED THEN UPDATE SET *
 WHEN NOT MATCHED BY TARGET THEN INSERT *
+WHEN NOT MATCHED BY SOURCE
+  AND tgt.usage_date >= DATE('{reprocess_start}')
+  AND tgt.usage_date <= CURRENT_DATE()
+THEN DELETE
 """
 
 # Step 3: Refresh-state tracking table
@@ -1054,10 +1025,7 @@ USING (
       COALESCE(p.pricing.default, 0) as price_per_dbu,
       COALESCE(p.pricing.effective_list.default, p.pricing.default, 0) as effective_price_per_dbu
     FROM system.billing.usage u
-    LEFT JOIN system.billing.list_prices p
-      ON u.sku_name = p.sku_name
-      AND u.cloud = p.cloud
-      AND p.price_end_time IS NULL
+    /* TEMPORAL_LIST_PRICE_JOIN */
     WHERE u.usage_date >= DATE('{reprocess_start}')
       AND u.usage_date <= CURRENT_DATE()
       AND u.usage_quantity > 0
@@ -1075,6 +1043,10 @@ USING (
 ON tgt.usage_date = src.usage_date AND tgt.workspace_id = src.workspace_id
 WHEN MATCHED THEN UPDATE SET *
 WHEN NOT MATCHED BY TARGET THEN INSERT *
+WHEN NOT MATCHED BY SOURCE
+  AND tgt.usage_date >= DATE('{reprocess_start}')
+  AND tgt.usage_date <= CURRENT_DATE()
+THEN DELETE
 """
 
 MERGE_DAILY_PRODUCT_BREAKDOWN = """
@@ -1106,10 +1078,7 @@ USING (
         ELSE 'Other'
       END as product_category
     FROM system.billing.usage u
-    LEFT JOIN system.billing.list_prices p
-      ON u.sku_name = p.sku_name
-      AND u.cloud = p.cloud
-      AND p.price_end_time IS NULL
+    /* TEMPORAL_LIST_PRICE_JOIN */
     WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
       AND u.usage_date >= DATE('{reprocess_start}')
       AND u.usage_quantity > 0
@@ -1127,6 +1096,10 @@ USING (
 ON tgt.usage_date = src.usage_date AND tgt.workspace_id = src.workspace_id AND tgt.product_category = src.product_category
 WHEN MATCHED THEN UPDATE SET *
 WHEN NOT MATCHED BY TARGET THEN INSERT *
+WHEN NOT MATCHED BY SOURCE
+  AND tgt.usage_date >= DATE('{reprocess_start}')
+  AND tgt.usage_date <= CURRENT_DATE()
+THEN DELETE
 """
 
 MERGE_DAILY_WORKSPACE_BREAKDOWN = """
@@ -1141,10 +1114,7 @@ USING (
       COALESCE(p.pricing.default, 0) as price_per_dbu,
       COALESCE(p.pricing.effective_list.default, p.pricing.default, 0) as effective_price_per_dbu
     FROM system.billing.usage u
-    LEFT JOIN system.billing.list_prices p
-      ON u.sku_name = p.sku_name
-      AND u.cloud = p.cloud
-      AND p.price_end_time IS NULL
+    /* TEMPORAL_LIST_PRICE_JOIN */
     WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
       AND u.usage_date >= DATE('{reprocess_start}')
       AND u.usage_quantity > 0
@@ -1163,6 +1133,10 @@ USING (
 ON tgt.usage_date = src.usage_date AND tgt.workspace_id = src.workspace_id
 WHEN MATCHED THEN UPDATE SET *
 WHEN NOT MATCHED BY TARGET THEN INSERT *
+WHEN NOT MATCHED BY SOURCE
+  AND tgt.usage_date >= DATE('{reprocess_start}')
+  AND tgt.usage_date <= CURRENT_DATE()
+THEN DELETE
 """
 
 MERGE_SQL_TOOL_ATTRIBUTION = """
@@ -1194,10 +1168,7 @@ USING (
       SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend,
       SUM(u.usage_quantity * COALESCE(p.pricing.effective_list.default, p.pricing.default, 0)) as effective_list_spend
     FROM system.billing.usage u
-    LEFT JOIN system.billing.list_prices p
-      ON u.sku_name = p.sku_name
-      AND u.cloud = p.cloud
-      AND p.price_end_time IS NULL
+    /* TEMPORAL_LIST_PRICE_JOIN */
     WHERE u.billing_origin_product = 'SQL'
       AND u.usage_date >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
       AND u.usage_date >= DATE('{reprocess_start}')
@@ -1237,6 +1208,10 @@ USING (
 ON tgt.usage_date = src.usage_date AND tgt.workspace_id = src.workspace_id AND tgt.warehouse_id = src.warehouse_id AND tgt.sql_product = src.sql_product
 WHEN MATCHED THEN UPDATE SET *
 WHEN NOT MATCHED BY TARGET THEN INSERT *
+WHEN NOT MATCHED BY SOURCE
+  AND tgt.usage_date >= DATE('{reprocess_start}')
+  AND tgt.usage_date <= CURRENT_DATE()
+THEN DELETE
 """
 
 MERGE_QUERY_STATS = """
@@ -1258,6 +1233,10 @@ USING (
 ON tgt.usage_date = src.usage_date AND tgt.workspace_id = src.workspace_id
 WHEN MATCHED THEN UPDATE SET *
 WHEN NOT MATCHED BY TARGET THEN INSERT *
+WHEN NOT MATCHED BY SOURCE
+  AND tgt.usage_date >= DATE('{reprocess_start}')
+  AND tgt.usage_date <= CURRENT_DATE()
+THEN DELETE
 """
 
 MERGE_DBSQL_COST_PER_QUERY = """
@@ -1272,10 +1251,7 @@ USING (
       SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS hourly_dollars,
       SUM(u.usage_quantity * COALESCE(p.pricing.effective_list.default, p.pricing.default, 0)) AS hourly_dollars_effective
     FROM system.billing.usage u
-    LEFT JOIN system.billing.list_prices p
-      ON u.sku_name = p.sku_name
-      AND u.cloud = p.cloud
-      AND p.price_end_time IS NULL
+    /* TEMPORAL_LIST_PRICE_JOIN */
     WHERE u.billing_origin_product = 'SQL'
       AND u.usage_metadata.warehouse_id IS NOT NULL
       AND u.usage_start_time >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
@@ -1408,6 +1384,10 @@ USING (
 ON tgt.statement_id = src.statement_id
 WHEN MATCHED THEN UPDATE SET *
 WHEN NOT MATCHED BY TARGET THEN INSERT *
+WHEN NOT MATCHED BY SOURCE
+  AND tgt.query_date >= DATE('{reprocess_start}')
+  AND tgt.query_date <= CURRENT_DATE()
+THEN DELETE
 """
 
 
@@ -2295,8 +2275,7 @@ tagged_agg AS (
     u.workspace_id,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS tagged_spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.custom_tags IS NOT NULL
@@ -2427,3 +2406,9 @@ FROM (
   GROUP BY usage_date
 ) t
 """
+
+
+# Materialize the shared temporal fragment after every SQL template is defined.
+for _query_name, _query_value in tuple(globals().items()):
+    if isinstance(_query_value, str) and "/* TEMPORAL_LIST_PRICE_JOIN */" in _query_value:
+        globals()[_query_name] = apply_temporal_list_price_join(_query_value)

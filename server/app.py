@@ -10,7 +10,7 @@ import time
 import uuid
 import weakref
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -929,6 +929,100 @@ async def _run_in_daemon_thread(fn):
     return await fut
 
 
+def _as_utc_datetime(value: object) -> datetime | None:
+    """Parse a persisted scheduler timestamp and normalize it to UTC."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _last_successful_rebuild_dt(refresh_log: dict | None) -> datetime | None:
+    """Return the durable timestamp of the latest successful rebuild."""
+    if not refresh_log:
+        return None
+
+    successful: list[datetime] = []
+    for entry in refresh_log.get("refresh_history") or []:
+        if entry.get("status") != "success":
+            continue
+        # Older entries predate operation labels and are rebuilds by definition.
+        if entry.get("operation", "rebuild") != "rebuild":
+            continue
+        timestamp = _as_utc_datetime(entry.get("timestamp"))
+        if timestamp is not None:
+            successful.append(timestamp)
+
+    # Preserve compatibility with logs written before refresh_history existed,
+    # but never treat an error/blocked attempt's last_refresh_utc as a success.
+    if refresh_log.get("status") == "success":
+        timestamp = _as_utc_datetime(refresh_log.get("last_refresh_utc"))
+        if timestamp is not None:
+            successful.append(timestamp)
+
+    return max(successful, default=None)
+
+
+def _latest_expected_scheduled_occurrence(
+    now: datetime,
+    frequency: str,
+    hour_utc: int,
+) -> datetime:
+    """Return the most recent daily/weekly/monthly schedule slot in UTC."""
+    now_utc = (
+        now.replace(tzinfo=timezone.utc)
+        if now.tzinfo is None
+        else now.astimezone(timezone.utc)
+    )
+    hour = int(hour_utc)
+    if not 0 <= hour <= 23:
+        raise ValueError("hour_utc must be between 0 and 23")
+
+    today_slot = now_utc.replace(hour=hour, minute=0, second=0, microsecond=0)
+    normalized_frequency = "nightly" if frequency == "daily" else frequency
+    if normalized_frequency == "nightly":
+        return today_slot if today_slot <= now_utc else today_slot - timedelta(days=1)
+    if normalized_frequency == "weekly":
+        monday_slot = today_slot - timedelta(days=now_utc.weekday())
+        return monday_slot if monday_slot <= now_utc else monday_slot - timedelta(days=7)
+    if normalized_frequency == "monthly":
+        month_slot = today_slot.replace(day=1)
+        if month_slot <= now_utc:
+            return month_slot
+        previous_month_day = month_slot - timedelta(days=1)
+        return previous_month_day.replace(
+            day=1,
+            hour=hour,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+    raise ValueError(f"Unsupported schedule frequency: {frequency}")
+
+
+def _missed_scheduled_occurrence(
+    now: datetime,
+    frequency: str,
+    hour_utc: int,
+    last_successful_rebuild: datetime | None,
+) -> datetime | None:
+    """Return the due slot only when it has not been rebuilt successfully."""
+    expected = _latest_expected_scheduled_occurrence(now, frequency, hour_utc)
+    if last_successful_rebuild is None:
+        return expected
+    last_success_utc = (
+        last_successful_rebuild.replace(tzinfo=timezone.utc)
+        if last_successful_rebuild.tzinfo is None
+        else last_successful_rebuild.astimezone(timezone.utc)
+    )
+    return expected if last_success_utc < expected else None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
@@ -971,26 +1065,12 @@ async def lifespan(app: FastAPI):
     # MV refresh scheduler — frequency/hour configurable via Settings > General.
     # Defaults: nightly at 05:00 UTC. Uses a file lock so only one worker fires.
     async def _daily_mv_refresh_loop():
-        from datetime import datetime, timezone, timedelta
         import fcntl
-        import json as _sched_json
-
-        def _last_rebuild_dt():
-            _log = os.path.join(os.path.dirname(__file__), "..", ".settings", "mv_refresh_log.json")
-            try:
-                with open(_log) as f:
-                    d = _sched_json.load(f)
-                    ts = d.get("last_refresh_utc")
-                    if ts:
-                        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            except Exception:
-                pass
-            return None
 
         first_iteration = True
         while True:
             try:
-                from server.routers.settings import load_schedule_settings
+                from server.routers.settings import load_refresh_log, load_schedule_settings
                 sched = await asyncio.to_thread(load_schedule_settings)
                 # Clear first_iteration unconditionally so re-enabling later doesn't re-trigger catch-up
                 is_first = first_iteration
@@ -1005,39 +1085,39 @@ async def lifespan(app: FastAPI):
                 frequency = sched.get("frequency", "nightly")
                 now = datetime.now(timezone.utc)
 
-                # On startup, check if we missed the scheduled run while the pod was suspended.
-                # If today's scheduled time has passed and the last rebuild was before it, run now.
+                # On startup, compare the durable last success with the latest
+                # expected slot. This catches a Tuesday start after Monday's
+                # weekly slot and a later-month start after the first.
                 if is_first:
-                    scheduled_today = now.replace(hour=hour_utc, minute=0, second=0, microsecond=0)
-                    if now > scheduled_today:
-                        should_run_today = (
-                            frequency == "nightly"
-                            or (frequency == "weekly" and now.weekday() == 0)
-                            or (frequency == "monthly" and now.day == 1)
+                    refresh_log = await asyncio.to_thread(load_refresh_log)
+                    last_success = _last_successful_rebuild_dt(refresh_log)
+                    missed_slot = _missed_scheduled_occurrence(
+                        now, frequency, hour_utc, last_success
+                    )
+                    if missed_slot is not None:
+                        logger.info(
+                            "Missed scheduled rebuild at %s — running catch-up now",
+                            missed_slot.isoformat(),
                         )
-                        if should_run_today:
-                            last_dt = _last_rebuild_dt()
-                            if last_dt is None or last_dt < scheduled_today:
-                                logger.info(f"Missed scheduled rebuild at {hour_utc:02d}:00 UTC — running catch-up now")
-                                lock_path = "/tmp/cost-obs-mv-refresh.lock"
-                                try:
-                                    with open(lock_path, "w") as lf:
-                                        fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                                        lookback_days = sched.get("lookback_days", 180)
-                                        await _run_in_daemon_thread(
-                                            lambda: _run_mv_refresh(
-                                                lookback_days=lookback_days,
-                                                trigger="scheduled",
-                                            )
-                                        )
-                                        logger.info("Catch-up rebuild complete")
-                                        fcntl.flock(lf, fcntl.LOCK_UN)
-                                except BlockingIOError:
-                                    logger.info("Catch-up rebuild: another worker already running — skipping")
-                                except Exception as _e:
-                                    logger.error(f"Catch-up rebuild failed: {_e}")
-                                # Re-read now after potential rebuild
-                                now = datetime.now(timezone.utc)
+                        lock_path = "/tmp/cost-obs-mv-refresh.lock"
+                        try:
+                            with open(lock_path, "w") as lf:
+                                fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                                lookback_days = sched.get("lookback_days", 180)
+                                await _run_in_daemon_thread(
+                                    lambda: _run_mv_refresh(
+                                        lookback_days=lookback_days,
+                                        trigger="scheduled",
+                                    )
+                                )
+                                logger.info("Catch-up rebuild complete")
+                                fcntl.flock(lf, fcntl.LOCK_UN)
+                        except BlockingIOError:
+                            logger.info("Catch-up rebuild: another worker already running — skipping")
+                        except Exception as _e:
+                            logger.error(f"Catch-up rebuild failed: {_e}")
+                        # Re-read now after potential rebuild
+                        now = datetime.now(timezone.utc)
 
                 next_run = now.replace(hour=hour_utc, minute=0, second=0, microsecond=0)
                 if next_run <= now:
@@ -1053,14 +1133,19 @@ async def lifespan(app: FastAPI):
                 frequency = sched.get("frequency", "nightly")
                 now = datetime.now(timezone.utc)
 
-                # Check if this run day matches the frequency
-                should_run = (
-                    frequency == "nightly"
-                    or (frequency == "weekly" and now.weekday() == 0)   # Monday
-                    or (frequency == "monthly" and now.day == 1)
+                # Compare against the latest expected occurrence rather than only
+                # checking today's calendar date. This also catches a delayed
+                # Tuesday wake-up after a missed Monday weekly slot.
+                hour_utc = sched.get("hour_utc", 5)
+                refresh_log = await asyncio.to_thread(load_refresh_log)
+                last_success = _last_successful_rebuild_dt(refresh_log)
+                due_slot = _missed_scheduled_occurrence(
+                    now, frequency, hour_utc, last_success
                 )
-                if not should_run:
-                    logger.info(f"Skipping rebuild (frequency={frequency}, weekday={now.weekday()}, day={now.day})")
+                if due_slot is None:
+                    logger.info(
+                        "Skipping rebuild — scheduled occurrence already completed successfully"
+                    )
                     continue
 
                 lock_path = "/tmp/cost-obs-mv-refresh.lock"

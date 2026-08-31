@@ -1,19 +1,32 @@
 """AI/ML 360 API endpoints."""
 
 import asyncio
-import contextvars
 import logging
 import threading
 import time as _time
-from datetime import date, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from server.db import CacheGeneration, capture_cache_generation, execute_query, execute_queries_parallel, bundle_cache_key, delta_cache_get, delta_cache_put, get_local_source_label, selected_source_labels
-from server import workspace_filter as wf
 from server import cache_ttls
+from server import workspace_filter as wf
+from server.db import (
+    BundleOverloadedError,
+    CacheGeneration,
+    SQLExecutionError,
+    bundle_cache_key,
+    capture_cache_generation,
+    delta_cache_get,
+    delta_cache_put,
+    execute_queries_parallel,
+    execute_query,
+    get_local_source_label,
+    recover_optional_bundle_queries,
+    selected_source_labels,
+    start_bundle_compute,
+)
+from server.request_limits import default_date_range, parse_workspace_ids, validate_date_range
 
 
 def query_with_fallback(enriched_sql: str, fallback_sql: str, query_params: dict, label: str = "query") -> list[dict[str, Any]]:
@@ -24,6 +37,8 @@ def query_with_fallback(enriched_sql: str, fallback_sql: str, query_params: dict
             logger.info(f"{label}: enriched query returned {len(result)} rows")
             return result
         logger.warning(f"{label}: enriched query returned None, falling back")
+    except SQLExecutionError:
+        raise
     except Exception as e:
         logger.warning(f"{label}: enriched query failed ({e}), falling back to billing-only")
     fallback_result = execute_query(fallback_sql, query_params)
@@ -58,12 +73,12 @@ def _shared_scope_unavailable(**shape: Any) -> dict[str, Any]:
 
 def get_default_start_date() -> str:
     """Get default start date (last 30 days)."""
-    return (date.today() - timedelta(days=30)).isoformat()
+    return default_date_range()[0]
 
 
 def get_default_end_date() -> str:
-    """Get default end date (today)."""
-    return date.today().isoformat()
+    """Get default end date (last complete UTC day)."""
+    return default_date_range()[1]
 
 
 # SQL Queries for AI/ML cost analysis
@@ -1073,7 +1088,20 @@ def _compute_aiml_bundle(
             ("agent_bricks", lambda: query_with_fallback(_ws(AIML_AGENT_BRICKS_ENRICHED), _ws(AIML_AGENT_BRICKS_FALLBACK), params, label="agent_bricks")),
         ]
 
-        results = execute_queries_parallel(queries, timeout=90.0)
+        required_queries = {
+            "summary",
+            "providers",
+            "endpoints",
+            "categories",
+            "timeseries",
+        }
+        try:
+            results = execute_queries_parallel(queries, timeout=90.0)
+            optional_failures: dict[str, str] = {}
+        except SQLExecutionError as exc:
+            results, optional_failures = recover_optional_bundle_queries(
+                exc, required_queries
+            )
 
         timed_out = sum(1 for v in results.values() if v is None)
         if timed_out >= 4:
@@ -1238,6 +1266,8 @@ def _compute_aiml_bundle(
         ]
 
         _resp = {
+            "availability": "partial" if optional_failures else "available",
+            "partial_reasons": optional_failures,
             "summary": summary,
             "providers": {"providers": providers, "total_spend": providers_total},
             "endpoints": {"endpoints": endpoints, "total_spend": endpoints_total},
@@ -1249,17 +1279,21 @@ def _compute_aiml_bundle(
             "start_date": params["start_date"],
             "end_date": params["end_date"],
         }
-        delta_cache_put(dkey, "aiml:dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=cache_generation)
+        delta_cache_put(
+            dkey,
+            "aiml:dashboard-bundle",
+            _resp,
+            ttl_seconds=(
+                60
+                if optional_failures
+                else cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE
+            ),
+            generation=cache_generation,
+            wait_for_remote=True,
+        )
         logger.info("aiml dashboard-bundle background compute complete: %s", dkey)
     except Exception as e:
         logger.error("aiml dashboard-bundle background compute failed: %s", e, exc_info=True)
-        try:
-            delta_cache_put(dkey, "aiml:dashboard-bundle", {"_error": str(e), "status": "error"}, ttl_seconds=60, generation=cache_generation)
-        except Exception:
-            pass
-    finally:
-        with _aiml_bundle_inflight_lock:
-            _aiml_bundle_inflight.discard(dkey)
 
 
 @router.get("/dashboard-bundle")
@@ -1268,6 +1302,15 @@ async def get_aiml_dashboard_bundle(
     end_date: str = Query(default=None),
     workspace_ids: str = Query(default=None),
 ) -> dict[str, Any]:
+    """Get all AI/ML dashboard data in a single submit-and-poll request."""
+    validated_start, validated_end = validate_date_range(
+        start_date,
+        end_date,
+        default_start=get_default_start_date(),
+        default_end=get_default_end_date(),
+    )
+    params = {"start_date": validated_start, "end_date": validated_end}
+    id_list = parse_workspace_ids(workspace_ids)
     if _shared_only_scope():
         unavailable = _shared_scope_unavailable()
         return {
@@ -1280,17 +1323,13 @@ async def get_aiml_dashboard_bundle(
             "models": {**unavailable, "models": []},
             "ml_clusters": {**unavailable, "clusters": []},
             "agent_bricks": {**unavailable, "agents": []},
+            "start_date": validated_start,
+            "end_date": validated_end,
         }
-    """Get all AI/ML dashboard data in a single request (submit-and-poll: 202 on cache miss)."""
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
 
     _dkey = bundle_cache_key("aiml:dashboard-bundle", params["start_date"], params["end_date"], id_list)
 
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         if isinstance(_dcached, dict) and "_error" in _dcached:
             raise HTTPException(status_code=500, detail=_dcached.get("_error", "Bundle compute failed"))
         return _dcached
@@ -1301,27 +1340,30 @@ async def get_aiml_dashboard_bundle(
 
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
-    with _aiml_bundle_inflight_lock:
-        if _dkey not in _aiml_bundle_inflight:
-            _aiml_bundle_inflight.add(_dkey)
-            request_context = contextvars.copy_context()
-            cache_generation = capture_cache_generation("aiml:dashboard-bundle")
-            threading.Thread(
-                target=request_context.run,
-                args=(
-                    _compute_aiml_bundle,
-                    params,
-                    id_list,
-                    ws_clause,
-                    _dkey,
-                    cache_generation,
-                ),
-                daemon=True,
-                name="aiml-bundle-bg",
-            ).start()
+    cache_generation = capture_cache_generation("aiml:dashboard-bundle")
+    try:
+        started = await asyncio.to_thread(
+            start_bundle_compute,
+            _dkey,
+            lambda: _compute_aiml_bundle(
+                params,
+                id_list,
+                ws_clause,
+                _dkey,
+                cache_generation,
+            ),
+            name="aiml-bundle",
+        )
+        if started:
             logger.info("aiml dashboard-bundle: started background compute for %s", _dkey)
         else:
-            logger.debug("aiml dashboard-bundle: already inflight for %s", _dkey)
+            logger.debug("aiml dashboard-bundle: already claimed for %s", _dkey)
+    except BundleOverloadedError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"message": str(exc), "error_code": exc.code},
+            headers={"Retry-After": "2"},
+        ) from exc
 
     return JSONResponse(
         status_code=202,

@@ -1,17 +1,43 @@
 """Databricks SQL connection factory."""
 
+import base64
+import gzip
 import hashlib
 import json
 import logging
 import os
+import queue
 import re
 import threading
 import time
-from concurrent.futures import as_completed
+import uuid
+from concurrent.futures import (
+    ALL_COMPLETED,
+    Future,
+    as_completed,
+)
+from concurrent.futures import (
+    TimeoutError as FutureTimeoutError,
+)
+from concurrent.futures import (
+    wait as futures_wait,
+)
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Generator
+
+from cachetools import TTLCache
+from databricks import sql
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.sql import (
+    CreateWarehouseRequestWarehouseType,
+    SpotInstancePolicy,
+    State,
+)
+
+logger = logging.getLogger(__name__)
 
 # Per-request user token set by UserAuthMiddleware when x-forwarded-access-token
 # is present (Databricks Apps user authorization preview). Empty string = use SP.
@@ -65,17 +91,593 @@ def set_auth_mode_override(mode: str) -> None:
         )
     # Always keep _auth_mode as "sp" — no mutation needed
 
-from cachetools import TTLCache
-from databricks import sql
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.sql import (
-    CreateWarehouseRequestWarehouseType,
-    EndpointInfoWarehouseType,
-    SpotInstancePolicy,
-    State,
+
+def _bounded_env_int(
+    name: str,
+    default: int,
+    *,
+    minimum: int,
+    maximum: int,
+) -> int:
+    """Read an integer setting while keeping unsafe values inside hard limits."""
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+class _DaemonExecutor:
+    """Small Future-compatible worker pool whose bounded callers own admission.
+
+    The standard ThreadPoolExecutor registers an interpreter-exit hook that waits
+    for running connector calls. A connector that ignores cancellation can then
+    delay an app restart for its full socket timeout. These workers are daemon
+    threads, while the external admission semaphores still provide the strict
+    worker + queue bounds.
+    """
+
+    def __init__(self, max_workers: int, *, thread_name_prefix: str):
+        self._max_workers = max_workers
+        self._prefix = thread_name_prefix
+        self._queue: queue.Queue[tuple[Future, Callable[[], Any]] | None] = (
+            queue.Queue()
+        )
+        self._threads: list[threading.Thread] = []
+        self._lock = threading.Lock()
+        self._shutdown = False
+
+    def submit(self, fn: Callable[[], Any]) -> Future:
+        with self._lock:
+            if self._shutdown:
+                raise RuntimeError("cannot schedule new futures after shutdown")
+            future: Future = Future()
+            self._queue.put_nowait((future, fn))
+            if len(self._threads) < self._max_workers:
+                thread = threading.Thread(
+                    target=self._worker,
+                    daemon=True,
+                    name=f"{self._prefix}-{len(self._threads)}",
+                )
+                self._threads.append(thread)
+                thread.start()
+            return future
+
+    def _worker(self) -> None:
+        while True:
+            item = self._queue.get()
+            try:
+                if item is None:
+                    return
+                future, fn = item
+                if not future.set_running_or_notify_cancel():
+                    continue
+                try:
+                    future.set_result(fn())
+                except BaseException as exc:
+                    future.set_exception(exc)
+            finally:
+                self._queue.task_done()
+
+    def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
+        with self._lock:
+            if self._shutdown:
+                return
+            self._shutdown = True
+            threads = list(self._threads)
+            if cancel_futures:
+                while True:
+                    try:
+                        item = self._queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    if item is not None:
+                        item[0].cancel()
+                    self._queue.task_done()
+            for _ in threads:
+                self._queue.put_nowait(None)
+        if wait:
+            for thread in threads:
+                thread.join()
+
+
+class SQLExecutionError(RuntimeError):
+    """Base class for typed, customer-safe SQL execution failures."""
+
+    code = "SQL_EXECUTION_ERROR"
+
+
+class SQLOverloadedError(SQLExecutionError):
+    """The bounded SQL executor has no worker or queue admission available."""
+
+    code = "SQL_OVERLOADED"
+
+
+class SQLTimeoutError(SQLExecutionError):
+    """SQL exceeded its caller-visible deadline and cancellation was requested."""
+
+    code = "SQL_TIMEOUT"
+
+
+class SQLResultLimitError(SQLExecutionError):
+    """A SQL result exceeded a configured row or serialized-byte limit."""
+
+    code = "SQL_RESULT_LIMIT"
+
+    def __init__(self, limit_name: str, limit: int):
+        self.limit_name = limit_name
+        self.limit = limit
+        super().__init__(f"SQL result exceeded the configured {limit_name} limit ({limit}).")
+
+
+class BundleOverloadedError(RuntimeError):
+    """The bounded background bundle executor cannot admit more work."""
+
+    code = "BUNDLE_OVERLOADED"
+
+
+SQL_EXECUTOR_MAX_WORKERS = _bounded_env_int(
+    "COST_OBS_SQL_MAX_WORKERS", 12, minimum=2, maximum=32
+)
+SQL_EXECUTOR_QUEUE_CAPACITY = _bounded_env_int(
+    "COST_OBS_SQL_QUEUE_CAPACITY", 24, minimum=0, maximum=128
+)
+SQL_DEFAULT_TIMEOUT_SECONDS = _bounded_env_int(
+    "COST_OBS_SQL_TIMEOUT_SECONDS", 120, minimum=5, maximum=300
+)
+SQL_MAX_RESULT_ROWS = _bounded_env_int(
+    "COST_OBS_SQL_MAX_RESULT_ROWS", 5000, minimum=100, maximum=50000
+)
+SQL_MAX_RESULT_BYTES = _bounded_env_int(
+    "COST_OBS_SQL_MAX_RESULT_BYTES",
+    8 * 1024 * 1024,
+    minimum=256 * 1024,
+    maximum=32 * 1024 * 1024,
 )
 
-logger = logging.getLogger(__name__)
+_sql_executor = _DaemonExecutor(
+    SQL_EXECUTOR_MAX_WORKERS,
+    thread_name_prefix="bounded-sql",
+)
+_sql_admission = threading.BoundedSemaphore(
+    SQL_EXECUTOR_MAX_WORKERS + SQL_EXECUTOR_QUEUE_CAPACITY
+)
+_sql_cancel_executor = _DaemonExecutor(
+    2, thread_name_prefix="sql-cancel"
+)
+_sql_cancel_admission = threading.BoundedSemaphore(18)
+_sql_executor_local = threading.local()
+_sql_metrics_lock = threading.Lock()
+_sql_metrics: dict[str, int] = {
+    "submitted": 0,
+    "active": 0,
+    "queued": 0,
+    "completed": 0,
+    "rejected": 0,
+    "timed_out": 0,
+    "cancel_requested": 0,
+    "result_limited": 0,
+}
+
+
+@dataclass
+class _SQLTaskControl:
+    """Thread-safe handles used to cancel a running connector operation."""
+
+    lock: threading.Lock
+    connection: Any | None = None
+    cursor: Any | None = None
+    started: bool = False
+    cancel_requested: bool = False
+
+    @classmethod
+    def create(cls) -> "_SQLTaskControl":
+        return cls(lock=threading.Lock())
+
+    def attach(self, connection: Any, cursor: Any) -> None:
+        with self.lock:
+            self.connection = connection
+            self.cursor = cursor
+            should_cancel = self.cancel_requested
+        if should_cancel:
+            self.cancel()
+
+    def cancel(self) -> None:
+        with self.lock:
+            first_request = not self.cancel_requested
+            self.cancel_requested = True
+            cursor = self.cursor
+            connection = self.connection
+        if first_request:
+            with _sql_metrics_lock:
+                _sql_metrics["cancel_requested"] += 1
+        # The connector exposes cursor.cancel() in supported versions. Closing
+        # the connection is the fallback that interrupts socket polling.
+        for resource, methods in ((cursor, ("cancel", "close")), (connection, ("close",))):
+            if resource is None:
+                continue
+            for method_name in methods:
+                method = getattr(resource, method_name, None)
+                if callable(method):
+                    try:
+                        method()
+                        break
+                    except Exception:
+                        continue
+
+    def request_cancel(self) -> None:
+        """Flag cancellation immediately and close connector handles off-caller."""
+        with self.lock:
+            first_request = not self.cancel_requested
+            self.cancel_requested = True
+        if first_request:
+            with _sql_metrics_lock:
+                _sql_metrics["cancel_requested"] += 1
+        if not _sql_cancel_admission.acquire(blocking=False):
+            logger.warning("SQL cancellation queue full; connector timeout remains active")
+            return
+        try:
+            future = _sql_cancel_executor.submit(self.cancel)
+        except Exception as exc:
+            _sql_cancel_admission.release()
+            logger.debug("Could not schedule connector cancellation: %s", exc)
+            return
+        future.add_done_callback(lambda _future: _sql_cancel_admission.release())
+
+
+_sql_task_control: ContextVar[_SQLTaskControl | None] = ContextVar(
+    "_sql_task_control", default=None
+)
+
+
+def get_sql_executor_metrics() -> dict[str, int]:
+    """Return non-sensitive executor counters and configured capacity."""
+    with _sql_metrics_lock:
+        metrics = dict(_sql_metrics)
+    metrics.update(
+        {
+            "max_workers": SQL_EXECUTOR_MAX_WORKERS,
+            "queue_capacity": SQL_EXECUTOR_QUEUE_CAPACITY,
+            "admission_capacity": SQL_EXECUTOR_MAX_WORKERS
+            + SQL_EXECUTOR_QUEUE_CAPACITY,
+        }
+    )
+    return metrics
+
+
+def _submit_sql_future(
+    fn: Callable[[], Any],
+    *,
+    label: str,
+) -> tuple[Future, _SQLTaskControl]:
+    """Admit one SQL unit without ever growing an unbounded executor queue."""
+    if not _sql_admission.acquire(blocking=False):
+        with _sql_metrics_lock:
+            _sql_metrics["rejected"] += 1
+        raise SQLOverloadedError("SQL capacity is full; retry the request shortly.")
+
+    control = _SQLTaskControl.create()
+    request_context = __import__("contextvars").copy_context()
+    with _sql_metrics_lock:
+        _sql_metrics["submitted"] += 1
+        _sql_metrics["queued"] += 1
+
+    def run() -> Any:
+        with control.lock:
+            control.started = True
+        with _sql_metrics_lock:
+            _sql_metrics["queued"] -= 1
+            _sql_metrics["active"] += 1
+        previous = getattr(_sql_executor_local, "in_worker", False)
+        _sql_executor_local.in_worker = True
+
+        def run_in_context() -> Any:
+            token = _sql_task_control.set(control)
+            try:
+                return fn()
+            finally:
+                _sql_task_control.reset(token)
+
+        try:
+            return request_context.run(run_in_context)
+        finally:
+            _sql_executor_local.in_worker = previous
+            with _sql_metrics_lock:
+                _sql_metrics["active"] -= 1
+                _sql_metrics["completed"] += 1
+
+    try:
+        future = _sql_executor.submit(run)
+    except Exception:
+        with _sql_metrics_lock:
+            _sql_metrics["queued"] -= 1
+        _sql_admission.release()
+        raise
+
+    def release_admission(done: Future) -> None:
+        if done.cancelled():
+            with control.lock:
+                started = control.started
+            if not started:
+                with _sql_metrics_lock:
+                    _sql_metrics["queued"] -= 1
+                    _sql_metrics["completed"] += 1
+        _sql_admission.release()
+
+    future.add_done_callback(release_admission)
+    return future, control
+
+
+def _run_sql_bounded(
+    fn: Callable[[], Any],
+    *,
+    timeout: float | None,
+    label: str,
+) -> Any:
+    """Run connector work through the single process-wide bounded executor."""
+    if getattr(_sql_executor_local, "in_worker", False):
+        return fn()
+    future, control = _submit_sql_future(fn, label=label)
+    try:
+        return future.result(timeout=timeout)
+    except FutureTimeoutError as exc:
+        # A connector/library may itself raise TimeoutError. Only translate the
+        # exception when our wait deadline expired while work is still running.
+        if future.done():
+            raise
+        with _sql_metrics_lock:
+            _sql_metrics["timed_out"] += 1
+        control.request_cancel()
+        future.cancel()
+        raise SQLTimeoutError(
+            f"SQL execution exceeded {timeout:g}s and cancellation was requested."
+        ) from exc
+
+
+BUNDLE_EXECUTOR_MAX_WORKERS = _bounded_env_int(
+    "COST_OBS_BUNDLE_MAX_WORKERS", 2, minimum=1, maximum=8
+)
+BUNDLE_EXECUTOR_QUEUE_CAPACITY = _bounded_env_int(
+    "COST_OBS_BUNDLE_QUEUE_CAPACITY", 8, minimum=0, maximum=32
+)
+BUNDLE_LEASE_SECONDS = _bounded_env_int(
+    "COST_OBS_BUNDLE_LEASE_SECONDS", 600, minimum=300, maximum=1800
+)
+_BUNDLE_LEASE_DIR = os.getenv(
+    "COST_OBS_BUNDLE_LEASE_DIR", "/tmp/cost-obs-bundle-leases"
+)
+_bundle_executor = _DaemonExecutor(
+    BUNDLE_EXECUTOR_MAX_WORKERS,
+    thread_name_prefix="bounded-bundle",
+)
+_bundle_admission = threading.BoundedSemaphore(
+    BUNDLE_EXECUTOR_MAX_WORKERS + BUNDLE_EXECUTOR_QUEUE_CAPACITY
+)
+_bundle_inflight: set[str] = set()
+_bundle_inflight_lock = threading.Lock()
+_bundle_lease_thread_lock = threading.Lock()
+_bundle_metrics_lock = threading.Lock()
+_bundle_metrics = {"active": 0, "queued": 0, "rejected": 0, "leased_elsewhere": 0}
+
+
+@dataclass(frozen=True)
+class BundleLease:
+    """Expiring, owner-fenced cross-process claim for one bundle key."""
+
+    cache_key: str
+    owner: str
+    state_path: str
+    lock_path: str
+    expires_at: float
+    lease_seconds: int
+
+    def renew(self) -> bool:
+        """Extend this lease only while the on-disk owner fence still matches."""
+        import fcntl
+
+        now = time.time()
+        with _bundle_lease_thread_lock:
+            with open(self.lock_path, "a+") as lock_file:
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
+                try:
+                    try:
+                        with open(self.state_path) as state_file:
+                            state = json.load(state_file)
+                    except (FileNotFoundError, json.JSONDecodeError, OSError):
+                        return False
+                    if state.get("owner") != self.owner:
+                        return False
+                    state["expires_at"] = now + self.lease_seconds
+                    state["renewed_at"] = now
+                    temp_path = f"{self.state_path}.{self.owner}.renew"
+                    with open(temp_path, "w") as state_file:
+                        json.dump(state, state_file)
+                        state_file.flush()
+                        os.fsync(state_file.fileno())
+                    os.replace(temp_path, self.state_path)
+                    return True
+                finally:
+                    fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    def release(self) -> None:
+        import fcntl
+
+        with _bundle_lease_thread_lock:
+            with open(self.lock_path, "a+") as lock_file:
+                fcntl.flock(lock_file, fcntl.LOCK_EX)
+                try:
+                    try:
+                        with open(self.state_path) as state_file:
+                            state = json.load(state_file)
+                    except (FileNotFoundError, json.JSONDecodeError, OSError):
+                        state = {}
+                    if state.get("owner") == self.owner:
+                        try:
+                            os.remove(self.state_path)
+                        except FileNotFoundError:
+                            pass
+                finally:
+                    fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def try_acquire_bundle_lease(
+    cache_key: str,
+    *,
+    lease_seconds: int | None = None,
+) -> BundleLease | None:
+    """Atomically claim a bundle key, replacing only expired/crashed claims."""
+    import fcntl
+
+    duration = max(1, int(lease_seconds or BUNDLE_LEASE_SECONDS))
+    key_hash = hashlib.sha256(cache_key.encode()).hexdigest()
+    lease_dir = Path(_BUNDLE_LEASE_DIR)
+    lease_dir.mkdir(parents=True, exist_ok=True)
+    state_path = str(lease_dir / f"{key_hash}.json")
+    lock_path = str(lease_dir / f"{key_hash}.lock")
+    now = time.time()
+    owner = f"{os.getpid()}:{uuid.uuid4().hex}"
+
+    with _bundle_lease_thread_lock:
+        with open(lock_path, "a+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                try:
+                    with open(state_path) as state_file:
+                        state = json.load(state_file)
+                except (FileNotFoundError, json.JSONDecodeError, OSError):
+                    state = {}
+                try:
+                    existing_expiry = float(state.get("expires_at", 0))
+                except (TypeError, ValueError):
+                    existing_expiry = 0
+                if state.get("owner") and existing_expiry > now:
+                    return None
+                expires_at = now + duration
+                temp_path = f"{state_path}.{owner}.tmp"
+                with open(temp_path, "w") as state_file:
+                    json.dump(
+                        {
+                            "owner": owner,
+                            "expires_at": expires_at,
+                            "created_at": now,
+                        },
+                        state_file,
+                    )
+                    state_file.flush()
+                    os.fsync(state_file.fileno())
+                os.replace(temp_path, state_path)
+                return BundleLease(
+                    cache_key=cache_key,
+                    owner=owner,
+                    state_path=state_path,
+                    lock_path=lock_path,
+                    expires_at=expires_at,
+                    lease_seconds=duration,
+                )
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def start_bundle_compute(
+    cache_key: str,
+    producer: Callable[[], None],
+    *,
+    name: str = "bundle",
+    lease_seconds: int | None = None,
+) -> bool:
+    """Start one bounded producer process-wide and cross-process for a cache key."""
+    with _bundle_inflight_lock:
+        if cache_key in _bundle_inflight:
+            return False
+        _bundle_inflight.add(cache_key)
+
+    if not _bundle_admission.acquire(blocking=False):
+        with _bundle_inflight_lock:
+            _bundle_inflight.discard(cache_key)
+        with _bundle_metrics_lock:
+            _bundle_metrics["rejected"] += 1
+        raise BundleOverloadedError(
+            "Background bundle capacity is full; retry the request shortly."
+        )
+
+    request_context = __import__("contextvars").copy_context()
+    with _bundle_metrics_lock:
+        _bundle_metrics["queued"] += 1
+
+    def run() -> None:
+        with _bundle_metrics_lock:
+            _bundle_metrics["queued"] -= 1
+        # A cross-process contender may have completed while this task waited
+        # for a worker. Recheck the durable cache before claiming/recomputing.
+        try:
+            if delta_cache_get(cache_key) is not None:
+                return
+        except Exception:
+            logger.debug("Bundle cache recheck failed; continuing to lease acquisition")
+
+        lease = try_acquire_bundle_lease(
+            cache_key, lease_seconds=lease_seconds
+        )
+        if lease is None:
+            with _bundle_metrics_lock:
+                _bundle_metrics["leased_elsewhere"] += 1
+            return
+
+        with _bundle_metrics_lock:
+            _bundle_metrics["active"] += 1
+        heartbeat_stop = threading.Event()
+        heartbeat_interval = max(0.05, lease.lease_seconds / 3)
+
+        def renew_while_active() -> None:
+            while not heartbeat_stop.wait(heartbeat_interval):
+                if not lease.renew():
+                    logger.error("Lost owner fence while renewing bundle lease")
+                    return
+
+        heartbeat = threading.Thread(
+            target=renew_while_active,
+            daemon=True,
+            name=f"{name}-lease-heartbeat",
+        )
+        heartbeat.start()
+        try:
+            request_context.run(producer)
+        finally:
+            heartbeat_stop.set()
+            heartbeat.join(timeout=max(0.1, heartbeat_interval * 2))
+            lease.release()
+            with _bundle_metrics_lock:
+                _bundle_metrics["active"] -= 1
+
+    try:
+        future = _bundle_executor.submit(run)
+    except Exception:
+        _bundle_admission.release()
+        with _bundle_inflight_lock:
+            _bundle_inflight.discard(cache_key)
+        raise
+
+    def finish(_future: Future) -> None:
+        with _bundle_inflight_lock:
+            _bundle_inflight.discard(cache_key)
+        _bundle_admission.release()
+
+    future.add_done_callback(finish)
+    logger.info("Started bounded %s producer", name)
+    return True
+
+
+def get_bundle_executor_metrics() -> dict[str, int]:
+    """Return non-sensitive bundle worker/lease counters."""
+    with _bundle_metrics_lock:
+        metrics = dict(_bundle_metrics)
+    metrics.update(
+        {
+            "max_workers": BUNDLE_EXECUTOR_MAX_WORKERS,
+            "queue_capacity": BUNDLE_EXECUTOR_QUEUE_CAPACITY,
+        }
+    )
+    return metrics
 
 
 def get_host_url() -> str:
@@ -1324,6 +1926,8 @@ def bundle_cache_key(endpoint: str, start_date: str, end_date: str, workspace_id
 _delta_l1: TTLCache = TTLCache(maxsize=50, ttl=300)
 _delta_l1_endpoints: dict[str, str] = {}
 _delta_l1_generations: dict[str, int] = {}
+_cache_io_executor = _DaemonExecutor(2, thread_name_prefix="bounded-cache-io")
+_cache_io_admission = threading.BoundedSemaphore(34)
 
 # A manual tab clear must fence out work that started before the clear, including
 # work running in another uvicorn process.  The generation registry lives in
@@ -1412,9 +2016,9 @@ def _cache_generation_is_current(
 def delta_cache_get(key: str) -> dict | None:
     """Read a bundle payload from the Delta response cache. Returns None on miss/error.
 
-    On the asyncio event loop: returns None immediately on L1 miss — never blocks.
-    On daemon/sync threads: runs the SQL check with a 5-second timeout.
-    Async handlers wanting a Delta read should call asyncio.to_thread(delta_cache_get, key).
+    This is a synchronous boundary. Async handlers must call it with
+    ``await asyncio.to_thread(delta_cache_get, key)`` so a cold Delta cache never
+    blocks the event loop.
     """
     if key in _delta_l1:
         endpoint = _delta_l1_endpoints.get(key)
@@ -1428,57 +2032,30 @@ def delta_cache_get(key: str) -> dict | None:
             _delta_l1.pop(key, None)
             _delta_l1_endpoints.pop(key, None)
             _delta_l1_generations.pop(key, None)
-    # Skip the blocking SQL check when called from the event loop thread.
-    # The blocking _cfwait below would freeze the event loop for up to 5 seconds;
-    # return None (cache miss) instead and let the handler recompute.
-    try:
-        import asyncio as _asyncio
-        _asyncio.get_running_loop()
-        return None  # on event loop — don't block
-    except RuntimeError:
-        pass  # not on event loop — safe to proceed with blocking SQL
     try:
         cat, sch = get_catalog_schema()
         if not cat or not sch:
             return None
-        import threading, contextvars
-        from concurrent.futures import Future, wait as _cfwait
-        ctx = contextvars.copy_context()
 
         # Snapshot before starting remote I/O. The SQL call must never hold the
         # generation lock: a cold warehouse can otherwise prevent invalidation
         # for the connector's full 300-second timeout.
         generation_state_before = _read_cache_generation_state()
 
-        def _run():
-            tok = _user_token.set("")
-            try:
-                return execute_query(
-                    f"SELECT payload_json, endpoint, generation "
-                    f"FROM `{cat}`.`{sch}`.`app_response_cache` "
-                    f"WHERE cache_key = :key AND expires_at > CURRENT_TIMESTAMP() LIMIT 1",
-                    {"key": key},
-                    no_cache=True,
-                )
-            finally:
-                _user_token.reset(tok)
-
-        future: Future = Future()
-
-        def _daemon_run(f=future, fn=ctx.run, inner=_run):
-            try:
-                f.set_result(fn(inner))
-            except Exception as e:
-                f.set_exception(e)
-
-        threading.Thread(target=_daemon_run, daemon=True, name="sql-delta-cache-get").start()
-        done, _ = _cfwait([future], timeout=5.0)
-        if not done:
-            logger.debug("Delta cache SQL read timed out after 5s — treating as cache miss")
-            return None
-        rows = future.result()
+        tok = _user_token.set("")
+        try:
+            rows = execute_query(
+                f"SELECT payload_json, endpoint, generation "
+                f"FROM `{cat}`.`{sch}`.`app_response_cache` "
+                f"WHERE cache_key = :key AND expires_at > CURRENT_TIMESTAMP() LIMIT 1",
+                {"key": key},
+                no_cache=True,
+                timeout=5.0,
+                max_rows=1,
+            )
+        finally:
+            _user_token.reset(tok)
         if rows and rows[0].get("payload_json"):
-            import gzip, base64 as _b64
             endpoint = str(rows[0].get("endpoint") or "")
             row_generation = rows[0].get("generation")
             expected_generation = _cache_generation_value(
@@ -1501,7 +2078,7 @@ def delta_cache_get(key: str) -> dict | None:
                     )
                     return None
                 result = json.loads(
-                    gzip.decompress(_b64.b64decode(rows[0]["payload_json"])).decode()
+                    gzip.decompress(base64.b64decode(rows[0]["payload_json"])).decode()
                 )
                 _delta_l1[key] = result
                 if endpoint:
@@ -1521,11 +2098,14 @@ def delta_cache_put(
     payload: dict,
     ttl_seconds: int = 600,
     generation: CacheGeneration | None = None,
+    *,
+    wait_for_remote: bool = False,
 ) -> bool:
     """Write a bundle payload to the Delta response cache. Fails silently; one retry on conflict.
 
-    L1 is updated synchronously and immediately. The Delta SQL write runs in a fire-and-forget
-    daemon thread so the caller (async handler or daemon thread) is never blocked.
+    L1 is updated synchronously. Remote writes use a bounded background queue by
+    default. Cross-worker single-flight producers set ``wait_for_remote=True`` so
+    the lease is not released before the shared row becomes visible.
     """
     operation_generation = generation or capture_cache_generation(endpoint)
     if operation_generation.endpoint != endpoint:
@@ -1562,8 +2142,9 @@ def delta_cache_put(
         cat, sch = get_catalog_schema()
         if not cat or not sch:
             return
-        import gzip, base64 as _b64
-        compressed = _b64.b64encode(gzip.compress(json.dumps(_payload).encode())).decode("ascii")
+        compressed = base64.b64encode(
+            gzip.compress(json.dumps(_payload).encode())
+        ).decode("ascii")
         merge_sql = f"""MERGE INTO `{cat}`.`{sch}`.`app_response_cache` AS tgt
             USING (SELECT
                 :key        AS cache_key,
@@ -1608,7 +2189,18 @@ def delta_cache_put(
                 else:
                     logger.debug("Delta cache write failed after retry (non-fatal): %s", e)
 
-    threading.Thread(target=_write, daemon=True, name="delta-cache-put").start()
+    if wait_for_remote:
+        _write()
+        return True
+    if not _cache_io_admission.acquire(blocking=False):
+        logger.debug("Delta cache write queue full; L1 result remains available")
+        return True
+    try:
+        future = _cache_io_executor.submit(_write)
+    except Exception:
+        _cache_io_admission.release()
+        raise
+    future.add_done_callback(lambda _future: _cache_io_admission.release())
     return True
 
 
@@ -1880,7 +2472,7 @@ def ensure_dedicated_warehouse() -> tuple[str, str]:
         logger.info(f"  Name: {DEDICATED_WAREHOUSE_NAME}")
         logger.info(f"  ID: {warehouse_id}")
         logger.info(f"  Size: {DEDICATED_WAREHOUSE_SIZE}")
-        logger.info(f"  Type: Serverless")
+        logger.info("  Type: Serverless")
         logger.info(f"  Min Clusters: {DEDICATED_WAREHOUSE_MIN_CLUSTERS}")
         logger.info(f"  Max Clusters: {DEDICATED_WAREHOUSE_MAX_CLUSTERS}")
         logger.info(f"  Auto-Stop: {DEDICATED_WAREHOUSE_AUTO_STOP_MINS} minutes")
@@ -2058,7 +2650,12 @@ def get_connection() -> Generator[Any, None, None]:
         conn.close()
 
 
-def execute_write(query: str, params: dict[str, Any] | None = None) -> int:
+def execute_write(
+    query: str,
+    params: dict[str, Any] | None = None,
+    *,
+    timeout: float | None = None,
+) -> int:
     """Execute a write operation (INSERT/UPDATE/DELETE) and return affected rows.
 
     Does not cache results as these are write operations.
@@ -2072,6 +2669,9 @@ def execute_write(query: str, params: dict[str, Any] | None = None) -> int:
         try:
             with get_connection() as conn:
                 with conn.cursor() as cursor:
+                    control = _sql_task_control.get()
+                    if control is not None:
+                        control.attach(conn, cursor)
                     if params:
                         cursor.execute(query, params)
                     else:
@@ -2081,19 +2681,28 @@ def execute_write(query: str, params: dict[str, Any] | None = None) -> int:
             if ctx_tok is not None:
                 _user_token.reset(ctx_tok)
 
-    try:
-        affected_rows = _run()
-        if _user_token.get() and _auth_mode == "unknown":
-            _lock_auth_mode("user")
-    except Exception as exc:
-        if _is_scope_error(exc) and _user_token.get():
-            _lock_auth_mode("sp")
-            affected_rows = _run(force_sp=True)
-        elif _is_permission_error(exc) and _user_token.get():
-            logger.warning(f"User token permission denied on write, retrying as SP: {exc}")
-            affected_rows = _run(force_sp=True)
-        else:
+    def _execute() -> int:
+        try:
+            affected = _run()
+            if _user_token.get() and _auth_mode == "unknown":
+                _lock_auth_mode("user")
+            return affected
+        except Exception as exc:
+            if _is_scope_error(exc) and _user_token.get():
+                _lock_auth_mode("sp")
+                return _run(force_sp=True)
+            if _is_permission_error(exc) and _user_token.get():
+                logger.warning(
+                    "User token permission denied on write, retrying as SP: %s", exc
+                )
+                return _run(force_sp=True)
             raise
+
+    affected_rows = _run_sql_bounded(
+        _execute,
+        timeout=timeout or SQL_DEFAULT_TIMEOUT_SECONDS,
+        label="write",
+    )
 
     elapsed = time.time() - start_time
     _sql_tag = " ".join(query.split())[:60]
@@ -2101,7 +2710,63 @@ def execute_write(query: str, params: dict[str, Any] | None = None) -> int:
     return affected_rows
 
 
-def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag: str | None = None, no_cache: bool = False) -> list[dict[str, Any]]:
+def _fetch_cursor_rows(
+    cursor: Any,
+    columns: list[str],
+    *,
+    max_rows: int,
+    max_bytes: int,
+) -> list[dict[str, Any]]:
+    """Fetch incrementally and fail closed before retaining an oversized result."""
+    result: list[dict[str, Any]] = []
+    serialized_bytes = 2  # JSON list brackets
+    fetchmany = getattr(cursor, "fetchmany", None)
+
+    def batches() -> Generator[list[Any], None, None]:
+        if callable(fetchmany):
+            while True:
+                batch = fetchmany(256)
+                if not batch:
+                    return
+                yield list(batch)
+        else:
+            # Compatibility fallback for minimal connector/mocked cursors.
+            yield list(cursor.fetchall())
+
+    for batch in batches():
+        for raw_row in batch:
+            if len(result) >= max_rows:
+                with _sql_metrics_lock:
+                    _sql_metrics["result_limited"] += 1
+                control = _sql_task_control.get()
+                if control is not None:
+                    control.cancel()
+                raise SQLResultLimitError("row", max_rows)
+            row = dict(zip(columns, raw_row))
+            serialized_bytes += len(
+                json.dumps(row, default=str, separators=(",", ":")).encode("utf-8")
+            ) + 1
+            if serialized_bytes > max_bytes:
+                with _sql_metrics_lock:
+                    _sql_metrics["result_limited"] += 1
+                control = _sql_task_control.get()
+                if control is not None:
+                    control.cancel()
+                raise SQLResultLimitError("response byte", max_bytes)
+            result.append(row)
+    return result
+
+
+def execute_query(
+    query: str,
+    params: dict[str, Any] | None = None,
+    *,
+    cache_tag: str | None = None,
+    no_cache: bool = False,
+    timeout: float | None = None,
+    max_rows: int | None = None,
+    max_bytes: int | None = None,
+) -> list[dict[str, Any]]:
     """Execute a SQL query and return results as a list of dicts.
 
     Results are cached for 10 minutes to reduce load on Databricks.
@@ -2112,13 +2777,22 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
     """
     start_time = time.time()
 
+    effective_max_rows = max(
+        1, min(SQL_MAX_RESULT_ROWS, max_rows or SQL_MAX_RESULT_ROWS)
+    )
+    effective_max_bytes = max(
+        1024, min(SQL_MAX_RESULT_BYTES, max_bytes or SQL_MAX_RESULT_BYTES)
+    )
     cache_key: str | None = None
     cache_generation: int | None = None
     # Cache synchronization is deliberately limited to the local TTLCache and
     # generation snapshot. The remote SQL query runs without this lock.
     if not no_cache:
         effective_cache_tag = cache_tag or _request_cache_tag.get()
-        cache_key = _get_cache_key(query, params, tag=effective_cache_tag)
+        cache_query = (
+            f"{query}\n/* result-limits:{effective_max_rows}:{effective_max_bytes} */"
+        )
+        cache_key = _get_cache_key(cache_query, params, tag=effective_cache_tag)
         with _query_cache_lock:
             cache_generation = _query_cache_generation_for_key(cache_key)
             if cache_key in _query_cache:
@@ -2131,38 +2805,47 @@ def execute_query(query: str, params: dict[str, Any] | None = None, *, cache_tag
         try:
             with get_connection() as conn:
                 with conn.cursor() as cursor:
+                    control = _sql_task_control.get()
+                    if control is not None:
+                        control.attach(conn, cursor)
                     if params:
                         cursor.execute(query, params)
                     else:
                         cursor.execute(query)
                     if cursor.description is not None:
                         columns = [desc[0] for desc in cursor.description]
-                        rows = cursor.fetchall()
-                        return [dict(zip(columns, row)) for row in rows]
+                        return _fetch_cursor_rows(
+                            cursor,
+                            columns,
+                            max_rows=effective_max_rows,
+                            max_bytes=effective_max_bytes,
+                        )
                     return []
         finally:
             if ctx_tok is not None:
                 _user_token.reset(ctx_tok)
 
-    # Execute query — detect and lock auth mode on first use.
-    try:
-        result = _run()
-        # Lock to user mode on first successful user-token query
-        if _user_token.get() and _auth_mode == "unknown":
-            _lock_auth_mode("user")
-    except Exception as exc:
-        if _is_scope_error(exc) and _user_token.get():
-            # Token present but lacks sql scope — lock to SP for all future requests
-            _lock_auth_mode("sp")
-            result = _run(force_sp=True)
-        elif _is_permission_error(exc) and _user_token.get():
-            # Token has sql scope but user lacks table privileges — retry as SP.
-            # Don't lock permanently: this may be table-specific and the admin
-            # can resolve it by setting Force SP in Settings → Permissions.
-            logger.warning(f"User token permission denied, retrying as SP: {exc}")
-            result = _run(force_sp=True)
-        else:
+    def _execute() -> list[dict[str, Any]]:
+        # Execute query — detect and lock auth mode on first use.
+        try:
+            rows = _run()
+            if _user_token.get() and _auth_mode == "unknown":
+                _lock_auth_mode("user")
+            return rows
+        except Exception as exc:
+            if _is_scope_error(exc) and _user_token.get():
+                _lock_auth_mode("sp")
+                return _run(force_sp=True)
+            if _is_permission_error(exc) and _user_token.get():
+                logger.warning("User token permission denied, retrying as SP: %s", exc)
+                return _run(force_sp=True)
             raise
+
+    result = _run_sql_bounded(
+        _execute,
+        timeout=timeout or SQL_DEFAULT_TIMEOUT_SECONDS,
+        label="query",
+    )
 
     if cache_key is not None and cache_generation is not None:
         with _query_cache_lock:
@@ -2236,26 +2919,19 @@ def execute_queries_parallel(
     query_funcs: list[tuple[str, Callable[[], list[dict[str, Any]]]]],
     timeout: float | None = 30.0,
 ) -> dict[str, list[dict[str, Any]] | None]:
-    """Execute multiple queries in parallel using daemon threads.
-
-    Daemon threads are automatically killed when the process exits, so the app
-    can shut down cleanly on SIGTERM without waiting for slow SQL connections
-    (which have a 300-second socket timeout) to finish.
+    """Execute queries through the bounded process-wide SQL executor.
 
     Args:
         query_funcs: List of (name, lambda) tuples where lambda executes the query
         timeout: Optional wall-clock timeout in seconds. Queries not finished by
-                 deadline return None; their daemon threads are killed on process exit.
+                 deadline are cancelled at the connector and return None.
 
     Returns:
         Dictionary mapping query names to results
     """
-    import contextvars
-    import threading
-    from concurrent.futures import Future, wait as _cfwait, ALL_COMPLETED
-
     start_time = time.time()
     results: dict[str, list[dict[str, Any]] | None] = {}
+    infrastructure_failures: list[tuple[str, SQLExecutionError]] = []
 
     def _timed(name: str, fn: Callable[[], list[dict[str, Any]]]) -> Callable[[], list[dict[str, Any]]]:
         def wrapped() -> list[dict[str, Any]]:
@@ -2276,6 +2952,10 @@ def execute_queries_parallel(
     def _collect(future: Future, name: str) -> None:
         try:
             results[name] = future.result()
+        except SQLExecutionError as exc:
+            logger.error("✗ %s infrastructure failure: %s", name, exc)
+            results[name] = None
+            infrastructure_failures.append((name, exc))
         except Exception as e:
             if any(code in str(e) for code in _EXPECTED_CODES):
                 logger.warning("✗ %s failed (non-fatal): %s", name, e)
@@ -2283,40 +2963,127 @@ def execute_queries_parallel(
                 logger.error("✗ %s failed: %s", name, e)
             results[name] = None
 
-    futures_map: dict[Future, str] = {}
-    for name, func in query_funcs:
-        future: Future = Future()
-        futures_map[future] = name
-
-        # Snapshot the CURRENT (request) context per query and run the worker inside
-        # it. Raw threads don't inherit ContextVars, so without this the workers see
-        # the DEFAULTS for _source_labels (→ the MV source-label filter silently does
-        # nothing on every bundle endpoint) and _user_token (→ user-auth reads fall
-        # back to the SP). copy_context() is called here in the request thread so each
-        # worker gets an independent, correctly-populated snapshot.
-        _ctx = contextvars.copy_context()
-
-        def _run(f=future, fn=_timed(name, func), ctx=_ctx):
+    # Nested fan-out can occur in fallback helpers already running on a SQL
+    # worker. Run those serially in the same admitted slot to avoid executor
+    # self-deadlock; the outer bundle deadline remains authoritative.
+    if getattr(_sql_executor_local, "in_worker", False):
+        for name, func in query_funcs:
             try:
-                f.set_result(ctx.run(fn))
-            except Exception as e:
-                f.set_exception(e)
+                results[name] = _timed(name, func)()
+            except SQLExecutionError as exc:
+                setattr(exc, "query_name", name)
+                setattr(exc, "partial_results", dict(results))
+                raise
+            except Exception as exc:
+                if any(code in str(exc) for code in _EXPECTED_CODES):
+                    logger.warning("✗ %s failed (non-fatal): %s", name, exc)
+                else:
+                    logger.error("✗ %s failed: %s", name, exc)
+                results[name] = None
+        return results
 
-        threading.Thread(target=_run, daemon=True, name=f"sql-{name}").start()
+    futures_map: dict[Future, tuple[str, _SQLTaskControl]] = {}
+    for name, func in query_funcs:
+        try:
+            future, control = _submit_sql_future(_timed(name, func), label=name)
+            futures_map[future] = (name, control)
+        except SQLOverloadedError as exc:
+            logger.warning("✗ %s rejected by SQL admission: %s", name, exc)
+            results[name] = None
+            infrastructure_failures.append((name, exc))
 
     if timeout is not None:
-        done, not_done = _cfwait(list(futures_map.keys()), timeout=timeout, return_when=ALL_COMPLETED)
+        done, not_done = futures_wait(
+            list(futures_map.keys()), timeout=timeout, return_when=ALL_COMPLETED
+        )
         for future in not_done:
             elapsed = time.time() - start_time
-            logger.error("✗ %s timed out after %.1fs (daemon thread will be killed on exit)", futures_map[future], elapsed)
-            results[futures_map[future]] = None
+            name, control = futures_map[future]
+            logger.error("✗ %s timed out after %.1fs; cancelling connector", name, elapsed)
+            with _sql_metrics_lock:
+                _sql_metrics["timed_out"] += 1
+            control.request_cancel()
+            future.cancel()
+            results[name] = None
+            infrastructure_failures.append(
+                (
+                    name,
+                    SQLTimeoutError(
+                        f"Parallel query {name!r} exceeded the {timeout:g}s bundle deadline."
+                    ),
+                )
+            )
         for future in done:
-            _collect(future, futures_map[future])
+            _collect(future, futures_map[future][0])
     else:
         for future in as_completed(futures_map):
-            _collect(future, futures_map[future])
+            _collect(future, futures_map[future][0])
 
     total_elapsed = time.time() - start_time
     logger.info("Parallel execution: %.2fs total (%d/%d queries completed)", total_elapsed, len(results), len(query_funcs))
 
+    if infrastructure_failures:
+        name, exc = infrastructure_failures[0]
+        setattr(exc, "query_name", name)
+        setattr(exc, "partial_results", dict(results))
+        setattr(
+            exc,
+            "infrastructure_failures",
+            {failed_name: failure.code for failed_name, failure in infrastructure_failures},
+        )
+        raise exc
+
     return results
+
+
+def execute_bundle_queries(
+    query_funcs: list[tuple[str, Callable[[], list[dict[str, Any]]]]],
+    *,
+    required_names: set[str],
+    timeout: float | None,
+) -> tuple[dict[str, list[dict[str, Any]] | None], dict[str, str]]:
+    """Classify parallel infrastructure failures for a dashboard bundle.
+
+    Required failures propagate as their typed SQL exception. Optional failures
+    return partial rows plus stable reason codes so callers can short-cache (or
+    skip caching) without turning an infrastructure incident into valid zeroes.
+    """
+    names = {name for name, _ in query_funcs}
+    unknown = required_names - names
+    if unknown:
+        raise ValueError(f"Required bundle queries are not present: {sorted(unknown)}")
+    try:
+        return execute_queries_parallel(query_funcs, timeout), {}
+    except SQLExecutionError as exc:
+        partial_results = dict(getattr(exc, "partial_results", {}))
+        failures = dict(
+            getattr(
+                exc,
+                "infrastructure_failures",
+                {str(getattr(exc, "query_name", "unknown")): exc.code},
+            )
+        )
+        required_failures = required_names.intersection(failures)
+        if required_failures:
+            setattr(exc, "required_query_names", sorted(required_failures))
+            raise
+        return partial_results, failures
+
+
+def recover_optional_bundle_queries(
+    exc: SQLExecutionError, required_names: set[str]
+) -> tuple[dict[str, list[dict[str, Any]] | None], dict[str, str]]:
+    """Recover partial results only when every infrastructure failure is optional."""
+    partial_results = dict(getattr(exc, "partial_results", {}))
+    failures = dict(
+        getattr(
+            exc,
+            "infrastructure_failures",
+            {str(getattr(exc, "query_name", "unknown")): exc.code},
+        )
+    )
+    required_failures = required_names.intersection(failures)
+    if required_failures:
+        setattr(exc, "required_query_names", sorted(required_failures))
+        raise exc
+    return partial_results, failures

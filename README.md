@@ -97,6 +97,8 @@ Upgrades from v1.0 or v1.1 require no new environment variables or manual backfi
 
 - **Setup is simpler.** The SQL warehouse is bound as an Apps resource and injected as `DATABRICKS_WAREHOUSE_ID`. Workspace scoping is controlled with `COST_OBS_WORKSPACES`. Customers no longer need to select a warehouse or change workspace scope inside the app UI.
 
+- **`app.yaml` is canonical for warehouse binding.** Its `valueFrom: sql-warehouse` entry supplies `DATABRICKS_WAREHOUSE_ID`; `app_config.json` intentionally contains no warehouse ID or pseudo-ID field.
+
 - **Fake zeros are gone.** If a required grant is missing, the app shows that the affected metric is unavailable and points to the fix — instead of rendering a misleading $0.00 value.
 
 - **Setup experience is consistent across tabs.** Access, data-table configuration, and readiness share the same underlying state so customers do not see one section report healthy while another shows stale errors after a grant or rebuild.

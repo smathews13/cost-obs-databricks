@@ -85,8 +85,14 @@ def _dashboard_endpoint(router):
 
 
 def test_apps_background_thread_captures_request_context():
-    _CapturedThread.created.clear()
     apps._apps_bundle_inflight.clear()
+    captured = {}
+
+    def capture_start(_key, _producer, **_kwargs):
+        captured["source_labels"] = db.selected_source_labels()
+        captured["user_token"] = db._user_token.get()
+        return False
+
     source_token = db.set_source_labels(["shared-west"])
     user_token = db._user_token.set("user-oauth-token")
     try:
@@ -97,7 +103,7 @@ def test_apps_background_thread_captures_request_context():
                 "capture_cache_generation",
                 return_value=db.CacheGeneration("apps:dashboard-bundle:all", 0),
             ),
-            patch.object(apps.threading, "Thread", _CapturedThread),
+            patch.object(apps, "start_bundle_compute", side_effect=capture_start),
         ):
             asyncio.run(
                 apps.get_apps_dashboard_bundle(
@@ -107,9 +113,8 @@ def test_apps_background_thread_captures_request_context():
                     workspace_ids=None,
                 )
             )
-        captured_context = _CapturedThread.created[0].target.__self__
-        assert captured_context.get(db._source_labels) == ["shared-west"]
-        assert captured_context.get(db._user_token) == "user-oauth-token"
+        assert captured["source_labels"] == ["shared-west"]
+        assert captured["user_token"] == "user-oauth-token"
     finally:
         db._user_token.reset(user_token)
         db.reset_source_labels(source_token)
@@ -117,8 +122,14 @@ def test_apps_background_thread_captures_request_context():
 
 
 def test_aiml_background_thread_captures_request_context():
-    _CapturedThread.created.clear()
     aiml._aiml_bundle_inflight.clear()
+    captured = {}
+
+    def capture_start(_key, _producer, **_kwargs):
+        captured["source_labels"] = db.selected_source_labels()
+        captured["user_token"] = db._user_token.get()
+        return False
+
     source_token = db.set_source_labels(["shared-central"])
     user_token = db._user_token.set("aiml-user-token")
     try:
@@ -133,7 +144,7 @@ def test_aiml_background_thread_captures_request_context():
                 "capture_cache_generation",
                 return_value=db.CacheGeneration("aiml:dashboard-bundle", 0),
             ),
-            patch.object(aiml.threading, "Thread", _CapturedThread),
+            patch.object(aiml, "start_bundle_compute", side_effect=capture_start),
         ):
             asyncio.run(
                 aiml.get_aiml_dashboard_bundle(
@@ -142,9 +153,8 @@ def test_aiml_background_thread_captures_request_context():
                     workspace_ids=None,
                 )
             )
-        captured_context = _CapturedThread.created[0].target.__self__
-        assert captured_context.get(db._source_labels) == ["shared-central"]
-        assert captured_context.get(db._user_token) == "aiml-user-token"
+        assert captured["source_labels"] == ["shared-central"]
+        assert captured["user_token"] == "aiml-user-token"
     finally:
         db._user_token.reset(user_token)
         db.reset_source_labels(source_token)
@@ -152,8 +162,14 @@ def test_aiml_background_thread_captures_request_context():
 
 
 def test_dbsql_background_thread_captures_request_context():
-    _CapturedThread.created.clear()
     dbsql_base._dbsql_bundle_inflight.clear()
+    captured = {}
+
+    def capture_start(_key, _producer, **_kwargs):
+        captured["source_labels"] = db.selected_source_labels()
+        captured["user_token"] = db._user_token.get()
+        return False
+
     router = dbsql_base.create_dbsql_router("dbsql_cost_per_query")
     endpoint = _dashboard_endpoint(router)
     dbsql_base._mv_status_cache["dbsql_cost_per_query"] = (
@@ -172,7 +188,9 @@ def test_dbsql_background_thread_captures_request_context():
                     "dbsql:dbsql_cost_per_query:dashboard-bundle", 0
                 ),
             ),
-            patch.object(dbsql_base.threading, "Thread", _CapturedThread),
+            patch.object(
+                dbsql_base, "start_bundle_compute", side_effect=capture_start
+            ),
         ):
             asyncio.run(
                 endpoint(
@@ -181,9 +199,8 @@ def test_dbsql_background_thread_captures_request_context():
                     workspace_ids=None,
                 )
             )
-        captured_context = _CapturedThread.created[0].target.__self__
-        assert captured_context.get(db._source_labels) == ["shared-east"]
-        assert captured_context.get(db._user_token) == "request-token"
+        assert captured["source_labels"] == ["shared-east"]
+        assert captured["user_token"] == "request-token"
     finally:
         db._user_token.reset(user_token)
         db.reset_source_labels(source_token)

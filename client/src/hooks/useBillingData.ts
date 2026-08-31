@@ -34,17 +34,11 @@ function formatLocalDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-function getDefaultStartDate(days: number = 30): string {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return formatLocalDate(date);
-}
-
-function getDefaultEndDate(): string {
+function getDefaultEnd(): Date {
   // Buffer by one day: today's cost data is incomplete/inaccurate
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
-  return formatLocalDate(yesterday);
+  return yesterday;
 }
 
 // Billing data changes infrequently; 5 min staleTime prevents
@@ -287,9 +281,13 @@ export function useAccountInfo() {
 }
 
 export function getDefaultDateRange(days: number = 30): DateRange {
+  const inclusiveDays = Math.max(1, Math.trunc(days));
+  const end = getDefaultEnd();
+  const start = new Date(end);
+  start.setDate(start.getDate() - (inclusiveDays - 1));
   return {
-    startDate: getDefaultStartDate(days),
-    endDate: getDefaultEndDate(),
+    startDate: formatLocalDate(start),
+    endDate: formatLocalDate(end),
   };
 }
 
@@ -316,6 +314,10 @@ export interface UserSpend {
 }
 
 export interface UsersGroupsBundle {
+  available?: boolean;
+  availability?: "available" | "partial" | "unavailable";
+  reason?: string;
+  reason_detail?: string;
   summary: {
     user_count: number;
     workspace_count: number;

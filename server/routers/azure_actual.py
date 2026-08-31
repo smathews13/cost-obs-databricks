@@ -10,12 +10,12 @@ import asyncio
 import logging
 import os
 import time
-from datetime import date, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Query
 
 from server.db import execute_query, local_source_is_selected
+from server.request_limits import default_date_range, validate_date_range
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -23,6 +23,16 @@ router = APIRouter()
 # Cache Azure table availability — information_schema.tables is slow
 _azure_status_cache: dict[str, Any] = {"available": None, "checked_at": 0}
 _AZURE_STATUS_TTL = 300  # 5 minutes
+
+
+def _validated_dates(start_date, end_date) -> tuple[str, str]:
+    default_start, default_end = default_date_range()
+    return validate_date_range(
+        start_date,
+        end_date,
+        default_start=default_start,
+        default_end=default_end,
+    )
 
 
 def get_catalog_schema() -> tuple[str, str]:
@@ -164,10 +174,7 @@ async def get_azure_actual_summary(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     catalog, schema = get_catalog_schema()
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date = _validated_dates(start_date, end_date)
 
     status = await get_azure_status()
     if not status["azure_available"]:
@@ -207,10 +214,7 @@ async def get_azure_costs_by_cluster(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     catalog, schema = get_catalog_schema()
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date = _validated_dates(start_date, end_date)
 
     status = await get_azure_status()
     if not status["azure_available"]:
@@ -247,10 +251,7 @@ async def get_azure_costs_by_charge_type(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     catalog, schema = get_catalog_schema()
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date = _validated_dates(start_date, end_date)
 
     status = await get_azure_status()
     if not status["azure_available"]:
@@ -280,10 +281,7 @@ async def get_azure_costs_timeseries(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     catalog, schema = get_catalog_schema()
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date = _validated_dates(start_date, end_date)
 
     status = await get_azure_status()
     if not status["azure_available"]:
@@ -323,10 +321,7 @@ async def get_azure_actual_dashboard_bundle(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     """Get all Azure actual cost data in a single parallel request."""
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date = _validated_dates(start_date, end_date)
 
     status = await get_azure_status()
     if not status["azure_available"]:

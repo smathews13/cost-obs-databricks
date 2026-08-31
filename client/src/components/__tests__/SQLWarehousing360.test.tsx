@@ -8,8 +8,8 @@
  * 2. available=true + summary=null → "No summary data returned" gray panel.
  * 3. available=true + all-zero summary → $0 rendered (valid zero activity), not "N/A".
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -18,6 +18,7 @@ import {
   WarehouseRightsizingView,
 } from "../SQLWarehousing360";
 import type { DBSQLDashboardBundle } from "@/types/billing";
+import { setActiveSourceLabels } from "@/hooks/useBillingData";
 
 // ---------------------------------------------------------------------------
 // Mock useFeatureAvailability: tests control grant state without a server
@@ -54,16 +55,24 @@ beforeEach(() => {
   );
 });
 
+afterEach(() => {
+  setActiveSourceLabels([]);
+  vi.unstubAllGlobals();
+});
+
 function renderSQLView(
   queryData: DBSQLDashboardBundle | undefined,
   opts: {
     isLoading?: boolean;
     isError?: boolean;
     topQueriesData?: import("@/types/billing").TopQueriesResponse;
+    workspaceIds?: string[];
+    startDate?: string;
+    endDate?: string;
   } = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <SQLWarehousing360
         sqlBreakdownData={undefined}
@@ -71,9 +80,13 @@ function renderSQLView(
         isLoading={opts.isLoading ?? false}
         isError={opts.isError}
         topQueriesData={opts.topQueriesData}
+        workspaceIds={opts.workspaceIds}
+        startDate={opts.startDate}
+        endDate={opts.endDate}
       />
     </QueryClientProvider>
   );
+  return { ...view, queryClient: client };
 }
 
 function renderOptimizeView(view: React.ReactNode) {
@@ -301,6 +314,41 @@ describe("SQLWarehousing360: dashboard polish", () => {
     expect(screen.getByText("Warehouse Count by Size")).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Search workspaces...")).not.toBeInTheDocument();
     expect(screen.queryByText(/Filtered to/i)).not.toBeInTheDocument();
+  });
+
+  it("uses source and workspace scope for source-query drilldowns", async () => {
+    setActiveSourceLabels(["shared-west"]);
+    const view = renderSQLView(bundle, {
+      workspaceIds: ["2", "1"],
+      startDate: "2026-01-01",
+      endDate: "2026-01-31",
+    });
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).startsWith("/api/dbsql/top-queries-by-source?")),
+      ).toBe(true);
+    });
+    const input = fetchMock.mock.calls.find(([url]) =>
+      String(url).startsWith("/api/dbsql/top-queries-by-source?"))![0];
+    const url = new URL(String(input), "https://example.test");
+
+    expect(url.searchParams.get("workspace_ids")).toBe("1,2");
+    expect(url.searchParams.getAll("source_labels")).toEqual(["shared-west"]);
+    expect(
+      view.queryClient.getQueryCache().find({
+        queryKey: [
+          "dbsql",
+          "top-queries-by-source",
+          "JOB",
+          "2026-01-01",
+          "2026-01-31",
+          "1,2",
+          "shared-west",
+        ],
+      }),
+    ).toBeDefined();
   });
 });
 

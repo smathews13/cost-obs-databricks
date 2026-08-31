@@ -12,10 +12,23 @@ import httpx
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
-from server.db import execute_query, execute_queries_parallel, get_workspace_client, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation
-from server import workspace_filter as wf
 from server import cache_ttls
+from server import workspace_filter as wf
+from server.db import (
+    SQLExecutionError,
+    bundle_cache_key,
+    capture_cache_generation,
+    delta_cache_get,
+    delta_cache_put,
+    execute_queries_parallel,
+    execute_query,
+    get_local_source_label,
+    get_workspace_client,
+    recover_optional_bundle_queries,
+)
 from server.email_service import send_alert_email
+from server.queries.pricing import apply_temporal_list_price_join
+from server.routers.dbsql_base import validate_request_scope
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -33,10 +46,7 @@ WITH usage_with_price AS (
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend,
     u.usage_quantity AS dbus
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.identity_metadata.run_as IS NOT NULL
@@ -60,10 +70,7 @@ WITH usage_with_price AS (
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend,
     u.usage_quantity                                   AS dbus
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.identity_metadata.run_as IS NOT NULL
@@ -101,10 +108,7 @@ WITH usage_with_price AS (
     END AS product_category,
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.identity_metadata.run_as IS NOT NULL
@@ -124,8 +128,7 @@ WITH top_users AS (
   SELECT u.identity_metadata.run_as AS user_email,
          SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS total_spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.identity_metadata.run_as IS NOT NULL
@@ -139,8 +142,7 @@ daily AS (
     u.identity_metadata.run_as AS user_email,
     SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS daily_spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   INNER JOIN top_users tu ON u.identity_metadata.run_as = tu.user_email
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
@@ -158,10 +160,7 @@ WITH usage_with_price AS (
     u.identity_metadata.run_as AS user_email,
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.identity_metadata.run_as IS NOT NULL
@@ -193,8 +192,7 @@ WITH usage_with_price AS (
     END AS product_category,
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.identity_metadata.run_as IS NOT NULL
@@ -217,8 +215,7 @@ WITH usage_with_price AS (
     u.usage_date,
     u.usage_quantity * COALESCE(p.pricing.default, 0) AS spend
   FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+  /* TEMPORAL_LIST_PRICE_JOIN */
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.identity_metadata.run_as IS NOT NULL
@@ -233,12 +230,12 @@ GROUP BY CASE WHEN usage_date <= :mid_date THEN 'first_half' ELSE 'second_half' 
 USERS_GROWTH = """
 WITH base AS (
   SELECT
-    date_trunc('month', usage_date) AS month,
-    identity_metadata.run_as AS user_id
-  FROM system.billing.usage
-  WHERE usage_date BETWEEN :start_date AND :end_date
-    AND usage_quantity > 0
-    AND identity_metadata.run_as IS NOT NULL
+    date_trunc('month', u.usage_date) AS month,
+    u.identity_metadata.run_as AS user_id
+  FROM system.billing.usage u
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.identity_metadata.run_as IS NOT NULL
 ),
 user_first AS (
   SELECT user_id, MIN(month) AS first_month FROM base GROUP BY user_id
@@ -253,7 +250,50 @@ GROUP BY b.month
 ORDER BY month
 """
 
+for _query_name, _query_value in list(globals().items()):
+    if isinstance(_query_value, str) and "/* TEMPORAL_LIST_PRICE_JOIN */" in _query_value:
+        globals()[_query_name] = apply_temporal_list_price_join(_query_value)
+
 _SCIM_TIMEOUT = 12.0  # seconds per HTTP request
+
+
+def _scope_user_sql(sql: str, workspace_ids: list[str] | None) -> str:
+    """Apply workspace scope to every billing scan in an identity query."""
+    clause = wf.build_ws_filter_clause(col="u.workspace_id", id_list=workspace_ids)
+    if not clause:
+        return sql
+    scoped = sql
+    for anchor in ("AND u.usage_quantity > 0", "AND usage_quantity > 0"):
+        scoped = scoped.replace(anchor, f"{anchor}\n    {clause}")
+    return scoped
+
+
+def _identity_scope(labels: list[str]) -> tuple[bool, dict[str, Any]]:
+    """Describe which identity detail is safe for the selected source scope."""
+    if not labels:
+        return True, {"available": True, "availability": "available"}
+    local_label = get_local_source_label()
+    shared_labels = [label for label in labels if label != local_label]
+    if local_label not in labels:
+        return False, {
+            "available": False,
+            "availability": "unavailable",
+            "reason": "identity_detail_unavailable_for_shared_sources",
+            "reason_detail": (
+                "User and group identities are not included in shared cost sources."
+            ),
+        }
+    if shared_labels:
+        return True, {
+            "available": True,
+            "availability": "partial",
+            "reason": "shared_identity_detail_omitted",
+            "reason_detail": (
+                "Identity detail includes only the selected local source; shared "
+                "sources do not expose user or group identities."
+            ),
+        }
+    return True, {"available": True, "availability": "available"}
 
 
 def _scim_get_all_pages(host: str, path: str, auth_header: str, params: dict) -> list[dict]:
@@ -440,24 +480,31 @@ async def get_users_groups_bundle(
     start_date: str = Query(default=None),
     end_date: str = Query(default=None),
     workspace_ids: str = Query(default=None),
+    source_labels: list[str] = Query(default=None),
 ) -> dict[str, Any]:
     """Get all user/group spend data in a single parallel request."""
-    if not end_date:
-        end_date = (date.today() - timedelta(days=1)).isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date, id_list, labels = validate_request_scope(
+        start_date, end_date, workspace_ids, source_labels
+    )
+    identity_available, availability = _identity_scope(labels)
+    if not identity_available:
+        return {
+            **availability,
+            "summary": {},
+            "top_users": [],
+            "timeseries": [],
+            "timeseries_users": [],
+            "by_workspace": [],
+            "user_growth": [],
+            "start_date": start_date,
+            "end_date": end_date,
+        }
 
     params = {"start_date": start_date, "end_date": end_date}
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
     _dkey = bundle_cache_key("users:dashboard-bundle", start_date, end_date, id_list)
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation("users:dashboard-bundle")
-    ws_clause = wf.build_ws_filter_clause(id_list=id_list)
-
-    def _ws(sql: str) -> str:
-        return wf.inject_ws_filter(sql, ws_clause)
-
     # Compute mid-point for spend growth comparison
     from datetime import datetime as _dt
     start_dt = _dt.strptime(start_date, "%Y-%m-%d").date()
@@ -471,19 +518,43 @@ async def get_users_groups_bundle(
     }
 
     queries = [
-        ("summary", lambda: execute_query(_ws(USERS_SUMMARY), params)),
-        ("top_users", lambda: execute_query(_ws(USERS_TOP_SPEND), params)),
-        ("product_breakdown", lambda: execute_query(_ws(USERS_PRODUCT_BREAKDOWN), params)),
-        ("timeseries", lambda: execute_query(_ws(USERS_TIMESERIES), params)),
-        ("by_workspace", lambda: execute_query(_ws(USERS_BY_WORKSPACE), params)),
-        ("spend_growth", lambda: execute_query(_ws(USERS_SPEND_GROWTH), growth_params)),
-        ("user_growth", lambda: execute_query(_ws(USERS_GROWTH), growth_date_params)),
+        ("summary", lambda: execute_query(_scope_user_sql(USERS_SUMMARY, id_list), params)),
+        ("top_users", lambda: execute_query(_scope_user_sql(USERS_TOP_SPEND, id_list), params)),
+        ("product_breakdown", lambda: execute_query(_scope_user_sql(USERS_PRODUCT_BREAKDOWN, id_list), params)),
+        ("timeseries", lambda: execute_query(_scope_user_sql(USERS_TIMESERIES, id_list), params)),
+        ("by_workspace", lambda: execute_query(_scope_user_sql(USERS_BY_WORKSPACE, id_list), params)),
+        ("spend_growth", lambda: execute_query(_scope_user_sql(USERS_SPEND_GROWTH, id_list), growth_params)),
+        ("user_growth", lambda: execute_query(_scope_user_sql(USERS_GROWTH, id_list), growth_date_params)),
     ]
+    required_queries = {"summary", "top_users", "timeseries"}
     try:
         results = await asyncio.to_thread(execute_queries_parallel, queries, timeout=90.0)
+        optional_failures: dict[str, str] = {}
+    except SQLExecutionError as exc:
+        try:
+            results, optional_failures = recover_optional_bundle_queries(
+                exc, required_queries
+            )
+        except SQLExecutionError:
+            logger.error("users dashboard-bundle required query failed: %s", exc)
+            return {
+                **availability,
+                "availability": "error",
+                "summary": {},
+                "top_users": [],
+                "timeseries": [],
+                "timeseries_users": [],
+                "by_workspace": [],
+                "user_growth": [],
+                "start_date": start_date,
+                "end_date": end_date,
+                "error": str(exc),
+                "error_code": exc.code,
+            }
     except Exception as e:
         logger.error("users dashboard-bundle failed: %s", e)
         return {
+            **availability,
             "summary": {},
             "top_users": [],
             "timeseries": [],
@@ -588,6 +659,9 @@ async def get_users_groups_bundle(
     ]
 
     _resp = {
+        **availability,
+        "availability": "partial" if optional_failures else availability["availability"],
+        "partial_reasons": optional_failures,
         "summary": summary,
         "top_users": top_users,
         "timeseries": timeseries,
@@ -597,19 +671,41 @@ async def get_users_groups_bundle(
         "start_date": start_date,
         "end_date": end_date,
     }
-    delta_cache_put(_dkey, "users:dashboard-bundle", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=_cache_generation)
+    delta_cache_put(
+        _dkey,
+        "users:dashboard-bundle",
+        _resp,
+        ttl_seconds=(
+            60
+            if optional_failures
+            else cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE
+        ),
+        generation=_cache_generation,
+    )
     return _resp
 
 
 @router.get("/user-growth")
-async def get_user_growth() -> dict[str, Any]:
+async def get_user_growth(
+    workspace_ids: str = Query(default=None),
+    source_labels: list[str] = Query(default=None),
+) -> dict[str, Any]:
     """Monthly active users and new users trend — always last 6 months, ignores date filter."""
     end_date = (date.today() - timedelta(days=1)).isoformat()
     start_date = (date.today() - timedelta(days=182)).isoformat()
+    _, _, id_list, labels = validate_request_scope(
+        start_date, end_date, workspace_ids, source_labels
+    )
+    identity_available, availability = _identity_scope(labels)
+    if not identity_available:
+        return {**availability, "data": []}
 
     params = {"start_date": start_date, "end_date": end_date}
-    rows = await asyncio.to_thread(execute_query, USERS_GROWTH, params)
+    rows = await asyncio.to_thread(
+        execute_query, _scope_user_sql(USERS_GROWTH, id_list), params
+    )
     return {
+        **availability,
         "data": [
             {
                 "month": r.get("month"),
@@ -622,8 +718,19 @@ async def get_user_growth() -> dict[str, Any]:
 
 
 @router.get("/debug-groups")
-async def debug_groups(request: Request) -> dict[str, Any]:
+async def debug_groups(
+    request: Request,
+    source_labels: list[str] = Query(default=None),
+) -> dict[str, Any]:
     """Debug endpoint: tests SCIM connectivity and returns raw group data."""
+    _, _, _, labels = validate_request_scope(None, None, None, source_labels)
+    identity_available, availability = _identity_scope(labels)
+    if not identity_available:
+        return {
+            **availability,
+            "users_sample": [],
+            "groups_sample": [],
+        }
     user_token = request.headers.get("X-Forwarded-Access-Token")
     forwarded_email = request.headers.get("X-Forwarded-Email")
     forwarded_user = request.headers.get("X-Forwarded-User")
@@ -655,6 +762,7 @@ async def debug_groups(request: Request) -> dict[str, Any]:
         groups_data = groups_resp.json() if groups_resp.status_code == 200 else {"error": groups_resp.text}
 
         return {
+            **availability,
             "auth_method": auth_method,
             "forwarded_headers_present": {
                 "X-Forwarded-Access-Token": bool(user_token),
@@ -683,12 +791,25 @@ async def get_groups_bundle(
     request: Request,
     start_date: str = Query(default=None),
     end_date: str = Query(default=None),
+    workspace_ids: str = Query(default=None),
+    source_labels: list[str] = Query(default=None),
 ) -> dict[str, Any]:
     """Return group-level spend by joining billing data with workspace group membership."""
-    if not end_date:
-        end_date = (date.today() - timedelta(days=1)).isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date, id_list, labels = validate_request_scope(
+        start_date, end_date, workspace_ids, source_labels
+    )
+    identity_available, availability = _identity_scope(labels)
+    if not identity_available:
+        return {
+            **availability,
+            "groups": [],
+            "total_spend": 0,
+            "ungrouped_spend": 0,
+            "ungrouped_workspaces": [],
+            "groups_available": False,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
 
     params = {"start_date": start_date, "end_date": end_date}
     user_token = request.headers.get("X-Forwarded-Access-Token")
@@ -696,7 +817,12 @@ async def get_groups_bundle(
     # Fetch group membership and billing data in parallel without blocking the event loop
     import asyncio as _asyncio
     _loop = _asyncio.get_running_loop()
-    billing_fut = _loop.run_in_executor(None, execute_query, USERS_BY_WORKSPACE_DETAIL, params)
+    billing_fut = _loop.run_in_executor(
+        None,
+        execute_query,
+        _scope_user_sql(USERS_BY_WORKSPACE_DETAIL, id_list),
+        params,
+    )
     groups_fut = _loop.run_in_executor(None, _fetch_workspace_groups, user_token)
     _done, _ = await _asyncio.wait([billing_fut, groups_fut], timeout=30.0)
     try:
@@ -771,6 +897,7 @@ async def get_groups_bundle(
     ungrouped_total = sum(ungrouped_spend.values())
 
     return {
+        **availability,
         "groups": groups_out,
         "total_spend": grand_total,
         "ungrouped_spend": ungrouped_total,
@@ -784,8 +911,21 @@ async def get_groups_bundle(
 # ── User Detail (groups + permissions) ───────────────────────────────────────
 
 @router.get("/user-detail/{email:path}")
-async def get_user_detail(request: Request, email: str) -> dict[str, Any]:
+async def get_user_detail(
+    request: Request,
+    email: str,
+    source_labels: list[str] = Query(default=None),
+) -> dict[str, Any]:
     """Return group memberships and permission grants for a specific user."""
+    _, _, _, labels = validate_request_scope(None, None, None, source_labels)
+    identity_available, availability = _identity_scope(labels)
+    if not identity_available:
+        return {
+            **availability,
+            "email": None,
+            "groups": [],
+            "permission_grants": [],
+        }
     user_token = request.headers.get("X-Forwarded-Access-Token")
     try:
         user_groups = _fetch_workspace_groups(user_token)
@@ -823,6 +963,7 @@ async def get_user_detail(request: Request, email: str) -> dict[str, Any]:
         logger.warning(f"Could not look up SCIM info for {email}: {e}")
 
     return {
+        **availability,
         "email": email,
         "groups": groups,
         "permission_grants": permission_grants,
@@ -924,18 +1065,28 @@ async def send_test_report(
     email: str = Query(...),
     start_date: str = Query(default=None),
     end_date: str = Query(default=None),
+    workspace_ids: str = Query(default=None),
+    source_labels: list[str] = Query(default=None),
 ) -> dict[str, Any]:
     """Send a test weekly spend report to the given email."""
     await _require_report_admin(request)
-    if not end_date:
-        end_date = (date.today() - timedelta(days=1)).isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=7)).isoformat()
+    start_date, end_date, id_list, labels = validate_request_scope(
+        start_date,
+        end_date,
+        workspace_ids,
+        source_labels,
+        default_days=7,
+    )
+    identity_available, availability = _identity_scope(labels)
+    if not identity_available:
+        return {"success": False, **availability}
 
     params = {"start_date": start_date, "end_date": end_date}
 
     try:
-        top_users = await asyncio.to_thread(execute_query, USERS_TOP_SPEND, params)
+        top_users = await asyncio.to_thread(
+            execute_query, _scope_user_sql(USERS_TOP_SPEND, id_list), params
+        )
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -978,4 +1129,4 @@ async def send_test_report(
         subject=f"Weekly Spend Report — {start_date} to {end_date}",
         html_body=html_body,
     )
-    return result
+    return {**result, **availability}

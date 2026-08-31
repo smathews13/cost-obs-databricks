@@ -3,6 +3,7 @@
 import asyncio
 import json
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -174,6 +175,87 @@ def test_write_validation_rejects_delta_sharing_override():
 
 def test_schedule_default_matches_ui_and_readme():
     assert settings._SCHEDULE_DEFAULTS["hour_utc"] == 5
+
+
+def _utc(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(
+        timezone.utc
+    )
+
+
+def test_weekly_schedule_catches_up_on_tuesday_after_monday_slot():
+    now = _utc("2026-09-08T11:30:00Z")  # Tuesday
+
+    assert app_module._missed_scheduled_occurrence(
+        now,
+        "weekly",
+        5,
+        _utc("2026-08-31T05:00:00Z"),
+    ) == _utc("2026-09-07T05:00:00Z")
+
+
+def test_monthly_schedule_catches_up_after_first_of_month():
+    now = _utc("2026-10-14T18:00:00Z")
+
+    assert app_module._missed_scheduled_occurrence(
+        now,
+        "monthly",
+        5,
+        _utc("2026-09-01T05:00:00Z"),
+    ) == _utc("2026-10-01T05:00:00Z")
+
+
+@pytest.mark.parametrize("frequency", ["nightly", "weekly", "monthly"])
+def test_schedule_does_not_repeat_successful_period(frequency):
+    now = _utc("2026-09-08T11:30:00Z")
+    latest_slot = app_module._latest_expected_scheduled_occurrence(
+        now, frequency, 5
+    )
+
+    assert app_module._missed_scheduled_occurrence(
+        now, frequency, 5, latest_slot
+    ) is None
+
+
+def test_schedule_boundaries_honor_utc_hour_and_previous_month():
+    assert app_module._latest_expected_scheduled_occurrence(
+        _utc("2026-09-07T04:59:59Z"), "weekly", 5
+    ) == _utc("2026-08-31T05:00:00Z")
+    assert app_module._latest_expected_scheduled_occurrence(
+        _utc("2026-09-07T05:00:00Z"), "weekly", 5
+    ) == _utc("2026-09-07T05:00:00Z")
+    assert app_module._latest_expected_scheduled_occurrence(
+        _utc("2026-03-01T04:59:59Z"), "monthly", 5
+    ) == _utc("2026-02-01T05:00:00Z")
+    assert app_module._latest_expected_scheduled_occurrence(
+        _utc("2026-03-01T05:00:00Z"), "monthly", 5
+    ) == _utc("2026-03-01T05:00:00Z")
+    assert app_module._latest_expected_scheduled_occurrence(
+        _utc("2026-09-08T02:59:59Z"), "daily", 3
+    ) == _utc("2026-09-07T03:00:00Z")
+
+
+def test_last_successful_rebuild_ignores_newer_failed_attempt():
+    refresh_log = {
+        "status": "error",
+        "last_refresh_utc": "2026-09-08T05:00:00Z",
+        "refresh_history": [
+            {
+                "timestamp": "2026-09-07T05:00:00Z",
+                "status": "success",
+                "operation": "rebuild",
+            },
+            {
+                "timestamp": "2026-09-08T05:00:00Z",
+                "status": "error",
+                "operation": "rebuild",
+            },
+        ],
+    }
+
+    assert app_module._last_successful_rebuild_dt(refresh_log) == _utc(
+        "2026-09-07T05:00:00Z"
+    )
 
 
 def test_refresh_log_is_in_setup_and_drop_managed_table_sets():

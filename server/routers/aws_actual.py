@@ -10,7 +10,6 @@ Source: https://github.com/databricks-solutions/cloud-infra-costs
 import asyncio
 import logging
 import time
-from datetime import date, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -24,6 +23,7 @@ from server.db import (
     execute_query,
     local_source_is_selected,
 )
+from server.request_limits import default_date_range, validate_date_range
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -31,6 +31,18 @@ router = APIRouter()
 # Cache CUR availability — information_schema.tables is slow, no need to re-check on every request
 _cur_status_cache: dict[str, Any] = {"available": None, "checked_at": 0}
 _CUR_STATUS_TTL = 300  # 5 minutes
+
+
+def _validated_dates(
+    start_date: str | None, end_date: str | None
+) -> tuple[str, str]:
+    default_start, default_end = default_date_range()
+    return validate_date_range(
+        start_date,
+        end_date,
+        default_start=default_start,
+        default_end=default_end,
+    )
 
 # Check if CUR tables exist
 CHECK_CUR_TABLES = """
@@ -192,11 +204,7 @@ async def get_aws_actual_summary(
     """Get summary of actual AWS costs."""
     catalog, schema = get_catalog_schema()
 
-    # Default date range
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date = _validated_dates(start_date, end_date)
 
     # Check if CUR is available
     status = await get_cur_status()
@@ -253,10 +261,7 @@ async def get_aws_costs_by_cluster(
     """Get actual AWS costs by cluster."""
     catalog, schema = get_catalog_schema()
 
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date = _validated_dates(start_date, end_date)
 
     status = await get_cur_status()
     if not status["cur_available"]:
@@ -308,10 +313,7 @@ async def get_aws_costs_by_charge_type(
     """Get actual AWS costs by charge type (Compute, Storage, Networking)."""
     catalog, schema = get_catalog_schema()
 
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date = _validated_dates(start_date, end_date)
 
     status = await get_cur_status()
     if not status["cur_available"]:
@@ -361,10 +363,7 @@ async def get_aws_costs_timeseries(
     """Get daily AWS costs timeseries by charge type."""
     catalog, schema = get_catalog_schema()
 
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date = _validated_dates(start_date, end_date)
 
     status = await get_cur_status()
     if not status["cur_available"]:
@@ -422,10 +421,7 @@ async def get_aws_actual_dashboard_bundle(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     """Get all AWS actual cost data in a single request."""
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
+    start_date, end_date = _validated_dates(start_date, end_date)
 
     # Check status first — don't cache the unavailable response (status has its own TTL)
     status = await get_cur_status()
@@ -442,7 +438,7 @@ async def get_aws_actual_dashboard_bundle(
 
     _dkey = bundle_cache_key("aws_actual/dashboard-bundle", start_date, end_date, None)
     try:
-        if (_dcached := delta_cache_get(_dkey)) is not None:
+        if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
             return _dcached
     except Exception as _ce:
         logger.debug("Delta cache read failed for aws_actual/dashboard-bundle: %s", _ce)

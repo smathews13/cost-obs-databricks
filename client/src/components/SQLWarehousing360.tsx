@@ -201,6 +201,25 @@ interface SourceQuery {
   source_url: string | null;
 }
 
+async function loadSourceQueries(
+  sourceType: string,
+  startDate?: string,
+  endDate?: string,
+  workspaceIds?: string[],
+): Promise<SourceQuery[]> {
+  const params = new URLSearchParams({ source_type: sourceType, limit: "5" });
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  const response = await fetch(
+    buildFilteredUrl("/api/dbsql/top-queries-by-source", params, workspaceIds),
+  );
+  if (!response.ok) {
+    throw new Error(`Source query request failed with ${response.status}`);
+  }
+  const result = await response.json();
+  return result.queries || [];
+}
+
 export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesData, topQueriesLoading, host, startDate, endDate, workspaceIds, workspaceNameMap }: SQLWarehousing360Props) {
   const spNameMap = useSpNameMap();
   const [sortField, setSortField] = useState<SortField>("cost");
@@ -211,67 +230,55 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
   const queryHistoryGranted = tableGranted("system.query.history");
   const [selectedKPI, setSelectedKPI] = useState<{kpi: string; label: string; variant?: "billing" | "platform"} | null>(null);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
-  const [sourceQueriesCache, setSourceQueriesCache] = useState<Record<string, SourceQuery[]>>({});
-  const [sourceQueriesLoading, setSourceQueriesLoading] = useState(false);
   const [querySourceFilters, setQuerySourceFilters] = useState<string[] | null>(null);
   const [querySourceDropdownOpen, setQuerySourceDropdownOpen] = useState(false);
   const [querySearch, setQuerySearch] = useState("");
+  const queryClient = useQueryClient();
+  const wsKey = getWorkspaceScopeKey(workspaceIds);
+  const sourceKey = getActiveSourceScopeKey();
 
-  // Derive current source queries from cache
-  const sourceQueries = selectedSource ? (sourceQueriesCache[selectedSource] || []) : [];
+  const { data: sourceQueries = [], isLoading: sourceQueriesLoading } = useQuery({
+    queryKey: [
+      "dbsql",
+      "top-queries-by-source",
+      selectedSource,
+      startDate,
+      endDate,
+      wsKey,
+      sourceKey,
+    ],
+    queryFn: () => loadSourceQueries(selectedSource!, startDate, endDate, workspaceIds),
+    enabled: !!selectedSource,
+    staleTime: 5 * 60 * 1000,
+  });
 
   // Prefetch top queries for ALL source types when data loads
   const sourceBreakdowns = queryData?.by_source?.sources;
   useEffect(() => {
     const prefetchSourceTypes = sourceBreakdowns?.map((source) => source.query_source_type) ?? [];
     if (!startDate || !endDate || prefetchSourceTypes.length === 0) return;
-    let cancelled = false;
-    const fetchAll = async () => {
-      const results: Record<string, SourceQuery[]> = {};
-      await Promise.all(
-        prefetchSourceTypes.map(async (sourceType) => {
-          try {
-            const params = new URLSearchParams({ source_type: sourceType, limit: "5" });
-            params.set("start_date", startDate);
-            params.set("end_date", endDate);
-            const res = await fetch(`/api/dbsql/top-queries-by-source?${params}`);
-            const result = await res.json();
-            results[sourceType] = result.queries || [];
-          } catch {
-            results[sourceType] = [];
-          }
-        })
-      );
-      if (!cancelled) setSourceQueriesCache(results);
-    };
-    fetchAll();
-    return () => { cancelled = true; };
-  }, [startDate, endDate, sourceBreakdowns]);
+    for (const sourceType of prefetchSourceTypes) {
+      void queryClient.prefetchQuery({
+        queryKey: [
+          "dbsql",
+          "top-queries-by-source",
+          sourceType,
+          startDate,
+          endDate,
+          wsKey,
+          sourceKey,
+        ],
+        queryFn: () => loadSourceQueries(sourceType, startDate, endDate, workspaceIds),
+        staleTime: 5 * 60 * 1000,
+      });
+    }
+  }, [startDate, endDate, sourceBreakdowns, queryClient, wsKey, sourceKey, workspaceIds]);
 
   const handleSourceClick = (sourceType: string) => {
     setSelectedSource(sourceType);
-    // If not in cache yet, fetch on demand
-    if (!sourceQueriesCache[sourceType]) {
-      setSourceQueriesLoading(true);
-      const params = new URLSearchParams({ source_type: sourceType, limit: "5" });
-      if (startDate) params.set("start_date", startDate);
-      if (endDate) params.set("end_date", endDate);
-      fetch(`/api/dbsql/top-queries-by-source?${params}`)
-        .then((res) => res.json())
-        .then((result) => {
-          setSourceQueriesCache((prev) => ({ ...prev, [sourceType]: result.queries || [] }));
-        })
-        .catch(() => {
-          setSourceQueriesCache((prev) => ({ ...prev, [sourceType]: [] }));
-        })
-        .finally(() => setSourceQueriesLoading(false));
-    }
   };
 
   // Pre-warm trend queries so modals open instantly
-  const queryClient = useQueryClient();
-  const wsKey = getWorkspaceScopeKey(workspaceIds);
-  const sourceKey = getActiveSourceScopeKey();
   useEffect(() => {
     if (!startDate || !endDate) return;
     for (const kpi of ["sql_queries", "sql_users", "avg_query_duration"]) {

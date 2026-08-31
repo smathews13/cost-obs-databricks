@@ -4,51 +4,37 @@ import asyncio
 import logging
 import os
 import time
-from datetime import date, timedelta
 from typing import Any
 
 from cachetools import TTLCache
-
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, execute_queries_parallel, get_catalog_schema, get_host_url, get_workspace_client, get_local_source_label, bundle_cache_key, delta_cache_get, delta_cache_put, capture_cache_generation, apply_mv_overrides, selected_source_labels, source_label_filter_clause
 from server import cache_ttls
-from server.queries import (
-    ACCOUNT_INFO,
-    AWS_COST_BY_INSTANCE_TYPE,
-    BILLING_BY_PRODUCT,
-    BILLING_BY_PRODUCT_FAST,
-    BILLING_BY_PRODUCT_WORKSPACE,
-    BILLING_BY_WORKSPACE,
-    BILLING_SUMMARY,
-    BILLING_TIMESERIES,
-    BILLING_TIMESERIES_FAST,
-    ETL_BREAKDOWN,
-    INFRA_COST_ESTIMATE,
-    INFRA_COST_TIMESERIES,
-    INTERACTIVE_BREAKDOWN,
-    PIPELINE_OBJECTS,
-    BILLING_KPIS_FAST,
-    AVG_DAILY_WORKSPACES,
-    AVG_DAILY_QUERY_USERS_MV,
-    TOTAL_WORKSPACES_ALLTIME,
-    AVG_DAILY_MODELS,
-    LAKEFLOW_JOB_STATS,
-    PLATFORM_KPIS,
-    PLATFORM_KPIS_FAST,
-    SKU_BREAKDOWN,
-    SPEND_ANOMALIES,
-    SQL_TOOL_ATTRIBUTION,
-)
 from server.cloud_pricing import (
-    get_instance_family,
-    get_instance_pricing,
-    get_pricing_disclaimer,
     get_cloud_display_name,
+    get_instance_family,
+)
+from server.db import (
+    SQLExecutionError,
+    apply_mv_overrides,
+    bundle_cache_key,
+    capture_cache_generation,
+    delta_cache_get,
+    delta_cache_put,
+    execute_queries_parallel,
+    get_catalog_schema,
+    get_host_url,
+    get_local_source_label,
+    get_workspace_client,
+    recover_optional_bundle_queries,
+    selected_source_labels,
+    source_label_filter_clause,
+)
+from server.db import (
+    execute_query as _execute_query,
 )
 from server.materialized_views import (
     MV_BILLING_BY_PRODUCT,
-    MV_BILLING_BY_WORKSPACE,
     MV_BILLING_SUMMARY,
     MV_BILLING_TIMESERIES,
     MV_ETL_BREAKDOWN,
@@ -56,13 +42,59 @@ from server.materialized_views import (
     MV_SQL_TOOL_ATTRIBUTION,
     check_materialized_views_exist,
 )
+from server.queries import (
+    ACCOUNT_INFO,
+    AVG_DAILY_MODELS,
+    AVG_DAILY_QUERY_USERS_MV,
+    AVG_DAILY_WORKSPACES,
+    AWS_COST_BY_INSTANCE_TYPE,
+    BILLING_BY_PRODUCT,
+    BILLING_BY_PRODUCT_FAST,
+    BILLING_BY_PRODUCT_WORKSPACE,
+    BILLING_BY_WORKSPACE,
+    BILLING_KPIS_FAST,
+    BILLING_SUMMARY,
+    BILLING_TIMESERIES,
+    BILLING_TIMESERIES_FAST,
+    ETL_BREAKDOWN,
+    INFRA_COST_ESTIMATE,
+    INFRA_COST_TIMESERIES,
+    INTERACTIVE_BREAKDOWN,
+    LAKEFLOW_JOB_STATS,
+    PIPELINE_OBJECTS,
+    PLATFORM_KPIS,
+    PLATFORM_KPIS_FAST,
+    SKU_BREAKDOWN,
+    SPEND_ANOMALIES,
+    SQL_TOOL_ATTRIBUTION,
+    TOTAL_WORKSPACES_ALLTIME,
+)
+from server.queries.pricing import apply_temporal_list_price_join
+from server.request_limits import default_date_range, parse_workspace_ids, validate_date_range
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+def execute_query(sql: str, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    """Execute billing SQL after expanding any canonical temporal-price marker."""
+    return _execute_query(apply_temporal_list_price_join(sql), *args, **kwargs)
+
 # Stale fallback: stores the last successful non-zero kpis_response per exact
 # date/workspace/source scope so one source selection can never leak into another.
 _kpis_stale: TTLCache = TTLCache(maxsize=500, ttl=cache_ttls.STALE_KPI)
+
+
+def _run_bundle_parallel(
+    queries: list[tuple[str, Any]],
+    *,
+    required: set[str],
+    timeout: float,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    try:
+        return execute_queries_parallel(queries, timeout=timeout), {}
+    except SQLExecutionError as exc:
+        return recover_optional_bundle_queries(exc, required)
 
 
 def _kpis_stale_key(
@@ -130,7 +162,8 @@ def _check_mv_available() -> bool:
         return _result(_mv_cache["available"])
 
     import threading
-    from concurrent.futures import Future, wait as _cfwait
+    from concurrent.futures import Future
+    from concurrent.futures import wait as _cfwait
 
     def _check():
         catalog, schema = get_catalog_schema()
@@ -273,12 +306,29 @@ async def get_account_details() -> dict[str, Any]:
 
 def get_default_start_date() -> str:
     """Get default start date (last 30 days)."""
-    return (date.today() - timedelta(days=30)).isoformat()
+    return default_date_range()[0]
 
 
 def get_default_end_date() -> str:
-    """Get default end date (today)."""
-    return date.today().isoformat()
+    """Get default end date (last complete UTC day)."""
+    return default_date_range()[1]
+
+
+def _validated_scope(
+    start_date: str | None,
+    end_date: str | None,
+    workspace_ids: str | None = None,
+) -> tuple[dict[str, str], list[str] | None]:
+    validated_start, validated_end = validate_date_range(
+        start_date,
+        end_date,
+        default_start=get_default_start_date(),
+        default_end=get_default_end_date(),
+    )
+    return (
+        {"start_date": validated_start, "end_date": validated_end},
+        parse_workspace_ids(workspace_ids),
+    )
 
 
 @router.get("/summary")
@@ -289,10 +339,7 @@ async def get_billing_summary(
 ) -> dict[str, Any]:
     """Get overall billing summary (total spend, DBUs, etc.)."""
     from server import workspace_filter as wf
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
+    params, _ = _validated_scope(start_date, end_date)
     id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
     use_mv = await asyncio.to_thread(_check_mv_available)
@@ -448,13 +495,9 @@ async def get_sql_breakdown(
 
     Uses materialized views when available for fast queries.
     """
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
     _dkey = bundle_cache_key("billing:sql-breakdown", params["start_date"], params["end_date"], id_list)
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation("billing:sql-breakdown")
 
@@ -556,13 +599,9 @@ async def get_pipeline_objects(
 ) -> dict[str, Any]:
     """Get spend breakdown by pipeline objects (Jobs and SDP pipelines)."""
     from server import workspace_filter as wf
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
     _dkey = bundle_cache_key("billing:pipeline-objects", params["start_date"], params["end_date"], id_list)
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation("billing:pipeline-objects")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
@@ -630,13 +669,9 @@ async def get_interactive_breakdown(
 ) -> dict[str, Any]:
     """Get Interactive compute breakdown by notebook, user, and cluster."""
     from server import workspace_filter as wf
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
     _dkey = bundle_cache_key("billing:interactive-breakdown", params["start_date"], params["end_date"], id_list)
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation("billing:interactive-breakdown")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
@@ -952,6 +987,8 @@ def _run_infra_query(query: str, params: dict[str, Any]) -> dict[str, Any]:
     """Keep query errors structured because the parallel runner otherwise returns None."""
     try:
         return {"rows": execute_query(query, params), "error": None, "error_kind": None}
+    except SQLExecutionError:
+        raise
     except Exception as exc:
         return {
             "rows": None,
@@ -1032,11 +1069,7 @@ async def get_infra_bundle(
 ) -> dict[str, Any]:
     """Bundled infra endpoint: runs cluster costs, instance families, and timeseries in parallel."""
     from server import workspace_filter as wf
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
     if not _local_source_selected():
         empty = {
             "cloud": "UNKNOWN",
@@ -1070,7 +1103,7 @@ async def get_infra_bundle(
 
     # Delta cross-worker cache
     _dkey = bundle_cache_key("billing:infra-bundle:v2", params["start_date"], params["end_date"], id_list)
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation("billing:infra-bundle:v2")
 
@@ -1085,11 +1118,7 @@ async def get_infra_bundle(
         u.usage_metadata.cluster_id as cluster_id,
         COALESCE(p.pricing.default, 0) as price_per_dbu
       FROM system.billing.usage u
-      LEFT JOIN system.billing.list_prices p
-        ON u.sku_name = p.sku_name
-        AND u.cloud = p.cloud
-        AND u.usage_start_time >= p.price_start_time
-        AND (u.usage_end_time <= p.price_end_time OR p.price_end_time IS NULL)
+      /* TEMPORAL_LIST_PRICE_JOIN */
       WHERE u.usage_date BETWEEN :start_date AND :end_date
         AND u.usage_quantity > 0
         AND u.usage_metadata.cluster_id IS NOT NULL
@@ -1140,12 +1169,17 @@ async def get_infra_bundle(
     _ts_sql = _inject_ws_filter(INFRA_COST_TIMESERIES, _ws_clause)
     _scope_sql = _inject_ws_filter(BILLING_INFRA_SCOPE, _ws_clause)
     try:
-        query_results = await asyncio.to_thread(execute_queries_parallel, [
-            ("clusters", lambda: _run_infra_query(_clusters_sql, params)),
-            ("timeseries", lambda: _run_infra_query(_ts_sql, params)),
-            ("billing_summary", lambda: _run_infra_query(_infra_sql, params)),
-            ("usage_scope", lambda: _run_infra_query(_scope_sql, params)),
-        ], timeout=90.0)
+        query_results, optional_failures = await asyncio.to_thread(
+            _run_bundle_parallel,
+            [
+                ("clusters", lambda: _run_infra_query(_clusters_sql, params)),
+                ("timeseries", lambda: _run_infra_query(_ts_sql, params)),
+                ("billing_summary", lambda: _run_infra_query(_infra_sql, params)),
+                ("usage_scope", lambda: _run_infra_query(_scope_sql, params)),
+            ],
+            required={"clusters", "timeseries"},
+            timeout=90.0,
+        )
 
         cluster_results, cluster_status = _infra_query_outcome(query_results, "clusters")
         ts_results, timeseries_status = _infra_query_outcome(query_results, "timeseries")
@@ -1371,6 +1405,8 @@ async def get_infra_bundle(
             }
 
         _resp = {
+            "availability": "partial" if optional_failures else "available",
+            "partial_reasons": optional_failures,
             "infra_costs": {
                 "cloud": cloud,
                 "cloud_display_name": get_cloud_display_name(cloud),
@@ -1442,7 +1478,17 @@ async def get_infra_bundle(
             },
         }
         if cluster_status["available"] and timeseries_status["available"]:
-            delta_cache_put(_dkey, "billing:infra-bundle:v2", _resp, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=_cache_generation)
+            delta_cache_put(
+                _dkey,
+                "billing:infra-bundle:v2",
+                _resp,
+                ttl_seconds=(
+                    60
+                    if optional_failures
+                    else cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE
+                ),
+                generation=_cache_generation,
+            )
         return _resp
     except Exception as e:
         logger.error(f"Infra bundle error: {e}")
@@ -1733,14 +1779,11 @@ async def get_dashboard_bundle(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     """Get all dashboard data in a single request with parallel execution.
-    
+
     This endpoint executes all dashboard queries in parallel to minimize latency.
     Expected speedup: 6-12x faster than making individual requests.
     """
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
+    params, _ = _validated_scope(start_date, end_date)
 
     # Execute all queries in parallel
     queries = [
@@ -1755,10 +1798,17 @@ async def get_dashboard_bundle(
     ]
 
     try:
-        results = await asyncio.to_thread(execute_queries_parallel, queries, timeout=60.0)
+        results, optional_failures = await asyncio.to_thread(
+            _run_bundle_parallel,
+            queries,
+            required={"summary", "products", "timeseries"},
+            timeout=60.0,
+        )
 
         # Format responses to match existing endpoint structures
         response = {
+            "availability": "partial" if optional_failures else "available",
+            "partial_reasons": optional_failures,
             "summary": _format_summary(results.get("summary"), params),
             "products": _format_products(results.get("products"), params),
             "workspaces": _format_workspaces(results.get("workspaces"), params),
@@ -1783,6 +1833,8 @@ async def get_dashboard_bundle(
     except Exception as e:
         logger.error("dashboard-bundle failed: %s", e)
         return {
+            "availability": "error",
+            "error": str(e),
             "summary": _format_summary(None, params),
             "products": _format_products(None, params),
             "workspaces": _format_workspaces(None, params),
@@ -1993,16 +2045,11 @@ async def get_dashboard_bundle_fast(
     Expected load time: <1 second with MVs, 2-5 seconds without.
     """
     from server import workspace_filter as wf
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
 
     # Delta cross-worker cache — check before running any warehouse queries
     _dkey = bundle_cache_key("billing:dashboard-bundle-fast", params["start_date"], params["end_date"], id_list)
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation("billing:dashboard-bundle-fast")
 
@@ -2096,10 +2143,17 @@ async def get_dashboard_bundle_fast(
         ]
 
     try:
-        results = await asyncio.to_thread(execute_queries_parallel, queries, timeout=90.0)
+        results, optional_failures = await asyncio.to_thread(
+            _run_bundle_parallel,
+            queries,
+            required={"summary", "products", "timeseries"},
+            timeout=90.0,
+        )
 
         # Format responses
         response = {
+            "availability": "partial" if optional_failures else "available",
+            "partial_reasons": optional_failures,
             "summary": _format_summary(results.get("summary"), params),
             "products": _format_products_fast(results.get("products"), params),
             "workspaces": _format_workspaces(results.get("workspaces"), params),
@@ -2118,11 +2172,23 @@ async def get_dashboard_bundle_fast(
             if accurate_count > 0:
                 response["summary"]["workspace_count"] = accurate_count
 
-        delta_cache_put(_dkey, "billing:dashboard-bundle-fast", response, ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE, generation=_cache_generation)
+        delta_cache_put(
+            _dkey,
+            "billing:dashboard-bundle-fast",
+            response,
+            ttl_seconds=(
+                60
+                if optional_failures
+                else cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE
+            ),
+            generation=_cache_generation,
+        )
         return response
     except Exception as e:
         logger.error("dashboard-bundle-fast failed: %s", e)
         return {
+            "availability": "error",
+            "error": str(e),
             "summary": _format_summary(None, params),
             "products": _format_products_fast(None, params),
             "workspaces": _format_workspaces(None, params),
@@ -2130,7 +2196,6 @@ async def get_dashboard_bundle_fast(
             "etl_breakdown": _format_etl_breakdown(None, params),
             "is_fast_mode": True,
             "using_materialized_views": use_mv,
-            "error": str(e),
         }
 
 
@@ -2519,13 +2584,9 @@ async def get_sku_breakdown(
     Returns spend and usage metrics grouped by SKU name.
     """
     from server import workspace_filter as wf
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
     _dkey = bundle_cache_key("billing:sku-breakdown", params["start_date"], params["end_date"], id_list)
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation("billing:sku-breakdown")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
@@ -2611,8 +2672,7 @@ async def get_spend_by_user_group(
               SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as total_spend,
               SUM(u.usage_quantity) as total_dbus
             FROM system.billing.usage u
-            LEFT JOIN system.billing.list_prices p
-              ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+            /* TEMPORAL_LIST_PRICE_JOIN */
             WHERE u.usage_date BETWEEN :start_date AND :end_date
               AND u.usage_quantity > 0
               AND u.identity_metadata.run_as IS NOT NULL
@@ -2657,8 +2717,7 @@ async def get_spend_by_user_group(
           SUM(u.usage_quantity) as total_dbus,
           1 as user_count
         FROM system.billing.usage u
-        LEFT JOIN system.billing.list_prices p
-          ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+        /* TEMPORAL_LIST_PRICE_JOIN */
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.identity_metadata.run_as IS NOT NULL
@@ -2843,15 +2902,11 @@ async def get_kpis_bundle(
 ) -> dict[str, Any]:
     """Bundled KPIs endpoint: runs platform KPIs and spend anomalies in parallel."""
     from server import workspace_filter as wf
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
 
     # Delta cross-worker cache
     _dkey = bundle_cache_key("billing:kpis-bundle", params["start_date"], params["end_date"], id_list)
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation("billing:kpis-bundle")
 
@@ -2997,8 +3052,17 @@ async def get_kpis_bundle(
     except Exception as exc:
         logger.warning("Managed query-user stickiness is unavailable: %s", exc)
 
+    required_queries = (
+        {"billing_kpis"} if _local_source_selected() else {"active_workspaces"}
+    )
+    required_queries.add("mv_kpis" if use_mv else "delta_query_stats")
     try:
-        query_results = await asyncio.to_thread(execute_queries_parallel, parallel_queries, timeout=90.0)
+        query_results, optional_failures = await asyncio.to_thread(
+            _run_bundle_parallel,
+            parallel_queries,
+            required=required_queries,
+            timeout=90.0,
+        )
     except Exception as e:
         logger.error("kpis-bundle query execution failed: %s", e)
         return {"kpis": {
@@ -3157,6 +3221,8 @@ async def get_kpis_bundle(
         })
 
     _kpis_resp = {
+        "availability": "partial" if optional_failures else "available",
+        "partial_reasons": optional_failures,
         "kpis": kpis_response,
         "anomalies": {
             "anomalies": anomalies,
@@ -3169,7 +3235,13 @@ async def get_kpis_bundle(
         },
     }
     # Anomaly surfaces need fresher data — cap at 5 min regardless of scope
-    delta_cache_put(_dkey, "billing:kpis-bundle", _kpis_resp, ttl_seconds=cache_ttls.KPI, generation=_cache_generation)
+    delta_cache_put(
+        _dkey,
+        "billing:kpis-bundle",
+        _kpis_resp,
+        ttl_seconds=60 if optional_failures else cache_ttls.KPI,
+        generation=_cache_generation,
+    )
     return _kpis_resp
 
 
@@ -3184,16 +3256,12 @@ async def get_kpi_trend(
 ) -> dict[str, Any]:
     """Get trend data for a specific KPI over time."""
     from server import workspace_filter as wf
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
     owner_tab = tab if isinstance(tab, str) and tab in {"dbu", "sql", "aiml", "tagging", "infra"} else "dbu"
     cache_endpoint = f"trend:{owner_tab}:billing-kpi"
 
     _dkey = bundle_cache_key(f"{cache_endpoint}:{kpi}:{granularity}", params["start_date"], params["end_date"], id_list)
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation(cache_endpoint)
     def _resp(data: dict) -> dict:
@@ -3256,10 +3324,7 @@ async def get_kpi_trend(
             u.usage_quantity,
             COALESCE(p.pricing.default, 0) as price_per_dbu
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name
-            AND u.cloud = p.cloud
-            AND p.price_end_time IS NULL
+          /* TEMPORAL_LIST_PRICE_JOIN */
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
         )
@@ -3278,10 +3343,7 @@ async def get_kpi_trend(
             u.usage_quantity,
             COALESCE(p.pricing.default, 0) as price_per_dbu
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name
-            AND u.cloud = p.cloud
-            AND p.price_end_time IS NULL
+          /* TEMPORAL_LIST_PRICE_JOIN */
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
         )
@@ -3350,10 +3412,7 @@ async def get_kpi_trend(
             u.usage_quantity,
             COALESCE(p.pricing.default, 0) as price_per_dbu
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name
-            AND u.cloud = p.cloud
-            AND p.price_end_time IS NULL
+          /* TEMPORAL_LIST_PRICE_JOIN */
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND (
@@ -3415,10 +3474,7 @@ async def get_kpi_trend(
           SUM(u.usage_quantity * COALESCE(p.pricing.default, 0))
             / NULLIF(COUNT(DISTINCT u.usage_metadata.endpoint_name), 0) as value
         FROM system.billing.usage u
-        LEFT JOIN system.billing.list_prices p
-          ON u.sku_name = p.sku_name
-          AND u.cloud = p.cloud
-          AND p.price_end_time IS NULL
+        /* TEMPORAL_LIST_PRICE_JOIN */
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND (
@@ -3439,10 +3495,7 @@ async def get_kpi_trend(
             COALESCE(p.pricing.default, 0) as price_per_dbu,
             CASE WHEN u.custom_tags IS NOT NULL AND size(u.custom_tags) > 0 THEN true ELSE false END as has_tags
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name
-            AND u.cloud = p.cloud
-            AND p.price_end_time IS NULL
+          /* TEMPORAL_LIST_PRICE_JOIN */
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
         )
@@ -3462,10 +3515,7 @@ async def get_kpi_trend(
             COALESCE(p.pricing.default, 0) as price_per_dbu,
             CASE WHEN u.custom_tags IS NOT NULL AND size(u.custom_tags) > 0 THEN true ELSE false END as has_tags
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name
-            AND u.cloud = p.cloud
-            AND p.price_end_time IS NULL
+          /* TEMPORAL_LIST_PRICE_JOIN */
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
         )
@@ -3484,10 +3534,7 @@ async def get_kpi_trend(
             u.usage_quantity,
             COALESCE(p.pricing.default, 0) as price_per_dbu
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name
-            AND u.cloud = p.cloud
-            AND p.price_end_time IS NULL
+          /* TEMPORAL_LIST_PRICE_JOIN */
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND (u.sku_name LIKE '%ALL_PURPOSE%' OR u.sku_name LIKE '%JOBS%' OR u.sku_name LIKE '%SQL%' OR u.sku_name LIKE '%DLT%')
@@ -3533,10 +3580,7 @@ async def get_kpi_trend(
             u.usage_metadata.cluster_id as cluster_id,
             COALESCE(p.pricing.default, 0) as price_per_dbu
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name
-            AND u.cloud = p.cloud
-            AND p.price_end_time IS NULL
+          /* TEMPORAL_LIST_PRICE_JOIN */
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND u.usage_metadata.cluster_id IS NOT NULL
@@ -3557,10 +3601,7 @@ async def get_kpi_trend(
             u.usage_quantity,
             COALESCE(p.pricing.default, 0) as price_per_dbu
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name
-            AND u.cloud = p.cloud
-            AND p.price_end_time IS NULL
+          /* TEMPORAL_LIST_PRICE_JOIN */
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND u.billing_origin_product = 'APPS'
@@ -3603,8 +3644,7 @@ async def get_kpi_trend(
           SUM(usage_quantity * COALESCE(p.pricing.default, 0))
             / NULLIF(COUNT(DISTINCT COALESCE(u.usage_metadata.app_id, 'unknown')), 0) as value
         FROM system.billing.usage u
-        LEFT JOIN system.billing.list_prices p
-          ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+        /* TEMPORAL_LIST_PRICE_JOIN */
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.billing_origin_product = 'APPS'
@@ -3639,8 +3679,7 @@ async def get_kpi_trend(
             t.key as tag_key,
             t.value as tag_value
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+          /* TEMPORAL_LIST_PRICE_JOIN */
           LATERAL VIEW EXPLODE(u.custom_tags) t AS key, value
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
@@ -3678,10 +3717,7 @@ async def get_kpi_trend(
           u.usage_date as date,
           SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as value
         FROM system.billing.usage u
-        LEFT JOIN system.billing.list_prices p
-          ON u.sku_name = p.sku_name
-          AND u.cloud = p.cloud
-          AND p.price_end_time IS NULL
+        /* TEMPORAL_LIST_PRICE_JOIN */
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.identity_metadata.run_as IS NOT NULL
@@ -3694,10 +3730,7 @@ async def get_kpi_trend(
           u.usage_date as date,
           SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as value
         FROM system.billing.usage u
-        LEFT JOIN system.billing.list_prices p
-          ON u.sku_name = p.sku_name
-          AND u.cloud = p.cloud
-          AND p.price_end_time IS NULL
+        /* TEMPORAL_LIST_PRICE_JOIN */
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.identity_metadata.run_as IS NOT NULL
@@ -3710,10 +3743,7 @@ async def get_kpi_trend(
           u.usage_date as date,
           SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) / NULLIF(COUNT(DISTINCT u.identity_metadata.run_as), 0) as value
         FROM system.billing.usage u
-        LEFT JOIN system.billing.list_prices p
-          ON u.sku_name = p.sku_name
-          AND u.cloud = p.cloud
-          AND p.price_end_time IS NULL
+        /* TEMPORAL_LIST_PRICE_JOIN */
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.identity_metadata.run_as IS NOT NULL
@@ -3729,10 +3759,7 @@ async def get_kpi_trend(
             COALESCE(p.pricing.default, 0) as price_per_dbu,
             CASE WHEN u.custom_tags IS NOT NULL AND size(u.custom_tags) > 0 THEN true ELSE false END as has_tags
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name
-            AND u.cloud = p.cloud
-            AND p.price_end_time IS NULL
+          /* TEMPORAL_LIST_PRICE_JOIN */
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
         )
@@ -3752,10 +3779,7 @@ async def get_kpi_trend(
             u.identity_metadata.run_as AS user_email,
             SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS total_spend
           FROM system.billing.usage u
-          LEFT JOIN system.billing.list_prices p
-            ON u.sku_name = p.sku_name
-            AND u.cloud = p.cloud
-            AND p.price_end_time IS NULL
+          /* TEMPORAL_LIST_PRICE_JOIN */
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND u.identity_metadata.run_as IS NOT NULL
@@ -3772,10 +3796,7 @@ async def get_kpi_trend(
           u.usage_date AS date,
           SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS value
         FROM system.billing.usage u
-        LEFT JOIN system.billing.list_prices p
-          ON u.sku_name = p.sku_name
-          AND u.cloud = p.cloud
-          AND p.price_end_time IS NULL
+        /* TEMPORAL_LIST_PRICE_JOIN */
         JOIN power_users pu ON u.identity_metadata.run_as = pu.user_email
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
@@ -3958,16 +3979,12 @@ async def get_platform_kpi_trend(
 ) -> dict[str, Any]:
     """Get trend data for platform KPIs over time."""
     from server import workspace_filter as wf
-    params = {
-        "start_date": start_date or get_default_start_date(),
-        "end_date": end_date or get_default_end_date(),
-    }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
     owner_tab = tab if isinstance(tab, str) and tab in {"sql", "kpis"} else "kpis"
     cache_endpoint = f"trend:{owner_tab}:platform-kpi"
 
     _dkey = bundle_cache_key(f"{cache_endpoint}:{kpi}:{granularity}", params["start_date"], params["end_date"], id_list)
-    if (_dcached := delta_cache_get(_dkey)) is not None:
+    if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
     _cache_generation = capture_cache_generation(cache_endpoint)
     def _resp(data: dict) -> dict:

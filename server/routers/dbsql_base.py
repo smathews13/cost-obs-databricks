@@ -7,18 +7,22 @@ difference between the two is the table name.
 """
 
 import asyncio
-import contextvars
 import logging
+import re
 import threading
 import time as _time
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from server import cache_ttls
+from server import workspace_filter as wf
 from server.db import (
+    BundleOverloadedError,
     CacheGeneration,
+    SQLExecutionError,
     apply_mv_overrides,
     bundle_cache_key,
     capture_cache_generation,
@@ -29,11 +33,18 @@ from server.db import (
     get_catalog_schema,
     get_host_url,
     get_local_source_label,
+    recover_optional_bundle_queries,
     selected_source_labels,
     source_label_filter_clause,
+    start_bundle_compute,
 )
-from server import workspace_filter as wf
-from server import cache_ttls
+from server.queries.pricing import temporal_list_price_join
+from server.request_limits import (
+    MAX_DATE_RANGE_MONTHS,
+    cap_detail_items,
+    parse_workspace_ids,
+    validate_date_range,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +55,71 @@ _dbsql_bundle_inflight_lock = threading.Lock()
 # Uses UC REST API so it never blocks the event loop on cold warehouses.
 _mv_status_cache: dict[str, tuple[float, dict]] = {}
 _MV_STATUS_CACHE_TTL = 300.0  # 5 minutes
+
+# Dashboard date pickers support at most six calendar months. Keeping the API
+# at that same bound prevents accidental account-wide scans from hand-built URLs.
+MAX_LOOKBACK_MONTHS = MAX_DATE_RANGE_MONTHS
+MAX_WORKSPACE_IDS = 100
+MAX_SOURCE_LABELS = 20
+_SAFE_WORKSPACE_ID = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def _validation_error(detail: str) -> HTTPException:
+    return HTTPException(status_code=422, detail=detail)
+
+
+def validate_request_scope(
+    start_date: str | None,
+    end_date: str | None,
+    workspace_ids: str | None = None,
+    source_labels: list[str] | tuple[str, ...] | None = None,
+    *,
+    default_days: int = 30,
+) -> tuple[str, str, list[str] | None, list[str]]:
+    """Validate common dashboard dates and bounded scope selectors.
+
+    Dates are strict ISO ``YYYY-MM-DD``, may not include today/future data, and
+    span no more than the six calendar months exposed by the app.
+    """
+    yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
+    default_end = yesterday.isoformat()
+    default_start = (
+        yesterday - timedelta(days=max(default_days, 1) - 1)
+    ).isoformat()
+    validated_start, validated_end = validate_date_range(
+        start_date,
+        end_date,
+        default_start=default_start,
+        default_end=default_end,
+    )
+
+    try:
+        validated_workspace_ids = parse_workspace_ids(workspace_ids)
+    except HTTPException as exc:
+        detail = exc.detail.get("message") if isinstance(exc.detail, dict) else exc.detail
+        raise _validation_error(str(detail)) from exc
+
+    if isinstance(source_labels, (list, tuple)):
+        raw_source_labels = [str(item).strip() for item in source_labels if str(item).strip()]
+    else:
+        raw_source_labels = selected_source_labels()
+    if len(raw_source_labels) > MAX_SOURCE_LABELS:
+        raise _validation_error(
+            f"source_labels may contain at most {MAX_SOURCE_LABELS} values."
+        )
+    if any(
+        len(item) > 128 or any(ord(char) < 32 for char in item)
+        for item in raw_source_labels
+    ):
+        raise _validation_error("source_labels contains an invalid value.")
+    validated_source_labels = list(dict.fromkeys(raw_source_labels))
+
+    return (
+        validated_start,
+        validated_end,
+        validated_workspace_ids,
+        validated_source_labels,
+    )
 
 
 def _classify_warehouse_type(
@@ -171,6 +247,29 @@ def _build_queries(table_name: str) -> dict[str, str]:
             ORDER BY query_attributed_dollars_estimation DESC
             LIMIT :limit
         """,
+        "top_queries_by_source": f"""
+            SELECT
+              statement_id,
+              query_source_type,
+              query_source_id,
+              executed_by,
+              warehouse_id,
+              workspace_id,
+              SUBSTRING(statement_text, 1, 200) as statement_preview,
+              duration_seconds,
+              query_attributed_dollars_estimation as cost,
+              query_attributed_dbus_estimation as dbus,
+              query_profile_url,
+              url_helper as source_url,
+              start_time,
+              end_time
+            FROM `{{catalog}}`.`{{schema}}`.`{table_name}`
+            WHERE DATE(start_time) >= :start_date
+              AND DATE(start_time) <= :end_date
+              AND query_source_type = :source_type
+            ORDER BY query_attributed_dollars_estimation DESC
+            LIMIT :limit
+        """,
         "summary": f"""
             WITH q AS (
               SELECT
@@ -240,7 +339,9 @@ def _build_queries(table_name: str) -> dict[str, str]:
               query_profile_url,
               url_helper as source_url,
               start_time,
-              end_time
+              end_time,
+              COUNT(*) OVER () as total_matching_queries,
+              SUM(query_attributed_dollars_estimation) OVER () as total_matching_spend
             FROM `{{catalog}}`.`{{schema}}`.`{table_name}`
             WHERE DATE(start_time) >= :start_date
               AND DATE(start_time) <= :end_date
@@ -254,11 +355,10 @@ def _build_queries(table_name: str) -> dict[str, str]:
 def _default_dates(
     start_date: str | None, end_date: str | None
 ) -> tuple[str, str]:
-    if not end_date:
-        end_date = date.today().isoformat()
-    if not start_date:
-        start_date = (date.today() - timedelta(days=30)).isoformat()
-    return start_date, end_date
+    validated_start, validated_end, _, _ = validate_request_scope(
+        start_date, end_date
+    )
+    return validated_start, validated_end
 
 
 def _route_dbsql_mv_query(
@@ -346,8 +446,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                       u.sku_name as sku_name,
                       SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as daily_spend
                     FROM system.billing.usage u
-                    LEFT JOIN system.billing.list_prices p
-                      ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+                    {temporal_list_price_join()}
                     WHERE u.billing_origin_product = 'SQL'
                       AND u.usage_date BETWEEN :start_date AND :end_date
                       AND u.usage_quantity > 0
@@ -381,7 +480,20 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 """)),
                 ])
 
-            results = execute_queries_parallel(queries, 120.0)
+            required_queries = {
+                "summary",
+                "by_source",
+                "by_user",
+                "by_warehouse",
+                "timeseries",
+            }
+            try:
+                results = execute_queries_parallel(queries, 120.0)
+                optional_failures: dict[str, str] = {}
+            except SQLExecutionError as exc:
+                results, optional_failures = recover_optional_bundle_queries(
+                    exc, required_queries
+                )
 
             _empty = {"available": True, "start_date": start_date, "end_date": end_date}
 
@@ -540,6 +652,8 @@ def create_dbsql_router(table_name: str) -> APIRouter:
             }
 
             _resp = {
+                "availability": "partial" if optional_failures else "available",
+                "partial_reasons": optional_failures,
                 "available": True,
                 "summary": summary,
                 "by_source": by_source,
@@ -555,28 +669,19 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 dkey,
                 f"dbsql:{table_name}:dashboard-bundle",
                 _resp,
-                ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE,
+                ttl_seconds=(
+                    60
+                    if optional_failures
+                    else cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE
+                ),
                 generation=cache_generation,
+                wait_for_remote=True,
             )
             logger.info("dbsql dashboard-bundle background compute complete: %.1fs table=%s", _t.time() - _start, table_name)
         except Exception as e:
             logger.error("dbsql dashboard-bundle background compute failed: %s", e, exc_info=True)
-            try:
-                delta_cache_put(
-                    dkey,
-                    f"dbsql:{table_name}:dashboard-bundle",
-                    {"_error": str(e), "status": "error"},
-                    ttl_seconds=60,
-                    generation=cache_generation,
-                )
-            except Exception:
-                pass
-        finally:
-            with _dbsql_bundle_inflight_lock:
-                _dbsql_bundle_inflight.discard(dkey)
 
-    def _ws_clause(workspace_ids: str | None) -> str:
-        id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    def _ws_clause(id_list: list[str] | None) -> str:
         return wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
 
     async def check_mv_status() -> dict[str, Any]:
@@ -646,9 +751,12 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         start_date: str = Query(default=None),
         end_date: str = Query(default=None),
         workspace_ids: str = Query(default=None),
+        source_labels: list[str] = Query(default=None),
     ) -> dict[str, Any]:
         catalog, schema = get_catalog_schema()
-        start_date, end_date = _default_dates(start_date, end_date)
+        start_date, end_date, id_list, _ = validate_request_scope(
+            start_date, end_date, workspace_ids, source_labels
+        )
 
         status = await check_mv_status()
         if not status["mv_available"]:
@@ -659,7 +767,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 "end_date": end_date,
             }
 
-        results = await _exec_async("summary", {"start_date": start_date, "end_date": end_date}, catalog, schema, _ws_clause(workspace_ids))
+        results = await _exec_async("summary", {"start_date": start_date, "end_date": end_date}, catalog, schema, _ws_clause(id_list))
 
         data_range = status.get("data_range", {})
 
@@ -693,15 +801,18 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         start_date: str = Query(default=None),
         end_date: str = Query(default=None),
         workspace_ids: str = Query(default=None),
+        source_labels: list[str] = Query(default=None),
     ) -> dict[str, Any]:
         catalog, schema = get_catalog_schema()
-        start_date, end_date = _default_dates(start_date, end_date)
+        start_date, end_date, id_list, _ = validate_request_scope(
+            start_date, end_date, workspace_ids, source_labels
+        )
 
         status = await check_mv_status()
         if not status["mv_available"]:
             return {"available": False, "sources": [], "start_date": start_date, "end_date": end_date}
 
-        results = await _exec_async("by_source", {"start_date": start_date, "end_date": end_date}, catalog, schema, _ws_clause(workspace_ids))
+        results = await _exec_async("by_source", {"start_date": start_date, "end_date": end_date}, catalog, schema, _ws_clause(id_list))
 
         sources = []
         total_spend = 0
@@ -726,15 +837,18 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         start_date: str = Query(default=None),
         end_date: str = Query(default=None),
         workspace_ids: str = Query(default=None),
+        source_labels: list[str] = Query(default=None),
     ) -> dict[str, Any]:
         catalog, schema = get_catalog_schema()
-        start_date, end_date = _default_dates(start_date, end_date)
+        start_date, end_date, id_list, _ = validate_request_scope(
+            start_date, end_date, workspace_ids, source_labels
+        )
 
         status = await check_mv_status()
         if not status["mv_available"]:
             return {"available": False, "users": [], "start_date": start_date, "end_date": end_date}
 
-        results = await _exec_async("by_user", {"start_date": start_date, "end_date": end_date}, catalog, schema, _ws_clause(workspace_ids))
+        results = await _exec_async("by_user", {"start_date": start_date, "end_date": end_date}, catalog, schema, _ws_clause(id_list))
 
         users = []
         for row in results:
@@ -753,30 +867,38 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         start_date: str = Query(default=None),
         end_date: str = Query(default=None),
         workspace_ids: str = Query(default=None),
+        source_labels: list[str] = Query(default=None),
     ) -> dict[str, Any]:
         catalog, schema = get_catalog_schema()
-        start_date, end_date = _default_dates(start_date, end_date)
+        start_date, end_date, id_list, _ = validate_request_scope(
+            start_date, end_date, workspace_ids, source_labels
+        )
 
         status = await check_mv_status()
         if not status["mv_available"]:
             return {"available": False, "warehouses": [], "start_date": start_date, "end_date": end_date}
 
-        results = await _exec_async("by_warehouse", {"start_date": start_date, "end_date": end_date}, catalog, schema, _ws_clause(workspace_ids))
+        results = await _exec_async("by_warehouse", {"start_date": start_date, "end_date": end_date}, catalog, schema, _ws_clause(id_list))
 
         # Look up warehouse names and types from system.compute.warehouses
         warehouse_meta: dict[str, dict[str, str]] = {}
         labels = selected_source_labels()
         local_metadata_allowed = not labels or get_local_source_label() in labels
+        compute_ws_clause = wf.build_ws_filter_clause(
+            col="w.workspace_id", id_list=id_list
+        )
         try:
             if not local_metadata_allowed:
                 raise LookupError("local metadata excluded by source scope")
-            meta_results = await asyncio.to_thread(execute_query, """
+            meta_results = await asyncio.to_thread(execute_query, f"""
                 SELECT w.warehouse_id, MAX(w.warehouse_name) as warehouse_name,
                        MAX(w.warehouse_type) as warehouse_type, MAX(w.warehouse_size) as warehouse_size,
                        MAX(w.workspace_id) as workspace_id,
                        MAX(ws.workspace_name) as workspace_name
                 FROM system.compute.warehouses w
                 LEFT JOIN system.access.workspaces_latest ws ON w.workspace_id = ws.workspace_id
+                WHERE 1 = 1
+                  {compute_ws_clause}
                 GROUP BY w.warehouse_id
             """)
             for r in (meta_results or []):
@@ -825,15 +947,18 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         end_date: str = Query(default=None),
         limit: int = Query(default=200, le=200),
         workspace_ids: str = Query(default=None),
+        source_labels: list[str] = Query(default=None),
     ) -> dict[str, Any]:
         catalog, schema = get_catalog_schema()
-        start_date, end_date = _default_dates(start_date, end_date)
+        start_date, end_date, id_list, _ = validate_request_scope(
+            start_date, end_date, workspace_ids, source_labels
+        )
 
         status = await check_mv_status()
         if not status["mv_available"]:
             return {"available": False, "queries": [], "start_date": start_date, "end_date": end_date}
 
-        results = await _exec_async("top_queries", {"start_date": start_date, "end_date": end_date, "limit": limit}, catalog, schema, _ws_clause(workspace_ids))
+        results = await _exec_async("top_queries", {"start_date": start_date, "end_date": end_date, "limit": limit}, catalog, schema, _ws_clause(id_list))
 
         host = get_host_url()
         queries = []
@@ -855,7 +980,14 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 "end_time": str(row.get("end_time")) if row.get("end_time") else None,
             })
 
-        return {"available": True, "queries": queries, "start_date": start_date, "end_date": end_date}
+        queries, limit_info = cap_detail_items(queries)
+        return {
+            "available": True,
+            "queries": queries,
+            "limits": limit_info,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
 
     @router.get("/top-queries-by-source")
     async def get_top_queries_by_source(
@@ -863,40 +995,32 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         start_date: str = Query(default=None),
         end_date: str = Query(default=None),
         limit: int = Query(default=5, le=20),
+        workspace_ids: str = Query(default=None),
+        source_labels: list[str] = Query(default=None),
     ) -> dict[str, Any]:
         catalog, schema = get_catalog_schema()
-        start_date, end_date = _default_dates(start_date, end_date)
+        start_date, end_date, id_list, _ = validate_request_scope(
+            start_date, end_date, workspace_ids, source_labels
+        )
 
         status = await check_mv_status()
         if not status["mv_available"]:
             return {"available": False, "queries": [], "start_date": start_date, "end_date": end_date}
 
         safe_limit = min(int(limit), 20)
-        query = f"""
-            SELECT
-              statement_id,
-              query_source_type,
-              query_source_id,
-              executed_by,
-              warehouse_id,
-              workspace_id,
-              SUBSTRING(statement_text, 1, 200) as statement_preview,
-              duration_seconds,
-              query_attributed_dollars_estimation as cost,
-              query_attributed_dbus_estimation as dbus,
-              query_profile_url,
-              url_helper as source_url,
-              start_time,
-              end_time
-            FROM `{catalog}`.`{schema}`.`{table_name}`
-            WHERE DATE(start_time) >= :start_date
-              AND DATE(start_time) <= :end_date
-              AND query_source_type = :source_type
-            ORDER BY query_attributed_dollars_estimation DESC
-            LIMIT {safe_limit}
-        """
-        params = {"start_date": start_date, "end_date": end_date, "source_type": source_type}
-        results = await asyncio.to_thread(execute_query, query, params)
+        params = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "source_type": source_type,
+            "limit": safe_limit,
+        }
+        results = await _exec_async(
+            "top_queries_by_source",
+            params,
+            catalog,
+            schema,
+            _ws_clause(id_list),
+        )
 
         host = get_host_url()
         queries = []
@@ -906,6 +1030,8 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 "query_source_type": row.get("query_source_type") or "Unknown",
                 "query_source_id": row.get("query_source_id"),
                 "executed_by": row.get("executed_by") or "Unknown",
+                "warehouse_id": row.get("warehouse_id"),
+                "workspace_id": row.get("workspace_id"),
                 "statement_preview": row.get("statement_preview") or "",
                 "duration_seconds": float(row.get("duration_seconds") or 0),
                 "cost": float(row.get("cost") or 0),
@@ -914,7 +1040,15 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 "source_url": _resolve_url(row.get("source_url"), host),
             })
 
-        return {"available": True, "queries": queries, "source_type": source_type, "start_date": start_date, "end_date": end_date}
+        queries, limit_info = cap_detail_items(queries)
+        return {
+            "available": True,
+            "queries": queries,
+            "limits": limit_info,
+            "source_type": source_type,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
 
     @router.get("/queries-by-user")
     async def get_queries_by_user(
@@ -923,9 +1057,12 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         end_date: str = Query(default=None),
         limit: int = Query(default=100, le=200),
         workspace_ids: str = Query(default=None),
+        source_labels: list[str] = Query(default=None),
     ) -> dict[str, Any]:
         catalog, schema = get_catalog_schema()
-        start_date, end_date = _default_dates(start_date, end_date)
+        start_date, end_date, id_list, _ = validate_request_scope(
+            start_date, end_date, workspace_ids, source_labels
+        )
 
         status = await check_mv_status()
         if not status["mv_available"]:
@@ -934,7 +1071,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         results = await _exec_async(
             "queries_by_user",
             {"start_date": start_date, "end_date": end_date, "user": user, "limit": limit},
-            catalog, schema, _ws_clause(workspace_ids),
+            catalog, schema, _ws_clause(id_list),
         )
 
         host = get_host_url()
@@ -957,13 +1094,16 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 "end_time": str(row.get("end_time")) if row.get("end_time") else None,
             })
 
-        total_spend = sum(q["cost"] for q in queries)
+        total_spend = float(results[0].get("total_matching_spend") or 0) if results else 0
+        total_count = int(results[0].get("total_matching_queries") or 0) if results else 0
+        queries, limit_info = cap_detail_items(queries)
         return {
             "available": True,
             "queries": queries,
             "user": user,
             "total_spend": total_spend,
-            "query_count": len(queries),
+            "query_count": total_count,
+            "limits": limit_info,
             "start_date": start_date,
             "end_date": end_date,
         }
@@ -973,15 +1113,18 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         start_date: str = Query(default=None),
         end_date: str = Query(default=None),
         workspace_ids: str = Query(default=None),
+        source_labels: list[str] = Query(default=None),
     ) -> dict[str, Any]:
         catalog, schema = get_catalog_schema()
-        start_date, end_date = _default_dates(start_date, end_date)
+        start_date, end_date, id_list, _ = validate_request_scope(
+            start_date, end_date, workspace_ids, source_labels
+        )
 
         status = await check_mv_status()
         if not status["mv_available"]:
             return {"available": False, "timeseries": [], "source_types": [], "start_date": start_date, "end_date": end_date}
 
-        results = await _exec_async("timeseries", {"start_date": start_date, "end_date": end_date}, catalog, schema, _ws_clause(workspace_ids))
+        results = await _exec_async("timeseries", {"start_date": start_date, "end_date": end_date}, catalog, schema, _ws_clause(id_list))
 
         data_by_date: dict[str, dict[str, Any]] = {}
         source_types_set: set[str] = set()
@@ -1012,8 +1155,11 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         start_date: str = Query(default=None),
         end_date: str = Query(default=None),
         workspace_ids: str = Query(default=None),
+        source_labels: list[str] = Query(default=None),
     ) -> dict[str, Any]:
-        start_date, end_date = _default_dates(start_date, end_date)
+        start_date, end_date, id_list, _ = validate_request_scope(
+            start_date, end_date, workspace_ids, source_labels
+        )
         labels = selected_source_labels()
         if labels and get_local_source_label() not in labels:
             return {
@@ -1024,9 +1170,6 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                     "Warehouse type billing is local-only for this shared-source scope."
                 ),
             }
-        id_list = [
-            item.strip() for item in workspace_ids.split(",") if item.strip()
-        ] if workspace_ids else None
         billing_ws_clause = wf.build_ws_filter_clause(
             col="u.workspace_id", id_list=id_list
         )
@@ -1056,8 +1199,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                   u.sku_name as sku_name,
                   SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) as daily_spend
                 FROM system.billing.usage u
-                LEFT JOIN system.billing.list_prices p
-                  ON u.sku_name = p.sku_name AND u.cloud = p.cloud AND p.price_end_time IS NULL
+                {temporal_list_price_join()}
                 WHERE u.billing_origin_product = 'SQL'
                   AND u.usage_date BETWEEN :start_date AND :end_date
                   AND u.usage_quantity > 0
@@ -1107,9 +1249,12 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         start_date: str = Query(default=None),
         end_date: str = Query(default=None),
         workspace_ids: str = Query(default=None),
+        source_labels: list[str] = Query(default=None),
     ) -> dict[str, Any]:
         """DBSQL bundle — submit-and-poll: cache hit returns 200, cache miss starts background compute and returns 202."""
-        start_date, end_date = _default_dates(start_date, end_date)
+        start_date, end_date, id_list, _ = validate_request_scope(
+            start_date, end_date, workspace_ids, source_labels
+        )
 
         status = await check_mv_status()
         if not status["mv_available"]:
@@ -1120,37 +1265,39 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 "end_date": end_date,
             }
 
-        id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
         _dkey = bundle_cache_key(f"dbsql:{table_name}:dashboard-bundle", start_date, end_date, id_list)
-        if (_dcached := delta_cache_get(_dkey)) is not None:
+        if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
             if isinstance(_dcached, dict) and "_error" in _dcached:
                 raise HTTPException(status_code=500, detail=_dcached.get("_error", "Bundle compute failed"))
             return _dcached
 
-        with _dbsql_bundle_inflight_lock:
-            if _dkey not in _dbsql_bundle_inflight:
-                _dbsql_bundle_inflight.add(_dkey)
-                request_context = contextvars.copy_context()
-                cache_generation = capture_cache_generation(
-                    f"dbsql:{table_name}:dashboard-bundle"
-                )
-                threading.Thread(
-                    target=request_context.run,
-                    args=(
-                        _compute_dbsql_bundle,
-                        start_date,
-                        end_date,
-                        id_list,
-                        workspace_ids,
-                        _dkey,
-                        cache_generation,
-                    ),
-                    daemon=True,
-                    name=f"dbsql-bundle-bg-{table_name}",
-                ).start()
+        cache_generation = capture_cache_generation(
+            f"dbsql:{table_name}:dashboard-bundle"
+        )
+        try:
+            started = await asyncio.to_thread(
+                start_bundle_compute,
+                _dkey,
+                lambda: _compute_dbsql_bundle(
+                    start_date,
+                    end_date,
+                    id_list,
+                    workspace_ids,
+                    _dkey,
+                    cache_generation,
+                ),
+                name=f"dbsql-bundle-{table_name}",
+            )
+            if started:
                 logger.info("dbsql dashboard-bundle: started background compute for %s", _dkey)
             else:
-                logger.debug("dbsql dashboard-bundle: already inflight for %s", _dkey)
+                logger.debug("dbsql dashboard-bundle: already claimed for %s", _dkey)
+        except BundleOverloadedError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={"message": str(exc), "error_code": exc.code},
+                headers={"Retry-After": "2"},
+            ) from exc
 
         return JSONResponse(
             status_code=202,
