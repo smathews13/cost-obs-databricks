@@ -75,4 +75,22 @@ describe("dashboard tab navigation", () => {
     await userEvent.keyboard("{ArrowLeft}");
     expect(screen.getByRole("tab", { name: "Optimize" })).toHaveFocus();
   });
+
+  it("replaces a loading tab icon with the shared orange spinner", () => {
+    render(
+      <DashboardTabNavigation
+        activeTab="dbu"
+        visibility={visibility}
+        loading={{ sql: true }}
+        onChange={() => {}}
+      />,
+    );
+
+    const sql = screen.getByRole("tab", { name: "SQL" });
+    const dbu = screen.getByRole("tab", { name: "DBU Overview" });
+    expect(sql).toHaveAttribute("aria-busy", "true");
+    expect(sql.querySelector(".co-arc-spin")).toBeInTheDocument();
+    expect(dbu).not.toHaveAttribute("aria-busy");
+    expect(dbu.querySelector(".co-arc-spin")).not.toBeInTheDocument();
+  });
 });

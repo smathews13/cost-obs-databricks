@@ -12,6 +12,7 @@ interface InfoPopoverProps {
   placement?: "top" | "bottom";
   stopClick?: boolean;
   size?: "default" | "compact";
+  interactive?: boolean;
 }
 
 export function InfoPopover({
@@ -25,10 +26,12 @@ export function InfoPopover({
   placement = "top",
   stopClick = false,
   size = "default",
+  interactive = false,
 }: InfoPopoverProps) {
   const id = useId();
   const rootRef = useRef<HTMLSpanElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
@@ -75,7 +78,10 @@ export function InfoPopover({
       }
     };
     const closeOutside = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
+      if (
+        !rootRef.current?.contains(event.target as Node)
+        && !panelRef.current?.contains(event.target as Node)
+      ) {
         setOpen(false);
         setPinned(false);
       }
@@ -93,7 +99,12 @@ export function InfoPopover({
       ref={rootRef}
       className={`inline-flex ${className}`}
       onMouseEnter={show}
-      onMouseLeave={() => {
+      onMouseLeave={(event) => {
+        if (
+          interactive
+          && event.relatedTarget instanceof Node
+          && panelRef.current?.contains(event.relatedTarget)
+        ) return;
         if (!pinned && document.activeElement !== triggerRef.current) setOpen(false);
       }}
     >
@@ -101,12 +112,20 @@ export function InfoPopover({
         ref={triggerRef}
         type="button"
         aria-label={label}
-        aria-describedby={open ? id : undefined}
+        aria-describedby={open && !interactive ? id : undefined}
+        aria-controls={open && interactive ? id : undefined}
         aria-expanded={open}
         onFocus={show}
         onBlur={() => {
-          setOpen(false);
-          setPinned(false);
+          window.setTimeout(() => {
+            if (
+              !rootRef.current?.contains(document.activeElement)
+              && !panelRef.current?.contains(document.activeElement)
+            ) {
+              setOpen(false);
+              setPinned(false);
+            }
+          }, 0);
         }}
         onClick={(event) => {
           if (stopClick) event.stopPropagation();
@@ -124,10 +143,20 @@ export function InfoPopover({
       </button>
       {open && createPortal(
         <span
-          ref={positionPanel}
+          ref={(panel) => {
+            panelRef.current = panel;
+            positionPanel(panel);
+          }}
           id={id}
-          role="tooltip"
-          className={`pointer-events-none fixed z-[10000] max-w-[calc(100vw-1rem)] whitespace-normal rounded-lg bg-gray-900 font-normal normal-case text-white shadow-lg ${
+          role={interactive ? "dialog" : "tooltip"}
+          aria-label={interactive ? `${label} details` : undefined}
+          onMouseEnter={() => interactive && setOpen(true)}
+          onMouseLeave={() => {
+            if (interactive && !pinned && !rootRef.current?.contains(document.activeElement)) {
+              setOpen(false);
+            }
+          }}
+          className={`${interactive ? "pointer-events-auto" : "pointer-events-none"} fixed z-[10000] max-w-[calc(100vw-1rem)] whitespace-normal rounded-lg bg-gray-900 font-normal normal-case text-white shadow-lg ${
             size === "compact"
               ? "px-2 py-1.5 text-[11px] leading-snug"
               : "px-3 py-2 text-xs leading-relaxed"

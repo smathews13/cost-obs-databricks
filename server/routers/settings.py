@@ -3344,7 +3344,7 @@ _APP_SETTINGS_DEFAULTS: dict = {
     "anomaly_sensitivity": "medium",
     "exp_setup_wizard_link": False,
     "exp_debugger_link": False,
-    "enable_architecture_view": False,
+    "enable_architecture_view": True,
     "anonymize_users": False,
     "tab_visibility": _DEFAULT_TAB_VISIBILITY,
     "feedback_slack_url": None,
@@ -3375,7 +3375,7 @@ def _sanitize_app_settings(data: dict) -> dict:
     clean["enable_architecture_view"] = (
         clean.get("enable_architecture_view")
         if isinstance(clean.get("enable_architecture_view"), bool)
-        else False
+        else True
     )
     feedback_slack_url = clean.get("feedback_slack_url")
     clean["feedback_slack_url"] = (
@@ -3558,7 +3558,7 @@ def _settings_snapshot(request: Request) -> dict:
         "experimental": {
             "exp_setup_wizard_link": bool(app.get("exp_setup_wizard_link", False)),
             "exp_debugger_link": bool(app.get("exp_debugger_link", False)),
-            "enable_architecture_view": bool(app.get("enable_architecture_view", False)),
+            "enable_architecture_view": bool(app.get("enable_architecture_view", True)),
         },
         "capabilities": _capabilities(request),
     }

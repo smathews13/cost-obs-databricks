@@ -18,7 +18,7 @@ import type {
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const USER_GRID_STYLE = {
-  "--settings-access-grid-columns": "minmax(210px, 1fr) 100px 170px 104px",
+  "--settings-access-grid-columns": "minmax(210px, 1fr) 90px 132px 112px",
 } as React.CSSProperties;
 const ROLE_OPTIONS = [
   { value: "consumer", label: "Consumer" },
@@ -491,7 +491,7 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
             <div data-testid="access-user-row" className="settings-access-user-grid" key={email} style={{ ...USER_GRID_STYLE, minHeight: 52, padding: "9px 16px", borderTop: i === 0 ? "none" : `1px solid ${T.borderRow}` }}>
               <span title={email} style={{ fontSize: 13, color: T.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email}</span>
               <span className={`settings-persona settings-persona--${isOwner ? "owner" : "member"}`}>
-                {isOwner ? "Owner" : "Member"}
+                {isOwner ? "Owner" : "User"}
               </span>
               <RoleMenuSelect
                 value={role}
@@ -526,7 +526,7 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
               style={{ width: "100%", height: 32, borderRadius: 4, border: `1px solid ${T.borderControl}`, padding: "0 10px", fontSize: 13, color: T.text, backgroundColor: T.surface }}
             />
           </div>
-          <span className="settings-persona settings-persona--member">Member</span>
+          <span className="settings-persona settings-persona--member">User</span>
           <RoleMenuSelect value={newUserRole} onChange={setNewUserRole} ariaLabel="Role for new user" />
           <span style={{ display: "grid" }}>
             <button type="button" className="settings-user-action settings-user-action--add" onClick={addUser} disabled={!newUserEmail.trim() || saveMutation.isPending}>
@@ -541,6 +541,68 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           {permissions?.owner?.verified && <> Owner is sourced from the current Databricks Apps deployment creator.</>}
         </p>
       )}
+
+      {/* ── Role capabilities ── */}
+      <div data-testid="settings-role-capabilities" style={{ margin: "0 0 20px" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 7 }}>Permission roles</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 8 }}>
+          {([
+            ["admin", "Admin", adminSummary],
+            ["consumer", "Consumer", consumerSummary],
+          ] as const).map(([role, label, summary]) => (
+            <div key={role} style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, padding: "10px 12px", backgroundColor: T.navBg }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{label}</span>
+                {permissions?.current_role === role && <PermissionState state="verified">Your role</PermissionState>}
+              </div>
+              <div style={{ fontSize: 12, lineHeight: 1.45, color: T.textSecondary }}>{summary}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Future metastore browser ── */}
+      <fieldset
+        disabled
+        aria-disabled="true"
+        aria-describedby="metastore-coming-soon"
+        style={{
+          position: "relative",
+          margin: "0 0 20px",
+          padding: 0,
+          border: `1px solid ${T.borderGroup}`,
+          borderRadius: 8,
+          backgroundColor: T.navBg,
+          color: T.textSecondary,
+          filter: "grayscale(1)",
+          opacity: 0.68,
+          overflow: "hidden",
+        }}
+      >
+        <legend className="sr-only">Add a metastore</legend>
+        <div style={{ padding: "12px 16px", paddingRight: 108 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>Add a metastore</div>
+          <div id="metastore-coming-soon" style={{ marginTop: 2, fontSize: 12 }}>
+            Browse and connect another metastore.
+          </div>
+        </div>
+        <span
+          aria-hidden="true"
+          style={{ position: "absolute", top: 12, right: 14, borderRadius: 999, padding: "2px 8px", backgroundColor: T.borderGroup, color: T.textSecondary, fontSize: 10, fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase" }}
+        >
+          Coming soon
+        </span>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 10, padding: "12px 16px", borderTop: `1px solid ${T.borderRow}` }}>
+          <input
+            type="text"
+            disabled
+            aria-label="Metastore"
+            placeholder="Select a metastore"
+            style={{ height: 32, minWidth: 0, borderRadius: 4, border: `1px solid ${T.borderControl}`, padding: "0 10px", fontSize: 13, color: T.textSecondary, backgroundColor: T.codeBg, cursor: "not-allowed" }}
+          />
+          <SecondaryButton disabled>Browse</SecondaryButton>
+        </div>
+      </fieldset>
 
       {/* ── Service principal ── */}
       <section data-testid="settings-service-principal-section" aria-label="App service principal">
@@ -636,25 +698,6 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
           </div>
         )}
       </section>
-
-      {/* ── Role capabilities ── */}
-      <div style={{ margin: "20px 0" }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 7 }}>Permission roles</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 8 }}>
-          {([
-            ["admin", "Admin", adminSummary],
-            ["consumer", "Consumer", consumerSummary],
-          ] as const).map(([role, label, summary]) => (
-            <div key={role} style={{ border: `1px solid ${T.borderGroup}`, borderRadius: 8, padding: "10px 12px", backgroundColor: T.navBg }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: T.text }}>{label}</span>
-                {permissions?.current_role === role && <PermissionState state="verified">Your role</PermissionState>}
-              </div>
-              <div style={{ fontSize: 12, lineHeight: 1.45, color: T.textSecondary }}>{summary}</div>
-            </div>
-          ))}
-        </div>
-      </div>
 
       {(isSP || noToken) && authStatus && (
         <>

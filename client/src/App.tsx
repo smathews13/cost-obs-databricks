@@ -31,7 +31,7 @@ import {
   WarehouseGuidanceBanner,
   WarehouseHealthCheckBanner,
 } from "@/components/WarehouseGuidanceBanner";
-import { Bot, Settings } from "lucide-react";
+import { Bot, Check, Copy, Settings } from "lucide-react";
 
 // Retry a dynamic import on failure. First retry handles transient network blips.
 // If the second attempt also fails (stale deployment: browser has old index.html with
@@ -193,10 +193,12 @@ const DASHBOARD_TABS: Array<{ id: ViewTab; label: string; icon: React.ReactNode 
 export function DashboardTabNavigation({
   activeTab,
   visibility,
+  loading,
   onChange,
 }: {
   activeTab: ViewTab;
   visibility: TabVisibility;
+  loading?: Partial<Record<ViewTab, boolean>>;
   onChange: (tab: ViewTab) => void;
 }) {
   const tabRefs = useRef<Partial<Record<ViewTab, HTMLButtonElement | null>>>({});
@@ -233,6 +235,7 @@ export function DashboardTabNavigation({
             role="tab"
             aria-label={label}
             aria-selected={activeTab === id}
+            aria-busy={loading?.[id] || undefined}
             aria-controls={`dashboard-panel-${id}`}
             tabIndex={activeTab === id ? 0 : -1}
             onClick={() => onChange(id)}
@@ -248,7 +251,11 @@ export function DashboardTabNavigation({
                 : "border-transparent text-slate hover:bg-oat-page hover:text-ink"
             }`}
           >
-            {icon}
+            {loading?.[id] ? (
+              <span className="mr-2 -mt-0.5 inline-flex h-4 w-4 items-center justify-center" aria-hidden="true">
+                <Spinner size="xs" />
+              </span>
+            ) : icon}
             {label}
           </button>
         ))}
@@ -275,18 +282,47 @@ interface User {
   role?: "admin" | "consumer";
 }
 
-function AccountIdentifier({ value }: { value: string }) {
+function AccountIdentifier({
+  displayValue,
+  idValue,
+}: {
+  displayValue: string;
+  idValue?: string | null;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copyId = async () => {
+    if (!idValue) return;
+    await navigator.clipboard.writeText(idValue);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+
   return (
     <InfoPopover
       label="Show full account ID"
       className="mt-[3px] min-w-0"
       placement="bottom"
-      panelClassName="w-max max-w-[calc(100vw-1rem)] break-all bg-[#0B2026] font-mono text-[11px]"
-      triggerClassName="block max-w-[190px] truncate rounded-[4px] bg-white/[.09] px-[5px] py-[2px] text-[9.5px] leading-[13px] text-[#E9EFED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
-      content={value}
+      interactive
+      panelClassName="w-max max-w-[calc(100vw-1rem)] bg-[#0B2026] text-[11px]"
+      triggerClassName="block max-w-[210px] truncate rounded-[4px] bg-white/[.09] px-1 py-0.5 text-[8.5px] leading-[11px] text-[#E9EFED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
+      content={
+        <span className="flex items-center gap-2">
+          <span className="max-w-[420px] break-all font-mono">{idValue || "Account ID unavailable"}</span>
+          {idValue && (
+            <button
+              type="button"
+              aria-label={copied ? "Account ID copied" : "Copy account ID"}
+              onClick={copyId}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white/80 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/60"
+            >
+              {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+            </button>
+          )}
+        </span>
+      }
     >
-      <span className="block truncate" style={{ fontFamily: "var(--mono)" }}>
-        {value}
+      <span className="block truncate tracking-[-0.01em]" style={{ fontFamily: "var(--sans)" }}>
+        {displayValue}
       </span>
     </InfoPopover>
   );
@@ -1378,7 +1414,10 @@ function Dashboard() {
 
           <div className="hidden shrink-0 flex-col leading-none min-[1100px]:flex">
             <span className="text-[9px] font-semibold tracking-[.1em] text-[#E9EFED]/55">ACCOUNT</span>
-            <AccountIdentifier value={accountInfo?.account_id || accountInfo?.account_name || "Loading…"} />
+            <AccountIdentifier
+              displayValue={accountInfo?.account_name || "Databricks account"}
+              idValue={accountInfo?.account_id}
+            />
           </div>
 
           <div className="order-last flex w-full min-w-0 items-center gap-[8px] sm:order-none sm:w-auto sm:flex-1">
@@ -1514,6 +1553,10 @@ function Dashboard() {
           <DashboardTabNavigation
             activeTab={activeTab}
             visibility={tabVisibility}
+            loading={{
+              ...tabLoading,
+              ...(explicitRefreshingTab ? { [explicitRefreshingTab]: true } : {}),
+            }}
             onChange={setActiveTab}
           />
         </div>

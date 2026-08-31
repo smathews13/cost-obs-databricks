@@ -130,6 +130,26 @@ describe("shared accessibility primitives", () => {
     rectSpy.mockRestore();
   });
 
+  it("keeps interactive popover actions focusable", async () => {
+    const user = userEvent.setup();
+    const copy = vi.fn();
+    render(
+      <InfoPopover
+        interactive
+        label="Show full account ID"
+        content={<button type="button" onClick={copy}>Copy account ID</button>}
+      >
+        <span>Account display name</span>
+      </InfoPopover>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Show full account ID" }));
+    const panel = screen.getByRole("dialog", { name: "Show full account ID details" });
+    expect(panel).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Copy account ID" }));
+    expect(copy).toHaveBeenCalledOnce();
+  });
+
   it("sorts from a real header button and reports aria-sort", async () => {
     const user = userEvent.setup();
     const onSort = vi.fn();

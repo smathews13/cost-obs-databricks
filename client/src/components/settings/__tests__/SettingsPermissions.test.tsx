@@ -350,7 +350,7 @@ describe("SettingsPermissions: polished access controls", () => {
 
     expect(addRow).toHaveClass("settings-access-user-grid");
     expect(addRow.style.getPropertyValue("--settings-access-grid-columns")).toBe(
-      "minmax(210px, 1fr) 100px 170px 104px",
+      "minmax(210px, 1fr) 90px 132px 112px",
     );
     expect(addRow.style.minWidth).toBe("");
     expect(addRow.children).toHaveLength(4);
@@ -368,15 +368,21 @@ describe("SettingsPermissions: polished access controls", () => {
     expect(screen.getByRole("button", { name: "Add User" }).parentElement).toHaveStyle({ display: "grid" });
   });
 
-  it("puts Users first and the service principal immediately after it", async () => {
+  it("puts role guidance and the metastore placeholder directly below Users", async () => {
     mockApis(SP_AUTH_STATUS);
     renderPermissions();
 
     const users = await screen.findByTestId("settings-users-section");
+    const roleCapabilities = screen.getByTestId("settings-role-capabilities");
+    const metastore = screen.getByRole("group", { name: "Add a metastore" });
     const servicePrincipal = screen.getByTestId("settings-service-principal-section");
 
+    expect(users.compareDocumentPosition(roleCapabilities) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(roleCapabilities.compareDocumentPosition(metastore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(metastore.compareDocumentPosition(servicePrincipal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(users.compareDocumentPosition(servicePrincipal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.queryByRole("group", { name: "Add a metastore" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Metastore" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Browse" })).toBeDisabled();
   });
 
   it("separates Owner persona from Admin role and protects the verified deployer", async () => {
@@ -397,7 +403,7 @@ describe("SettingsPermissions: polished access controls", () => {
     expect(ownerRow).toHaveTextContent("Admin");
     expect(screen.getByRole("combobox", { name: "Role for owner@databricks.com" })).toBeDisabled();
     expect(ownerRow?.querySelector(".settings-user-action--remove")).toBeDisabled();
-    expect(screen.getByText("viewer@databricks.com").closest("[data-testid='access-user-row']")).toHaveTextContent("Member");
+    expect(screen.getByText("viewer@databricks.com").closest("[data-testid='access-user-row']")).toHaveTextContent("User");
   });
 
   it("shows safe service-principal details without rendering credentials", async () => {
@@ -434,7 +440,7 @@ describe("SettingsPermissions: polished access controls", () => {
     expect(add).toHaveFocus();
 
     const css = readFileSync("src/components/settings/settings.css", "utf8");
-    expect(css).toMatch(/\.settings-user-action\s*\{[^}]*height:\s*32px[^}]*font-weight:\s*600/s);
+    expect(css).toMatch(/\.settings-user-action\s*\{[^}]*width:\s*104px[^}]*height:\s*32px[^}]*font-weight:\s*600/s);
     expect(css).toMatch(/\.settings-user-action--remove\s*\{[^}]*danger/s);
     expect(css).toMatch(/\.settings-user-action:focus-visible/);
   });

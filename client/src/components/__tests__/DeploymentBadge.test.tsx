@@ -64,6 +64,7 @@ describe("DeploymentBadge", () => {
 
     expect(date).toHaveTextContent("Aug 30");
     expect(date).toHaveClass("hidden", "lg:inline");
+    expect(trigger).toHaveClass("h-6", "rounded-full", "text-[10px]");
     expect(trigger).not.toHaveAttribute("aria-describedby");
     act(() => trigger.focus());
     expect(trigger).toHaveAttribute("aria-describedby", screen.getByRole("tooltip").id);

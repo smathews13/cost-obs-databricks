@@ -97,7 +97,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   anomalySensitivity: "medium",
   expSetupWizardLink: false,
   expDebuggerLink: false,
-  enableArchitectureView: false,
+  enableArchitectureView: true,
   companyName: "",
   appDisplayName: "",
   monthlyBudget: 0,

@@ -19,11 +19,11 @@ class _Request:
 
 
 def test_architecture_view_setting_defaults_and_sanitizes_to_boolean():
-    assert settings._APP_SETTINGS_DEFAULTS["enable_architecture_view"] is False
+    assert settings._APP_SETTINGS_DEFAULTS["enable_architecture_view"] is True
     assert "enable_architecture_view" in settings._APP_SETTINGS_ALLOWED
-    assert settings._sanitize_app_settings({})["enable_architecture_view"] is False
+    assert settings._sanitize_app_settings({})["enable_architecture_view"] is True
     assert settings._sanitize_app_settings({"enable_architecture_view": True})["enable_architecture_view"] is True
-    assert settings._sanitize_app_settings({"enable_architecture_view": "true"})["enable_architecture_view"] is False
+    assert settings._sanitize_app_settings({"enable_architecture_view": "true"})["enable_architecture_view"] is True
 
 
 def test_architecture_view_setting_is_in_unified_snapshot():

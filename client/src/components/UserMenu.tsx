@@ -101,7 +101,6 @@ function userInitials(name: string, email: string): string {
 export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
-  const [chooserSide, setChooserSide] = useState<"left" | "right">("left");
   const [feedbackTargets, setFeedbackTargets] = useState(DEFAULT_FEEDBACK_TARGETS);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -127,8 +126,6 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
       window.clearTimeout(hoverCloseTimerRef.current);
       hoverCloseTimerRef.current = null;
     }
-    const row = feedbackRef.current?.getBoundingClientRect();
-    setChooserSide(row && row.left < 194 ? "right" : "left");
     setChooserOpen(true);
     if (moveFocus) {
       window.setTimeout(() => chooserItemRefs.current[0]?.focus(), 0);
@@ -375,7 +372,7 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
                 aria-label="Send via"
                 onKeyDown={onChooserKeyDown}
                 onMouseEnter={() => openChooser(false)}
-                className={`user-menu-panel animate-fade-in absolute top-0 z-60 w-[250px] rounded-[10px] border border-[#E4E2DD] bg-white p-[8px] shadow-[0_8px_28px_rgba(11,32,38,.16)] ${chooserSide === "left" ? "right-full mr-[8px]" : "left-full ml-[8px]"}`}
+                className="user-menu-panel animate-fade-in absolute left-full top-0 z-60 ml-[8px] w-[250px] rounded-[10px] border border-[#E4E2DD] bg-white p-[8px] shadow-[0_8px_28px_rgba(11,32,38,.16)]"
               >
                 <div className="user-menu-secondary px-[10px] pb-[5px] pt-[3px] text-[10.5px] font-bold tracking-[.07em] text-[#618794]">
                   SEND VIA
@@ -402,7 +399,7 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
                     className="user-menu-item flex h-[36px] w-full items-center gap-[10px] rounded-[6px] px-[10px] text-[13px] font-medium text-[#1B3139] hover:bg-[#FBF9F6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
                   >
                     <Slack size={14} className="text-[#618794]" aria-hidden="true" />
-                    Message Sam Mathews on Slack
+                    Slack message
                   </button>
                 )}
                 {feedbackTargets.email_href && (

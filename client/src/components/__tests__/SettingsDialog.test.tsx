@@ -185,8 +185,8 @@ it("renders, toggles, saves, and reloads user anonymization", async () => {
 });
 
 it("defaults, saves, reloads, and resets the architecture view setting", async () => {
-  expect(loadAppSettings().enableArchitectureView).toBe(false);
-  let serverValue = false;
+  expect(loadAppSettings().enableArchitectureView).toBe(true);
+  let serverValue = true;
   const putBodies: Array<{ experimental: { enable_architecture_view: boolean } }> = [];
   vi.stubGlobal("confirm", vi.fn(() => true));
   vi.stubGlobal("fetch", vi.fn().mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -223,22 +223,22 @@ it("defaults, saves, reloads, and resets the architecture view setting", async (
   await userEvent.click(await screen.findByRole("button", { name: "Experimental" }));
   expect(screen.getByText("Unlock architecture PDF export from the existing Export dialog.")).toBeVisible();
   const toggle = screen.getByRole("switch", { name: "Architecture view" });
-  expect(toggle).toHaveAttribute("aria-checked", "false");
+  expect(toggle).toHaveAttribute("aria-checked", "true");
   await userEvent.click(toggle);
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-  await waitFor(() => expect(putBodies.at(-1)?.experimental.enable_architecture_view).toBe(true));
-  expect(loadAppSettings().enableArchitectureView).toBe(true);
+  await waitFor(() => expect(putBodies.at(-1)?.experimental.enable_architecture_view).toBe(false));
+  expect(loadAppSettings().enableArchitectureView).toBe(false);
 
   first.unmount();
   localStorage.clear();
   renderDialog();
   await userEvent.click(await screen.findByRole("button", { name: "Experimental" }));
-  await waitFor(() => expect(screen.getByRole("switch", { name: "Architecture view" })).toHaveAttribute("aria-checked", "true"));
+  await waitFor(() => expect(screen.getByRole("switch", { name: "Architecture view" })).toHaveAttribute("aria-checked", "false"));
 
   await userEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
-  await waitFor(() => expect(putBodies.at(-1)?.experimental.enable_architecture_view).toBe(false));
-  expect(loadAppSettings().enableArchitectureView).toBe(false);
+  await waitFor(() => expect(putBodies.at(-1)?.experimental.enable_architecture_view).toBe(true));
+  expect(loadAppSettings().enableArchitectureView).toBe(true);
 });
 
 it("persists the default when user anonymization is reset", async () => {
@@ -420,7 +420,7 @@ it("uses the shared dirty and save status for Experimental draft controls", asyn
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
   expect(screen.getByRole("status")).toHaveTextContent("Saving 2 settings…");
   expect(putBodies[0].experimental).toMatchObject({
-    enable_architecture_view: true,
+    enable_architecture_view: false,
   });
   expect(putBodies[0].general).toMatchObject({ anonymize_users: true });
 

@@ -28,7 +28,7 @@ export function DeploymentBadge({
         className=""
         placement="bottom"
         panelClassName="w-max max-w-[calc(100vw-1rem)] border border-white/[.10] bg-[#0B2026] text-[11.5px]"
-        triggerClassName="rail-control-border inline-flex h-[32px] items-center gap-[6px] rounded-[8px] border bg-white/[.07] px-[8px] text-[12px] font-medium text-[#E9EFED] transition-colors hover:bg-[#243F49] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] lg:px-[9px]"
+        triggerClassName="rail-control-border inline-flex h-6 items-center gap-1 rounded-full border bg-white/[.07] px-2 text-[10px] font-semibold text-[#E9EFED] transition-colors hover:bg-[#243F49] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139]"
         content={loading ? (
           "Loading deployment details…"
         ) : (
@@ -45,7 +45,7 @@ export function DeploymentBadge({
           </>
         )}
       >
-        <Clock size={15} strokeWidth={1.8} aria-hidden="true" />
+        <Clock size={12} strokeWidth={1.8} aria-hidden="true" />
         <span data-testid="deployment-badge-date" className="hidden whitespace-nowrap lg:inline">
           {triggerText}
         </span>

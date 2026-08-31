@@ -44,7 +44,8 @@
 
 .settings-user-action {
   display: inline-flex;
-  min-width: 96px;
+  width: 104px;
+  min-width: 104px;
   height: 32px;
   align-items: center;
   justify-content: center;
@@ -239,7 +240,7 @@
 
 @media (max-width: 760px) {
   .settings-access-user-grid {
-    grid-template-columns: minmax(200px, 1fr) 100px 160px 104px;
+    grid-template-columns: minmax(200px, 1fr) 90px 132px 112px;
   }
 }
 
