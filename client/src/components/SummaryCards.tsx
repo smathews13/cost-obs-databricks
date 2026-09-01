@@ -100,8 +100,10 @@ export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds
         <Card
           title="Workspaces"
           value={formatNumber(data?.workspace_count ?? 0)}
-          subtitle="active workspaces"
-          infoTooltip="Average number of distinct workspaces with billable usage per day in the selected period. Matches the daily trend average."
+          subtitle={workspaceIds?.length ? "selected workspaces" : "active workspaces"}
+          infoTooltip={workspaceIds?.length
+            ? "Number of workspaces in the active filter. The trend drilldown shows how many of those selected workspaces had billable usage each day."
+            : "Number of distinct workspaces with billable usage on the latest day. The trend drilldown shows daily active workspaces."}
           isLoading={isLoading}
           onClick={!isLoading && data && startDate && endDate ? () => handleCardClick("workspace_count", "Daily Active Workspaces") : undefined}
           icon={

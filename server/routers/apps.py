@@ -1165,7 +1165,6 @@ def _compute_apps_bundle(
           WHERE u.usage_date BETWEEN :start_date AND :end_date
             AND u.usage_quantity > 0
             AND u.billing_origin_product = 'APPS'
-            {app_filter}
             {ws_clause}
         )
         SELECT
@@ -1235,7 +1234,7 @@ def _compute_apps_bundle(
         queries = [
             ("summary", lambda: _mv_query("summary", MV_APPS_SUMMARY, lambda: execute_query(_ws(APPS_SUMMARY), params))),
             ("apps", lambda: _mv_query("apps", MV_APPS_BY_APP_FULL, lambda: execute_query(_ws(APPS_BY_APP_FULL), params))),
-            ("timeseries", lambda: _mv_query("timeseries", MV_APPS_TIMESERIES, lambda: execute_query(filtered_timeseries, params), app_filter=_mv_app_filter)),
+            ("timeseries", lambda: _mv_query("timeseries", MV_APPS_TIMESERIES, lambda: execute_query(filtered_timeseries, params), app_filter="")),
             ("avg_cost_per_app", lambda: _mv_query("avg_cost_per_app", MV_APPS_AVG_COST_PER_APP, lambda: execute_query(avg_cost_per_app_query, params), app_filter=_mv_app_filter)),
             ("sku_breakdown", lambda: _mv_query("sku_breakdown", MV_APPS_BY_APP_SKU, lambda: execute_query(_ws(APPS_BY_APP_SKU), params))),
             ("workspaces", lambda: _query_app_workspaces(params, ws_clause)),
@@ -1665,6 +1664,25 @@ async def get_apps_kpi_trend(
     _cache_generation = capture_cache_generation(cache_endpoint)
 
     registry = _app_name_cache  # use stale cache — background refresh handled by dashboard-bundle
+    if kpi == "apps_count" and not registry:
+        return {
+            "available": False,
+            "retryable": True,
+            "unavailable_reason": "Registered app metadata is still loading.",
+            "kpi": kpi,
+            "granularity": granularity,
+            "data_points": [],
+            "summary": {
+                "period_start_value": 0,
+                "period_end_value": 0,
+                "change_amount": 0,
+                "change_percent": 0,
+                "min_value": 0,
+                "max_value": 0,
+                "avg_value": 0,
+                "trend": "flat",
+            },
+        }
     raw_app_filter = _build_app_id_filter(registry)
     mv_app_filter = _build_app_id_filter(registry, col="app_id")
     raw_ws_filter = wf.build_ws_filter_clause(col="u.workspace_id", id_list=id_list)
@@ -1725,6 +1743,7 @@ async def get_apps_kpi_trend(
           AND u.usage_quantity > 0
           AND u.billing_origin_product = 'APPS'
           AND u.usage_metadata.app_id IS NOT NULL
+          {raw_app_filter}
           {raw_ws_filter}
         GROUP BY u.usage_date
         ORDER BY u.usage_date
@@ -1734,6 +1753,7 @@ async def get_apps_kpi_trend(
         FROM `{catalog}`.`{schema}`.`daily_apps_summary`
         WHERE usage_date BETWEEN :start_date AND :end_date
           AND app_id <> 'Unknown'
+          {app_filter}
           {ws_filter}
         GROUP BY usage_date
         ORDER BY usage_date

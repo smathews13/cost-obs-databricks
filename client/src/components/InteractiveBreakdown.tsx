@@ -8,6 +8,7 @@ import { Spinner } from "./Spinner";
 import { InfoPopover } from "./ui/InfoPopover";
 import { FloatingMenu } from "./ui/FloatingMenu";
 import { SortableHeader } from "./ui/SortableHeader";
+import { SourceCapabilityNotice } from "@/components/brand";
 
 interface InteractiveBreakdownProps {
   data: InteractiveBreakdownResponse | undefined;
@@ -224,12 +225,20 @@ export const InteractiveBreakdown = memo(function InteractiveBreakdown({ data, i
   }
 
   if (data?.availability === "unavailable" || data?.available === false) {
+    const sourceUnsupported = data.error_code === "SOURCE_SCOPE_UNSUPPORTED"
+      || data.reason === "shared_scope_unsupported";
     return (
       <div className="rounded-lg border bg-white p-5" style={{ borderColor: C.hairline }}>
         <h3 className="text-base font-semibold text-gray-900">Interactive Compute Leaderboard</h3>
-        <p className="mt-2 text-sm text-amber-700">
-          Interactive compute detail is temporarily unavailable. Retry shortly.
-        </p>
+        <div className="mt-3">
+          <SourceCapabilityNotice
+            title={sourceUnsupported ? "Interactive compute detail is not included in this source" : "Interactive compute detail is temporarily unavailable"}
+            description={sourceUnsupported
+              ? "No current shared aggregate provides cluster and notebook grain. The source must publish the aggregate below."
+              : data.reason_detail || "Retry shortly."}
+            requiredAggregates={sourceUnsupported ? ["daily_interactive_compute_summary"] : []}
+          />
+        </div>
       </div>
     );
   }

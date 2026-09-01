@@ -248,9 +248,18 @@ export function UntaggedResourcesTable({
     <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900">Untagged Resources</h3>
-        <span className="text-sm text-red-600" aria-live="polite">
-          {formatCurrency(filteredUntaggedSpend)} untagged spend
-        </span>
+        <div className="text-right" aria-live="polite">
+          <div className="inline-flex items-center justify-end text-sm text-red-600">
+            {formatCurrency(filteredUntaggedSpend)} shown resource spend
+            <InfoPopover
+              label="About untagged resource spend"
+              text="This table totals untagged spend that can be assigned to the supported resource IDs shown here. The KPI includes all untagged billing, including serverless and records without an identifiable resource."
+            />
+          </div>
+          <p className="mt-0.5 text-[11px] text-gray-500">
+            of {formatCurrency(data.summary.untagged_spend)} total untagged billing
+          </p>
+        </div>
       </div>
 
       {suggestedTags.length > 0 && allItems.length > 0 && (

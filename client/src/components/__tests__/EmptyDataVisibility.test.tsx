@@ -80,11 +80,13 @@ describe("empty dashboard panels", () => {
   it.each([
     [
       "SKU",
+      "daily_sku_summary",
       <SKUBreakdown
         data={{
           available: false,
           availability: "unavailable",
-          reason_detail: "SKU detail is temporarily unavailable.",
+          reason: "shared_scope_unsupported",
+          error_code: "SOURCE_SCOPE_UNSUPPORTED",
           skus: [],
           total_spend: null,
           start_date: "2026-01-01",
@@ -95,11 +97,13 @@ describe("empty dashboard panels", () => {
     ],
     [
       "interactive",
+      "daily_interactive_compute_summary",
       <InteractiveBreakdown
         data={{
           available: false,
           availability: "unavailable",
-          reason_detail: "Interactive compute detail is temporarily unavailable.",
+          reason: "shared_scope_unsupported",
+          error_code: "SOURCE_SCOPE_UNSUPPORTED",
           items: [],
           total_spend: null,
           start_date: "2026-01-01",
@@ -111,11 +115,13 @@ describe("empty dashboard panels", () => {
     ],
     [
       "pipeline",
+      "daily_pipeline_summary",
       <PipelineObjectsTable
         data={{
           available: false,
           availability: "unavailable",
-          reason_detail: "Jobs and pipeline detail is temporarily unavailable.",
+          reason: "shared_scope_unsupported",
+          error_code: "SOURCE_SCOPE_UNSUPPORTED",
           objects: [],
           total_spend: null,
           start_date: "2026-01-01",
@@ -125,10 +131,11 @@ describe("empty dashboard panels", () => {
         host={null}
       />,
     ],
-  ])("shows a compact settled state for unavailable %s detail", (_name, panel) => {
+  ])("names the missing source aggregate for unavailable %s detail", (_name, aggregate, panel) => {
     render(panel);
 
-    expect(screen.getByText(/temporarily unavailable/i)).toBeVisible();
+    expect(screen.getByText(aggregate)).toBeVisible();
+    expect(screen.getByText(/not included in this source/i)).toBeVisible();
     expect(screen.queryByText(/^Loading/i)).not.toBeInTheDocument();
   });
 });

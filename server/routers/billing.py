@@ -2443,11 +2443,16 @@ async def get_dashboard_bundle_fast(
         # Override workspace_count with most-recent-day count (both MV and non-MV paths).
         # MV summary computes COUNT(DISTINCT) over the full period which is always larger
         # than any daily count and mismatches the "Daily Active Workspaces" trend chart.
-        wc_results = results.get("workspace_count")
-        if wc_results and len(wc_results) > 0:
-            accurate_count = int(wc_results[0].get("workspace_count") or 0)
-            if accurate_count > 0:
-                response["summary"]["workspace_count"] = accurate_count
+        if id_list:
+            # With an explicit filter this KPI communicates filter scope, not
+            # whether every selected workspace happened to bill on the last day.
+            response["summary"]["workspace_count"] = len(id_list)
+        else:
+            wc_results = results.get("workspace_count")
+            if wc_results and len(wc_results) > 0:
+                accurate_count = int(wc_results[0].get("workspace_count") or 0)
+                if accurate_count > 0:
+                    response["summary"]["workspace_count"] = accurate_count
 
         delta_cache_put(
             _dkey,

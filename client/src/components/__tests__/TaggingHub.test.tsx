@@ -238,14 +238,14 @@ it("totals the complete filtered untagged table set rather than the summary or v
     </QueryClientProvider>,
   );
 
-  expect(screen.getByText("$110 untagged spend")).toBeInTheDocument();
-  expect(screen.queryByText("$999 untagged spend")).not.toBeInTheDocument();
+  expect(screen.getByText("$110 shown resource spend")).toBeInTheDocument();
+  expect(screen.queryByText("$999 shown resource spend")).not.toBeInTheDocument();
 
   await userEvent.click(screen.getByRole("checkbox", { name: /show historical/i }));
-  expect(screen.getByText("$120 untagged spend")).toBeInTheDocument();
+  expect(screen.getByText("$120 shown resource spend")).toBeInTheDocument();
 
   await userEvent.type(screen.getByPlaceholderText("Search resources..."), "Cluster 11");
-  expect(screen.getByText("$10 untagged spend")).toBeInTheDocument();
+  expect(screen.getByText("$10 shown resource spend")).toBeInTheDocument();
 });
 
 it("keeps aggregate spend but never invents zero when shared scope suppresses details", () => {

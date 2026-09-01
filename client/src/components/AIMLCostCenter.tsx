@@ -21,7 +21,7 @@ import { KPITrendModal } from "./KPITrendModal";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
-import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { PageHero, Chip, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { KPICard } from "@/components/ui/KPICard";
@@ -350,26 +350,28 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
       "Agent Bricks",
     ]} />;
   }
+  if (data?.available === false) {
+    const sourceUnsupported = data.unavailable_reason?.includes("selected sources")
+      || data.error_code === "SOURCE_SCOPE_UNSUPPORTED";
+    return (
+      <SourceCapabilityNotice
+        title={sourceUnsupported ? "AI/ML detail is not included in this source" : "AI/ML data is temporarily unavailable"}
+        description={sourceUnsupported
+          ? "The selected source has account totals but no AI/ML workload or endpoint grain. This aggregate is not currently published by the source."
+          : data.reason_detail || "The AI/ML query did not complete. Retry shortly."}
+        requiredAggregates={sourceUnsupported ? ["daily_aiml_summary"] : []}
+        onRetry={sourceUnsupported ? undefined : onRetry}
+      />
+    );
+  }
 
   if (isError && !data) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-6">
-        <div className="flex flex-col items-center justify-center gap-3 py-4">
-          <p className="text-base font-medium text-red-800">Failed to load AI/ML data</p>
-          <p className="text-center text-sm text-red-700">
-            AI/ML data is temporarily unavailable. Retry shortly.
-          </p>
-          {onRetry && (
-            <button
-              onClick={onRetry}
-              className="mt-1 rounded-md px-4 py-2 text-sm font-medium text-white"
-              style={{ backgroundColor: C.lava }}
-            >
-              Retry
-            </button>
-          )}
-        </div>
-      </div>
+      <SourceCapabilityNotice
+        title="AI/ML data is temporarily unavailable"
+        description="The AI/ML query did not complete. Retry shortly."
+        onRetry={onRetry}
+      />
     );
   }
 

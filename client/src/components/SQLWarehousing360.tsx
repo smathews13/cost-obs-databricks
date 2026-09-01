@@ -22,7 +22,7 @@ import { KPITrendModal } from "./KPITrendModal";
 import { LoadingPanels, Spinner } from "./Spinner";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
-import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { PageHero, Chip, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
 import { Dialog } from "@/components/ui/Dialog";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
@@ -448,6 +448,19 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
   if (queryData.available === false) {
     const sourceUnsupported = queryData.error_code === "SOURCE_SCOPE_UNSUPPORTED"
       || queryData.reason === "shared_scope_unsupported";
+    if (sourceUnsupported) {
+      return (
+        <SourceCapabilityNotice
+          title="SQL detail is not included in this source"
+          description="The selected source publishes account totals but not SQL query and warehouse attribution."
+          requiredAggregates={[
+            "daily_query_stats",
+            "sql_tool_attribution",
+            "dbsql_cost_per_query",
+          ]}
+        />
+      );
+    }
     return (
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-6">
         <div className="flex items-start gap-3">
@@ -456,19 +469,11 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
           </svg>
           <div>
             <p className="text-sm font-medium text-gray-700">
-              {sourceUnsupported
-                ? "SQL detail is not included in this source"
-                : "Query-level cost attribution is not available"}
+              Query-level cost attribution is not available
             </p>
             <p className="mt-1 text-sm text-gray-500">
-              {sourceUnsupported ? (
-                "The selected shared source publishes account spend summaries but not SQL query and warehouse detail."
-              ) : (
-                <>
-                  This tab needs <code className="rounded bg-gray-200 px-1 text-xs">system.query.history</code> access for the app service principal,
-                  and the query-cost table from setup. Copy the GRANT SQL from Settings, Permissions, run it as a metastore admin, then rebuild tables from Settings, Config.
-                </>
-              )}
+              This tab needs <code className="rounded bg-gray-200 px-1 text-xs">system.query.history</code> access for the app service principal,
+              and the query-cost table from setup. Copy the GRANT SQL from Settings, Permissions, run it as a metastore admin, then rebuild tables from Settings, Config.
             </p>
           </div>
         </div>
@@ -1432,15 +1437,20 @@ export function WarehouseRightsizingView({
           <span className="text-sm text-gray-500">Loading rightsizing recommendations…</span>
         </div>
       ) : healthError ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
-          Rightsizing recommendations could not be loaded.
-        </div>
+        <SourceCapabilityNotice
+          title="Rightsizing recommendations are temporarily unavailable"
+          description="The warehouse-health query did not complete. Refresh this tab to retry."
+        />
+      ) : warehouseHealth?.available === false && warehouseHealth.reason === "shared_scope_unsupported" ? (
+        <SourceCapabilityNotice
+          title="Rightsizing detail is not included in this source"
+          description="No current shared aggregate provides warehouse-event grain. The source must publish the aggregate below."
+          requiredAggregates={["warehouse_health_summary"]}
+        />
       ) : !warehouseHealth?.available || !warehouseHealth.recommendations.length ? (
         <div className="rounded-lg p-4 text-sm" style={{ background: C.oatPage, color: warehouseHealth?.available === false ? C.slate : C.greenInk }}>
           {warehouseHealth?.available === false
-            ? warehouseHealth.reason === "shared_scope_unsupported"
-              ? "Optimize recommendations are local-workspace metadata and are not included in this shared source."
-              : "Warehouse health data unavailable. Requires system.compute.warehouse_events access."
+            ? "Warehouse health data unavailable. Requires system.compute.warehouse_events access."
             : (
               <span className="inline-flex items-center gap-2">
                 <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
@@ -1745,15 +1755,20 @@ export function WarehouseIdleTimeView({
           <span className="text-sm text-gray-500">Loading idle-time analysis…</span>
         </div>
       ) : isError ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
-          Idle time analysis could not be loaded.
-        </div>
+        <SourceCapabilityNotice
+          title="Idle time analysis is temporarily unavailable"
+          description="The warehouse idle-time query did not complete. Refresh this tab to retry."
+        />
+      ) : data?.available === false && data.reason === "shared_scope_unsupported" ? (
+        <SourceCapabilityNotice
+          title="Idle-time detail is not included in this source"
+          description="No current shared aggregate provides warehouse lifecycle grain. The source must publish the aggregate below."
+          requiredAggregates={["warehouse_idle_summary"]}
+        />
       ) : !data?.available || !data.warehouses.length ? (
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500">
           {data?.available === false
-            ? data.reason === "shared_scope_unsupported"
-              ? "Idle-time analysis is local-workspace metadata and is not included in this shared source."
-              : data.error
+            ? data.error
               ? `Idle time query failed: ${data.error}`
               : "Idle time data unavailable. Requires access to system.compute.warehouse_events and system.query.history."
             : data?.serverless_detected

@@ -12,7 +12,7 @@ from server.queries import (
     INFRA_COST_TIMESERIES,
     LAKEFLOW_JOB_STATS,
 )
-from server.routers import billing, dbsql_base, settings, tagging
+from server.routers import billing, dbsql_base, settings, tagging, warehouse_health
 
 
 @pytest.fixture(autouse=True)
@@ -102,6 +102,35 @@ def test_compute_kpi_query_counts_sql_warehouses():
     assert "COUNT(DISTINCT usage_metadata.cluster_id) as total_clusters" in BILLING_KPIS_FAST
     assert "usage_metadata.warehouse_id" in BILLING_KPIS_FAST
     assert "as sql_warehouses" in BILLING_KPIS_FAST
+
+
+def test_rightsizing_queries_apply_the_workspace_filter_to_every_table():
+    captured: list[str] = []
+
+    def run_queries(query_funcs, *_args, **_kwargs):
+        for _name, query in query_funcs:
+            query()
+        return {}
+
+    with (
+        patch.object(
+            warehouse_health,
+            "execute_queries_parallel",
+            side_effect=run_queries,
+        ),
+        patch.object(
+            warehouse_health,
+            "execute_query",
+            side_effect=lambda sql, **_kwargs: captured.append(sql) or [],
+        ),
+    ):
+        warehouse_health._run_health_queries(["123", "456"])
+
+    assert len(captured) == 3
+    assert all(
+        "CAST(workspace_id AS STRING) IN ('123', '456')" in sql
+        for sql in captured
+    )
 
 
 def test_warehouse_type_classification_prefers_compute_then_billing_metadata():

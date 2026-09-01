@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { APP_VERSION, C, FONT_MONO, FONT_SANS } from "@/theme";
 import { cn } from "@/lib/utils";
+import { getActiveSourceLabels } from "@/hooks/useBillingData";
 
 export function CostObsMark({ className, whiteOrbit = false }: { className?: string; whiteOrbit?: boolean }) {
   const orbit = whiteOrbit ? C.white : C.ink;
@@ -55,6 +56,7 @@ export function PageHero({
   subtitle?: ReactNode;
   action?: ReactNode;
 }) {
+  const sourceLabels = getActiveSourceLabels();
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="flex items-start gap-3">
@@ -73,9 +75,16 @@ export function PageHero({
           <h2 className="text-2xl font-bold leading-tight" style={{ color: C.ink, fontFamily: FONT_SANS }}>
             {title}
           </h2>
-          {subtitle && (
+          {(subtitle || sourceLabels.length > 0) && (
             <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm" style={{ color: C.slate }}>
               {subtitle}
+              {sourceLabels.length > 0 && (
+                <Chip kind="filter">
+                  {sourceLabels.length === 1
+                    ? sourceLabels[0]
+                    : `${sourceLabels.length} sources`}
+                </Chip>
+              )}
             </div>
           )}
         </div>
@@ -127,6 +136,52 @@ export function InfoPanel({
                 <span className="text-xs" style={{ color: C.slate }}>{minimizeLabel}</span>
               </label>
             </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function SourceCapabilityNotice({
+  title,
+  description,
+  requiredAggregates = [],
+  onRetry,
+}: {
+  title: string;
+  description: string;
+  requiredAggregates?: string[];
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-gray-700">
+      <div className="flex items-start gap-3">
+        <svg className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div>
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="mt-1 text-sm text-gray-500">{description}</p>
+          {requiredAggregates.length > 0 && (
+            <p className="mt-2 text-xs text-gray-500">
+              Required shared {requiredAggregates.length === 1 ? "aggregate" : "aggregates"}:{" "}
+              {requiredAggregates.map((aggregate, index) => (
+                <span key={aggregate}>
+                  {index > 0 && ", "}
+                  <code className="rounded bg-gray-200 px-1 py-0.5 text-[11px] text-gray-700">{aggregate}</code>
+                </span>
+              ))}
+            </p>
+          )}
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-3 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
+            >
+              Retry
+            </button>
           )}
         </div>
       </div>

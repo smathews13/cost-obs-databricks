@@ -188,6 +188,35 @@ describe("AppsCostCenter metadata detail", () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
+  it("uses the neutral source banner and names the missing Apps aggregate", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <AppsCostCenter
+          data={{
+            available: false,
+            availability: "unavailable",
+            error_code: "SOURCE_SCOPE_UNSUPPORTED",
+            reason: "shared_scope_unsupported",
+            summary: {},
+            apps: {},
+            timeseries: { timeseries: [], categories: [] },
+            connected_artifacts: [],
+            active_only: false,
+            start_date: "2026-08-01",
+            end_date: "2026-08-30",
+          } as unknown as AppsDashboardBundle}
+          isLoading={false}
+        />
+      </QueryClientProvider>,
+    );
+
+    const notice = screen.getByText("Apps data is not included in this source").closest(".bg-gray-50");
+    expect(notice).toBeInTheDocument();
+    expect(notice).toHaveTextContent("daily_apps_summary");
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+  });
+
   it("uses the same active count contract for the KPI and status breakdown", () => {
     renderApps([metadataApp, historicalApp]);
 
@@ -195,6 +224,13 @@ describe("AppsCostCenter metadata detail", () => {
     expect(screen.getByTestId("active-apps-breakdown-count")).toHaveTextContent("1 Active");
     expect(screen.getByText("currently running · 1 workspace")).toBeVisible();
     expect(screen.getByRole("button", { name: "See Active Apps trend" })).toBeVisible();
+  });
+
+  it("keeps Connected Resources visible when metadata returns no bindings", () => {
+    renderApps([metadataApp]);
+
+    expect(screen.getByText("Connected Resources")).toBeVisible();
+    expect(screen.getByText(/No connected resources were reported/i)).toBeVisible();
   });
 
   it("hides historical billing-only apps until the filter is enabled", () => {
@@ -266,6 +302,7 @@ describe("AppsCostCenter metadata detail", () => {
   it("keeps billing detail and explains unavailable historical apps", () => {
     renderApps([historicalApp]);
     fireEvent.click(screen.getByRole("checkbox", { name: /Show historical/ }));
+    expect(screen.getByText("deleted-app-id").closest("button")).toHaveTextContent("Historical");
     fireEvent.click(screen.getByText("deleted-app-id"));
 
     expect(screen.getAllByText(/\$123/).length).toBeGreaterThan(0);

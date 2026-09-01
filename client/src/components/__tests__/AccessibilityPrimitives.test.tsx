@@ -6,6 +6,8 @@ import { Dialog } from "../ui/Dialog";
 import { InfoPopover } from "../ui/InfoPopover";
 import { KPICard } from "../ui/KPICard";
 import { SortableHeader } from "../ui/SortableHeader";
+import { PageHero } from "../brand";
+import { setActiveSourceLabels } from "@/hooks/useBillingData";
 
 function DialogHarness() {
   const [open, setOpen] = useState(false);
@@ -42,6 +44,16 @@ function LoadingDialogHarness({ onClose }: { onClose: (loaded: boolean) => void 
 }
 
 describe("shared accessibility primitives", () => {
+  it("shows the active source scope in every shared page hero", () => {
+    setActiveSourceLabels(["west4"]);
+    try {
+      render(<PageHero icon={<span>Icon</span>} title="SQL" subtitle="Analytics" />);
+      expect(screen.getByText("west4")).toBeVisible();
+    } finally {
+      setActiveSourceLabels([]);
+    }
+  });
+
   it("labels, traps, closes, and returns focus for dialogs", async () => {
     const user = userEvent.setup();
     render(<DialogHarness />);

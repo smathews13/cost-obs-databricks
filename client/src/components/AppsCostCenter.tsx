@@ -19,7 +19,7 @@ import { formatIdentity } from "@/utils/identity";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { getAppFallbackColor, getAppInitials } from "@/utils/apps";
 import { C } from "@/theme";
-import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { PageHero, Chip, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
 import { InfoPopover } from "@/components/ui/InfoPopover";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { KPICard } from "@/components/ui/KPICard";
@@ -433,26 +433,21 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
   if (data?.availability === "unavailable" || data?.available === false) {
     const sourceUnsupported = data.error_code === "SOURCE_SCOPE_UNSUPPORTED"
       || data.reason === "shared_scope_unsupported";
+    if (sourceUnsupported) {
+      return (
+        <SourceCapabilityNotice
+          title="Apps data is not included in this source"
+          description="The selected source publishes account spend summaries but not app-level billing or runtime metadata."
+          requiredAggregates={["daily_apps_summary"]}
+        />
+      );
+    }
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-        <p className="font-medium text-amber-900">
-          {sourceUnsupported ? "Apps data is not included in this source" : "Apps data is temporarily unavailable"}
-        </p>
-        <p className="mt-1 text-sm text-amber-800">
-          {sourceUnsupported
-            ? "The selected shared source publishes account spend summaries but not app-level billing or runtime metadata."
-            : "The background producer did not finish. Retry shortly."}
-        </p>
-        {onRetry && !sourceUnsupported && (
-          <button
-            type="button"
-            className="mt-3 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900"
-            onClick={onRetry}
-          >
-            Retry
-          </button>
-        )}
-      </div>
+      <SourceCapabilityNotice
+        title="Apps data is temporarily unavailable"
+        description="The background producer did not finish. Retry shortly."
+        onRetry={onRetry}
+      />
     );
   }
 
@@ -600,7 +595,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
 
       {/* App Status Breakdown + Spend Over Time: side by side */}
       {(pieData.length > 0 || dailyTimeseries.length > 0) && (
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className={`grid grid-cols-1 gap-6 ${pieData.length > 0 && dailyTimeseries.length > 0 ? "lg:grid-cols-2" : ""}`}>
         {/* App Status Breakdown: Pie Chart */}
         {pieData.length > 0 && (
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
@@ -1085,8 +1080,8 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
             <div className="mt-3 flex items-center gap-4 text-xs text-gray-500">
               <span>{selectedApp.percentage.toFixed(1)}% of total spend</span>
               <span>Workspace count: {selectedApp.workspace_count}</span>
-              {!selectedApp.is_registered && (
-                <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-yellow-700">Historical billing record: app deleted or inaccessible</span>
+              {(!selectedApp.is_registered || selectedApp.status === "historical") && (
+                <span className="rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-gray-600">Historical billing record: app deleted or inaccessible</span>
               )}
             </div>
           </div>
@@ -1119,6 +1114,11 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
                   }`}
                   title={`${app.app_name}${isResolved ? ` (${app.app_id})` : ""}\n${formatCurrency(app.total_spend)} · ${app.days_active}d active`}
                 >
+                  {(!app.is_registered || app.status === "historical") && (
+                    <span className="absolute right-1.5 top-1.5 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-gray-600">
+                      Historical
+                    </span>
+                  )}
                   <div className="transition-transform group-hover:scale-110">
                     <AppThumbnail
                       key={`${app.app_id}:${app.metadata?.thumbnail_url ?? ""}`}
@@ -1486,6 +1486,16 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
           </div>
         );
       })()}
+      {(!data?.connected_artifacts || data.connected_artifacts.length === 0) && (
+        <div className="rounded-lg border bg-white p-6" style={{ borderColor: C.hairline }}>
+          <h3 className="text-lg font-semibold text-gray-900">Connected Resources</h3>
+          <p className="mt-3 text-sm text-gray-500">
+            {data?.partial_reasons?.app_details || data?.partial_reasons?.app_registry
+              ? "Connected resource metadata is still loading. Refresh this tab shortly."
+              : "No connected resources were reported by the Databricks Apps API."}
+          </p>
+        </div>
+      )}
 
     </div>
   );

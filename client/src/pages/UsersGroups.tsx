@@ -16,7 +16,7 @@ import {
   useSpNameMap,
 } from "@/utils/identity";
 import { C, productColor, seriesColor } from "@/theme";
-import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { PageHero, Chip, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
 import { Dialog } from "@/components/ui/Dialog";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
@@ -286,26 +286,21 @@ export default function UsersGroups({
   if (isError || data?.availability === "unavailable" || data?.available === false) {
     const sourceUnsupported = data?.reason === "identity_detail_unavailable_for_shared_sources"
       || data?.error_code === "SOURCE_SCOPE_UNSUPPORTED";
+    if (sourceUnsupported) {
+      return (
+        <SourceCapabilityNotice
+          title="User detail is not included in this source"
+          description="The selected source has account totals but no user or service-principal identity grain. This aggregate is not currently published by the source."
+          requiredAggregates={["daily_user_attribution"]}
+        />
+      );
+    }
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-        <p className="font-medium text-amber-900">
-          {sourceUnsupported ? "User detail is not included in this source" : "User data is temporarily unavailable"}
-        </p>
-        <p className="mt-1 text-sm text-amber-800">
-          {sourceUnsupported
-            ? data?.reason_detail || "The selected shared source publishes cost summaries but not user identities."
-            : "User summary data is temporarily unavailable. Retry shortly."}
-        </p>
-        {!sourceUnsupported && (
-          <button
-            type="button"
-            className="mt-3 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900"
-            onClick={onRetry}
-          >
-            Retry
-          </button>
-        )}
-      </div>
+      <SourceCapabilityNotice
+        title="User data is temporarily unavailable"
+        description="User summary data is temporarily unavailable. Retry shortly."
+        onRetry={onRetry}
+      />
     );
   }
 

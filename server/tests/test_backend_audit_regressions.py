@@ -1131,6 +1131,11 @@ def test_apps_trends_apply_workspace_and_source_scope(kpi):
             patch.object(apps, "delta_cache_put") as cache_put,
             patch.object(
                 apps,
+                "_app_name_cache",
+                {"app-1": {"name": "Current App", "metadata": {}}},
+            ),
+            patch.object(
+                apps,
                 "capture_cache_generation",
                 return_value=db.CacheGeneration("trend:apps:kpi", 0),
             ),
@@ -1162,6 +1167,9 @@ def test_apps_trends_apply_workspace_and_source_scope(kpi):
             )
         assert "CAST(workspace_id AS STRING) IN ('123')" in captured[0]
         assert "source_label IN ('shared-west')" in captured[0]
+        if kpi == "apps_count":
+            assert "app_id IN ('app-1')" in captured[0]
+            assert "app_id <> 'Unknown'" in captured[0]
         assert cache_put.call_args.args[1] == "trend:apps:kpi"
     finally:
         db.reset_source_labels(source_token)

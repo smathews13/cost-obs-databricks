@@ -20,7 +20,7 @@ import type { KPITrendResponse } from "@/hooks/useKPITrend";
 import { VirtualizedList } from "./VirtualizedList";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
-import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { PageHero, Chip, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
 import { Dialog } from "@/components/ui/Dialog";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { KPICard } from "@/components/ui/KPICard";
@@ -389,17 +389,23 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
   if (data.available === false || data.availability === "unavailable") {
     const sourceUnsupported = data.error_code === "SOURCE_SCOPE_UNSUPPORTED"
       || data.reason === "shared_scope_unsupported";
+    if (sourceUnsupported) {
+      return (
+        <SourceCapabilityNotice
+          title="Tagging data is not included in this source"
+          description="The selected source does not publish tag coverage or tag-pair data."
+          requiredAggregates={[
+            "daily_tag_coverage_summary",
+            "daily_tag_summary",
+          ]}
+        />
+      );
+    }
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-        <p className="font-semibold text-amber-800">
-          {sourceUnsupported ? "Tagging data is not included in this source" : "Tagging data is temporarily unavailable"}
-        </p>
-        <p className="mt-1 text-sm text-amber-700">
-          {sourceUnsupported
-            ? "The selected shared source does not publish tag coverage or tag-pair aggregates."
-            : data.reason_detail || "Retry shortly. Missing tag coverage is never displayed as $0."}
-        </p>
-      </div>
+      <SourceCapabilityNotice
+        title="Tagging data is temporarily unavailable"
+        description={data.reason_detail || "Retry shortly. Missing tag coverage is never displayed as $0."}
+      />
     );
   }
 
@@ -466,6 +472,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           title="Untagged Spend"
           value={formatKpiCurrency(summary.untagged_spend)}
           subtitle={`${(summary.untagged_percentage ?? 0).toFixed(1)}% of ${daysDiff}-day spend`}
+          infoText="All billing spend without custom tags, including serverless and usage records that cannot be mapped to a supported resource ID. The resource table below is a narrower identifiable subset."
           onActivate={summary.untagged_spend > 0 && startDate && endDate ? () => setSelectedKPI({ kpi: "untagged_spend", label: "Daily Untagged Spend" }) : undefined}
           ariaLabel="See Untagged Spend trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>}

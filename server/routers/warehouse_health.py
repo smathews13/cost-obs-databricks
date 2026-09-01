@@ -15,12 +15,14 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from server import workspace_filter as wf
 from server.db import (
     execute_queries_parallel,
     execute_query,
     get_local_source_label,
     selected_source_labels,
 )
+from server.request_limits import parse_workspace_ids
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -59,6 +61,7 @@ _SQL_IDLE = f"""
 WITH current_warehouses AS (
   SELECT warehouse_id, warehouse_name, warehouse_size, workspace_id, warehouse_type
   FROM system.compute.warehouses
+  WHERE 1=1 /* WORKSPACE_FILTER */
   QUALIFY ROW_NUMBER() OVER (PARTITION BY warehouse_id ORDER BY change_time DESC) = 1
 ),
 recent_queries AS (
@@ -93,6 +96,7 @@ _SQL_OVER_SCALED = f"""
 WITH current_warehouses AS (
   SELECT warehouse_id, warehouse_name, warehouse_size, workspace_id
   FROM system.compute.warehouses
+  WHERE 1=1 /* WORKSPACE_FILTER */
   QUALIFY ROW_NUMBER() OVER (PARTITION BY warehouse_id ORDER BY change_time DESC) = 1
 ),
 cluster_scale_events AS (
@@ -140,6 +144,7 @@ WITH current_warehouses AS (
   SELECT warehouse_id, warehouse_name, warehouse_size, workspace_id, warehouse_type
   FROM system.compute.warehouses
   WHERE UPPER(REPLACE(REPLACE(warehouse_size, '-', ''), '_', '')) IN {_LARGE_SIZE_NORMALIZED}
+    /* WORKSPACE_FILTER */
   QUALIFY ROW_NUMBER() OVER (PARTITION BY warehouse_id ORDER BY change_time DESC) = 1
 ),
 large_warehouses AS (
@@ -223,12 +228,20 @@ def _build_recommendation(
     return rec
 
 
-def _run_health_queries() -> dict[str, Any]:
+def _run_health_queries(id_list: list[str] | None = None) -> dict[str, Any]:
     """Execute the three health queries synchronously (called via asyncio.to_thread)."""
+    workspace_filter = wf.build_ws_filter_clause(
+        col="workspace_id",
+        id_list=id_list,
+    )
+
+    def scoped(sql: str) -> str:
+        return sql.replace("/* WORKSPACE_FILTER */", workspace_filter)
+
     results = execute_queries_parallel([
-        ("idle", lambda: execute_query(_SQL_IDLE, cache_tag="optimizer")),
-        ("over_scaled", lambda: execute_query(_SQL_OVER_SCALED, cache_tag="optimizer")),
-        ("oversized", lambda: execute_query(_SQL_OVERSIZED, cache_tag="optimizer")),
+        ("idle", lambda: execute_query(scoped(_SQL_IDLE), cache_tag="optimizer")),
+        ("over_scaled", lambda: execute_query(scoped(_SQL_OVER_SCALED), cache_tag="optimizer")),
+        ("oversized", lambda: execute_query(scoped(_SQL_OVERSIZED), cache_tag="optimizer")),
     ], timeout=90.0)
 
     recommendations: list[dict] = []
@@ -258,7 +271,9 @@ def _run_health_queries() -> dict[str, Any]:
 
 
 @router.get("")
-async def get_warehouse_health() -> dict[str, Any]:
+async def get_warehouse_health(
+    workspace_ids: str | None = None,
+) -> dict[str, Any]:
     """Return rightsizing recommendations for all warehouses."""
     global _health_cache, _health_cache_ts
     if not _local_source_selected():
@@ -269,17 +284,23 @@ async def get_warehouse_health() -> dict[str, Any]:
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    if _health_cache is not None and (time.time() - _health_cache_ts) < _HEALTH_CACHE_TTL:
-        return _health_cache
+    id_list = parse_workspace_ids(workspace_ids)
+    cache_key = ",".join(id_list or [])
+    if (
+        _health_cache is not None
+        and (time.time() - _health_cache_ts) < _HEALTH_CACHE_TTL
+        and _health_cache.get("_cache_key") == cache_key
+    ):
+        return {key: value for key, value in _health_cache.items() if key != "_cache_key"}
 
     try:
-        payload = await asyncio.to_thread(_run_health_queries)
+        payload = await asyncio.to_thread(_run_health_queries, id_list)
     except Exception as e:
         logger.warning(f"Warehouse health queries failed: {e}")
         return {"available": False, "error": str(e), "recommendations": [], "warehouses_analyzed": 0,
                 "generated_at": datetime.now(timezone.utc).isoformat()}
 
-    _health_cache = payload
+    _health_cache = {**payload, "_cache_key": cache_key}
     _health_cache_ts = time.time()
     return payload
 

@@ -6,7 +6,7 @@ import { KPITrendModal } from "@/components/KPITrendModal";
 import { formatNumber, formatBytesNoDecimal, formatRowCount, formatDurationSeconds } from "@/utils/formatters";
 import { useFeatureAvailability } from "@/hooks/useFeatureAvailability";
 import { C } from "@/theme";
-import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { PageHero, Chip, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
 import { LoadingPanels } from "@/components/Spinner";
 import { KPICard as SharedKPICard } from "@/components/ui/KPICard";
 import {
@@ -151,19 +151,24 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
   }
   if (data.error) {
     const sourceUnsupported = data.error_code === "SOURCE_SCOPE_UNSUPPORTED";
+    if (sourceUnsupported) {
+      return (
+        <SourceCapabilityNotice
+          title="Platform KPIs are not included in this source"
+          description="The selected source does not publish the query, workspace, and query-user aggregates required by this tab."
+          requiredAggregates={[
+            "daily_query_stats",
+            "daily_workspace_breakdown",
+            "dbsql_cost_per_query",
+          ]}
+        />
+      );
+    }
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-        <p className="font-medium text-amber-900">
-          {sourceUnsupported
-            ? "Platform KPIs are not included in this source"
-            : "Platform KPI data is temporarily unavailable"}
-        </p>
-        <p className="mt-1 text-sm text-amber-800">
-          {sourceUnsupported
-            ? "The selected shared source does not publish the query, job, and workspace aggregates required by this tab."
-            : "The KPI query did not complete. Refresh this tab to retry."}
-        </p>
-      </div>
+      <SourceCapabilityNotice
+        title="Platform KPI data is temporarily unavailable"
+        description="The KPI query did not complete. Refresh this tab to retry."
+      />
     );
   }
 

@@ -631,6 +631,38 @@ def test_billing_fast_optional_failure_is_partial_and_short_cached():
     assert cache_put.call_args.kwargs["ttl_seconds"] == 60
 
 
+def test_billing_fast_workspace_kpi_reports_selected_filter_count():
+    results = {
+        "summary": [{
+            "total_dbus": 10,
+            "total_spend": 20,
+            "workspace_count": 1,
+            "days_in_range": 1,
+        }],
+        "products": [],
+        "workspaces": [],
+        "timeseries": [],
+        "etl_breakdown": [],
+        "workspace_count": [{"workspace_count": 1}],
+    }
+    with (
+        patch.object(billing, "delta_cache_get", return_value=None),
+        patch.object(billing, "delta_cache_put"),
+        patch.object(billing, "capture_cache_generation"),
+        patch.object(billing, "_check_mv_available", return_value=False),
+        patch.object(billing, "_run_bundle_parallel", return_value=(results, {})),
+    ):
+        response = asyncio.run(
+            billing.get_dashboard_bundle_fast(
+                start_date=START,
+                end_date=END,
+                workspace_ids="1,2,3,4,5",
+            )
+        )
+
+    assert response["summary"]["workspace_count"] == 5
+
+
 def test_billing_fast_bounds_optional_queries_without_delaying_core_results():
     observed: dict[str, object] = {}
 

@@ -502,6 +502,12 @@ export interface AIMLAgentBricksResponse {
 }
 
 export interface AIMLDashboardBundle {
+  available?: boolean;
+  availability?: "available" | "partial" | "unavailable";
+  reason?: string;
+  reason_detail?: string;
+  unavailable_reason?: string;
+  error_code?: string;
   summary: AIMLSummary;
   providers: AIMLProvidersResponse;
   endpoints: AIMLEndpointsResponse;

@@ -158,8 +158,8 @@ describe("AIMLCostCenter error state", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText("Failed to load AI/ML data")).toBeInTheDocument();
-    expect(screen.getByText("AI/ML data is temporarily unavailable. Retry shortly.")).toBeInTheDocument();
+    expect(screen.getByText("AI/ML data is temporarily unavailable")).toBeInTheDocument();
+    expect(screen.getByText("The AI/ML query did not complete. Retry shortly.")).toBeInTheDocument();
     expect(screen.queryByText(/987654321/)).not.toBeInTheDocument();
     expect(screen.queryByRole("status", { name: /loading/i })).not.toBeInTheDocument();
 

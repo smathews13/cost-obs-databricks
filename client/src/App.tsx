@@ -1095,9 +1095,13 @@ function Dashboard() {
   // Optimizer queries run when its tab or the report exporter requests them.
   const optimizerSourceKey = getActiveSourceScopeKey();
   const { data: optimizeRightsizingData, isLoading: optimizeRightsizingLoading, isError: optimizeRightsizingError } = useQuery<WarehouseHealthData>({
-    queryKey: ["warehouse-health", optimizerSourceKey],
+    queryKey: ["warehouse-health", _wsIds?.join(","), optimizerSourceKey],
     queryFn: async () => {
-      const response = await fetch(buildFilteredUrl("/api/sql/warehouse-health"));
+      const response = await fetch(buildFilteredUrl(
+        "/api/sql/warehouse-health",
+        new URLSearchParams(),
+        _wsIds,
+      ));
       if (!response.ok) throw new Error(`Warehouse health request failed with ${response.status}`);
       return response.json();
     },
