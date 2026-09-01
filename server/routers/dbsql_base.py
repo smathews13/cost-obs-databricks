@@ -667,7 +667,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
             }
             delta_cache_put(
                 dkey,
-                f"dbsql:{table_name}:dashboard-bundle",
+                f"dbsql:{table_name}:dashboard-bundle:v2",
                 _resp,
                 ttl_seconds=(
                     60
@@ -680,6 +680,32 @@ def create_dbsql_router(table_name: str) -> APIRouter:
             logger.info("dbsql dashboard-bundle background compute complete: %.1fs table=%s", _t.time() - _start, table_name)
         except Exception as e:
             logger.error("dbsql dashboard-bundle background compute failed: %s", e, exc_info=True)
+            error_code = str(getattr(e, "code", "DBSQL_BUNDLE_FAILED"))
+            source_unsupported = error_code == "SOURCE_SCOPE_UNSUPPORTED"
+            delta_cache_put(
+                dkey,
+                f"dbsql:{table_name}:dashboard-bundle:v2",
+                {
+                    "available": False,
+                    "availability": "unavailable",
+                    "reason": (
+                        "shared_scope_unsupported"
+                        if source_unsupported
+                        else "producer_failed"
+                    ),
+                    "error_code": error_code,
+                    "message": (
+                        "The selected shared source does not publish SQL detail."
+                        if source_unsupported
+                        else "SQL cost data is temporarily unavailable."
+                    ),
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
+                ttl_seconds=60,
+                generation=cache_generation,
+                wait_for_remote=True,
+            )
 
     def _ws_clause(id_list: list[str] | None) -> str:
         return wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
@@ -1265,14 +1291,14 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 "end_date": end_date,
             }
 
-        _dkey = bundle_cache_key(f"dbsql:{table_name}:dashboard-bundle", start_date, end_date, id_list)
+        _dkey = bundle_cache_key(f"dbsql:{table_name}:dashboard-bundle:v2", start_date, end_date, id_list)
         if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
             if isinstance(_dcached, dict) and "_error" in _dcached:
                 raise HTTPException(status_code=500, detail=_dcached.get("_error", "Bundle compute failed"))
             return _dcached
 
         cache_generation = capture_cache_generation(
-            f"dbsql:{table_name}:dashboard-bundle"
+            f"dbsql:{table_name}:dashboard-bundle:v2"
         )
         try:
             started = await asyncio.to_thread(

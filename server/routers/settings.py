@@ -917,6 +917,9 @@ async def _get_tables_status_inner(request: Request):
         "sql_tool_attribution",
         "daily_query_stats",
         "dbsql_cost_per_query",
+        "daily_tag_summary",
+        "daily_tag_coverage_summary",
+        "daily_apps_summary",
         "app_user_permissions",
         "app_refresh_log",
         "app_settings",
@@ -926,6 +929,7 @@ async def _get_tables_status_inner(request: Request):
     MV_SET = {
         "daily_usage_summary", "daily_product_breakdown", "daily_workspace_breakdown",
         "sql_tool_attribution", "daily_query_stats", "dbsql_cost_per_query",
+        "daily_tag_summary", "daily_tag_coverage_summary", "daily_apps_summary",
     }
 
     try:

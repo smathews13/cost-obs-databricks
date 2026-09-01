@@ -235,6 +235,22 @@ describe("PlatformKPIsView: card trend mappings", () => {
   });
 });
 
+describe("PlatformKPIsView: scoped failures", () => {
+  it("never renders failed source-scoped KPI queries as zero", () => {
+    renderView({}, {
+      ...SAMPLE_DATA,
+      total_queries: 0,
+      total_jobs: 0,
+      active_workspaces: 0,
+      error: "source scope unsupported",
+      error_code: "SOURCE_SCOPE_UNSUPPORTED",
+    }, true);
+
+    expect(screen.getByText("Platform KPIs are not included in this source")).toBeVisible();
+    expect(screen.queryByText("Total Queries Executed")).not.toBeInTheDocument();
+  });
+});
+
 describe("PlatformKPIsView: managed query-user population", () => {
   it("does not derive stickiness from a different fallback population", () => {
     renderView({}, {

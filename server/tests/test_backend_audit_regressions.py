@@ -18,6 +18,19 @@ from server.queries import PLATFORM_KPIS_FAST
 from server.routers import aiml, apps, billing, dbsql_base, health, settings, user
 
 
+@pytest.fixture(autouse=True)
+def declared_shared_source_tables(monkeypatch):
+    tables = list(db.MV_UNIFIED_TABLE_NAMES)
+    monkeypatch.setattr(
+        db,
+        "get_mv_sources",
+        lambda: [
+            {"label": label, "tables": tables}
+            for label in ("shared", "shared-west", "shared-east", "shared-central")
+        ],
+    )
+
+
 class _Request:
     headers: dict[str, str] = {}
 
@@ -101,7 +114,7 @@ def test_apps_background_thread_captures_request_context():
             patch.object(
                 apps,
                 "capture_cache_generation",
-                return_value=db.CacheGeneration("apps:dashboard-bundle:v4:all", 0),
+                return_value=db.CacheGeneration("apps:dashboard-bundle:v5:all", 0),
             ),
             patch.object(apps, "start_bundle_compute", side_effect=capture_start),
         ):
@@ -184,7 +197,7 @@ def test_dbsql_background_thread_captures_request_context():
                 dbsql_base,
                 "capture_cache_generation",
                 return_value=db.CacheGeneration(
-                    "dbsql:dbsql_cost_per_query:dashboard-bundle", 0
+                    "dbsql:dbsql_cost_per_query:dashboard-bundle:v2", 0
                 ),
             ),
             patch.object(
@@ -215,6 +228,14 @@ def test_dbsql_mv_query_routes_and_filters_selected_source():
             patch.object(
                 db, "_list_existing_unified_views", return_value=["dbsql_cost_per_query"]
             ),
+            patch.object(
+                db,
+                "get_mv_sources",
+                return_value=[{
+                    "label": "shared",
+                    "tables": ["dbsql_cost_per_query"],
+                }],
+            ),
             patch.object(db, "get_mv_table_overrides", return_value={}),
         ):
             query = dbsql_base._route_dbsql_mv_query(
@@ -236,6 +257,14 @@ def test_dbsql_mv_query_refuses_unfiltered_source_fallback():
     try:
         with (
             patch.object(db, "_list_existing_unified_views", return_value=[]),
+            patch.object(
+                db,
+                "get_mv_sources",
+                return_value=[{
+                    "label": "shared",
+                    "tables": ["dbsql_cost_per_query"],
+                }],
+            ),
             patch.object(db, "get_mv_table_overrides", return_value={}),
         ):
             with pytest.raises(RuntimeError, match="does not physically exist"):
@@ -293,7 +322,7 @@ def test_dbsql_bundle_filters_warehouse_billing_and_region_counts():
             "123,456",
             "key",
             db.CacheGeneration(
-                "dbsql:dbsql_cost_per_query:dashboard-bundle", 0
+                "dbsql:dbsql_cost_per_query:dashboard-bundle:v2", 0
             ),
         )
 
@@ -340,12 +369,12 @@ def test_cache_invalidation_rejects_worker_that_started_before_clear(tmp_path):
 def _cache_generation_child(state_path: str, lock_path: str, connection):
     db._CACHE_GENERATION_STATE_PATH = state_path
     db._CACHE_GENERATION_LOCK_PATH = lock_path
-    generation = db.capture_cache_generation("apps:dashboard-bundle:v4:all")
+    generation = db.capture_cache_generation("apps:dashboard-bundle:v5:all")
     connection.send("captured")
     connection.recv()
     accepted = db.delta_cache_put(
         "old-worker-key",
-        "apps:dashboard-bundle:v4:all",
+        "apps:dashboard-bundle:v5:all",
         {"stale": True},
         generation=generation,
     )
@@ -931,14 +960,12 @@ def test_billing_trend_combines_workspace_and_source_scope():
         db.reset_source_labels(source_token)
 
 
-def test_shared_only_scope_never_falls_back_to_local_aiml_or_infra():
+def test_shared_only_scope_never_falls_back_to_local_aiml():
     source_token = db.set_source_labels(["shared-west"])
     try:
         with (
             patch.object(aiml, "get_local_source_label", return_value="local"),
-            patch.object(billing, "get_local_source_label", return_value="local"),
             patch.object(aiml, "execute_query") as aiml_query,
-            patch.object(billing, "execute_query") as infra_query,
         ):
             aiml_result = asyncio.run(
                 aiml.get_aiml_summary(
@@ -946,17 +973,8 @@ def test_shared_only_scope_never_falls_back_to_local_aiml_or_infra():
                     end_date="2026-08-28",
                 )
             )
-            infra_result = asyncio.run(
-                billing.get_infra_bundle(
-                    start_date="2026-08-01",
-                    end_date="2026-08-28",
-                    workspace_ids=None,
-                )
-            )
         assert aiml_result["available"] is False
-        assert infra_result["infra_costs"]["available"] is False
         aiml_query.assert_not_called()
-        infra_query.assert_not_called()
     finally:
         db.reset_source_labels(source_token)
 
@@ -1010,6 +1028,19 @@ def test_shared_only_kpis_bundle_uses_unified_workspace_count_not_local_live_dat
             patch.object(billing, "_check_mv_available", return_value=True),
             patch.object(billing, "get_catalog_schema", return_value=("c", "s")),
             patch.object(billing, "get_local_source_label", return_value="local"),
+                patch.object(
+                    db,
+                    "get_mv_sources",
+                    return_value=[{
+                        "label": "shared-west",
+                        "tables": [
+                            "daily_query_stats",
+                            "daily_usage_summary",
+                            "daily_workspace_breakdown",
+                            "dbsql_cost_per_query",
+                        ],
+                    }],
+                ),
             patch.object(
                 billing, "_get_mv_query", side_effect=lambda template, *_: template
             ),
@@ -1036,6 +1067,29 @@ def test_shared_only_kpis_bundle_uses_unified_workspace_count_not_local_live_dat
         }.isdisjoint(seen_names)
     finally:
         db.reset_source_labels(source_token)
+
+
+def test_kpis_bundle_reports_unsupported_shared_source_instead_of_false_zero():
+    source_token = db.set_source_labels(["west4"])
+    try:
+        with patch.object(
+            db,
+            "get_mv_sources",
+            return_value=[{
+                "label": "west4",
+                "tables": ["daily_usage_summary"],
+            }],
+        ):
+            result = asyncio.run(billing.get_kpis_bundle(
+                start_date="2026-08-01",
+                end_date="2026-08-28",
+                workspace_ids=None,
+            ))
+    finally:
+        db.reset_source_labels(source_token)
+
+    assert result["kpis"]["error_code"] == "SOURCE_SCOPE_UNSUPPORTED"
+    assert result["kpis"]["total_queries"] == 0
 
 
 def test_shared_only_platform_live_kpi_trend_is_unavailable():

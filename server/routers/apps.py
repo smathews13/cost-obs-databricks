@@ -1126,7 +1126,7 @@ def _compute_apps_bundle(
 ) -> None:
     """Background worker: run all Apps queries, build response, write to Delta cache."""
     import time as _time
-    _endpoint = f"apps:dashboard-bundle:v4:{'active' if active_only else 'all'}"
+    _endpoint = f"apps:dashboard-bundle:v5:{'active' if active_only else 'all'}"
     _start = _time.time()
     _set_apps_producer_status(dkey, "running")
 
@@ -1516,7 +1516,7 @@ async def get_apps_dashboard_bundle(
     )
     params = {"start_date": validated_start, "end_date": validated_end}
     id_list = parse_workspace_ids(workspace_ids)
-    _endpoint = f"apps:dashboard-bundle:v4:{'active' if active_only else 'all'}"
+    _endpoint = f"apps:dashboard-bundle:v5:{'active' if active_only else 'all'}"
     _dkey = bundle_cache_key(_endpoint, params["start_date"], params["end_date"], id_list)
 
     producer_status = await asyncio.to_thread(get_bundle_compute_state, _dkey)
@@ -1724,7 +1724,7 @@ async def get_apps_kpi_trend(
         WHERE u.usage_date BETWEEN :start_date AND :end_date
           AND u.usage_quantity > 0
           AND u.billing_origin_product = 'APPS'
-          {raw_app_filter}
+          AND u.usage_metadata.app_id IS NOT NULL
           {raw_ws_filter}
         GROUP BY u.usage_date
         ORDER BY u.usage_date
@@ -1733,7 +1733,7 @@ async def get_apps_kpi_trend(
         SELECT usage_date AS date, COUNT(DISTINCT app_id) AS value
         FROM `{catalog}`.`{schema}`.`daily_apps_summary`
         WHERE usage_date BETWEEN :start_date AND :end_date
-          {app_filter}
+          AND app_id <> 'Unknown'
           {ws_filter}
         GROUP BY usage_date
         ORDER BY usage_date
@@ -1787,6 +1787,9 @@ async def get_apps_kpi_trend(
     except Exception as e:
         logger.error("Apps KPI trend query failed for %s: %s", kpi, e)
         return {
+            "available": False,
+            "error_code": str(getattr(e, "code", "APPS_TREND_FAILED")),
+            "unavailable_reason": "This trend is unavailable for the selected source.",
             "kpi": kpi, "granularity": granularity, "data_points": [],
             "summary": {"period_start_value": 0, "period_end_value": 0,
                          "change_amount": 0, "change_percent": 0,

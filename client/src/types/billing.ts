@@ -104,6 +104,7 @@ export interface PipelineObjectsResponse {
   reason?: string;
   reason_detail?: string;
   error_code?: string;
+  partial_reasons?: Record<string, string>;
   objects: PipelineObject[];
   total_spend: number | null;
   start_date: string;
@@ -349,6 +350,7 @@ export interface PlatformKPIsResponse {
   start_date: string;
   end_date: string;
   error?: string;
+  error_code?: string;
   data_stale?: boolean;
 }
 
@@ -775,6 +777,8 @@ export interface TaggingDashboardBundle {
   reason?: string;
   reason_detail?: string;
   error_code?: string;
+  retryable?: boolean;
+  partial_reasons?: Record<string, string>;
   summary: TaggingSummary;
   untagged: {
     clusters: { items: UntaggedCluster[]; total_spend: number; count: number };
@@ -1129,6 +1133,8 @@ export interface RegionScope {
 export interface DBSQLDashboardBundle {
   available: boolean;
   message?: string;
+  reason?: string;
+  error_code?: string;
   summary?: DBSQLQueryCostSummary;
   by_source?: QueryCostBySourceResponse;
   by_user?: QueryCostByUserResponse;

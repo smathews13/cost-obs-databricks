@@ -857,22 +857,6 @@ export function CloudCostsView({
           </p>
         </div>
       )}
-      {infraData?.availability === "partial" && (
-        <div
-          className="rounded-lg border px-4 py-3"
-          style={{ borderColor: C.amber, backgroundColor: C.amberTint }}
-          role="status"
-        >
-          <p className="text-sm font-semibold" style={{ color: C.amberInk }}>
-            Cluster metadata is partial
-          </p>
-          <p className="mt-1 text-sm" style={{ color: C.body }}>
-            {infraData.reason_detail ||
-              "Some classic cluster rows were omitted because instance metadata was unavailable."}
-          </p>
-        </div>
-      )}
-
       <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KPICard
           title="Databricks Compute Spend"

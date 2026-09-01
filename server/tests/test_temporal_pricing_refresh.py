@@ -137,7 +137,6 @@ def test_materialized_view_build_and_merge_sql_remains_temporal():
         for name, value in vars(materialized_views).items()
         if (
             name.isupper()
-            and name not in {"MV_TAGGING_SUMMARY", "MV_TAG_COVERAGE_TIMESERIES"}
             and isinstance(value, str)
             and "p.pricing" in value
         )
@@ -149,14 +148,17 @@ def test_materialized_view_build_and_merge_sql_remains_temporal():
         assert "candidate.price_end_time IS NULL" in sql, name
 
 
-def test_tagging_request_hybrid_uses_the_aws_compatible_current_price_join():
+def test_tagging_coverage_reads_the_non_exploded_daily_aggregate():
+    create_sql = materialized_views.CREATE_DAILY_TAG_COVERAGE_SUMMARY
+    assert "LATERAL VIEW EXPLODE" not in create_sql
+    assert "SUM(CASE WHEN custom_tags IS NOT NULL" in create_sql
+    assert "GROUP BY usage_date, workspace_id" in create_sql
     for sql in (
         materialized_views.MV_TAGGING_SUMMARY,
         materialized_views.MV_TAG_COVERAGE_TIMESERIES,
     ):
         assert "LEFT JOIN LATERAL" not in sql
-        assert "LEFT JOIN system.billing.list_prices p" in sql
-        assert "p.price_end_time IS NULL" in sql
+        assert "daily_tag_coverage_summary" in sql
 
 
 def test_tagging_breakdown_uses_pre_exploded_daily_tag_rows():
@@ -223,11 +225,15 @@ _MERGES = {
     "daily_query_stats": (materialized_views.MERGE_QUERY_STATS, "usage_date"),
     "dbsql_cost_per_query": (materialized_views.MERGE_DBSQL_COST_PER_QUERY, "query_date"),
     "daily_tag_summary": (materialized_views.MERGE_DAILY_TAG_SUMMARY, "usage_date"),
+    "daily_tag_coverage_summary": (
+        materialized_views.MERGE_DAILY_TAG_COVERAGE_SUMMARY,
+        "usage_date",
+    ),
     "daily_apps_summary": (materialized_views.MERGE_DAILY_APPS_SUMMARY, "usage_date"),
 }
 
 
-def test_all_eight_incremental_merges_delete_only_inside_reprocess_window():
+def test_all_nine_incremental_merges_delete_only_inside_reprocess_window():
     assert set(_MERGES) == set(materialized_views._TABLE_REFRESH_CONFIG)
 
     for table_name, (sql, date_column) in _MERGES.items():

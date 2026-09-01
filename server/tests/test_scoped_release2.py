@@ -10,6 +10,16 @@ from server import db
 from server.routers import dbsql_base, users_groups
 
 
+@pytest.fixture(autouse=True)
+def declared_shared_source_tables(monkeypatch):
+    tables = list(db.MV_UNIFIED_TABLE_NAMES)
+    monkeypatch.setattr(
+        db,
+        "get_mv_sources",
+        lambda: [{"label": "shared-west", "tables": tables}],
+    )
+
+
 def _endpoint(router, path: str):
     return next(route.endpoint for route in router.routes if route.path == path)
 

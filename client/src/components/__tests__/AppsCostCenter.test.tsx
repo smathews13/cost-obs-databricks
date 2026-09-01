@@ -144,6 +144,7 @@ describe("AppsCostCenter metadata detail", () => {
   it.each([
     ["Total App Spend", "apps_spend"],
     ["Total App DBUs", "apps_dbus"],
+    ["Active Apps", "apps_count"],
     ["Per-App Spend", "apps_avg_cost_per_app"],
   ])("opens the %s trend from the full KPI card", (title, kpi) => {
     renderApps([metadataApp]);
@@ -193,7 +194,7 @@ describe("AppsCostCenter metadata detail", () => {
     expect(screen.getByTestId("active-apps-kpi-value")).toHaveTextContent("1");
     expect(screen.getByTestId("active-apps-breakdown-count")).toHaveTextContent("1 Active");
     expect(screen.getByText("currently running · 1 workspace")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "See Active Apps trend" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "See Active Apps trend" })).toBeVisible();
   });
 
   it("hides historical billing-only apps until the filter is enabled", () => {

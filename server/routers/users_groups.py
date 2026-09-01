@@ -560,10 +560,10 @@ async def _compute_users_groups_bundle(
         }
 
     params = {"start_date": start_date, "end_date": end_date}
-    _dkey = bundle_cache_key("users:dashboard-bundle:v3", start_date, end_date, id_list)
+    _dkey = bundle_cache_key("users:dashboard-bundle:v4", start_date, end_date, id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("users:dashboard-bundle:v3")
+    _cache_generation = capture_cache_generation("users:dashboard-bundle:v4")
     # Compute mid-point for spend growth comparison
     from datetime import datetime as _dt
     start_dt = _dt.strptime(start_date, "%Y-%m-%d").date()
@@ -590,9 +590,9 @@ async def _compute_users_groups_bundle(
         results = await asyncio.to_thread(
             execute_queries_parallel,
             queries,
-            timeout=32.0,
+            timeout=45.0,
             required_names=required_queries,
-            max_concurrency=2,
+            max_concurrency=3,
         )
         optional_failures: dict[str, str] = {}
     except SQLExecutionError as exc:
@@ -727,7 +727,7 @@ async def _compute_users_groups_bundle(
     }
     delta_cache_put(
         _dkey,
-        "users:dashboard-bundle:v3",
+        "users:dashboard-bundle:v4",
         _resp,
         ttl_seconds=(
             60
@@ -766,7 +766,7 @@ async def get_users_groups_bundle(
         }
 
     cache_key = bundle_cache_key(
-        "users:dashboard-bundle:v3", validated_start, validated_end, id_list
+        "users:dashboard-bundle:v4", validated_start, validated_end, id_list
     )
     producer_state = await asyncio.to_thread(get_bundle_compute_state, cache_key)
     if producer_state and producer_state.get("state") == "failed":
@@ -800,7 +800,7 @@ async def get_users_groups_bundle(
     if (cached := await asyncio.to_thread(delta_cache_get, cache_key)) is not None:
         return cached
 
-    generation = capture_cache_generation("users:dashboard-bundle:v3")
+    generation = capture_cache_generation("users:dashboard-bundle:v4")
 
     def produce() -> None:
         payload = asyncio.run(
@@ -814,7 +814,7 @@ async def get_users_groups_bundle(
         if payload.get("availability") == "unavailable":
             delta_cache_put(
                 cache_key,
-                "users:dashboard-bundle:v3",
+                "users:dashboard-bundle:v4",
                 payload,
                 ttl_seconds=15,
                 generation=generation,

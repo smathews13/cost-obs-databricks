@@ -209,6 +209,12 @@ class SQLResultLimitError(SQLExecutionError):
         super().__init__(f"SQL result exceeded the configured {limit_name} limit ({limit}).")
 
 
+class SourceScopeUnsupportedError(SQLExecutionError):
+    """A selected shared source does not publish a table required by this view."""
+
+    code = "SOURCE_SCOPE_UNSUPPORTED"
+
+
 class BundleOverloadedError(RuntimeError):
     """The bounded background bundle executor cannot admit more work."""
 
@@ -1500,6 +1506,7 @@ MV_UNIFIED_TABLE_NAMES = (
     "daily_query_stats",
     "dbsql_cost_per_query",
     "daily_tag_summary",
+    "daily_tag_coverage_summary",
     "daily_apps_summary",
 )
 
@@ -1946,6 +1953,27 @@ def source_label_filter_clause(mv_query: str | None = None) -> str:
         return ""
     if mv_query is not None:
         referenced = _mv_tables_referenced_by_template(mv_query)
+        local_label = get_local_source_label()
+        configured_sources = {
+            str(source.get("label") or ""): source
+            for source in get_mv_sources()
+        }
+        unsupported = []
+        for label in labels:
+            if label == local_label:
+                continue
+            source = configured_sources.get(label)
+            declared_tables = source.get("tables") if source else None
+            if source is not None and (
+                isinstance(declared_tables, list)
+                and not referenced.issubset(set(map(str, declared_tables)))
+            ):
+                unsupported.append(label)
+        if unsupported:
+            raise SourceScopeUnsupportedError(
+                "The selected shared source does not publish the managed data "
+                "required by this view."
+            )
         live = _list_existing_unified_views()
         explicit = get_mv_table_overrides()
         if (

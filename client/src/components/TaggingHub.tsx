@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { UntaggedResourcesTable } from "./UntaggedResourcesTable";
 import type { UntaggedTab } from "./UntaggedResourcesTable";
 import { LoadingPanels, Spinner } from "./Spinner";
@@ -17,6 +16,7 @@ import {
 } from "recharts";
 import type { TaggingDashboardBundle } from "@/types/billing";
 import { KPITrendModal } from "./KPITrendModal";
+import type { KPITrendResponse } from "@/hooks/useKPITrend";
 import { VirtualizedList } from "./VirtualizedList";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
@@ -24,11 +24,7 @@ import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { Dialog } from "@/components/ui/Dialog";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { KPICard } from "@/components/ui/KPICard";
-import {
-  buildFilteredUrl,
-  getActiveSourceScopeKey,
-  getWorkspaceScopeKey,
-} from "@/hooks/useBillingData";
+import { buildFilteredUrl } from "@/hooks/useBillingData";
 
 interface TagObject {
   object_id?: string | null;
@@ -56,6 +52,49 @@ const COLORS = {
 };
 
 const TAG_PAGE_SIZE = 10;
+
+function bundleTaggingTrend(
+  kpi: string,
+  rows: Array<{ date: string; Tagged?: number; Untagged?: number }>,
+): KPITrendResponse | undefined {
+  if (!["tagged_spend", "untagged_spend", "tag_coverage_pct"].includes(kpi)) {
+    return undefined;
+  }
+  const dataPoints = rows.map((row) => {
+    const tagged = Number(row.Tagged ?? 0);
+    const untagged = Number(row.Untagged ?? 0);
+    const total = tagged + untagged;
+    const value = kpi === "tagged_spend"
+      ? tagged
+      : kpi === "untagged_spend"
+        ? untagged
+        : total > 0 ? (tagged / total) * 100 : 0;
+    return { date: row.date, value };
+  });
+  if (dataPoints.length === 0) return undefined;
+  const values = dataPoints.map((point) => point.value);
+  const start = values[0] ?? 0;
+  const end = values.at(-1) ?? 0;
+  const changePercent = start !== 0 ? ((end - start) / Math.abs(start)) * 100 : 0;
+  return {
+    available: true,
+    kpi,
+    granularity: "daily",
+    data_points: dataPoints,
+    summary: {
+      period_start_value: start,
+      period_end_value: end,
+      change_amount: end - start,
+      change_percent: changePercent,
+      min_value: Math.min(...values),
+      max_value: Math.max(...values),
+      avg_value: values.reduce((sum, value) => sum + value, 0) / values.length,
+      trend: changePercent > 0.5
+        ? "increasing"
+        : changePercent < -0.5 ? "decreasing" : "flat",
+    },
+  };
+}
 
 export function TaggingHub({ data, isLoading, host, startDate, endDate, workspaceIds, workspaceNameMap }: TaggingHubProps) {
   const [activeUntaggedTab, setActiveUntaggedTab] = useState<UntaggedTab>("all");
@@ -102,7 +141,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
       if (normalizedValue) params.set("tag_value", normalizedValue);
       if (startDate) params.set("start_date", startDate);
       if (endDate) params.set("end_date", endDate);
-      fetch(`/api/tagging/top-objects-by-tag?${params}`)
+      fetch(buildFilteredUrl("/api/tagging/top-objects-by-tag", params, workspaceIds))
         .then((res) => res.json())
         .then((result) => {
           setTagObjectsCache((prev) => ({ ...prev, [cacheKey]: result.objects || [] }));
@@ -132,27 +171,6 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
     }
     setCurrentPage(1);
   }, [sortField]);
-
-  // Pre-warm trend queries so modals open instantly
-  const queryClient = useQueryClient();
-  const wsKey = getWorkspaceScopeKey(workspaceIds);
-  const sourceKey = getActiveSourceScopeKey();
-  useEffect(() => {
-    if (!startDate || !endDate) return;
-    for (const kpi of ["tagged_spend", "untagged_spend", "total_spend"]) {
-      queryClient.prefetchQuery({
-        queryKey: ["tagging-kpi-trend", kpi, startDate, endDate, "daily", wsKey, sourceKey],
-        queryFn: async () => {
-          const params = new URLSearchParams({ kpi, start_date: startDate, end_date: endDate, granularity: "daily" });
-          params.set("tab", "tagging");
-          const res = await fetch(buildFilteredUrl("/api/billing/kpi-trend", params, workspaceIds));
-          if (!res.ok) throw new Error("prefetch failed");
-          return res.json();
-        },
-        staleTime: 5 * 60 * 1000,
-      });
-    }
-  }, [startDate, endDate, wsKey, sourceKey, workspaceIds, queryClient]);
 
   // Info box minimize state with localStorage persistence
   const MINIMIZE_KEY = "cost-obs-minimize-tagging-info";
@@ -326,8 +344,12 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
     Object.entries(row).some(([key, value]) => key !== "date" && typeof value === "number" && value > 0),
   );
   const hasTagData = (data?.cost_by_tag?.tags?.length ?? 0) > 0;
+  const tagDetailFailed = Boolean(data?.partial_reasons?.cost_by_tag);
+  const untaggedDetailFailed = ["clusters", "jobs", "pipelines", "warehouses", "endpoints"]
+    .some((key) => Boolean(data?.partial_reasons?.[key]));
   const hasUntaggedData =
     data?.local_detail_in_scope === false
+    || untaggedDetailFailed
     || Object.values(untaggedCounts).some((count) => count > 0);
 
   const handleToggleTagFilter = useCallback((key: string) => {
@@ -365,11 +387,17 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
   }
 
   if (data.available === false || data.availability === "unavailable") {
+    const sourceUnsupported = data.error_code === "SOURCE_SCOPE_UNSUPPORTED"
+      || data.reason === "shared_scope_unsupported";
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-        <p className="font-semibold text-amber-800">Tagging data is temporarily unavailable</p>
+        <p className="font-semibold text-amber-800">
+          {sourceUnsupported ? "Tagging data is not included in this source" : "Tagging data is temporarily unavailable"}
+        </p>
         <p className="mt-1 text-sm text-amber-700">
-          {data.reason_detail || "Retry shortly. Missing tag coverage is never displayed as $0."}
+          {sourceUnsupported
+            ? "The selected shared source does not publish tag coverage or tag-pair aggregates."
+            : data.reason_detail || "Retry shortly. Missing tag coverage is never displayed as $0."}
         </p>
       </div>
     );
@@ -472,6 +500,10 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           endDate={endDate}
           workspaceIds={workspaceIds}
           queryKeyPrefix="tagging-kpi-trend"
+          dataOverride={bundleTaggingTrend(
+            selectedKPI.kpi,
+            data.timeseries?.timeseries ?? [],
+          )}
         />
       )}
 
@@ -897,6 +929,19 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
       </div>
       )}
 
+      {tagDetailFailed && !hasTagData && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {["Spend by Tag", "Spend by Key"].map((title) => (
+            <div key={title} className="rounded-lg border bg-white p-6" style={{ borderColor: C.hairline }}>
+              <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+              <p className="mt-4 text-sm text-amber-700">
+                Tag detail could not be loaded. Refresh this tab to retry.
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Untagged Resources Table */}
       {hasUntaggedData && (
       <UntaggedResourcesTable
@@ -916,6 +961,9 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
         showHistoricalUntagged={showHistoricalUntagged}
         onHistoricalToggle={setShowHistoricalUntagged}
         itemsPerPage={itemsPerPage}
+        unavailableReason={untaggedDetailFailed
+          ? "Some untagged resource detail could not be loaded. Refresh this tab to retry."
+          : undefined}
       />
       )}
 

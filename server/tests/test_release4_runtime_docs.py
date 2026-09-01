@@ -225,7 +225,7 @@ def test_canonical_docs_use_current_settings_labels_and_valid_local_links():
 def test_architecture_inventory_tracks_runtime_aggregate_tables():
     architecture = (ROOT / "cost-obs-architecture.md").read_text()
 
-    assert len(db.MV_UNIFIED_TABLE_NAMES) == 8
+    assert len(db.MV_UNIFIED_TABLE_NAMES) == 9
     for table_name in db.MV_UNIFIED_TABLE_NAMES:
         assert f"`{table_name}`" in architecture
     assert "`/api/cache/clear`" in architecture

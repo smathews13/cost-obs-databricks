@@ -149,6 +149,23 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
       </div>
     );
   }
+  if (data.error) {
+    const sourceUnsupported = data.error_code === "SOURCE_SCOPE_UNSUPPORTED";
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
+        <p className="font-medium text-amber-900">
+          {sourceUnsupported
+            ? "Platform KPIs are not included in this source"
+            : "Platform KPI data is temporarily unavailable"}
+        </p>
+        <p className="mt-1 text-sm text-amber-800">
+          {sourceUnsupported
+            ? "The selected shared source does not publish the query, job, and workspace aggregates required by this tab."
+            : "The KPI query did not complete. Refresh this tab to retry."}
+        </p>
+      </div>
+    );
+  }
 
   const successRatePct = data.successful_runs_available && data.total_job_runs > 0
     ? ((data.successful_runs / data.total_job_runs) * 100).toFixed(1)

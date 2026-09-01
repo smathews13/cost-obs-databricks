@@ -15,6 +15,19 @@ from server.queries import (
 from server.routers import billing, dbsql_base, settings, tagging
 
 
+@pytest.fixture(autouse=True)
+def declared_shared_source_tables(monkeypatch):
+    tables = list(db.MV_UNIFIED_TABLE_NAMES)
+    monkeypatch.setattr(
+        db,
+        "get_mv_sources",
+        lambda: [
+            {"label": label, "tables": tables}
+            for label in ("shared", "shared-west", "shared-east", "shared-central")
+        ],
+    )
+
+
 def test_tag_key_drilldown_aggregates_all_values():
     with patch.object(tagging, "execute_query", return_value=[]) as execute:
         result = asyncio.run(
@@ -51,28 +64,38 @@ def test_tagging_bundle_excludes_local_resource_details_when_source_filter_exclu
     def run_queries(query_funcs, *_args, **_kwargs):
         return {name: func() for name, func in query_funcs}
 
-    with (
-        patch.object(tagging, "delta_cache_get", return_value=None),
-        patch.object(tagging, "delta_cache_put"),
-        patch.object(tagging, "capture_cache_generation"),
-        patch.object(tagging, "_check_mv_available", return_value=False),
-        patch.object(tagging, "local_source_is_selected", return_value=False),
-        patch.object(tagging, "execute_query", return_value=[]) as execute,
-        patch.object(tagging, "execute_queries_parallel", side_effect=run_queries),
-    ):
-        result = asyncio.run(
-            tagging.get_tagging_dashboard_bundle(
-                start_date="2026-08-01",
-                end_date="2026-08-28",
-                workspace_ids=None,
+    source_token = db.set_source_labels(["shared-west"])
+    try:
+        with (
+            patch.object(tagging, "delta_cache_get", return_value=None),
+            patch.object(tagging, "delta_cache_put"),
+            patch.object(tagging, "capture_cache_generation"),
+            patch.object(tagging, "_check_mv_available", return_value=False),
+            patch.object(tagging, "local_source_is_selected", return_value=False),
+            patch.object(
+                db,
+                "get_mv_sources",
+                return_value=[{
+                    "label": "shared-west",
+                    "tables": ["daily_usage_summary"],
+                }],
+            ),
+            patch.object(tagging, "execute_query", return_value=[]) as execute,
+            patch.object(tagging, "execute_queries_parallel", side_effect=run_queries),
+        ):
+            result = asyncio.run(
+                tagging.get_tagging_dashboard_bundle(
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    workspace_ids=None,
+                )
             )
-        )
+    finally:
+        db.reset_source_labels(source_token)
 
-    # Only the aggregate summary and tag-stat queries run. Local resource,
-    # tag-detail, and timeseries queries must not leak into this source scope.
-    assert execute.call_count == 2
-    assert result["local_detail_in_scope"] is False
-    assert all(group["items"] == [] for group in result["untagged"].values())
+    assert execute.call_count == 0
+    assert result["availability"] == "unavailable"
+    assert result["error_code"] == "SOURCE_SCOPE_UNSUPPORTED"
 
 
 def test_compute_kpi_query_counts_sql_warehouses():

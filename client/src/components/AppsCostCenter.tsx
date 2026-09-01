@@ -431,13 +431,19 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
   }
 
   if (data?.availability === "unavailable" || data?.available === false) {
+    const sourceUnsupported = data.error_code === "SOURCE_SCOPE_UNSUPPORTED"
+      || data.reason === "shared_scope_unsupported";
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-        <p className="font-medium text-amber-900">Apps data is temporarily unavailable</p>
-        <p className="mt-1 text-sm text-amber-800">
-          The background producer did not finish. Retry shortly.
+        <p className="font-medium text-amber-900">
+          {sourceUnsupported ? "Apps data is not included in this source" : "Apps data is temporarily unavailable"}
         </p>
-        {onRetry && (
+        <p className="mt-1 text-sm text-amber-800">
+          {sourceUnsupported
+            ? "The selected shared source publishes account spend summaries but not app-level billing or runtime metadata."
+            : "The background producer did not finish. Retry shortly."}
+        </p>
+        {onRetry && !sourceUnsupported && (
           <button
             type="button"
             className="mt-3 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900"
@@ -565,7 +571,9 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
           value={formatNumber(summary.active_app_count)}
           valueTestId="active-apps-kpi-value"
           subtitle={`currently running · ${summary.workspace_count} ${summary.workspace_count === 1 ? "workspace" : "workspaces"}`}
-          infoText="Registered apps currently reported as running by the Databricks Apps API. If live status is unavailable, recent Apps compute usage is used as a fallback. The same population is used by App Status Breakdown."
+          infoText="The card shows registered apps currently reported as running by Databricks. Its trend drilldown shows daily apps with billed compute activity because historical runtime-state snapshots are not available."
+          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_count", label: "Daily Apps with Compute Activity"}) : undefined}
+          ariaLabel="See Active Apps trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>}
         />
         <KPICard

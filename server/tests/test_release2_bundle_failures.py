@@ -62,7 +62,7 @@ def test_apps_required_failure_is_typed_and_short_cached_for_pollers():
             None,
             False,
             "apps-key",
-            db.CacheGeneration("apps:dashboard-bundle:v4:all", 0),
+            db.CacheGeneration("apps:dashboard-bundle:v5:all", 0),
         )
     payload = cache_put.call_args.args[2]
     assert payload["availability"] == "unavailable"
@@ -106,7 +106,7 @@ def test_apps_optional_failure_is_partial_and_short_cached():
             None,
             False,
             "apps-key",
-            db.CacheGeneration("apps:dashboard-bundle:v4:all", 0),
+            db.CacheGeneration("apps:dashboard-bundle:v5:all", 0),
         )
     payload = cache_put.call_args.args[2]
     assert payload["availability"] == "partial"
@@ -170,7 +170,7 @@ def test_apps_shared_cache_failure_keeps_the_successful_local_result(cache_outco
             None,
             False,
             cache_key,
-            db.CacheGeneration("apps:dashboard-bundle:v4:all", 0),
+            db.CacheGeneration("apps:dashboard-bundle:v5:all", 0),
         )
 
     with apps._apps_bundle_status_lock:
@@ -224,7 +224,7 @@ def test_apps_shared_cache_failure_releases_lease_as_successful(
                 None,
                 False,
                 cache_key,
-                db.CacheGeneration("apps:dashboard-bundle:v4:all", 0),
+                db.CacheGeneration("apps:dashboard-bundle:v5:all", 0),
             ),
             lease_seconds=30,
             hard_deadline_seconds=30,
@@ -386,7 +386,7 @@ def test_tagging_required_timeout_returns_typed_unavailable_without_fake_zero():
     assert result["summary"] == {}
     assert "error" not in result
     assert execute.call_args.args[1] == 27.0
-    assert execute.call_args.kwargs["required_names"] == {"timeseries"}
+    assert execute.call_args.kwargs["required_names"] == {"summary", "timeseries"}
     assert execute.call_args.kwargs["max_concurrency"] == 2
     cache_put.assert_not_called()
 
@@ -464,7 +464,7 @@ def test_users_optional_failure_is_partial_and_short_cached():
         patch.object(
             users_groups,
             "capture_cache_generation",
-            return_value=db.CacheGeneration("users:dashboard-bundle:v3", 0),
+            return_value=db.CacheGeneration("users:dashboard-bundle:v4", 0),
         ),
         patch.object(
             users_groups,
@@ -537,7 +537,7 @@ def test_users_large_aggregate_is_usable_but_detail_payload_is_capped():
     assert response["top_users_limits"]["truncated"] is True
 
 
-def test_dbsql_required_failure_is_not_cached():
+def test_dbsql_required_failure_is_short_cached_as_typed_unavailable():
     partial = {
         "summary": None,
         "by_source": [],
@@ -560,9 +560,12 @@ def test_dbsql_required_failure_is_not_cached():
             None,
             None,
             "dbsql-key",
-            db.CacheGeneration("dbsql:dbsql_cost_per_query:dashboard-bundle", 0),
+            db.CacheGeneration("dbsql:dbsql_cost_per_query:dashboard-bundle:v2", 0),
         )
-    cache_put.assert_not_called()
+    payload = cache_put.call_args.args[2]
+    assert payload["available"] is False
+    assert payload["error_code"] == "SQL_TIMEOUT"
+    assert cache_put.call_args.kwargs["ttl_seconds"] == 60
 
 
 def test_billing_fast_required_failure_returns_error_without_cache_write():
@@ -700,7 +703,7 @@ def test_dbsql_optional_failure_is_partial_and_short_cached():
                 None,
                 "dbsql-key",
                 db.CacheGeneration(
-                    "dbsql:dbsql_cost_per_query:dashboard-bundle", 0
+                    "dbsql:dbsql_cost_per_query:dashboard-bundle:v2", 0
                 ),
             )
         payload = cache_put.call_args.args[2]

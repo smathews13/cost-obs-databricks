@@ -284,19 +284,27 @@ export default function UsersGroups({
   }
 
   if (isError || data?.availability === "unavailable" || data?.available === false) {
+    const sourceUnsupported = data?.reason === "identity_detail_unavailable_for_shared_sources"
+      || data?.error_code === "SOURCE_SCOPE_UNSUPPORTED";
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-6">
-        <p className="font-medium text-amber-900">User data is temporarily unavailable</p>
-        <p className="mt-1 text-sm text-amber-800">
-          User summary data is temporarily unavailable. Retry shortly.
+        <p className="font-medium text-amber-900">
+          {sourceUnsupported ? "User detail is not included in this source" : "User data is temporarily unavailable"}
         </p>
-        <button
-          type="button"
-          className="mt-3 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900"
-          onClick={onRetry}
-        >
-          Retry
-        </button>
+        <p className="mt-1 text-sm text-amber-800">
+          {sourceUnsupported
+            ? data?.reason_detail || "The selected shared source publishes cost summaries but not user identities."
+            : "User summary data is temporarily unavailable. Retry shortly."}
+        </p>
+        {!sourceUnsupported && (
+          <button
+            type="button"
+            className="mt-3 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-sm font-medium text-amber-900"
+            onClick={onRetry}
+          >
+            Retry
+          </button>
+        )}
       </div>
     );
   }

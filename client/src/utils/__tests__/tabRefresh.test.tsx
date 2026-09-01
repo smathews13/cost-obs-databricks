@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TabRefreshRegion } from "@/components/TabRefreshRegion";
 import {
   isQueryOwnedByTab,
+  removeInactiveDashboardScopeData,
   refreshSourceScopeData,
   refreshTabData,
   startScopedAutoRefresh,
@@ -185,7 +186,7 @@ describe("per-tab manual refresh", () => {
     client.setQueryData(appsOptions.queryKey, { apps: ["stale"] });
     client.setQueryData(usersTrendKey, { data_points: ["stale"] });
 
-    await refreshSourceScopeData(client, "dbu");
+    await refreshSourceScopeData(client);
 
     expect(dbuFetch).toHaveBeenCalledTimes(1);
     expect(appsFetch).not.toHaveBeenCalled();
@@ -195,8 +196,10 @@ describe("per-tab manual refresh", () => {
 
     await client.fetchQuery({ ...dbuOptions, queryKey: ["billing", "dashboard-bundle-fast", "scope-b"] });
     await client.fetchQuery({ ...appsOptions, queryKey: ["apps", "dashboard-bundle", "scope-b"] });
+    removeInactiveDashboardScopeData(client);
     expect(dbuFetch).toHaveBeenCalledTimes(2);
     expect(appsFetch).toHaveBeenCalledTimes(1);
+    expect(client.getQueryState(appsOptions.queryKey)).toBeUndefined();
     unsubscribe();
   });
 

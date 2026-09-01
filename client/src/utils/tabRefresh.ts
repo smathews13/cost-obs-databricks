@@ -135,20 +135,25 @@ export function startScopedAutoRefresh(
 
 /**
  * A source change is a client-side scope change, not a server-cache reset.
- * Cancel the active tab's old-scope request and mark every dashboard query stale.
- * The source-scope state change gives hooks a new query key, which starts exactly
- * one active-tab fetch on the next render. Refetching here would run the old key
+ * Cancel every old-scope dashboard request and mark its cache stale before the
+ * parent commits the new source scope. Refetching here would run old query keys
  * under the new module scope and duplicate warehouse work.
  */
 export async function refreshSourceScopeData(
   queryClient: QueryClient,
-  activeTab: DashboardTab,
 ): Promise<void> {
-  const activePredicate = (query: Query) => isQueryOwnedByTab(activeTab, query.queryKey);
-  await queryClient.cancelQueries({ predicate: activePredicate });
+  const dashboardPredicate = (query: Query) => isDashboardQuery(query.queryKey);
+  await queryClient.cancelQueries({ predicate: dashboardPredicate });
   await queryClient.invalidateQueries({
-    predicate: (query) => isDashboardQuery(query.queryKey),
+    predicate: dashboardPredicate,
     refetchType: "none",
+  });
+}
+
+export function removeInactiveDashboardScopeData(queryClient: QueryClient): void {
+  queryClient.removeQueries({
+    type: "inactive",
+    predicate: (query) => isDashboardQuery(query.queryKey),
   });
 }
 

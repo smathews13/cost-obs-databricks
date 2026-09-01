@@ -6,7 +6,11 @@ import type { TaggingDashboardBundle } from "@/types/billing";
 import { TaggingHub } from "../TaggingHub";
 
 vi.mock("../KPITrendModal", () => ({
-  KPITrendModal: ({ kpi }: { kpi: string }) => <div data-testid="tagging-selected-kpi">{kpi}</div>,
+  KPITrendModal: ({ kpi, dataOverride }: { kpi: string; dataOverride?: { data_points?: unknown[] } }) => (
+    <div data-testid="tagging-selected-kpi" data-local-points={dataOverride?.data_points?.length ?? 0}>
+      {kpi}
+    </div>
+  ),
 }));
 
 const emptyGroup = { items: [], total_spend: 0, count: 0 };
@@ -110,6 +114,37 @@ it("derives spend KPIs from a populated timeseries instead of showing false zero
 
   expect(screen.getByText("$400")).toBeVisible();
   expect(screen.getByText("$20")).toBeVisible();
+});
+
+it("opens untagged spend from loaded bundle timeseries without a cold query", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const data: TaggingDashboardBundle = {
+    ...DATA,
+    summary: {
+      ...DATA.summary,
+      tagged_spend: 15,
+      untagged_spend: 5,
+      total_spend: 20,
+      tagged_percentage: 75,
+      untagged_percentage: 25,
+    },
+    timeseries: {
+      ...DATA.timeseries,
+      timeseries: [
+        { date: "2026-08-01", Tagged: 10, Untagged: 2 },
+        { date: "2026-08-02", Tagged: 5, Untagged: 3 },
+      ],
+    },
+  };
+  render(
+    <QueryClientProvider client={client}>
+      <TaggingHub data={data} isLoading={false} startDate="2026-08-01" endDate="2026-08-28" />
+    </QueryClientProvider>,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "See Untagged Spend trend" }));
+
+  expect(screen.getByTestId("tagging-selected-kpi")).toHaveAttribute("data-local-points", "2");
 });
 
 it("opens a key-wide drilldown when a Spend by Key row is clicked", async () => {

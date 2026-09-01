@@ -410,6 +410,8 @@ export interface UsersGroupsBundle {
   availability?: "available" | "partial" | "unavailable";
   reason?: string;
   reason_detail?: string;
+  error_code?: string;
+  partial_reasons?: Record<string, string>;
   summary: {
     user_count: number;
     workspace_count: number;
@@ -770,6 +772,10 @@ export function useDBSQLQueryCosts(dateRange?: DateRange, workspaceIds?: string[
         return false;
       }
       if (q.state.data?.available === false) {
+        if (q.state.data.error_code === "SOURCE_SCOPE_UNSUPPORTED") {
+          dbsqlUnavailableSince.delete(key);
+          return false;
+        }
         const started = dbsqlUnavailableSince.get(key) ?? Date.now();
         dbsqlUnavailableSince.set(key, started);
         return Date.now() - started < UNAVAILABLE_POLL_MS ? POLL_INTERVAL_MS : false;

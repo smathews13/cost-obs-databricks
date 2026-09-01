@@ -16,6 +16,17 @@ import {
 } from "../tabDemand";
 
 describe("on-demand tab data", () => {
+  it("marks every visible tab unresolved when a source scope changes", () => {
+    const visible = ["dbu", "sql", "apps", "tagging", "users-groups"] as const;
+    const initial = createTabDemandState("all-sources", "dbu");
+
+    const requeued = requeueTabDemand(initial, visible, "dbu");
+
+    expect(new Set(requeued.visited)).toEqual(new Set(visible));
+    expect(requeued.active.length).toBeLessThanOrEqual(2);
+    expect(visible.every((tab) => isTabDemandUnresolved(requeued, tab))).toBe(true);
+  });
+
   it("clears waiting refresh phases after a refresh fails before fetching", () => {
     const phase = { apps: "waiting" as const, tagging: "fetching" as const };
 

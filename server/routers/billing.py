@@ -19,6 +19,7 @@ from server.cloud_pricing import (
 )
 from server.db import (
     BundleOverloadedError,
+    SourceScopeUnsupportedError,
     SQLExecutionError,
     apply_mv_overrides,
     bundle_cache_key,
@@ -41,8 +42,10 @@ from server.db import (
 )
 from server.materialized_views import (
     MV_BILLING_BY_PRODUCT,
+    MV_BILLING_BY_WORKSPACE_BASIC,
     MV_BILLING_SUMMARY,
     MV_BILLING_TIMESERIES,
+    MV_BILLING_TOTAL_TIMESERIES,
     MV_ETL_BREAKDOWN,
     MV_PLATFORM_KPIS,
     MV_SQL_TOOL_ATTRIBUTION,
@@ -118,14 +121,23 @@ def _optional_breakdown_unavailable(
 ) -> dict[str, Any]:
     """Return a safe, settled 200 contract for non-critical DBU detail."""
     code = str(getattr(exc, "code", "QUERY_FAILED"))
-    reason = "query_timeout" if code == "SQL_TIMEOUT" else "query_failed"
+    source_unsupported = code == "SOURCE_SCOPE_UNSUPPORTED"
+    reason = (
+        "shared_scope_unsupported"
+        if source_unsupported
+        else "query_timeout" if code == "SQL_TIMEOUT" else "query_failed"
+    )
     logger.warning("%s breakdown unavailable (%s): %s", kind, code, exc)
     return {
         "available": False,
         "availability": "unavailable",
-        "retryable": True,
+        "retryable": not source_unsupported,
         "reason": reason,
-        "reason_detail": _OPTIONAL_BREAKDOWN_COPY[kind],
+        "reason_detail": (
+            f"The selected shared source does not publish {kind} detail."
+            if source_unsupported
+            else _OPTIONAL_BREAKDOWN_COPY[kind]
+        ),
         "error_code": code,
         collection: [],
         "total_spend": None,
@@ -419,7 +431,6 @@ async def get_billing_summary(
     id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
     use_mv = await asyncio.to_thread(_check_mv_available)
-
     if use_mv:
         results = await asyncio.to_thread(_exec_mv, MV_BILLING_SUMMARY, params, _mv_ws_clause(id_list))
         if not results and not selected_source_labels():
@@ -607,6 +618,8 @@ async def get_sql_breakdown(
             )
 
         _resp = {
+            "available": True,
+            "availability": "available",
             "products": products,
             "total_spend": total_spend,
             "start_date": params["start_date"],
@@ -618,11 +631,14 @@ async def get_sql_breakdown(
     except Exception as e:
         # If query.history is not available, return empty result
         return {
+            "available": False,
+            "availability": "unavailable",
             "products": [],
             "total_spend": 0,
             "start_date": params["start_date"],
             "end_date": params["end_date"],
-            "error": f"SQL breakdown not available: {str(e)}",
+            "error": "SQL breakdown is unavailable for the selected scope.",
+            "error_code": str(getattr(e, "code", "SQL_BREAKDOWN_FAILED")),
         }
 
 
@@ -676,6 +692,13 @@ async def get_pipeline_objects(
     """Get spend breakdown by pipeline objects (Jobs and SDP pipelines)."""
     from server import workspace_filter as wf
     params, id_list = _validated_scope(start_date, end_date, workspace_ids)
+    if not _local_source_selected():
+        return _optional_breakdown_unavailable(
+            "pipeline",
+            "objects",
+            params,
+            SourceScopeUnsupportedError("Pipeline detail is local-only."),
+        )
     _dkey = bundle_cache_key("billing:pipeline-objects", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
@@ -751,6 +774,13 @@ async def get_interactive_breakdown(
     """Get Interactive compute breakdown by notebook, user, and cluster."""
     from server import workspace_filter as wf
     params, id_list = _validated_scope(start_date, end_date, workspace_ids)
+    if not _local_source_selected():
+        return _optional_breakdown_unavailable(
+            "interactive",
+            "items",
+            params,
+            SourceScopeUnsupportedError("Interactive detail is local-only."),
+        )
     _dkey = bundle_cache_key("billing:interactive-breakdown", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
@@ -1153,42 +1183,12 @@ async def get_infra_bundle(
     """Bundled infra endpoint: runs cluster costs, instance families, and timeseries in parallel."""
     from server import workspace_filter as wf
     params, id_list = _validated_scope(start_date, end_date, workspace_ids)
-    if not _local_source_selected():
-        empty = {
-            "cloud": "UNKNOWN",
-            "cloud_display_name": "Cloud",
-            "available": False,
-            "availability": "unavailable",
-            "reason": "shared_scope_unsupported",
-            "reason_detail": (
-                "Infrastructure metadata is local-only and is unavailable when "
-                "this workspace is excluded from the selected sources."
-            ),
-            "start_date": params["start_date"],
-            "end_date": params["end_date"],
-        }
-        return {
-            "infra_costs": {
-                **empty,
-                "clusters": [],
-                "instance_families": [],
-                "total_estimated_cost": None,
-                "total_databricks_spend": 0,
-                "total_dbu_hours": 0,
-                "currency_estimate_available": False,
-            },
-            "infra_timeseries": {
-                **empty,
-                "timeseries": [],
-                "currency_estimate_available": False,
-            },
-        }
 
     # Delta cross-worker cache
-    _dkey = bundle_cache_key("billing:infra-bundle:v2", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("billing:infra-bundle:v3", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("billing:infra-bundle:v2")
+    _cache_generation = capture_cache_generation("billing:infra-bundle:v3")
 
     _ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
@@ -1389,24 +1389,13 @@ async def get_infra_bundle(
             "incomplete_rows": len(incomplete_cluster_results),
             "incomplete_dbu_hours": incomplete_cluster_dbu_hours,
         }
-        if cluster_status["available"] and clusters and incomplete_cluster_results:
-            availability = "partial"
-            reason = "metadata_partial"
-            reason_detail = (
-                f"{len(incomplete_cluster_results)} of {len(cluster_results)} classic cluster rows "
-                "had incomplete driver or worker instance metadata. DBU spend is still included."
-            )
-        elif cluster_status["available"] and clusters:
+        if cluster_status["available"] and clusters:
+            # Missing node types are expected for historical/deleted clusters.
+            # Spend and DBUs remain complete, and each affected row already
+            # identifies the missing metadata in the table.
             availability = "available"
             reason = None
             reason_detail = None
-        elif cluster_status["available"] and incomplete_cluster_results:
-            availability = "unavailable"
-            reason = "metadata_unavailable"
-            reason_detail = (
-                "Classic cluster billing usage exists, but no rows had both driver and worker "
-                "instance metadata needed to identify VM families."
-            )
         elif cluster_status["available"]:
             availability = "empty"
             reason, reason_detail = _infra_empty_reason(
@@ -1569,7 +1558,7 @@ async def get_infra_bundle(
         if not section_partial:
             delta_cache_put(
                 _dkey,
-                "billing:infra-bundle:v2",
+                "billing:infra-bundle:v3",
                 _resp,
                 ttl_seconds=cache_ttls.BUNDLE_FILTERED if id_list else cache_ttls.BUNDLE,
                 generation=_cache_generation,
@@ -1706,7 +1695,7 @@ async def get_cloud_costs_bundle(
     params, id_list = _validated_scope(start_date, end_date, workspace_ids)
     producer_request_id = current_request_id()
     cache_key = bundle_cache_key(
-        "billing:cloud-costs-bundle:v1",
+        "billing:cloud-costs-bundle:v2",
         params["start_date"],
         params["end_date"],
         id_list,
@@ -1731,7 +1720,7 @@ async def get_cloud_costs_bundle(
             headers={"Retry-After": "2"},
         )
 
-    generation = capture_cache_generation("billing:cloud-costs-bundle:v1")
+    generation = capture_cache_generation("billing:cloud-costs-bundle:v2")
 
     def produce() -> None:
         try:
@@ -1740,7 +1729,7 @@ async def get_cloud_costs_bundle(
             )
             delta_cache_put(
                 cache_key,
-                "billing:cloud-costs-bundle:v1",
+                "billing:cloud-costs-bundle:v2",
                 payload,
                 ttl_seconds=(
                     60
@@ -2296,16 +2285,20 @@ async def get_dashboard_bundle_fast(
     params, id_list = _validated_scope(start_date, end_date, workspace_ids)
 
     # Delta cross-worker cache — check before running any warehouse queries
-    _dkey = bundle_cache_key("billing:dashboard-bundle-fast", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("billing:dashboard-bundle-fast:v2", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("billing:dashboard-bundle-fast")
+    _cache_generation = capture_cache_generation("billing:dashboard-bundle-fast:v2")
 
     # Build workspace filter — dropdown selection overrides env/file config.
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
     mv_ws = _mv_ws_clause(id_list)
 
     use_mv = await asyncio.to_thread(_check_mv_available)
+    source_scoped = any(
+        label != get_local_source_label()
+        for label in selected_source_labels()
+    )
 
     if use_mv:
         # Use materialized views — much faster than live system.billing.usage scans.
@@ -2322,7 +2315,12 @@ async def get_dashboard_bundle_fast(
             return execute_query(_inject_ws_filter(BILLING_SUMMARY, ws_clause), params)
 
         def _mv_timeseries():
-            r = _exec_mv(MV_BILLING_TIMESERIES, params, mv_ws)
+            template = (
+                MV_BILLING_TOTAL_TIMESERIES
+                if source_scoped
+                else MV_BILLING_TIMESERIES
+            )
+            r = _exec_mv(template, params, mv_ws)
             return (
                 r
                 if r or selected_source_labels()
@@ -2338,6 +2336,13 @@ async def get_dashboard_bundle_fast(
             )
 
         def _mv_workspaces():
+            if source_scoped:
+                return _exec_mv(
+                    MV_BILLING_BY_WORKSPACE_BASIC,
+                    params,
+                    mv_ws,
+                    timeout=15,
+                )
             return execute_query(
                 _inject_ws_filter(BILLING_BY_WORKSPACE, ws_clause),
                 params,
@@ -2347,13 +2352,12 @@ async def get_dashboard_bundle_fast(
 
         # Also fetch most-recent-day workspace count; MV summary gives period-total DISTINCT
         # which is always >= any single day and mismatches the daily trend chart.
-        _mv_ws_filter = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
-        _WORKSPACE_COUNT_QUERY_MV = f"""
+        _WORKSPACE_COUNT_QUERY_MV = """
         SELECT daily_ws as workspace_count FROM (
           SELECT usage_date, COUNT(DISTINCT workspace_id) as daily_ws
-          FROM system.billing.usage
-          WHERE usage_date BETWEEN :start_date AND :end_date AND usage_quantity > 0
-          {_mv_ws_filter}
+          FROM `{catalog}`.`{schema}`.`daily_usage_summary`
+          WHERE usage_date BETWEEN :start_date AND :end_date
+            {ws_filter}
           GROUP BY usage_date
           ORDER BY usage_date DESC
           LIMIT 1
@@ -2367,11 +2371,11 @@ async def get_dashboard_bundle_fast(
             ("etl_breakdown", lambda: _exec_mv(MV_ETL_BREAKDOWN, params, mv_ws, timeout=15)),
             (
                 "workspace_count",
-                lambda: execute_query(
+                lambda: _exec_mv(
                     _WORKSPACE_COUNT_QUERY_MV,
                     params,
+                    mv_ws,
                     timeout=15,
-                    max_rows=1,
                 ),
             ),
         ]
@@ -2415,7 +2419,11 @@ async def get_dashboard_bundle_fast(
         results, optional_failures = await asyncio.to_thread(
             _run_bundle_parallel,
             queries,
-            required={"summary", "products", "timeseries"},
+            required=(
+                {"summary", "timeseries"}
+                if source_scoped
+                else {"summary", "products", "timeseries"}
+            ),
             timeout=20.0,
         )
 
@@ -2443,7 +2451,7 @@ async def get_dashboard_bundle_fast(
 
         delta_cache_put(
             _dkey,
-            "billing:dashboard-bundle-fast",
+            "billing:dashboard-bundle-fast:v2",
             response,
             ttl_seconds=(
                 60
@@ -2854,6 +2862,13 @@ async def get_sku_breakdown(
     """
     from server import workspace_filter as wf
     params, id_list = _validated_scope(start_date, end_date, workspace_ids)
+    if not _local_source_selected():
+        return _optional_breakdown_unavailable(
+            "sku",
+            "skus",
+            params,
+            SourceScopeUnsupportedError("SKU detail is local-only."),
+        )
     _dkey = bundle_cache_key("billing:sku-breakdown", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
@@ -3183,12 +3198,39 @@ async def get_kpis_bundle(
     """Bundled KPIs endpoint: runs platform KPIs and spend anomalies in parallel."""
     from server import workspace_filter as wf
     params, id_list = _validated_scope(start_date, end_date, workspace_ids)
+    if selected_source_labels():
+        try:
+            source_label_filter_clause(MV_PLATFORM_KPIS)
+        except SQLExecutionError as exc:
+            return {
+                "kpis": {
+                    "total_queries": 0, "unique_query_users": 0, "query_users_available": False,
+                    "total_rows_read": 0, "total_bytes_read": 0, "total_compute_seconds": 0,
+                    "total_jobs": 0, "total_job_runs": 0, "successful_runs": 0,
+                    "successful_runs_available": False, "total_job_run_hours": 0,
+                    "unique_job_owners": 0, "active_workspaces": 0, "avg_daily_workspaces": 0,
+                    "active_notebooks": 0, "total_clusters": 0, "sql_warehouses": 0,
+                    "models_served": 0, "total_serving_dbus": 0, "avg_daily_models": 0,
+                    "avg_daily_query_users": 0, "total_workspace_count": 0,
+                    "stickiness_pct": None, "stickiness_available": False,
+                    "start_date": params["start_date"], "end_date": params["end_date"],
+                    "error": "Selected source does not include platform KPI aggregates.",
+                    "error_code": exc.code,
+                },
+                "anomalies": {
+                    "anomalies": [],
+                    "available": False,
+                    "unavailable_reason": "Selected source does not include KPI anomaly data.",
+                    "start_date": params["start_date"],
+                    "end_date": params["end_date"],
+                },
+            }
 
     # Delta cross-worker cache
-    _dkey = bundle_cache_key("billing:kpis-bundle", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("billing:kpis-bundle:v2", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("billing:kpis-bundle")
+    _cache_generation = capture_cache_generation("billing:kpis-bundle:v2")
 
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
@@ -3356,6 +3398,7 @@ async def get_kpis_bundle(
             "stickiness_pct": None, "stickiness_available": False,
             "start_date": params["start_date"], "end_date": params["end_date"],
             "error": str(e),
+            "error_code": str(getattr(e, "code", "KPI_BUNDLE_FAILED")),
         }, "anomalies": {
             "anomalies": [], "available": False,
             "unavailable_reason": "Spend anomaly data could not be loaded",
@@ -3517,7 +3560,7 @@ async def get_kpis_bundle(
     # Anomaly surfaces need fresher data — cap at 5 min regardless of scope
     delta_cache_put(
         _dkey,
-        "billing:kpis-bundle",
+        "billing:kpis-bundle:v2",
         _kpis_resp,
         ttl_seconds=60 if optional_failures else cache_ttls.KPI,
         generation=_cache_generation,

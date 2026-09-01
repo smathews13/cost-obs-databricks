@@ -15,7 +15,12 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from server.db import execute_queries_parallel, execute_query
+from server.db import (
+    execute_queries_parallel,
+    execute_query,
+    get_local_source_label,
+    selected_source_labels,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -34,6 +39,21 @@ _OVERSIZED_MIN_QUERIES = 5
 # Normalized on the SQL side (see UPPER(REPLACE(...)) below) so we don't have to
 # enumerate every casing/separator variant Databricks might emit for warehouse_size.
 _LARGE_SIZE_NORMALIZED = ("LARGE", "XLARGE", "2XLARGE", "3XLARGE", "4XLARGE")
+
+
+def _local_source_selected() -> bool:
+    labels = selected_source_labels()
+    return not labels or get_local_source_label() in labels
+
+
+def _shared_scope_unavailable() -> dict[str, Any]:
+    return {
+        "available": False,
+        "availability": "unavailable",
+        "reason": "shared_scope_unsupported",
+        "error_code": "SOURCE_SCOPE_UNSUPPORTED",
+        "error": "Optimize recommendations use local warehouse metadata.",
+    }
 
 _SQL_IDLE = f"""
 WITH current_warehouses AS (
@@ -241,6 +261,13 @@ def _run_health_queries() -> dict[str, Any]:
 async def get_warehouse_health() -> dict[str, Any]:
     """Return rightsizing recommendations for all warehouses."""
     global _health_cache, _health_cache_ts
+    if not _local_source_selected():
+        return {
+            **_shared_scope_unavailable(),
+            "recommendations": [],
+            "warehouses_analyzed": 0,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
 
     if _health_cache is not None and (time.time() - _health_cache_ts) < _HEALTH_CACHE_TTL:
         return _health_cache
@@ -512,6 +539,14 @@ async def get_warehouse_idle_time(
     ed = end_date or get_default_end_date()
     id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
     cache_key = f"{sd}:{ed}:{','.join(id_list) if id_list else ''}"
+    if not _local_source_selected():
+        return {
+            **_shared_scope_unavailable(),
+            "warehouses": [],
+            "serverless_warehouses": [],
+            "start_date": sd,
+            "end_date": ed,
+        }
 
     if (_idle_time_cache is not None
             and (time.time() - _idle_time_cache_ts) < _IDLE_TIME_CACHE_TTL

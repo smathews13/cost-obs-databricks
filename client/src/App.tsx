@@ -90,7 +90,9 @@ import {
   useDBSQLTopQueries,
   useKPIsBundle,
   useUsersGroupsBundle,
+  buildFilteredUrl,
   getActiveSourceLabels,
+  getActiveSourceScopeKey,
   responsePayloadIssue,
 } from "@/hooks/useBillingData";
 import type { DateRange, WorkspaceBreakdown } from "@/types/billing";
@@ -113,6 +115,7 @@ import {
 import {
   isDashboardQuery,
   isQueryOwnedByTab,
+  removeInactiveDashboardScopeData,
   refreshSourceScopeData,
   refreshTabData,
   startScopedAutoRefresh,
@@ -670,17 +673,46 @@ function Dashboard() {
 
   const handleSourceApplied = useCallback(async () => {
     const tab = activeTab;
-    setSourceScopeVersion((version) => version + 1);
-    setExplicitRefreshingTab(tab);
+    const nextSourceVersion = sourceScopeVersion + 1;
+    const nextScopeKey = JSON.stringify([
+      dateRange.startDate,
+      dateRange.endDate,
+      [...selectedWorkspaceIds].sort(),
+      nextSourceVersion,
+      [...visibleDashboardTabs].sort(),
+    ]);
     try {
-      await refreshSourceScopeData(rqClient, tab);
+      // Stop every old-scope request before any parent state update can render
+      // hooks with the new module-level source selection.
+      await refreshSourceScopeData(rqClient);
+      flushSync(() => {
+        setDemandRefreshPhase((current) => {
+          const next = { ...current };
+          visibleDashboardTabs.forEach((visibleTab) => {
+            next[visibleTab] = "waiting";
+          });
+          return next;
+        });
+        setTabDemand((current) => ({
+          ...requeueTabDemand(current, visibleDashboardTabs, tab),
+          scopeKey: nextScopeKey,
+        }));
+        setSourceScopeVersion(nextSourceVersion);
+      });
+      removeInactiveDashboardScopeData(rqClient);
     } catch (error) {
       console.error(`Failed to apply source filter to ${tab} tab`, error);
       throw error;
-    } finally {
-      setExplicitRefreshingTab(null);
     }
-  }, [activeTab, rqClient]);
+  }, [
+    activeTab,
+    dateRange.endDate,
+    dateRange.startDate,
+    rqClient,
+    selectedWorkspaceIds,
+    sourceScopeVersion,
+    visibleDashboardTabs,
+  ]);
 
   // On every load, verify setup status with the server.
   // 60s timeout: allows for cold App pod start.
@@ -1061,10 +1093,11 @@ function Dashboard() {
   } = useUsersGroupsBundle(dateRange, _wsIds, usersRequested);
 
   // Optimizer queries run when its tab or the report exporter requests them.
+  const optimizerSourceKey = getActiveSourceScopeKey();
   const { data: optimizeRightsizingData, isLoading: optimizeRightsizingLoading, isError: optimizeRightsizingError } = useQuery<WarehouseHealthData>({
-    queryKey: ["warehouse-health"],
+    queryKey: ["warehouse-health", optimizerSourceKey],
     queryFn: async () => {
-      const response = await fetch("/api/sql/warehouse-health");
+      const response = await fetch(buildFilteredUrl("/api/sql/warehouse-health"));
       if (!response.ok) throw new Error(`Warehouse health request failed with ${response.status}`);
       return response.json();
     },
@@ -1075,13 +1108,13 @@ function Dashboard() {
     enabled: optimizerRequested,
   });
   const { data: optimizeIdleData, isLoading: optimizeIdleLoading, isError: optimizeIdleError } = useQuery<WarehouseIdleTimeData>({
-    queryKey: ["warehouse-idle-time", dateRange.startDate, dateRange.endDate, _wsIds?.join(",")],
+    queryKey: ["warehouse-idle-time", dateRange.startDate, dateRange.endDate, _wsIds?.join(","), optimizerSourceKey],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (dateRange.startDate) params.set("start_date", dateRange.startDate);
       if (dateRange.endDate) params.set("end_date", dateRange.endDate);
       if (_wsIds?.length) params.set("workspace_ids", _wsIds.join(","));
-      const response = await fetch(`/api/sql/warehouse-health/idle-time?${params}`);
+      const response = await fetch(buildFilteredUrl("/api/sql/warehouse-health/idle-time", params));
       if (!response.ok) throw new Error(`Warehouse idle-time request failed with ${response.status}`);
       return response.json();
     },
@@ -1257,7 +1290,9 @@ function Dashboard() {
     ]),
   ) as Partial<Record<ViewTab, boolean>>;
   const activeTabInitialLoading = !warehouseQueriesAllowed || tabPrimaryLoading[activeTab];
-  const showActiveTabLoading = activeTabInitialLoading || explicitRefreshingTab === activeTab;
+  const showActiveTabLoading = activeTabInitialLoading
+    || Boolean(unresolvedTabDemand[activeTab])
+    || explicitRefreshingTab === activeTab;
   const exportDataLoading = exportPreparationRequested &&
     Boolean(exportDemand?.tabs.some(
       (tab) => tabDemand.scopeKey !== tabDemandScopeKey

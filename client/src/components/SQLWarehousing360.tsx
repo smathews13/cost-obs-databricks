@@ -446,6 +446,8 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
   }
 
   if (queryData.available === false) {
+    const sourceUnsupported = queryData.error_code === "SOURCE_SCOPE_UNSUPPORTED"
+      || queryData.reason === "shared_scope_unsupported";
     return (
       <div className="rounded-lg border border-gray-200 bg-gray-50 p-6">
         <div className="flex items-start gap-3">
@@ -453,10 +455,20 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div>
-            <p className="text-sm font-medium text-gray-700">Query-level cost attribution is not available</p>
+            <p className="text-sm font-medium text-gray-700">
+              {sourceUnsupported
+                ? "SQL detail is not included in this source"
+                : "Query-level cost attribution is not available"}
+            </p>
             <p className="mt-1 text-sm text-gray-500">
-              This tab needs <code className="rounded bg-gray-200 px-1 text-xs">system.query.history</code> access for the app service principal,
-              and the query-cost table from setup. Copy the GRANT SQL from Settings, Permissions, run it as a metastore admin, then rebuild tables from Settings, Config.
+              {sourceUnsupported ? (
+                "The selected shared source publishes account spend summaries but not SQL query and warehouse detail."
+              ) : (
+                <>
+                  This tab needs <code className="rounded bg-gray-200 px-1 text-xs">system.query.history</code> access for the app service principal,
+                  and the query-cost table from setup. Copy the GRANT SQL from Settings, Permissions, run it as a metastore admin, then rebuild tables from Settings, Config.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -1303,6 +1315,8 @@ export function OptimizeMethodologyPanel() {
 
 export interface WarehouseHealthData {
   available: boolean;
+  reason?: string;
+  error_code?: string;
   recommendations: Array<{
     warehouse_id: string;
     warehouse_name: string | null;
@@ -1424,7 +1438,9 @@ export function WarehouseRightsizingView({
       ) : !warehouseHealth?.available || !warehouseHealth.recommendations.length ? (
         <div className="rounded-lg p-4 text-sm" style={{ background: C.oatPage, color: warehouseHealth?.available === false ? C.slate : C.greenInk }}>
           {warehouseHealth?.available === false
-            ? "Warehouse health data unavailable. Requires system.compute.warehouse_events access."
+            ? warehouseHealth.reason === "shared_scope_unsupported"
+              ? "Optimize recommendations are local-workspace metadata and are not included in this shared source."
+              : "Warehouse health data unavailable. Requires system.compute.warehouse_events access."
             : (
               <span className="inline-flex items-center gap-2">
                 <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
@@ -1526,6 +1542,8 @@ const fmtHours = (minutes: number) => {
 
 export interface WarehouseIdleTimeData {
   available: boolean;
+  reason?: string;
+  error_code?: string;
   serverless_detected: boolean;
   error?: string;
   warehouses: Array<{
@@ -1733,7 +1751,9 @@ export function WarehouseIdleTimeView({
       ) : !data?.available || !data.warehouses.length ? (
         <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500">
           {data?.available === false
-            ? data.error
+            ? data.reason === "shared_scope_unsupported"
+              ? "Idle-time analysis is local-workspace metadata and is not included in this shared source."
+              : data.error
               ? `Idle time query failed: ${data.error}`
               : "Idle time data unavailable. Requires access to system.compute.warehouse_events and system.query.history."
             : data?.serverless_detected

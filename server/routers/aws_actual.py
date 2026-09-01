@@ -21,7 +21,6 @@ from server.db import (
     delta_cache_get,
     delta_cache_put,
     execute_query,
-    local_source_is_selected,
 )
 from server.request_limits import default_date_range, validate_date_range
 
@@ -163,18 +162,6 @@ def get_catalog_schema() -> tuple[str, str]:
 async def get_cur_status() -> dict[str, Any]:
     """Check if AWS CUR tables are available (cached 5 min)."""
     catalog, schema = get_catalog_schema()
-    if not local_source_is_selected():
-        return {
-            "cur_available": False,
-            "available": False,
-            "scoped_out": True,
-            "reason": "source_scope_excludes_local",
-            "message": "AWS CUR is configured locally and is unavailable in the selected shared-source scope.",
-            "catalog": None,
-            "schema": None,
-            "table": None,
-        }
-
     if _cur_status_cache["available"] is not None and (time.time() - _cur_status_cache["checked_at"]) < _CUR_STATUS_TTL:
         available = _cur_status_cache["available"]
     else:

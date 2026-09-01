@@ -68,6 +68,7 @@ interface UntaggedResourcesTableProps {
   showHistoricalUntagged: boolean;
   onHistoricalToggle: (show: boolean) => void;
   itemsPerPage: number;
+  unavailableReason?: string;
 }
 
 const SUGGESTED_TAGS_KEY = "cost-obs-minimize-suggested-tags";
@@ -81,6 +82,7 @@ export function UntaggedResourcesTable({
   sortField, sortDirection, onSort,
   showHistoricalUntagged, onHistoricalToggle,
   itemsPerPage,
+  unavailableReason,
 }: UntaggedResourcesTableProps) {
   const spNameMap = useSpNameMap();
   const [suggestedTagsMinimized, setSuggestedTagsMinimized] = useState(() => {
@@ -520,7 +522,9 @@ export function UntaggedResourcesTable({
         </div>
       ) : (
         <div className="flex h-32 items-center justify-center text-gray-500">
-          {searchQuery
+          {unavailableReason
+            ? unavailableReason
+            : searchQuery
             ? `No results for "${searchQuery}" in ${activeUntaggedTab}`
             : `No untagged ${activeUntaggedTab} found - great job!`}
         </div>

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 
+from server import db
 from server.cloud_pricing import get_instance_family
 from server.queries import INFRA_COST_ESTIMATE
 from server.routers import aws_actual, azure_actual, billing, gcp_actual
@@ -79,6 +80,26 @@ def test_infra_bundle_distinguishes_serverless_only_from_query_failure():
     cache_put.assert_called_once()
 
 
+def test_infra_bundle_remains_local_when_a_shared_cost_source_is_selected():
+    token = db.set_source_labels(["shared-only"])
+    try:
+        result, _ = _run_bundle(
+            {
+                "clusters": _ok([]),
+                "timeseries": _ok([]),
+                "billing_summary": _ok([]),
+                "usage_scope": _ok(
+                    [{"usage_rows": 5, "cluster_usage_rows": 0, "serverless_usage_rows": 5}]
+                ),
+            }
+        )
+    finally:
+        db.reset_source_labels(token)
+
+    assert result["infra_costs"]["availability"] == "empty"
+    assert result["infra_costs"]["reason"] == "serverless_only"
+
+
 def test_infra_bundle_explains_empty_filtered_date_range():
     result, _ = _run_bundle(
         {
@@ -141,8 +162,8 @@ def test_infra_bundle_keeps_dbus_but_never_invents_vm_currency_cost():
 
     costs = result["infra_costs"]
     assert costs["available"] is True
-    assert costs["availability"] == "partial"
-    assert costs["reason"] == "metadata_partial"
+    assert costs["availability"] == "available"
+    assert costs["reason"] is None
     assert [row["cluster_id"] for row in costs["clusters"]] == [
         "complete",
         "missing-driver",
@@ -208,9 +229,9 @@ def test_infra_bundle_keeps_cluster_dbus_when_instance_metadata_is_missing():
 
     costs = result["infra_costs"]
     assert costs["available"] is True
-    assert costs["availability"] == "partial"
-    assert costs["error_kind"] == "metadata"
-    assert costs["reason"] == "metadata_partial"
+    assert costs["availability"] == "available"
+    assert costs["error_kind"] is None
+    assert costs["reason"] is None
     assert len(costs["clusters"]) == 1
     assert costs["clusters"][0]["total_dbu_hours"] == 8
     assert costs["clusters"][0]["databricks_spend"] == 12
@@ -384,7 +405,6 @@ def test_provider_status_transient_errors_are_not_cached_and_retry_recovers(
         "permission denied host=https://private.example SQL=SELECT secret_value"
     )
     with (
-        patch.object(module, "local_source_is_selected", return_value=True),
         patch.object(module, "execute_query", side_effect=[secret_error, [{}]]) as query,
     ):
         with pytest.raises(RuntimeError):
@@ -421,7 +441,6 @@ def test_provider_status_caches_absence_only_after_successful_existence_query(
     status_cache = getattr(module, cache_name)
     status_cache.update({"available": None, "checked_at": 0})
     with (
-        patch.object(module, "local_source_is_selected", return_value=True),
         patch.object(module, "execute_query", return_value=[]) as query,
     ):
         first = asyncio.run(getattr(module, endpoint_name)())

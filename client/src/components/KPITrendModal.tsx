@@ -9,7 +9,12 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from "recharts";
-import { useKPITrend, usePlatformKPITrend, useAppsKPITrend } from "@/hooks/useKPITrend";
+import {
+  useKPITrend,
+  usePlatformKPITrend,
+  useAppsKPITrend,
+  type KPITrendResponse,
+} from "@/hooks/useKPITrend";
 import { formatCurrency, formatNumber, formatBytesNoDecimal, formatRowCount, formatComputeSecondsCompact } from "@/utils/formatters";
 import { C, FONT_MONO } from "@/theme";
 import { changeTone } from "@/components/brandHelpers";
@@ -29,6 +34,7 @@ interface KPITrendModalProps {
   variant?: "billing" | "platform" | "apps";
   workspaceIds?: string[];
   queryKeyPrefix?: string;
+  dataOverride?: KPITrendResponse;
 }
 
 const SPEND_KPIS = new Set(["total_spend", "avg_daily_spend", "aiml_spend", "apps_spend", "tagged_spend", "untagged_spend", "infra_cost", "avg_cost_per_cluster", "sql_spend", "aiml_avg_endpoint_cost", "apps_avg_cost_per_app", "cost_per_tag", "user_spend", "power_user_spend", "avg_spend_per_user"]);
@@ -63,21 +69,24 @@ export function KPITrendModal({
   variant = "billing",
   workspaceIds,
   queryKeyPrefix,
+  dataOverride,
 }: KPITrendModalProps) {
   // All hooks must be called on every render, but only the selected variant may
   // own the query. Enabling every hook made billing and platform requests share
   // the same caller-supplied query key, so the first (often incompatible)
   // endpoint populated the modal with an empty response.
   const billingTrend = useKPITrend(
-    kpi, startDate, endDate, "daily", workspaceIds, queryKeyPrefix, isOpen && variant === "billing",
+    kpi, startDate, endDate, "daily", workspaceIds, queryKeyPrefix, isOpen && variant === "billing" && !dataOverride,
   );
   const platformTrend = usePlatformKPITrend(
-    kpi, startDate, endDate, "daily", workspaceIds, queryKeyPrefix, isOpen && variant === "platform",
+    kpi, startDate, endDate, "daily", workspaceIds, queryKeyPrefix, isOpen && variant === "platform" && !dataOverride,
   );
   const appsTrend = useAppsKPITrend(
-    kpi, startDate, endDate, "daily", workspaceIds, isOpen && variant === "apps",
+    kpi, startDate, endDate, "daily", workspaceIds, isOpen && variant === "apps" && !dataOverride,
   );
-  const { data, isLoading } = variant === "platform" ? platformTrend : variant === "apps" ? appsTrend : billingTrend;
+  const selectedQuery = variant === "platform" ? platformTrend : variant === "apps" ? appsTrend : billingTrend;
+  const data = dataOverride ?? selectedQuery.data;
+  const isLoading = dataOverride ? false : selectedQuery.isLoading;
 
   const fmt = formatValue ?? (variant === "platform" ? defaultPlatformFormat : defaultBillingFormat);
 

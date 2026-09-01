@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query
 from server import cache_ttls
 from server import workspace_filter as wf
 from server.db import (
+    SourceScopeUnsupportedError,
     SQLExecutionError,
     apply_mv_overrides,
     bundle_cache_key,
@@ -972,6 +973,7 @@ async def get_top_objects_by_tag(
     tag_value: str | None = Query(default=None, description="Optional tag value; omit to aggregate all values for the key"),
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
+    workspace_ids: str = Query(default=None, description="Comma-separated workspace IDs"),
 ) -> dict[str, Any]:
     """Get top 5 most expensive objects for a tag key, optionally scoped to one value."""
     params = {
@@ -981,7 +983,27 @@ async def get_top_objects_by_tag(
         "tag_value": tag_value or "",
     }
 
-    results = await asyncio.to_thread(execute_query, TOP_OBJECTS_BY_TAG, params)
+    if not local_source_is_selected():
+        return {
+            "available": False,
+            "availability": "unavailable",
+            "reason": "shared_scope_unsupported",
+            "error_code": "SOURCE_SCOPE_UNSUPPORTED",
+            "objects": [],
+            "tag_key": tag_key,
+            "tag_value": tag_value,
+            "start_date": params["start_date"],
+            "end_date": params["end_date"],
+        }
+    id_list = parse_workspace_ids(
+        workspace_ids if isinstance(workspace_ids, str) else None
+    )
+    ws_clause = wf.build_ws_filter_clause(col="u.workspace_id", id_list=id_list)
+    results = await asyncio.to_thread(
+        execute_query,
+        wf.inject_ws_filter(TOP_OBJECTS_BY_TAG, ws_clause),
+        params,
+    )
 
     objects = []
     for row in results:
@@ -998,6 +1020,7 @@ async def get_top_objects_by_tag(
         )
 
     return {
+        "available": True,
         "objects": objects,
         "tag_key": tag_key,
         "tag_value": tag_value,
@@ -1118,10 +1141,10 @@ async def get_tagging_dashboard_bundle(
     )
     params = {"start_date": validated_start, "end_date": validated_end}
     id_list = parse_workspace_ids(workspace_ids)
-    _dkey = bundle_cache_key("tagging:dashboard-bundle:v7", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("tagging:dashboard-bundle:v8", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v7")
+    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v8")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     def _ws(sql: str) -> str:
@@ -1152,12 +1175,10 @@ async def get_tagging_dashboard_bundle(
             try:
                 catalog, schema = get_catalog_schema()
                 mv_ws_filter = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
-                mv_ws_clause_billing = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
                 mv_sql = MV_TAGGING_SUMMARY.format(
                     catalog=catalog,
                     schema=schema,
                     ws_filter=mv_ws_filter + source_label_filter_clause(MV_TAGGING_SUMMARY),
-                    ws_clause_billing=mv_ws_clause_billing,
                 )
                 mv_sql = apply_mv_overrides(mv_sql, catalog, schema)
                 return execute_query(mv_sql, query_params)
@@ -1165,6 +1186,10 @@ async def get_tagging_dashboard_bundle(
                 if selected_source_labels():
                     raise
                 logger.warning("tagging_summary MV path failed (%s); falling back to raw scan", type(e).__name__)
+        if selected_source_labels():
+            raise SourceScopeUnsupportedError(
+                "Selected shared sources require the tag coverage aggregate."
+            )
         return execute_query(_ws(TAGGING_SUMMARY), query_params)
 
     def tag_stats_query(query_params: dict) -> list[dict[str, Any]]:
@@ -1190,6 +1215,10 @@ async def get_tagging_dashboard_bundle(
                 if selected_source_labels():
                     raise
                 logger.warning("tag_stats MV path failed (%s); falling back to raw scan", type(e).__name__)
+        if selected_source_labels():
+            raise SourceScopeUnsupportedError(
+                "Selected shared sources require the tag summary aggregate."
+            )
         return execute_query(_ws(TAG_STATS), query_params)
 
     def cost_by_tag_query(query_params: dict) -> list[dict[str, Any]]:
@@ -1209,6 +1238,10 @@ async def get_tagging_dashboard_bundle(
                 if selected_source_labels():
                     raise
                 logger.warning("cost_by_tag MV path failed (%s); falling back to raw scan", type(e).__name__)
+        if selected_source_labels():
+            raise SourceScopeUnsupportedError(
+                "Selected shared sources require the tag summary aggregate."
+            )
         return execute_query(_ws(COST_BY_TAG), query_params)
 
     def coverage_timeseries_query(query_params: dict) -> list[dict[str, Any]]:
@@ -1217,12 +1250,10 @@ async def get_tagging_dashboard_bundle(
             try:
                 catalog, schema = get_catalog_schema()
                 mv_ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
-                billing_ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
                 mv_sql = MV_TAG_COVERAGE_TIMESERIES.format(
                     catalog=catalog,
                     schema=schema,
                     ws_filter=mv_ws_clause + source_label_filter_clause(MV_TAG_COVERAGE_TIMESERIES),
-                    ws_clause_billing=billing_ws_clause,
                 )
                 mv_sql = apply_mv_overrides(mv_sql, catalog, schema)
                 return execute_query(mv_sql, query_params)
@@ -1230,14 +1261,52 @@ async def get_tagging_dashboard_bundle(
                 if selected_source_labels():
                     raise
                 logger.warning("tag coverage timeseries MV path failed (%s); falling back to raw scan", type(e).__name__)
+        if selected_source_labels():
+            raise SourceScopeUnsupportedError(
+                "Selected shared sources require the tag coverage aggregate."
+            )
         return execute_query(_ws(TAG_COVERAGE_TIMESERIES), query_params)
 
     local_details_selected = local_source_is_selected()
+    if selected_source_labels():
+        try:
+            source_label_filter_clause(MV_TAGGING_SUMMARY)
+            source_label_filter_clause(MV_TAG_COVERAGE_TIMESERIES)
+            source_label_filter_clause(MV_COST_BY_TAG)
+        except SourceScopeUnsupportedError as exc:
+            empty_untagged = {"items": [], "total_spend": 0, "count": 0}
+            return {
+                "available": False,
+                "availability": "unavailable",
+                "retryable": False,
+                "reason": "shared_scope_unsupported",
+                "reason_detail": (
+                    "The selected shared source does not publish the Tagging aggregates."
+                ),
+                "error_code": exc.code,
+                "summary": {},
+                "untagged": {
+                    "clusters": empty_untagged,
+                    "jobs": empty_untagged,
+                    "pipelines": empty_untagged,
+                    "warehouses": empty_untagged,
+                    "endpoints": empty_untagged,
+                },
+                "cost_by_tag": {"tags": [], "total_spend": 0},
+                "timeseries": {
+                    "timeseries": [],
+                    "categories": ["Tagged", "Untagged"],
+                },
+                "start_date": params["start_date"],
+                "end_date": params["end_date"],
+                "local_detail_in_scope": local_details_selected,
+            }
 
     if local_details_selected:
         queries = [
             # Core visual contract first: these three slots restore the complete
             # Tagging layout before optional resource-enrichment work is attempted.
+            ("summary", lambda: summary_query(params)),
             ("timeseries", lambda: coverage_timeseries_query(params)),
             ("cost_by_tag", lambda: cost_by_tag_query(params)),
             ("tag_stats", lambda: tag_stats_query(params)),
@@ -1250,13 +1319,15 @@ async def get_tagging_dashboard_bundle(
             ("warehouses", lambda: query_with_fallback(_ws(UNTAGGED_WAREHOUSES_ENRICHED), _ws(UNTAGGED_WAREHOUSES), params)),
             ("endpoints", lambda: execute_query(_ws(UNTAGGED_ENDPOINTS), params)),
         ]
-        required_queries = {"timeseries"}
+        required_queries = {"summary", "timeseries"}
     else:
         queries = [
             ("summary", lambda: summary_query(params)),
+            ("timeseries", lambda: coverage_timeseries_query(params)),
+            ("cost_by_tag", lambda: cost_by_tag_query(params)),
             ("tag_stats", lambda: tag_stats_query(params)),
         ]
-        required_queries = {"summary"}
+        required_queries = {"summary", "timeseries"}
     try:
         try:
             results = await asyncio.to_thread(
@@ -1304,6 +1375,10 @@ async def get_tagging_dashboard_bundle(
             "total_spend": total_spend,
             "tagged_percentage": (tagged_spend / total_spend * 100) if total_spend > 0 else 0,
             "untagged_percentage": (untagged_spend / total_spend * 100) if total_spend > 0 else 0,
+            "tagged_workspaces": int(row.get("tagged_workspaces") or 0),
+            "untagged_workspaces": int(row.get("untagged_workspaces") or 0),
+            "start_date": params["start_date"],
+            "end_date": params["end_date"],
         }
     elif timeseries_rows:
         tagged_spend = sum(float(row.get("tagged_spend") or 0) for row in timeseries_rows)
@@ -1315,9 +1390,23 @@ async def get_tagging_dashboard_bundle(
             "total_spend": total_spend,
             "tagged_percentage": (tagged_spend / total_spend * 100) if total_spend > 0 else 0,
             "untagged_percentage": (untagged_spend / total_spend * 100) if total_spend > 0 else 0,
+            "tagged_workspaces": 0,
+            "untagged_workspaces": 0,
+            "start_date": params["start_date"],
+            "end_date": params["end_date"],
         }
     else:
-        summary = {"tagged_spend": 0, "untagged_spend": 0, "total_spend": 0, "tagged_percentage": 0, "untagged_percentage": 0}
+        summary = {
+            "tagged_spend": 0,
+            "untagged_spend": 0,
+            "total_spend": 0,
+            "tagged_percentage": 0,
+            "untagged_percentage": 0,
+            "tagged_workspaces": 0,
+            "untagged_workspaces": 0,
+            "start_date": params["start_date"],
+            "end_date": params["end_date"],
+        }
 
     # Enrich pipeline names via system table / SDK fallback (handles NULL names and UUID-only rows)
     pipeline_rows = results.get("pipelines")
@@ -1422,7 +1511,7 @@ async def get_tagging_dashboard_bundle(
     }
     delta_cache_put(
         _dkey,
-        "tagging:dashboard-bundle:v7",
+        "tagging:dashboard-bundle:v8",
         _resp,
         ttl_seconds=(
             60

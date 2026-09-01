@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, local_source_is_selected
+from server.db import execute_query
 from server.request_limits import default_date_range, validate_date_range
 
 logger = logging.getLogger(__name__)
@@ -135,18 +135,6 @@ ORDER BY date
 async def get_azure_status() -> dict[str, Any]:
     """Check if Azure cost tables are available (cached 5 min)."""
     catalog, schema = get_catalog_schema()
-    if not local_source_is_selected():
-        return {
-            "azure_available": False,
-            "available": False,
-            "scoped_out": True,
-            "reason": "source_scope_excludes_local",
-            "message": "Azure cost exports are configured locally and are unavailable in the selected shared-source scope.",
-            "catalog": None,
-            "schema": None,
-            "table": None,
-        }
-
     if _azure_status_cache["available"] is not None and (time.time() - _azure_status_cache["checked_at"]) < _AZURE_STATUS_TTL:
         available = _azure_status_cache["available"]
     else:

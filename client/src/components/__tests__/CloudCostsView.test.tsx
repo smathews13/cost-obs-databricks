@@ -405,8 +405,6 @@ describe("CloudCostsView empty-data controls", () => {
   });
 
   it("shows authoritative DBU spend instead of a fabricated VM cost", () => {
-    const reasonDetail =
-      "1 of 2 classic cluster rows had incomplete driver or worker instance metadata. DBU spend is still included.";
     renderView({
       data: {
         ...EMPTY_COSTS,
@@ -442,12 +440,11 @@ describe("CloudCostsView empty-data controls", () => {
         available: true,
         availability: "partial",
         reason: "metadata_partial",
-        reason_detail: reasonDetail,
+        reason_detail: "Historical rows have incomplete node metadata.",
       },
     });
 
-    expect(screen.getByText("Cluster metadata is partial")).toBeInTheDocument();
-    expect(screen.getByText(reasonDetail)).toBeInTheDocument();
+    expect(screen.queryByText("Cluster metadata is partial")).not.toBeInTheDocument();
     expect(screen.getByText("Priced cluster")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: /DBU Spend/i })).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: /VM Cost/i })).not.toBeInTheDocument();

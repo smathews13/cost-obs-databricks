@@ -13,6 +13,7 @@ interface MvSource {
   label: string;
   catalog: string;
   schema: string;
+  tables?: string[];
 }
 
 interface SourceLabelFilterProps {
@@ -213,11 +214,16 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
             {allLabels.map((lbl) => {
               const checked = selected.has(lbl);
               const isLocal = lbl === data?.local_label;
+              const source = data?.sources?.find((item) => item.label === lbl);
+              const summaryOnly = !isLocal
+                && source?.tables?.length === 1
+                && source.tables[0] === "daily_usage_summary";
               return (
                 <label key={lbl} className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 ${checked ? "bg-orange-50 hover:bg-orange-100" : "hover:bg-gray-50"}`}>
                   <input type="checkbox" checked={checked} onChange={() => toggle(lbl)} className="h-3.5 w-3.5 rounded border-gray-300 accent-lava" />
                   <span className="flex-1 truncate text-sm text-gray-700">{lbl}</span>
                   {isLocal && <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">this workspace</span>}
+                  {summaryOnly && <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">summary only</span>}
                 </label>
               );
             })}

@@ -30,7 +30,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query
 
-from server.db import execute_query, local_source_is_selected
+from server.db import execute_query
 from server.request_limits import default_date_range, validate_date_range
 
 logger = logging.getLogger(__name__)
@@ -168,18 +168,6 @@ def _defaults(start_date, end_date):
 async def get_gcp_status() -> dict[str, Any]:
     """Check if GCP billing tables are available (cached 5 min)."""
     catalog, schema, table = get_catalog_schema_table()
-    if not local_source_is_selected():
-        return {
-            "gcp_available": False,
-            "available": False,
-            "scoped_out": True,
-            "reason": "source_scope_excludes_local",
-            "message": "GCP billing exports are configured locally and are unavailable in the selected shared-source scope.",
-            "catalog": None,
-            "schema": None,
-            "table": None,
-        }
-
     if (
         _gcp_status_cache["available"] is not None
         and (time.time() - _gcp_status_cache["checked_at"]) < _GCP_STATUS_TTL

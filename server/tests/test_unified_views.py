@@ -208,6 +208,14 @@ def test_selected_source_routes_only_to_verified_physical_view():
     try:
         with (
             patch.object(db, "_list_existing_unified_views", return_value=["daily_usage_summary"]),
+            patch.object(
+                db,
+                "get_mv_sources",
+                return_value=[{
+                    "label": "shared",
+                    "tables": ["daily_usage_summary"],
+                }],
+            ),
             patch.object(db, "get_mv_table_overrides", return_value={}),
         ):
             clause = db.source_label_filter_clause(template)
@@ -219,6 +227,14 @@ def test_selected_source_routes_only_to_verified_physical_view():
 
         with (
             patch.object(db, "_list_existing_unified_views", return_value=[]),
+            patch.object(
+                db,
+                "get_mv_sources",
+                return_value=[{
+                    "label": "shared",
+                    "tables": ["daily_usage_summary"],
+                }],
+            ),
             patch.object(db, "get_mv_table_overrides", return_value={}),
         ):
             assert db.source_label_filter_clause(template) == ""
@@ -226,6 +242,30 @@ def test_selected_source_routes_only_to_verified_physical_view():
             with pytest.raises(RuntimeError, match="does not physically exist"):
                 db.apply_mv_overrides(base_sql, "c", "s")
             assert "source_label" not in base_sql
+    finally:
+        db.reset_source_labels(token)
+
+
+def test_selected_source_rejects_views_it_does_not_publish():
+    token = db.set_source_labels(["west4"])
+    template = (
+        "SELECT SUM(total_spend) FROM "
+        "`{catalog}`.`{schema}`.`daily_apps_summary` WHERE 1=1 {ws_filter}"
+    )
+    try:
+        with patch.object(
+            db,
+            "get_mv_sources",
+            return_value=[{
+                "label": "west4",
+                "tables": ["daily_usage_summary"],
+            }],
+        ):
+            with pytest.raises(
+                db.SourceScopeUnsupportedError,
+                match="does not publish",
+            ):
+                db.source_label_filter_clause(template)
     finally:
         db.reset_source_labels(token)
 
@@ -255,7 +295,15 @@ def test_tagging_mv_queries_include_selected_source_filter():
             patch.object(
                 db,
                 "_list_existing_unified_views",
-                return_value=["daily_usage_summary", "daily_tag_summary"],
+                return_value=["daily_tag_coverage_summary", "daily_tag_summary"],
+            ),
+            patch.object(
+                db,
+                "get_mv_sources",
+                return_value=[{
+                    "label": "shared",
+                    "tables": ["daily_tag_coverage_summary", "daily_tag_summary"],
+                }],
             ),
             patch.object(db, "get_mv_table_overrides", return_value={}),
         ):
@@ -269,7 +317,7 @@ def test_tagging_mv_queries_include_selected_source_filter():
     finally:
         db.reset_source_labels(token)
 
-    usage_sql = next(sql for sql in captured if "daily_usage_summary__unified" in sql)
+    usage_sql = next(sql for sql in captured if "daily_tag_coverage_summary__unified" in sql)
     tag_sql = next(sql for sql in captured if "daily_tag_summary__unified" in sql)
     assert "source_label IN ('shared')" in usage_sql
     assert "source_label IN ('shared')" in tag_sql

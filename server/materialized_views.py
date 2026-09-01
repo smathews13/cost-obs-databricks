@@ -9,6 +9,7 @@ Tables created:
 - cost_obs.daily_workspace_breakdown: Daily spend by workspace
 - cost_obs.sql_tool_attribution: Pre-computed Genie vs DBSQL split
 - cost_obs.daily_tag_summary: Daily exploded tag aggregations (tag_key, tag_value grain)
+- cost_obs.daily_tag_coverage_summary: Daily non-exploded tagged/untagged spend
 
 These tables should be refreshed daily via a scheduled job.
 """
@@ -839,6 +840,34 @@ GROUP BY usage_date, workspace_id, tag_key, tag_value
 ORDER BY usage_date, tag_key, tag_value
 """
 
+# Daily tag coverage — exact tagged/untagged totals before tag explosion.
+CREATE_DAILY_TAG_COVERAGE_SUMMARY = """
+CREATE OR REPLACE TABLE `{catalog}`.`{schema}`.`daily_tag_coverage_summary` CLUSTER BY (usage_date, workspace_id) AS
+WITH priced_usage AS (
+  SELECT
+    u.usage_date,
+    u.workspace_id,
+    u.usage_quantity,
+    u.custom_tags,
+    COALESCE(p.pricing.default, 0) AS price_per_dbu
+  FROM system.billing.usage u
+  /* TEMPORAL_LIST_PRICE_JOIN */
+  WHERE u.usage_date >= DATE_SUB(CURRENT_DATE(), {billing_lookback_days})
+    AND u.usage_quantity > 0
+)
+SELECT
+  usage_date,
+  workspace_id,
+  SUM(CASE WHEN custom_tags IS NOT NULL AND size(custom_tags) > 0
+    THEN usage_quantity * price_per_dbu ELSE 0 END) AS tagged_spend,
+  SUM(CASE WHEN custom_tags IS NULL OR size(custom_tags) = 0
+    THEN usage_quantity * price_per_dbu ELSE 0 END) AS untagged_spend,
+  SUM(usage_quantity * price_per_dbu) AS total_spend
+FROM priced_usage
+GROUP BY usage_date, workspace_id
+ORDER BY usage_date, workspace_id
+"""
+
 # Daily Apps summary — pre-aggregates billing_origin_product = 'APPS' at
 # (usage_date, workspace_id, app_id, sku_name) grain so the Apps bundle's
 # summary / apps / timeseries / sku_breakdown slots don't rescan
@@ -943,6 +972,43 @@ WHEN NOT MATCHED BY SOURCE
 THEN DELETE
 """
 
+MERGE_DAILY_TAG_COVERAGE_SUMMARY = """
+MERGE INTO `{catalog}`.`{schema}`.`daily_tag_coverage_summary` AS tgt
+USING (
+  WITH priced_usage AS (
+    SELECT
+      u.usage_date,
+      u.workspace_id,
+      u.usage_quantity,
+      u.custom_tags,
+      COALESCE(p.pricing.default, 0) AS price_per_dbu
+    FROM system.billing.usage u
+    /* TEMPORAL_LIST_PRICE_JOIN */
+    WHERE u.usage_date >= DATE('{reprocess_start}')
+      AND u.usage_date <= CURRENT_DATE()
+      AND u.usage_quantity > 0
+  )
+  SELECT
+    usage_date,
+    workspace_id,
+    SUM(CASE WHEN custom_tags IS NOT NULL AND size(custom_tags) > 0
+      THEN usage_quantity * price_per_dbu ELSE 0 END) AS tagged_spend,
+    SUM(CASE WHEN custom_tags IS NULL OR size(custom_tags) = 0
+      THEN usage_quantity * price_per_dbu ELSE 0 END) AS untagged_spend,
+    SUM(usage_quantity * price_per_dbu) AS total_spend
+  FROM priced_usage
+  GROUP BY usage_date, workspace_id
+) AS src
+ON tgt.usage_date = src.usage_date
+  AND tgt.workspace_id = src.workspace_id
+WHEN MATCHED THEN UPDATE SET *
+WHEN NOT MATCHED BY TARGET THEN INSERT *
+WHEN NOT MATCHED BY SOURCE
+  AND tgt.usage_date >= DATE('{reprocess_start}')
+  AND tgt.usage_date <= CURRENT_DATE()
+THEN DELETE
+"""
+
 # Step 3: Refresh-state tracking table
 CREATE_MV_REFRESH_STATE = """
 CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema}`.`app_mv_refresh_state` (
@@ -996,6 +1062,12 @@ _TABLE_REFRESH_CONFIG: dict[str, dict] = {
     "daily_tag_summary": {
         "reprocess_days": 14,
         "pk": ["usage_date", "workspace_id", "tag_key", "tag_value"],
+        "source_date_col": "usage_date",
+        "overlap_days": 0,
+    },
+    "daily_tag_coverage_summary": {
+        "reprocess_days": 14,
+        "pk": ["usage_date", "workspace_id"],
         "source_date_col": "usage_date",
         "overlap_days": 0,
     },
@@ -1639,6 +1711,7 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
         ("daily_query_stats", CREATE_QUERY_STATS),
         ("dbsql_cost_per_query", CREATE_DBSQL_COST_PER_QUERY),
         ("daily_tag_summary", CREATE_DAILY_TAG_SUMMARY),
+        ("daily_tag_coverage_summary", CREATE_DAILY_TAG_COVERAGE_SUMMARY),
         ("daily_apps_summary", CREATE_DAILY_APPS_SUMMARY),
     ]
 
@@ -1688,6 +1761,7 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
                     "daily_query_stats": MERGE_QUERY_STATS,
                     "dbsql_cost_per_query": MERGE_DBSQL_COST_PER_QUERY,
                     "daily_tag_summary": MERGE_DAILY_TAG_SUMMARY,
+                    "daily_tag_coverage_summary": MERGE_DAILY_TAG_COVERAGE_SUMMARY,
                     "daily_apps_summary": MERGE_DAILY_APPS_SUMMARY,
                 }
                 merge_sql = merge_sql_map.get(table_name)
@@ -2157,6 +2231,32 @@ WHERE usage_date BETWEEN :start_date AND :end_date
   {ws_filter}
 """
 
+MV_BILLING_TOTAL_TIMESERIES = """
+SELECT
+  usage_date,
+  'Total' AS product_category,
+  SUM(total_dbus) AS total_dbus,
+  SUM(total_spend) AS total_spend
+FROM `{catalog}`.`{schema}`.`daily_usage_summary`
+WHERE usage_date BETWEEN :start_date AND :end_date
+  {ws_filter}
+GROUP BY usage_date
+ORDER BY usage_date
+"""
+
+MV_BILLING_BY_WORKSPACE_BASIC = """
+SELECT
+  workspace_id,
+  CAST(NULL AS STRING) AS workspace_name,
+  SUM(total_dbus) AS total_dbus,
+  SUM(total_spend) AS total_spend
+FROM `{catalog}`.`{schema}`.`daily_usage_summary`
+WHERE usage_date BETWEEN :start_date AND :end_date
+  {ws_filter}
+GROUP BY workspace_id
+ORDER BY total_spend DESC
+"""
+
 MV_BILLING_BY_PRODUCT = """
 SELECT
   product_category,
@@ -2279,88 +2379,29 @@ LIMIT 1000
 
 
 MV_TAG_COVERAGE_TIMESERIES = """
-WITH usage_agg AS (
-  SELECT usage_date, workspace_id, total_spend
-  FROM `{catalog}`.`{schema}`.`daily_usage_summary`
-  WHERE usage_date BETWEEN :start_date AND :end_date
-    {ws_filter}
-),
-tagged_agg AS (
-  SELECT
-    u.usage_date,
-    u.workspace_id,
-    SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS tagged_spend
-  FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.custom_tags IS NOT NULL
-    AND size(u.custom_tags) > 0
-    {ws_clause_billing}
-  GROUP BY u.usage_date, u.workspace_id
-)
 SELECT
-  ua.usage_date,
-  SUM(COALESCE(ta.tagged_spend, 0)) AS tagged_spend,
-  SUM(GREATEST(ua.total_spend - COALESCE(ta.tagged_spend, 0), 0)) AS untagged_spend
-FROM usage_agg ua
-LEFT JOIN tagged_agg ta
-  ON ua.usage_date = ta.usage_date
-  AND ua.workspace_id = ta.workspace_id
-GROUP BY ua.usage_date
-ORDER BY ua.usage_date
+  usage_date,
+  SUM(tagged_spend) AS tagged_spend,
+  SUM(untagged_spend) AS untagged_spend
+FROM `{catalog}`.`{schema}`.`daily_tag_coverage_summary`
+WHERE usage_date BETWEEN :start_date AND :end_date
+  {ws_filter}
+GROUP BY usage_date
+ORDER BY usage_date
 """
 
 
-# Hybrid MV fast path for the tagging bundle's summary card.
-# Uses daily_usage_summary (an MV) for total_spend + a targeted system.billing.usage
-# scan filtered to rows with custom_tags for the tagged portion. Faster than the
-# raw TAGGING_SUMMARY that scans every billing row, since only tagged usage is
-# scanned by the filter and totals come from the pre-aggregated MV.
+# Exact non-exploded MV fast path for the tagging bundle's summary card.
 MV_TAGGING_SUMMARY = """
-WITH usage_agg AS (
-  SELECT usage_date, workspace_id, total_spend
-  FROM `{catalog}`.`{schema}`.`daily_usage_summary`
-  WHERE usage_date BETWEEN :start_date AND :end_date
-  {ws_filter}
-),
-tagged_agg AS (
-  SELECT
-    u.usage_date,
-    u.workspace_id,
-    SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS tagged_spend
-  FROM system.billing.usage u
-  LEFT JOIN system.billing.list_prices p
-    ON u.sku_name = p.sku_name
-    AND u.cloud = p.cloud
-    AND p.price_end_time IS NULL
-  WHERE u.usage_date BETWEEN :start_date AND :end_date
-    AND u.usage_quantity > 0
-    AND u.custom_tags IS NOT NULL
-    AND size(u.custom_tags) > 0
-    {ws_clause_billing}
-  GROUP BY u.usage_date, u.workspace_id
-),
-joined AS (
-  SELECT
-    ua.workspace_id,
-    ua.total_spend,
-    COALESCE(ta.tagged_spend, 0) AS tagged_spend
-  FROM usage_agg ua
-  LEFT JOIN tagged_agg ta
-    ON ua.usage_date = ta.usage_date
-    AND ua.workspace_id = ta.workspace_id
-)
 SELECT
   SUM(tagged_spend) AS tagged_spend,
-  SUM(GREATEST(total_spend - tagged_spend, 0)) AS untagged_spend,
+  SUM(untagged_spend) AS untagged_spend,
   SUM(total_spend) AS total_spend,
   COUNT(DISTINCT CASE WHEN tagged_spend > 0 THEN workspace_id END) AS tagged_workspaces,
-  COUNT(DISTINCT CASE WHEN total_spend > tagged_spend THEN workspace_id END) AS untagged_workspaces
-FROM joined
+  COUNT(DISTINCT CASE WHEN untagged_spend > 0 THEN workspace_id END) AS untagged_workspaces
+FROM `{catalog}`.`{schema}`.`daily_tag_coverage_summary`
+WHERE usage_date BETWEEN :start_date AND :end_date
+  {ws_filter}
 """
 
 

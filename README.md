@@ -377,7 +377,7 @@ Download the canonical customer-ready artifact, [`cost-obs-arch-1.2.pdf`](client
 flowchart LR
     Browser["Browser / React<br/>Nine cost views, filters, reports"] -->|Authenticated REST| API["FastAPI routes<br/>Validation, shaping, tab cache control"]
     API -->|Governed SQL| Warehouse["Bound SQL Warehouse<br/>Parallel bundle queries"]
-    Warehouse -->|Fast aggregate reads<br/>settings and cache| Delta["App-managed Delta<br/>Eight aggregates, settings,<br/>refresh state, response cache"]
+    Warehouse -->|Fast aggregate reads<br/>settings and cache| Delta["App-managed Delta<br/>Nine aggregates, settings,<br/>refresh state, response cache"]
     Warehouse -->|Live and fallback reads| System["Databricks system tables<br/>billing, query, compute,<br/>Lakeflow, serving, access"]
     Warehouse -->|Optional actual-cost reads| Cloud["AWS / Azure / GCP<br/>billing exports"]
     System -->|Scheduled incremental refresh<br/>or administrator rebuild| Delta
@@ -431,9 +431,10 @@ The setup wizard creates **8 pre-aggregated Delta tables** in the Unity Catalog 
 | `daily_query_stats` | Query count, rows read, compute time per day | ~365 |
 | `dbsql_cost_per_query` | Per-query cost attribution for the last 90 days | ~90k–900k |
 | `daily_tag_summary` | Exploded (tag_key, tag_value) daily spend for the Tagging Hub | ~10k–1M |
+| `daily_tag_coverage_summary` | Exact non-exploded tagged and untagged spend per day × workspace | ~365–100k |
 | `daily_apps_summary` | Per (app_id, sku_name) daily spend + DBUs for the Apps tab | ~1k–100k |
 
-Tables are built automatically when the setup wizard completes. The dashboard works immediately using direct system table queries while the background build runs (typically 3–8 minutes), then switches to the pre-aggregated tables automatically. The `daily_tag_summary` and `daily_apps_summary` tables (new in 1.1) are treated as optional — the Tagging Hub and Apps tab both fall back to raw scans when the MV is not yet available.
+Tables are built automatically when the setup wizard completes. The dashboard works immediately using direct system table queries while the background build runs (typically 3–8 minutes), then switches to the pre-aggregated tables automatically. The Tagging aggregates (`daily_tag_summary` and `daily_tag_coverage_summary`) and `daily_apps_summary` are treated as optional — Tagging and Apps fall back to live queries while an aggregate is not yet available.
 
 ### Keeping Tables Fresh
 
@@ -441,7 +442,7 @@ Tables are automatically refreshed on a nightly schedule (default: 05:00 UTC). T
 
 The refresh frequency and scheduled time are configurable under **Settings → General**. Options include nightly (default), weekly, and monthly.
 
-To rebuild on demand, go to **Settings → Data & tables**. This triggers a full rebuild of all 8 tables from the latest `system.*` data and typically takes 3–8 minutes. Progress is shown in real time.
+To rebuild on demand, go to **Settings → Data & tables**. This triggers a full rebuild of all 9 tables from the latest `system.*` data and typically takes 3–8 minutes. Progress is shown in real time.
 
 Tables can be dropped and recreated at any time with no data loss — all source data lives in `system.*` tables managed by Databricks.
 
@@ -453,7 +454,7 @@ The canonical `cost-obs-arch-1.2.pdf` architecture report maps every visible tab
 - **SQL** uses `sql_tool_attribution` and `dbsql_cost_per_query`, backed by billing, query history, warehouse metadata, and workspace names.
 - **AI/ML** reads live billing data and optionally enriches it from compute, serving, and workspace system tables.
 - **Apps** uses `daily_apps_summary` with a live billing fallback and Databricks Apps API enrichment.
-- **Tagging** uses `daily_tag_summary` plus live billing and optional compute/Lakeflow metadata.
+- **Tagging** uses `daily_tag_summary` and `daily_tag_coverage_summary` plus optional compute/Lakeflow metadata.
 - **Users** reads live billing and pricing data, with optional SCIM group enrichment.
 - **KPIs & Trends** combines `daily_usage_summary`, `daily_query_stats`, `daily_workspace_breakdown`, `dbsql_cost_per_query`, and live billing/query/Lakeflow sources.
 - **Cloud Costs** shows DBU and cluster metadata. Currency costs are shown only from AWS, Azure, or GCP billing exports; DBUs are not treated as VM node-hours.

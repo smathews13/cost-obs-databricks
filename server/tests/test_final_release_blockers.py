@@ -87,24 +87,25 @@ def test_query_started_before_clear_cannot_late_write_stale_result():
         (gcp_actual, "get_gcp_status", "gcp_available"),
     ],
 )
-def test_local_cloud_exports_are_excluded_from_shared_only_scope(
+def test_local_cloud_exports_remain_visible_under_shared_cost_scope(
     router_module, status_name, availability_key
 ):
+    for cache_name in ("_cur_status_cache", "_azure_status_cache", "_gcp_status_cache"):
+        if hasattr(router_module, cache_name):
+            getattr(router_module, cache_name).update({"available": None, "checked_at": 0})
     token = db.set_source_labels(["shared-west"])
     try:
         with (
             patch.object(db, "get_local_source_label", return_value="local-workspace"),
-            patch.object(router_module, "execute_query") as execute,
+            patch.object(router_module, "execute_query", return_value=[]) as execute,
         ):
             result = asyncio.run(getattr(router_module, status_name)())
     finally:
         db.reset_source_labels(token)
 
     assert result[availability_key] is False
-    assert result["available"] is False
-    assert result["scoped_out"] is True
-    assert result["reason"] == "source_scope_excludes_local"
-    execute.assert_not_called()
+    assert "scoped_out" not in result
+    execute.assert_called_once()
 
 
 @pytest.mark.parametrize(
