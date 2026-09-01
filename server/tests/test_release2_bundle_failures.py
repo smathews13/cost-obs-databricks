@@ -347,11 +347,7 @@ def test_aiml_durable_cache_failure_is_typed(cache_outcome):
 
 def _tagging_results() -> dict:
     return {
-        "summary": [{
-            "tagged_spend": 75,
-            "untagged_spend": 25,
-            "total_spend": 100,
-        }],
+        "summary": [],
         "clusters": [],
         "jobs": [],
         "pipelines": [],
@@ -359,20 +355,23 @@ def _tagging_results() -> dict:
         "endpoints": [],
         "cost_by_tag": [],
         "tag_stats": [{"avg_cost_per_tag": 10, "total_tag_count": 4}],
-        "tag_keys": [],
-        "timeseries": [],
+        "timeseries": [{
+            "usage_date": "2026-02-01",
+            "tagged_spend": 75,
+            "untagged_spend": 25,
+        }],
     }
 
 
 def test_tagging_required_timeout_returns_typed_unavailable_without_fake_zero():
     partial = _tagging_results()
-    partial["summary"] = None
+    partial["timeseries"] = None
     with (
         patch.object(tagging, "delta_cache_get", return_value=None),
         patch.object(
             tagging,
             "execute_queries_parallel",
-            side_effect=_failure("summary", partial),
+            side_effect=_failure("timeseries", partial),
         ) as execute,
         patch.object(tagging, "delta_cache_put") as cache_put,
     ):
@@ -387,7 +386,7 @@ def test_tagging_required_timeout_returns_typed_unavailable_without_fake_zero():
     assert result["summary"] == {}
     assert "error" not in result
     assert execute.call_args.args[1] == 27.0
-    assert execute.call_args.kwargs["required_names"] == {"summary"}
+    assert execute.call_args.kwargs["required_names"] == {"timeseries"}
     assert execute.call_args.kwargs["max_concurrency"] == 2
     cache_put.assert_not_called()
 

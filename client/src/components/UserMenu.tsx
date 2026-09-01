@@ -10,6 +10,7 @@ import {
   Slack,
   UserRound,
 } from "lucide-react";
+import { FloatingMenu } from "@/components/ui/FloatingMenu";
 
 interface UserMenuProps {
   name: string;
@@ -367,12 +368,15 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
             </button>
 
             {chooserOpen && (
-              <div
+              <FloatingMenu
+                anchorRef={feedbackRef}
+                side="right"
+                gap={8}
                 role="menu"
                 aria-label="Send via"
                 onKeyDown={onChooserKeyDown}
                 onMouseEnter={() => openChooser(false)}
-                className="user-menu-panel animate-fade-in absolute left-full top-0 z-60 ml-[8px] w-[250px] rounded-[10px] border border-[#E4E2DD] bg-white p-[8px] shadow-[0_8px_28px_rgba(11,32,38,.16)]"
+                className="user-menu-panel animate-fade-in w-[250px] rounded-[10px] border border-[#E4E2DD] bg-white p-[8px] shadow-[0_8px_28px_rgba(11,32,38,.16)]"
               >
                 <div className="user-menu-secondary px-[10px] pb-[5px] pt-[3px] text-[10.5px] font-bold tracking-[.07em] text-[#618794]">
                   SEND VIA
@@ -414,7 +418,7 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
                     Email
                   </a>
                 )}
-              </div>
+              </FloatingMenu>
             )}
           </div>
 

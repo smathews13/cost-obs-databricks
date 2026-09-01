@@ -180,6 +180,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
   const [selectedKPI, setSelectedKPI] = useState<{kpi: string; label: string} | null>(null);
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showHistoricalApps, setShowHistoricalApps] = useState(false);
   const [selectedWorkspaces, setSelectedWorkspaces] = useState<string[]>([]);
   const selectedWorkspacesSeen = useRef<Set<string>>(new Set());
   const [wsFilterOpen, setWsFilterOpen] = useState(false);
@@ -335,6 +336,9 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
     () => new Set(selectedWorkspaces),
     [selectedWorkspaces],
   );
+  const historicalAppCount = data?.apps?.apps?.filter(
+    (app) => !app.is_registered || app.status === "historical",
+  ).length ?? 0;
 
   // Filter apps by search query and workspace
   const filteredApps = (() => {
@@ -347,12 +351,17 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
     // workspace_names is [] whenever there's no APPS billing to map from).
     const isPartial = selectedWorkspaces.length > 0
       && selectedWorkspaces.length < availableWorkspaces.length;
-    const apps = !isPartial
+    const workspaceScopedApps = !isPartial
       ? data.apps.apps
       : data.apps.apps.filter(a =>
           (!a.workspaces?.length && !a.workspace_names?.length)
           || a.workspaces?.some(ws => selectedWorkspaceIds.has(ws.id))
           || a.workspace_names?.some(ws => selectedWorkspaceIds.has(ws))
+        );
+    const apps = showHistoricalApps
+      ? workspaceScopedApps
+      : workspaceScopedApps.filter(
+          (app) => app.is_registered && app.status !== "historical",
         );
     if (!searchQuery.trim()) return apps;
     const q = searchQuery.toLowerCase();
@@ -371,7 +380,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
     selectedAppId && data?.apps?.apps && !selectedApp,
   );
 
-  const appsFilterKey = `${searchQuery}\u0000${selectedWorkspaces.join("\u0000")}`;
+  const appsFilterKey = `${showHistoricalApps}\u0000${searchQuery}\u0000${selectedWorkspaces.join("\u0000")}`;
   const requestedAppsPage = appsPagination.filterKey === appsFilterKey ? appsPagination.page : 1;
   const totalAppsPages = Math.ceil(filteredApps.length / APPS_PAGE_SIZE);
   const effectiveAppsPage = Math.min(requestedAppsPage, Math.max(1, totalAppsPages));
@@ -693,10 +702,30 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
           <h3 className="shrink-0 text-lg font-semibold text-gray-900">
             Apps by Spend
             <span className="ml-2 text-sm font-normal text-gray-500">
-              ({appsData.total_app_count} app{appsData.total_app_count !== 1 ? "s" : ""})
+              ({filteredApps.length} app{filteredApps.length !== 1 ? "s" : ""})
             </span>
           </h3>
           <div className="flex items-center gap-2">
+            {historicalAppCount > 0 && (
+              <label className="flex shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap text-xs text-gray-500">
+                <input
+                  type="checkbox"
+                  checked={showHistoricalApps}
+                  onChange={(event) => {
+                    setShowHistoricalApps(event.target.checked);
+                    setAppsPagination({ filterKey: "", page: 1 });
+                  }}
+                  className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                />
+                Show historical ({historicalAppCount})
+                <InfoPopover
+                  className="ml-0.5"
+                  label="About historical apps"
+                  text="Apps present in billing history but no longer registered or accessible in the workspace."
+                  stopClick
+                />
+              </label>
+            )}
             {/* Workspace filter */}
             {availableWorkspaces.length > 1 && (
               <div ref={wsFilterRef} className="relative" data-ws-filter-dropdown>

@@ -41,7 +41,10 @@ _DEFAULT_FEEDBACK_ISSUE_URL = (
     "https://github.com/smathews13/cost-obs-databricks-v1.0/issues/new"
 )
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_FEEDBACK_SETTINGS_TIMEOUT_SECONDS = 0.5
+# This lookup runs independently of dashboard loading. Allow one warehouse-backed
+# settings read to finish so the first menu open after a deploy does not omit a
+# configured Slack destination and then remain stale for the whole browser session.
+_FEEDBACK_SETTINGS_TIMEOUT_SECONDS = 15.0
 _feedback_settings_cache: TTLCache[str, str | None] = TTLCache(maxsize=1, ttl=30)
 _feedback_settings_cache_lock = threading.Lock()
 _feedback_settings_load_lock = threading.Lock()

@@ -10,6 +10,7 @@ import { createPortal } from "react-dom";
 interface FloatingMenuProps extends HTMLAttributes<HTMLDivElement> {
   anchorRef: RefObject<HTMLElement | null>;
   align?: "start" | "end";
+  side?: "bottom" | "right";
   gap?: number;
   viewportPadding?: number;
 }
@@ -17,6 +18,7 @@ interface FloatingMenuProps extends HTMLAttributes<HTMLDivElement> {
 export function FloatingMenu({
   anchorRef,
   align = "end",
+  side = "bottom",
   gap = 4,
   viewportPadding = 8,
   className = "",
@@ -35,24 +37,32 @@ export function FloatingMenu({
     }
 
     const panelRect = panel.getBoundingClientRect();
-    const preferredLeft = align === "start"
-      ? anchor.left
-      : anchor.right - panelRect.width;
+    const preferredLeft = side === "right"
+      ? anchor.right + gap
+      : align === "start"
+        ? anchor.left
+        : anchor.right - panelRect.width;
     const left = Math.min(
       Math.max(viewportPadding, preferredLeft),
       Math.max(viewportPadding, window.innerWidth - panelRect.width - viewportPadding),
     );
     const below = anchor.bottom + gap;
     const above = anchor.top - panelRect.height - gap;
-    const top = (
-      below + panelRect.height <= window.innerHeight - viewportPadding
-      || above < viewportPadding
-    ) ? below : above;
+    const preferredTop = side === "right"
+      ? anchor.top
+      : (
+        below + panelRect.height <= window.innerHeight - viewportPadding
+        || above < viewportPadding
+      ) ? below : above;
+    const top = Math.min(
+      Math.max(viewportPadding, preferredTop),
+      Math.max(viewportPadding, window.innerHeight - panelRect.height - viewportPadding),
+    );
 
     panel.style.left = `${left}px`;
-    panel.style.top = `${Math.max(viewportPadding, top)}px`;
+    panel.style.top = `${top}px`;
     panel.style.visibility = "visible";
-  }, [align, anchorRef, gap, viewportPadding]);
+  }, [align, anchorRef, gap, side, viewportPadding]);
 
   useEffect(() => {
     const reposition = () => positionPanel(panelRef.current);

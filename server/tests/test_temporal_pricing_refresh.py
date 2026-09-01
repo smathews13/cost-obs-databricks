@@ -137,7 +137,7 @@ def test_materialized_view_build_and_merge_sql_remains_temporal():
         for name, value in vars(materialized_views).items()
         if (
             name.isupper()
-            and name != "MV_TAGGING_SUMMARY"
+            and name not in {"MV_TAGGING_SUMMARY", "MV_TAG_COVERAGE_TIMESERIES"}
             and isinstance(value, str)
             and "p.pricing" in value
         )
@@ -150,10 +150,20 @@ def test_materialized_view_build_and_merge_sql_remains_temporal():
 
 
 def test_tagging_request_hybrid_uses_the_aws_compatible_current_price_join():
-    sql = materialized_views.MV_TAGGING_SUMMARY
-    assert "LEFT JOIN LATERAL" not in sql
-    assert "LEFT JOIN system.billing.list_prices p" in sql
-    assert "p.price_end_time IS NULL" in sql
+    for sql in (
+        materialized_views.MV_TAGGING_SUMMARY,
+        materialized_views.MV_TAG_COVERAGE_TIMESERIES,
+    ):
+        assert "LEFT JOIN LATERAL" not in sql
+        assert "LEFT JOIN system.billing.list_prices p" in sql
+        assert "p.price_end_time IS NULL" in sql
+
+
+def test_tagging_breakdown_uses_pre_exploded_daily_tag_rows():
+    sql = materialized_views.MV_COST_BY_TAG
+    assert "daily_tag_summary" in sql
+    assert "LATERAL VIEW EXPLODE" not in sql
+    assert "GROUP BY tag_key, tag_value" in sql
 
 
 def test_request_path_modules_do_not_import_temporal_helper():

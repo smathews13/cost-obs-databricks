@@ -86,8 +86,9 @@ describe("UserMenu", () => {
 
     await user.keyboard("{ArrowRight}");
     const github = await screen.findByRole("menuitem", { name: "GitHub issue" });
-    expect(screen.getByRole("menu", { name: "Send via" })).toHaveClass("left-full");
-    expect(screen.getByRole("menu", { name: "Send via" })).not.toHaveClass("right-full");
+    const chooser = screen.getByRole("menu", { name: "Send via" });
+    expect(chooser).toHaveAttribute("data-floating-menu");
+    expect(chooser.parentElement).toBe(document.body);
     await waitFor(() => expect(github).toHaveFocus());
     expect(github).toHaveAttribute(
       "href",

@@ -66,7 +66,7 @@ const historicalApp: AppsApp = {
   app_name: "deleted-app-id",
   app_url: "",
   is_registered: false,
-  status: "inactive",
+  status: "historical",
   metadata: {
     availability: "unavailable",
     description: "",
@@ -196,6 +196,17 @@ describe("AppsCostCenter metadata detail", () => {
     expect(screen.queryByRole("button", { name: "See Active Apps trend" })).not.toBeInTheDocument();
   });
 
+  it("hides historical billing-only apps until the filter is enabled", () => {
+    renderApps([metadataApp, historicalApp]);
+
+    expect(screen.getByText("Show historical (1)")).toBeVisible();
+    expect(screen.queryByText("deleted-app-id")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /Show historical/ }));
+
+    expect(screen.getByText("deleted-app-id")).toBeVisible();
+  });
+
   it("falls back to deterministic identity-colored initials when thumbnail loading fails", () => {
     renderApps([metadataApp]);
     fireEvent.error(screen.getByAltText("Metadata App icon"));
@@ -253,6 +264,7 @@ describe("AppsCostCenter metadata detail", () => {
 
   it("keeps billing detail and explains unavailable historical apps", () => {
     renderApps([historicalApp]);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Show historical/ }));
     fireEvent.click(screen.getByText("deleted-app-id"));
 
     expect(screen.getAllByText(/\$123/).length).toBeGreaterThan(0);

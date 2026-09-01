@@ -46,6 +46,14 @@ describe("CloudCostsView empty-data controls", () => {
     expect(screen.getByText(/choose the cloud environment/i)).toBeInTheDocument();
   });
 
+  it("reserves room for the tab refresh control beside the integration action", () => {
+    renderView();
+
+    expect(
+      screen.getByRole("button", { name: /integrate cloud costs/i }).closest(".pr-12"),
+    ).toBeInTheDocument();
+  });
+
   it("allows the Actual Costs view to explain its unconfigured state", async () => {
     renderView();
 

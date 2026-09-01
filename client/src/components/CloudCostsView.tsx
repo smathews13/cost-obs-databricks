@@ -298,7 +298,7 @@ export function CloudCostsView({
   ));
 
   const ModeToggle = actualAvailable ? (
-    <div className="mb-6 flex items-center justify-between">
+    <div className="mb-6 flex items-center justify-between pr-12">
       <div className="flex items-center gap-2">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-100 px-3 py-1 text-sm font-medium text-orange-800">
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -385,7 +385,7 @@ export function CloudCostsView({
 
   const CurSetupBanner = !actualAvailable ? (
     <div className="mb-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 pr-12">
         <div className="flex items-center gap-3">
           <div className="flex rounded-lg bg-gray-100 p-1">
             <button

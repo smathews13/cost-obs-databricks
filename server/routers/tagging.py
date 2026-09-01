@@ -26,7 +26,12 @@ from server.db import (
     selected_source_labels,
     source_label_filter_clause,
 )
-from server.materialized_views import MV_TAG_STATS, MV_TAGGING_SUMMARY
+from server.materialized_views import (
+    MV_COST_BY_TAG,
+    MV_TAG_COVERAGE_TIMESERIES,
+    MV_TAG_STATS,
+    MV_TAGGING_SUMMARY,
+)
 from server.request_limits import (
     cap_detail_items,
     default_date_range,
@@ -1142,10 +1147,10 @@ async def get_tagging_dashboard_bundle(
     )
     params = {"start_date": validated_start, "end_date": validated_end}
     id_list = parse_workspace_ids(workspace_ids)
-    _dkey = bundle_cache_key("tagging:dashboard-bundle:v3", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("tagging:dashboard-bundle:v4", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v3")
+    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v4")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     def _ws(sql: str) -> str:
@@ -1216,6 +1221,46 @@ async def get_tagging_dashboard_bundle(
                 logger.warning("tag_stats MV path failed (%s); falling back to raw scan", type(e).__name__)
         return execute_query(_ws(TAG_STATS), query_params)
 
+    def cost_by_tag_query(query_params: dict) -> list[dict[str, Any]]:
+        """Use pre-exploded daily tag aggregates for the two tag visuals."""
+        if _check_mv_available():
+            try:
+                catalog, schema = get_catalog_schema()
+                mv_ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
+                mv_sql = MV_COST_BY_TAG.format(
+                    catalog=catalog,
+                    schema=schema,
+                    ws_filter=mv_ws_clause + source_label_filter_clause(MV_COST_BY_TAG),
+                )
+                mv_sql = apply_mv_overrides(mv_sql, catalog, schema)
+                return execute_query(mv_sql, query_params)
+            except Exception as e:
+                if selected_source_labels():
+                    raise
+                logger.warning("cost_by_tag MV path failed (%s); falling back to raw scan", type(e).__name__)
+        return execute_query(_ws(COST_BY_TAG), query_params)
+
+    def coverage_timeseries_query(query_params: dict) -> list[dict[str, Any]]:
+        """Read daily totals from aggregates and scan only tagged billing rows."""
+        if _check_mv_available():
+            try:
+                catalog, schema = get_catalog_schema()
+                mv_ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
+                billing_ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list)
+                mv_sql = MV_TAG_COVERAGE_TIMESERIES.format(
+                    catalog=catalog,
+                    schema=schema,
+                    ws_filter=mv_ws_clause + source_label_filter_clause(MV_TAG_COVERAGE_TIMESERIES),
+                    ws_clause_billing=billing_ws_clause,
+                )
+                mv_sql = apply_mv_overrides(mv_sql, catalog, schema)
+                return execute_query(mv_sql, query_params)
+            except Exception as e:
+                if selected_source_labels():
+                    raise
+                logger.warning("tag coverage timeseries MV path failed (%s); falling back to raw scan", type(e).__name__)
+        return execute_query(_ws(TAG_COVERAGE_TIMESERIES), query_params)
+
     def lakeflow_query(name: str, enriched_sql: str, fallback_sql: str, query_params: dict, flag: list) -> list[dict[str, Any]]:
         """Try lakeflow-enriched query with 45s timeout; fall back to billing-only on failure.
 
@@ -1239,26 +1284,26 @@ async def get_tagging_dashboard_bundle(
 
     local_details_selected = local_source_is_selected()
 
-    # Resource-level tagging details come from local system tables. If the
-    # top-level source filter excludes this workspace, return no local rows
-    # rather than leaking them into a shared-source-only table.
-    def local_detail(query_fn):
-        return query_fn() if local_details_selected else []
-
-    queries = [
-        ("summary", lambda: summary_query(params)),
-        ("clusters", lambda: local_detail(lambda: query_with_fallback(_ws(UNTAGGED_CLUSTERS_ENRICHED), _ws(UNTAGGED_CLUSTERS), params))),
-        ("jobs", lambda: local_detail(lambda: lakeflow_query("lakeflow_jobs", _ws(UNTAGGED_JOBS_ENRICHED), _ws(UNTAGGED_JOBS), params, jobs_ok))),
-        ("pipelines", lambda: local_detail(lambda: lakeflow_query("lakeflow_pipelines", _ws(UNTAGGED_PIPELINES_ENRICHED), _ws(UNTAGGED_PIPELINES), params, pipelines_ok))),
-        ("warehouses", lambda: local_detail(lambda: query_with_fallback(_ws(UNTAGGED_WAREHOUSES_ENRICHED), _ws(UNTAGGED_WAREHOUSES), params))),
-        ("endpoints", lambda: local_detail(lambda: execute_query(_ws(UNTAGGED_ENDPOINTS), params))),
-        ("cost_by_tag", lambda: local_detail(lambda: execute_query(_ws(COST_BY_TAG), params))),
-        ("tag_stats", lambda: tag_stats_query(params)),
-        ("tag_keys", lambda: local_detail(lambda: execute_query(_ws(COST_BY_TAG_KEY), params))),
-        ("timeseries", lambda: local_detail(lambda: execute_query(_ws(TAG_COVERAGE_TIMESERIES), params))),
-    ]
-
-    required_queries = {"summary"}
+    if local_details_selected:
+        queries = [
+            # Core visual contract first: these three slots restore the complete
+            # Tagging layout before optional resource-enrichment work is attempted.
+            ("timeseries", lambda: coverage_timeseries_query(params)),
+            ("cost_by_tag", lambda: cost_by_tag_query(params)),
+            ("tag_stats", lambda: tag_stats_query(params)),
+            ("clusters", lambda: query_with_fallback(_ws(UNTAGGED_CLUSTERS_ENRICHED), _ws(UNTAGGED_CLUSTERS), params)),
+            ("jobs", lambda: lakeflow_query("lakeflow_jobs", _ws(UNTAGGED_JOBS_ENRICHED), _ws(UNTAGGED_JOBS), params, jobs_ok)),
+            ("pipelines", lambda: lakeflow_query("lakeflow_pipelines", _ws(UNTAGGED_PIPELINES_ENRICHED), _ws(UNTAGGED_PIPELINES), params, pipelines_ok)),
+            ("warehouses", lambda: query_with_fallback(_ws(UNTAGGED_WAREHOUSES_ENRICHED), _ws(UNTAGGED_WAREHOUSES), params)),
+            ("endpoints", lambda: execute_query(_ws(UNTAGGED_ENDPOINTS), params)),
+        ]
+        required_queries = {"timeseries"}
+    else:
+        queries = [
+            ("summary", lambda: summary_query(params)),
+            ("tag_stats", lambda: tag_stats_query(params)),
+        ]
+        required_queries = {"summary"}
     try:
         try:
             results = await asyncio.to_thread(
@@ -1318,7 +1363,6 @@ async def get_tagging_dashboard_bundle(
             "tagged_percentage": (tagged_spend / total_spend * 100) if total_spend > 0 else 0,
             "untagged_percentage": (untagged_spend / total_spend * 100) if total_spend > 0 else 0,
         }
-        optional_failures["summary"] = "DERIVED_FROM_TIMESERIES"
     else:
         summary = {"tagged_spend": 0, "untagged_spend": 0, "total_spend": 0, "tagged_percentage": 0, "untagged_percentage": 0}
 
@@ -1425,7 +1469,7 @@ async def get_tagging_dashboard_bundle(
     }
     delta_cache_put(
         _dkey,
-        "tagging:dashboard-bundle:v3",
+        "tagging:dashboard-bundle:v4",
         _resp,
         ttl_seconds=(
             60

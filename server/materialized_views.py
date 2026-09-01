@@ -2261,6 +2261,60 @@ FROM per_day
 """
 
 
+MV_COST_BY_TAG = """
+SELECT
+  tag_key,
+  tag_value,
+  SUM(total_dbus) AS total_dbus,
+  SUM(total_spend) AS total_spend,
+  COUNT(DISTINCT workspace_id) AS workspace_count,
+  COUNT(DISTINCT usage_date) AS days_active
+FROM `{catalog}`.`{schema}`.`daily_tag_summary`
+WHERE usage_date BETWEEN :start_date AND :end_date
+  {ws_filter}
+GROUP BY tag_key, tag_value
+ORDER BY total_spend DESC
+LIMIT 1000
+"""
+
+
+MV_TAG_COVERAGE_TIMESERIES = """
+WITH usage_agg AS (
+  SELECT usage_date, workspace_id, total_spend
+  FROM `{catalog}`.`{schema}`.`daily_usage_summary`
+  WHERE usage_date BETWEEN :start_date AND :end_date
+    {ws_filter}
+),
+tagged_agg AS (
+  SELECT
+    u.usage_date,
+    u.workspace_id,
+    SUM(u.usage_quantity * COALESCE(p.pricing.default, 0)) AS tagged_spend
+  FROM system.billing.usage u
+  LEFT JOIN system.billing.list_prices p
+    ON u.sku_name = p.sku_name
+    AND u.cloud = p.cloud
+    AND p.price_end_time IS NULL
+  WHERE u.usage_date BETWEEN :start_date AND :end_date
+    AND u.usage_quantity > 0
+    AND u.custom_tags IS NOT NULL
+    AND size(u.custom_tags) > 0
+    {ws_clause_billing}
+  GROUP BY u.usage_date, u.workspace_id
+)
+SELECT
+  ua.usage_date,
+  SUM(COALESCE(ta.tagged_spend, 0)) AS tagged_spend,
+  SUM(GREATEST(ua.total_spend - COALESCE(ta.tagged_spend, 0), 0)) AS untagged_spend
+FROM usage_agg ua
+LEFT JOIN tagged_agg ta
+  ON ua.usage_date = ta.usage_date
+  AND ua.workspace_id = ta.workspace_id
+GROUP BY ua.usage_date
+ORDER BY ua.usage_date
+"""
+
+
 # Hybrid MV fast path for the tagging bundle's summary card.
 # Uses daily_usage_summary (an MV) for total_spend + a targeted system.billing.usage
 # scan filtered to rows with custom_tags for the tagged portion. Faster than the
