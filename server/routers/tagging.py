@@ -1118,10 +1118,10 @@ async def get_tagging_dashboard_bundle(
     )
     params = {"start_date": validated_start, "end_date": validated_end}
     id_list = parse_workspace_ids(workspace_ids)
-    _dkey = bundle_cache_key("tagging:dashboard-bundle:v6", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("tagging:dashboard-bundle:v7", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v6")
+    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v7")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     def _ws(sql: str) -> str:
@@ -1241,12 +1241,12 @@ async def get_tagging_dashboard_bundle(
             ("timeseries", lambda: coverage_timeseries_query(params)),
             ("cost_by_tag", lambda: cost_by_tag_query(params)),
             ("tag_stats", lambda: tag_stats_query(params)),
+            ("clusters", lambda: query_with_fallback(_ws(UNTAGGED_CLUSTERS_ENRICHED), _ws(UNTAGGED_CLUSTERS), params)),
             # Billing-only rows are preferred in this aggregate bundle. Lakeflow
             # name enrichment has its own latency and previously consumed the
             # entire dashboard deadline before these sections could render.
             ("jobs", lambda: execute_query(_ws(UNTAGGED_JOBS), params)),
             ("pipelines", lambda: execute_query(_ws(UNTAGGED_PIPELINES), params)),
-            ("clusters", lambda: query_with_fallback(_ws(UNTAGGED_CLUSTERS_ENRICHED), _ws(UNTAGGED_CLUSTERS), params)),
             ("warehouses", lambda: query_with_fallback(_ws(UNTAGGED_WAREHOUSES_ENRICHED), _ws(UNTAGGED_WAREHOUSES), params)),
             ("endpoints", lambda: execute_query(_ws(UNTAGGED_ENDPOINTS), params)),
         ]
@@ -1422,7 +1422,7 @@ async def get_tagging_dashboard_bundle(
     }
     delta_cache_put(
         _dkey,
-        "tagging:dashboard-bundle:v6",
+        "tagging:dashboard-bundle:v7",
         _resp,
         ttl_seconds=(
             60
