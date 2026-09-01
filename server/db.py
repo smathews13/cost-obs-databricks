@@ -1958,20 +1958,25 @@ def source_label_filter_clause(mv_query: str | None = None) -> str:
             str(source.get("label") or ""): source
             for source in get_mv_sources()
         }
-        unsupported = []
+        any_capable_source = False
         for label in labels:
             if label == local_label:
+                any_capable_source = True
                 continue
             source = configured_sources.get(label)
             declared_tables = source.get("tables") if source else None
-            if source is not None and (
+            if source is None:
+                # Legacy/test contexts may not expose declared capabilities.
+                # Physical unified-view verification below remains authoritative.
+                any_capable_source = True
+            elif not (
                 isinstance(declared_tables, list)
                 and not referenced.issubset(set(map(str, declared_tables)))
             ):
-                unsupported.append(label)
-        if unsupported:
+                any_capable_source = True
+        if not any_capable_source:
             raise SourceScopeUnsupportedError(
-                "The selected shared source does not publish the managed data "
+                "None of the selected sources publish the managed data "
                 "required by this view."
             )
         live = _list_existing_unified_views()

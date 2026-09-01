@@ -263,11 +263,41 @@ def test_selected_source_rejects_views_it_does_not_publish():
         ):
             with pytest.raises(
                 db.SourceScopeUnsupportedError,
-                match="does not publish",
+                match="None of the selected sources",
             ):
                 db.source_label_filter_clause(template)
     finally:
         db.reset_source_labels(token)
+
+
+def test_mixed_source_scope_keeps_capable_contributors():
+    token = db.set_source_labels(["local", "west4"])
+    template = (
+        "SELECT SUM(total_spend) FROM "
+        "`{catalog}`.`{schema}`.`daily_apps_summary` WHERE 1=1 {ws_filter}"
+    )
+    try:
+        with (
+            patch.object(db, "get_local_source_label", return_value="local"),
+            patch.object(
+                db,
+                "get_mv_sources",
+                return_value=[{
+                    "label": "west4",
+                    "tables": ["daily_usage_summary"],
+                }],
+            ),
+            patch.object(
+                db,
+                "_list_existing_unified_views",
+                return_value=["daily_apps_summary"],
+            ),
+        ):
+            clause = db.source_label_filter_clause(template)
+    finally:
+        db.reset_source_labels(token)
+
+    assert "source_label IN ('local', 'west4')" in clause
 
 
 def test_tagging_mv_queries_include_selected_source_filter():
