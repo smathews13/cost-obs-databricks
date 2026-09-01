@@ -103,7 +103,7 @@ describe("user anonymization", () => {
 
     for (const [title, kpi, prefix] of [
       ["Unique Active Users", "total_users", "users-groups-platform-kpi-trend"],
-      ["User Spend", "avg_spend_per_user", "users-groups-kpi-trend"],
+      ["Daily User Spend", "avg_spend_per_user", "users-groups-kpi-trend"],
       ["Power Users", "power_user_spend", "users-groups-kpi-trend"],
       ["User Spend Growth", "user_spend", "users-groups-kpi-trend"],
     ]) {

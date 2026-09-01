@@ -101,7 +101,7 @@ def test_apps_background_thread_captures_request_context():
             patch.object(
                 apps,
                 "capture_cache_generation",
-                return_value=db.CacheGeneration("apps:dashboard-bundle:v3:all", 0),
+                return_value=db.CacheGeneration("apps:dashboard-bundle:v4:all", 0),
             ),
             patch.object(apps, "start_bundle_compute", side_effect=capture_start),
         ):
@@ -340,12 +340,12 @@ def test_cache_invalidation_rejects_worker_that_started_before_clear(tmp_path):
 def _cache_generation_child(state_path: str, lock_path: str, connection):
     db._CACHE_GENERATION_STATE_PATH = state_path
     db._CACHE_GENERATION_LOCK_PATH = lock_path
-    generation = db.capture_cache_generation("apps:dashboard-bundle:v3:all")
+    generation = db.capture_cache_generation("apps:dashboard-bundle:v4:all")
     connection.send("captured")
     connection.recv()
     accepted = db.delta_cache_put(
         "old-worker-key",
-        "apps:dashboard-bundle:v3:all",
+        "apps:dashboard-bundle:v4:all",
         {"stale": True},
         generation=generation,
     )

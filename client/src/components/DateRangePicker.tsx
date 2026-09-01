@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useUpdatingIndicator } from "@/hooks/useUpdatingIndicator";
 import {
   format,
@@ -10,6 +10,7 @@ import {
 } from "date-fns";
 import type { DateRange } from "@/types/billing";
 import { Spinner } from "./Spinner";
+import { FloatingMenu } from "./ui/FloatingMenu";
 
 interface DateRangePickerProps {
   value: DateRange;
@@ -57,6 +58,7 @@ const PRESETS = [
 ];
 
 export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
+  const menuAnchorRef = useRef<HTMLDivElement>(null);
   const { updating, arm } = useUpdatingIndicator();
   const [isOpen, setIsOpen] = useState(false);
   const [customStart, setCustomStart] = useState(value.startDate);
@@ -107,7 +109,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   };
 
   return (
-    <div className="relative w-full sm:w-80">
+    <div ref={menuAnchorRef} className="relative w-full sm:w-80">
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
@@ -136,10 +138,12 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             className="fixed inset-0 z-10"
             onClick={() => setIsOpen(false)}
           />
-          <div
+          <FloatingMenu
+            anchorRef={menuAnchorRef}
             role="dialog"
             aria-label="Choose date range"
-            className="co-filter-menu absolute right-0 z-20 mt-2 w-[min(20rem,calc(100vw-2rem))] p-4"
+            gap={8}
+            className="co-filter-menu w-[min(20rem,calc(100vw-2rem))] p-4"
           >
             <div className="mb-4">
               <h4 className="mb-2 text-sm font-medium text-gray-700">Quick Select</h4>
@@ -204,7 +208,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
                 Apply
               </button>
             </div>
-          </div>
+          </FloatingMenu>
         </>
       )}
     </div>

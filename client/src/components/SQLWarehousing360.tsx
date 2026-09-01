@@ -25,6 +25,7 @@ import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { Dialog } from "@/components/ui/Dialog";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
+import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { KPICard } from "@/components/ui/KPICard";
 import {
   buildFilteredUrl,
@@ -206,6 +207,7 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [querySourceFilters, setQuerySourceFilters] = useState<string[] | null>(null);
   const [querySourceDropdownOpen, setQuerySourceDropdownOpen] = useState(false);
+  const querySourceDropdownRef = useRef<HTMLDivElement>(null);
   const [querySearch, setQuerySearch] = useState("");
   const queryClient = useQueryClient();
   const wsKey = getWorkspaceScopeKey(workspaceIds);
@@ -909,10 +911,10 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                     onChange={(e) => { setShowHistoricalQueries(e.target.checked); setQueriesPage(1); }}
                     className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
                   Show historical ({historicalQueryCount})
-                  <InfoTooltip className="ml-0.5" label="About historical queries" text="Queries with unknown users or unavailable previews" />
+                  <InfoTooltip className="ml-0.5" label="About historical queries" text="Queries with unknown users or unavailable previews" stopClick />
                 </label>
               )}
-              <div className="relative ml-auto flex items-center gap-2 shrink-0">
+              <div ref={querySourceDropdownRef} className="relative ml-auto flex items-center gap-2 shrink-0">
                 {querySourceDropdownOpen && (
                   <div className="fixed inset-0 z-10" onClick={() => setQuerySourceDropdownOpen(false)} />
                 )}
@@ -936,7 +938,7 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                     </svg>
                   </button>
                   {querySourceDropdownOpen && (
-                    <div className="absolute right-0 top-full z-[9999] mt-1 min-w-[200px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                    <FloatingMenu anchorRef={querySourceDropdownRef} className="min-w-[200px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                       <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Sources</span>
                         <div className="flex items-center gap-2 text-xs">
@@ -967,7 +969,7 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                           </button>
                         );
                       })}
-                    </div>
+                    </FloatingMenu>
                   )}
                 </div>
                 <div className="relative shrink-0">
@@ -1372,7 +1374,7 @@ export function WarehouseRightsizingView({
                   <svg className={`h-3 w-3 transition-transform ${healthIssueDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                 </button>
                 {healthIssueDropdownOpen && (
-                  <div className="absolute right-0 top-full z-[9999] mt-1 min-w-[180px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <FloatingMenu anchorRef={healthIssueDropdownRef} className="min-w-[180px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                     <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Issues</span>
                       <div className="flex items-center gap-2 text-xs">
@@ -1390,7 +1392,7 @@ export function WarehouseRightsizingView({
                         <span className="truncate text-gray-700">{opt.label}</span>
                       </button>
                     ))}
-                  </div>
+                  </FloatingMenu>
                 )}
               </div>
               <div className="relative">
@@ -1648,7 +1650,7 @@ export function WarehouseIdleTimeView({
                     <svg className={`h-3 w-3 transition-transform ${idleSizeDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                   </button>
                   {idleSizeDropdownOpen && (
-                    <div className="absolute right-0 top-full z-[9999] mt-1 min-w-[180px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                    <FloatingMenu anchorRef={idleSizeDropdownRef} className="min-w-[180px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                       <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Sizes</span>
                         <div className="flex items-center gap-2 text-xs">
@@ -1666,7 +1668,7 @@ export function WarehouseIdleTimeView({
                           <span className="truncate text-gray-700">{s}</span>
                         </button>
                       ))}
-                    </div>
+                    </FloatingMenu>
                   )}
                 </div>
               )}
@@ -1680,7 +1682,7 @@ export function WarehouseIdleTimeView({
                     <svg className={`h-3 w-3 transition-transform ${idleTypeDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                   </button>
                   {idleTypeDropdownOpen && (
-                    <div className="absolute right-0 top-full z-[9999] mt-1 min-w-[180px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                    <FloatingMenu anchorRef={idleTypeDropdownRef} className="min-w-[180px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                       <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Types</span>
                         <div className="flex items-center gap-2 text-xs">
@@ -1698,7 +1700,7 @@ export function WarehouseIdleTimeView({
                           <span className="truncate text-gray-700">{t === "SERVERLESS" ? "Serverless" : "Classic"}</span>
                         </button>
                       ))}
-                    </div>
+                    </FloatingMenu>
                   )}
                 </div>
               )}

@@ -21,6 +21,7 @@ import { getAppFallbackColor, getAppInitials } from "@/utils/apps";
 import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { InfoPopover } from "@/components/ui/InfoPopover";
+import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { KPICard } from "@/components/ui/KPICard";
 import {
   buildFilteredUrl,
@@ -183,15 +184,18 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
   const selectedWorkspacesSeen = useRef<Set<string>>(new Set());
   const [wsFilterOpen, setWsFilterOpen] = useState(false);
   const [wsFilterSearch, setWsFilterSearch] = useState("");
+  const wsFilterRef = useRef<HTMLDivElement>(null);
   const [appsPagination, setAppsPagination] = useState({ filterKey: "", page: 1 });
   const APPS_PAGE_SIZE = 40;
   const [artifactTypeFilters, setArtifactTypeFilters] = useState<string[]>([]);
   const artifactTypeSeen = useRef<Set<string>>(new Set());
   const artifactAppSeen = useRef<Set<string>>(new Set());
   const [artifactTypeDropdownOpen, setArtifactTypeDropdownOpen] = useState(false);
+  const artifactTypeDropdownRef = useRef<HTMLDivElement>(null);
   const [artifactAppFilter, setArtifactAppFilter] = useState<string[]>([]);
   const [artifactAppFilterOpen, setArtifactAppFilterOpen] = useState(false);
   const [artifactAppFilterSearch, setArtifactAppFilterSearch] = useState("");
+  const artifactAppFilterRef = useRef<HTMLDivElement>(null);
   const [artifactSearch, setArtifactSearch] = useState("");
   const [artifactPage, setArtifactPage] = useState(1);
   const artifactsPerPage = 10;
@@ -503,8 +507,8 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
       >
         <ul className="list-inside list-disc space-y-1">
           <li><strong>Databricks Apps</strong>: Custom web applications deployed and hosted on Databricks</li>
-          <li><strong>Active apps</strong>: Apps with compute usage in the last 7 days of the selected range</li>
-          <li><strong>Inactive apps</strong>: Deployed but no recent compute usage (may still be running at idle)</li>
+          <li><strong>Active apps</strong>: Registered apps currently reported as running by Databricks</li>
+          <li><strong>Inactive apps</strong>: Registered apps not currently running; recent compute usage is used only when live status is unavailable</li>
           <li><strong>Historical apps</strong>: Billing entries with no matching deployed app (deleted or from other workspaces)</li>
           <li>Costs tracked per app from <code className="rounded bg-white/60 px-1">system.billing.usage</code></li>
         </ul>
@@ -551,10 +555,8 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
           title="Active Apps"
           value={formatNumber(summary.active_app_count)}
           valueTestId="active-apps-kpi-value"
-          subtitle={`last ${appsData.active_window.days} days · ${summary.workspace_count} ${summary.workspace_count === 1 ? "workspace" : "workspaces"}`}
-          infoText={`Currently registered apps with positive Apps compute usage from ${appsData.active_window.start_date} through ${appsData.active_window.end_date}. This is the same scoped population used by App Status Breakdown.`}
-          onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "apps_count", label: "Daily Active Apps"}) : undefined}
-          ariaLabel="See Active Apps trend"
+          subtitle={`currently running · ${summary.workspace_count} ${summary.workspace_count === 1 ? "workspace" : "workspaces"}`}
+          infoText="Registered apps currently reported as running by the Databricks Apps API. If live status is unavailable, recent Apps compute usage is used as a fallback. The same population is used by App Status Breakdown."
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>}
         />
         <KPICard
@@ -587,7 +589,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
             <h3 className="mb-4 flex items-center text-lg font-semibold text-gray-900">
               App Status Breakdown
-              <InfoPopover text={`Uses the same registered-app population, date window (${appsData.active_window.start_date} through ${appsData.active_window.end_date}), workspace filter, and source scope as the Active Apps KPI.`} />
+              <InfoPopover text="Uses the same registered-app population and live Databricks Apps status as the Active Apps KPI. Billing activity is only a fallback when live status is unavailable." />
             </h3>
             <div className="flex flex-col items-center gap-6 md:flex-row md:items-start">
               <ResponsiveContainer width="100%" height={250} className="max-w-xs">
@@ -618,14 +620,14 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
                     <span data-testid="active-apps-breakdown-count">
                       <Chip kind="serverless">{formatNumber(appsData.active_count)} Active</Chip>
                     </span>
-                    <p className="text-xs text-gray-500">Apps with compute usage in the last {appsData.active_window.days} days</p>
+                    <p className="text-xs text-gray-500">Registered apps currently running</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="h-3 w-3 rounded-full" style={{ backgroundColor: PIE_COLORS.inactive }} />
                   <div>
                     <Chip kind="historical">{formatNumber(appsData.inactive_count)} Inactive</Chip>
-                    <p className="text-xs text-gray-500">Deployed but no recent compute usage (may still be running at idle)</p>
+                    <p className="text-xs text-gray-500">Registered apps not currently running</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -697,7 +699,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
           <div className="flex items-center gap-2">
             {/* Workspace filter */}
             {availableWorkspaces.length > 1 && (
-              <div className="relative" data-ws-filter-dropdown>
+              <div ref={wsFilterRef} className="relative" data-ws-filter-dropdown>
                 <button
                   onClick={() => { setWsFilterOpen(!wsFilterOpen); setWsFilterSearch(""); }}
                   className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${selectedWorkspaces.length > 0 && selectedWorkspaces.length < availableWorkspaces.length ? "border-lava text-lava" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}
@@ -710,7 +712,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
                   <svg className={`h-3 w-3 transition-transform ${wsFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                 </button>
                 {wsFilterOpen && (
-                  <div className="absolute right-0 top-full z-50 mt-1 w-72 rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <FloatingMenu anchorRef={wsFilterRef} className="w-72 rounded-lg border border-gray-200 bg-white shadow-lg">
                     <div className="p-2">
                       <input
                         type="text"
@@ -765,7 +767,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
                         );
                       })()}
                     </div>
-                  </div>
+                  </FloatingMenu>
                 )}
               </div>
             )}
@@ -1181,7 +1183,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
               <div className="ml-auto flex shrink-0 items-center gap-2">
 
               {/* App filter dropdown */}
-              <div className="relative" data-artifact-app-dropdown>
+              <div ref={artifactAppFilterRef} className="relative" data-artifact-app-dropdown>
                 <button
                   onClick={() => { setArtifactAppFilterOpen(v => !v); setArtifactAppFilterSearch(""); }}
                   className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${artifactAppFilter.length > 0 && artifactAppFilter.length < allAppNames.length ? "border-lava text-lava" : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"}`}
@@ -1192,7 +1194,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
                   </svg>
                 </button>
                 {artifactAppFilterOpen && (
-                  <div className="absolute right-0 top-full z-[9999] mt-1 w-64 max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <FloatingMenu anchorRef={artifactAppFilterRef} className="w-64 max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                     <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">App</span>
                       <div className="flex items-center gap-2 text-xs">
@@ -1235,12 +1237,12 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
                         )}
                       />
                     )}
-                  </div>
+                  </FloatingMenu>
                 )}
               </div>
 
               {/* Resource type multi-select dropdown */}
-              <div className="relative" data-artifact-type-dropdown>
+              <div ref={artifactTypeDropdownRef} className="relative" data-artifact-type-dropdown>
                 <button
                   onClick={() => setArtifactTypeDropdownOpen(v => !v)}
                   className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${artifactTypeFilters.length > 0 && artifactTypeFilters.length < artifactTypes.length ? "border-lava text-lava" : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"}`}
@@ -1257,7 +1259,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
                   </svg>
                 </button>
                 {artifactTypeDropdownOpen && (
-                  <div className="absolute right-0 top-full z-[9999] mt-1 w-56 max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <FloatingMenu anchorRef={artifactTypeDropdownRef} className="w-56 max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                     <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Types</span>
                       <div className="flex items-center gap-2 text-xs">
@@ -1286,7 +1288,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
                         </button>
                       );
                     })}
-                  </div>
+                  </FloatingMenu>
                 )}
               </div>
 

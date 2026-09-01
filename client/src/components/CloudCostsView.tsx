@@ -39,6 +39,7 @@ import type { CloudIntegration } from "./CloudIntegrationWizard";
 import { C } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
+import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 import { KPICard } from "@/components/ui/KPICard";
 
@@ -1078,7 +1079,7 @@ export function CloudCostsView({
                   </svg>
                 </button>
                 {workspaceFilterOpen && (
-                  <div role="menu" aria-label="Filter by workspace" className="co-filter-menu absolute right-0 top-full z-[9999] mt-1 w-72">
+                  <FloatingMenu anchorRef={workspaceFilterRef} role="menu" aria-label="Filter by workspace" className="co-filter-menu w-72">
                     <div className="p-2">
                       <input
                         type="text"
@@ -1134,7 +1135,7 @@ export function CloudCostsView({
                         );
                       })()}
                     </div>
-                  </div>
+                  </FloatingMenu>
                 )}
               </div>
             )}
@@ -1154,7 +1155,7 @@ export function CloudCostsView({
                   </svg>
                 </button>
                 {familyFilterOpen && (
-                  <div role="menu" aria-label="Filter by instance family" className="co-filter-menu absolute right-0 top-full z-[9999] mt-1 max-h-64 min-w-[180px] overflow-y-auto">
+                  <FloatingMenu anchorRef={familyFilterRef} role="menu" aria-label="Filter by instance family" className="co-filter-menu max-h-64 min-w-[180px] overflow-y-auto">
                     <div className="sticky top-0 flex items-center justify-between bg-white px-3 py-2" style={{ borderBottom: `1px solid ${C.hairline}` }}>
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Families</span>
                       <div className="flex items-center gap-2 text-xs">
@@ -1178,7 +1179,7 @@ export function CloudCostsView({
                         <span className="truncate text-gray-700">{f}</span>
                       </button>
                     ))}
-                  </div>
+                  </FloatingMenu>
                 )}
               </div>
             )}

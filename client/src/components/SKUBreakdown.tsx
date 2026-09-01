@@ -14,6 +14,7 @@ import { Spinner } from "./Spinner";
 import { formatCurrency } from "@/utils/formatters";
 import { VirtualizedList } from "./VirtualizedList";
 import { C, seriesColor } from "@/theme";
+import { FloatingMenu } from "@/components/ui/FloatingMenu";
 
 interface SKUBreakdownProps {
   data: SKUBreakdownResponse | undefined;
@@ -193,7 +194,7 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
         </svg>
       </button>
       {dropdownOpen && (
-        <div className="absolute right-0 top-full z-[9999] mt-1 min-w-[220px] rounded-lg border border-gray-200 bg-white shadow-lg">
+        <FloatingMenu anchorRef={dropdownRef} className="min-w-[220px] rounded-lg border border-gray-200 bg-white shadow-lg">
           <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Workspace</span>
             <div className="flex items-center gap-2 text-xs">
@@ -225,7 +226,7 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
               )}
             />
           )}
-        </div>
+        </FloatingMenu>
       )}
     </div>
   ) : null;

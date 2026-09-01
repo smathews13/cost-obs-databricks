@@ -102,7 +102,7 @@ def test_users_required_queries_are_prioritized_and_bounded():
         (
             "apps",
             db.bundle_cache_key(
-                "apps:dashboard-bundle:v3:all", "2026-08-01", "2026-08-30", None
+                "apps:dashboard-bundle:v4:all", "2026-08-01", "2026-08-30", None
             ),
             apps.get_apps_dashboard_bundle,
             ("2026-08-01", "2026-08-30", False, None),

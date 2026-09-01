@@ -22,6 +22,7 @@ import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatt
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { Dialog } from "@/components/ui/Dialog";
+import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { KPICard } from "@/components/ui/KPICard";
 import {
   buildFilteredUrl,
@@ -75,12 +76,14 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
   const [selectedTagFilters, setSelectedTagFilters] = useState<string[]>([]);
   const [tagFilterDropdownOpen, setTagFilterDropdownOpen] = useState(false);
   const [tagFilterSearch, setTagFilterSearch] = useState("");
+  const tagFilterDropdownRef = useRef<HTMLDivElement>(null);
   const tagFilterSeen = useRef<Set<string>>(new Set());
 
   // Tag value filter state (for Spend by Tag table)
   const [selectedTagValueFilters, setSelectedTagValueFilters] = useState<string[]>([]);
   const [tagValueFilterDropdownOpen, setTagValueFilterDropdownOpen] = useState(false);
   const [tagValueFilterSearch, setTagValueFilterSearch] = useState("");
+  const tagValueFilterDropdownRef = useRef<HTMLDivElement>(null);
   const tagValueFilterSeen = useRef<Set<string>>(new Set());
 
   // Tag drilldown state
@@ -558,7 +561,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
               )}
             </h3>
             {availableTagValues.length > 0 && (
-              <div className="relative" data-tag-value-filter-dropdown>
+              <div ref={tagValueFilterDropdownRef} className="relative" data-tag-value-filter-dropdown>
                 <button
                   type="button"
                   onClick={() => { setTagValueFilterDropdownOpen(!tagValueFilterDropdownOpen); setTagValueFilterSearch(""); }}
@@ -579,7 +582,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                   </svg>
                 </button>
                 {tagValueFilterDropdownOpen && (
-                  <div id="tag-value-filter-menu" role="menu" aria-label="Tag value filters" className="co-filter-menu absolute right-0 top-full z-50 mt-2 w-72">
+                  <FloatingMenu anchorRef={tagValueFilterDropdownRef} gap={8} id="tag-value-filter-menu" role="menu" aria-label="Tag value filters" className="co-filter-menu w-72">
                     <div className="p-2">
                       <input
                         type="text"
@@ -635,7 +638,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                         );
                       })()}
                     </div>
-                  </div>
+                  </FloatingMenu>
                 )}
               </div>
             )}
@@ -731,7 +734,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">Spend by Key</h3>
             {availableTagKeys.length > 0 && (
-              <div className="relative" data-tag-filter-dropdown>
+              <div ref={tagFilterDropdownRef} className="relative" data-tag-filter-dropdown>
                 <button
                   type="button"
                   onClick={() => { setTagFilterDropdownOpen(!tagFilterDropdownOpen); setTagFilterSearch(""); }}
@@ -752,7 +755,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                   </svg>
                 </button>
                 {tagFilterDropdownOpen && (
-                  <div id="tag-key-filter-menu" role="menu" aria-label="Tag key filters" className="co-filter-menu absolute right-0 top-full z-50 mt-2 w-64">
+                  <FloatingMenu anchorRef={tagFilterDropdownRef} gap={8} id="tag-key-filter-menu" role="menu" aria-label="Tag key filters" className="co-filter-menu w-64">
                     <div className="p-2">
                       <input
                         type="text"
@@ -803,7 +806,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
                         );
                       })()}
                     </div>
-                  </div>
+                  </FloatingMenu>
                 )}
               </div>
             )}

@@ -525,7 +525,7 @@ def test_wait_for_remote_reports_failure_and_removes_local_payload(
 
         written = db.delta_cache_put(
             "remote-failure",
-            "apps:dashboard-bundle:v3:all",
+            "apps:dashboard-bundle:v4:all",
             {"value": "private"},
             wait_for_remote=True,
         )
@@ -565,7 +565,7 @@ def test_owner_expiring_during_remote_write_deletes_late_row(
 
         written = db.delta_cache_put(
             "stolen-write",
-            "apps:dashboard-bundle:v3:all",
+            "apps:dashboard-bundle:v4:all",
             {"late": True},
             wait_for_remote=True,
         )

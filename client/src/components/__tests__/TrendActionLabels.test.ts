@@ -36,7 +36,7 @@ describe("KPI card contracts", () => {
     expect(css).toContain(".co-kpi-card__layout");
     expect(css).toContain("container-type: inline-size");
     expect(css).toContain("@container (max-width: 205px)");
-    expect(css).toContain(".co-kpi-card--interactive:focus-visible");
+    expect(css).toContain(".co-kpi-card--interactive:has(.co-kpi-card__hit-area:focus-visible)");
     expect(css).toContain(".co-kpi-card--interactive:hover");
     expect(css).toMatch(/@container[\s\S]*?\.co-kpi-card__title--nowrap[\s\S]*?white-space: normal/);
   });

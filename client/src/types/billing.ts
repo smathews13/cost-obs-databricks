@@ -595,7 +595,7 @@ export interface AppsApp {
   last_usage_date: string | null;
   percentage: number;
   is_registered: boolean;
-  status: "active" | "inactive";
+  status: "active" | "inactive" | "historical";
   metadata?: AppsMetadata;
   resource_bindings?: AppsResourceBinding[];
   workspaces?: { id: string; name: string }[];

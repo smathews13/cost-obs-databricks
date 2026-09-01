@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Spinner } from "@/components/Spinner";
 import { InfoPopover } from "@/components/ui/InfoPopover";
 
@@ -35,7 +35,6 @@ export function KPICard({
   valueClassName = "",
   valueTestId,
 }: KPICardProps) {
-  const descriptionId = useId();
   const interactive = Boolean(onActivate && !unavailableReason);
   const content = (
     <span className="co-kpi-card__layout">
@@ -44,21 +43,12 @@ export function KPICard({
         <span className="co-kpi-card__title">
           <span className={titleNoWrap ? "co-kpi-card__title--nowrap whitespace-nowrap" : ""}>{title}</span>
           {infoText && (
-            interactive ? (
-              <span
-                aria-hidden="true"
-                className="co-kpi-card__info"
-                title={infoText}
-              >
-                i
-              </span>
-            ) : (
-              <InfoPopover
-                className="ml-1.5"
-                label={infoLabel ?? `About ${title}`}
-                text={infoText}
-              />
-            )
+            <InfoPopover
+              className="pointer-events-auto relative z-[2] ml-1.5"
+              label={infoLabel ?? `About ${title}`}
+              text={infoText}
+              stopClick
+            />
           )}
         </span>
         {isLoading ? (
@@ -83,9 +73,6 @@ export function KPICard({
             See trend <span>→</span>
           </span>
         )}
-        {infoText && interactive && (
-          <span id={descriptionId} className="sr-only">{infoText}</span>
-        )}
       </span>
     </span>
   );
@@ -97,15 +84,17 @@ export function KPICard({
 
   if (interactive) {
     return (
-      <button
-        {...sharedProps}
-        type="button"
-        onClick={onActivate}
-        aria-label={ariaLabel ?? `See ${title} trend`}
-        aria-describedby={infoText ? descriptionId : undefined}
-      >
+      <div {...sharedProps}>
+        <button
+          type="button"
+          className="co-kpi-card co-kpi-card--interactive co-kpi-card__hit-area"
+          onClick={onActivate}
+          aria-label={ariaLabel ?? `See ${title} trend`}
+        >
+          <span className="sr-only">See trend</span>
+        </button>
         {content}
-      </button>
+      </div>
     );
   }
 

@@ -91,6 +91,8 @@ describe("shared accessibility primitives", () => {
     const user = userEvent.setup();
     render(<InfoPopover text="How this metric is calculated" />);
     const trigger = screen.getByRole("button", { name: "More information" });
+    expect(trigger.querySelector("svg")).toBeInTheDocument();
+    expect(trigger).not.toHaveClass("bg-gray-200", "rounded-full");
 
     await user.tab();
     expect(trigger).toHaveAttribute("aria-expanded", "true");
@@ -214,6 +216,11 @@ describe("shared accessibility primitives", () => {
     expect(card).toHaveClass("co-kpi-card", "co-kpi-card--interactive");
     expect(card).toHaveTextContent("See trend");
     expect(card.querySelector("button")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "About Total Spend" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent("List-price spend in the selected period.");
+    expect(activate).not.toHaveBeenCalled();
+    await user.keyboard("{Escape}");
 
     card.focus();
     await user.keyboard("{Enter}");

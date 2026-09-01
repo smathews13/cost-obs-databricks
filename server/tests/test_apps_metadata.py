@@ -95,7 +95,7 @@ def test_public_thumbnail_contract_allows_conventional_icons_without_false_boole
     ) is None
 
 
-def test_active_count_uses_one_registered_population_and_inclusive_seven_day_window():
+def test_active_count_uses_registered_population_and_billing_fallback():
     registry = {
         "active-id": {"name": "active-app", "url": "", "metadata": {}},
         "old-id": {"name": "old-app", "url": "", "metadata": {}},
@@ -128,9 +128,12 @@ def test_active_count_uses_one_registered_population_and_inclusive_seven_day_win
         "start_date": "2026-08-24",
         "end_date": "2026-08-30",
         "days": 7,
-        "definition": "Apps with positive compute usage in the inclusive seven-day window",
+        "definition": (
+            "Currently running registered apps; recent compute usage is used "
+            "only when live Apps API status is unavailable"
+        ),
     }
-    assert result["active_count"] == 2
+    assert result["active_count"] == 1
     assert {
         app["app_id"]: app["status"]
         for app in result["apps"]
@@ -138,7 +141,58 @@ def test_active_count_uses_one_registered_population_and_inclusive_seven_day_win
     } == {"active-id": "active", "old-id": "inactive"}
     assert next(
         app for app in result["apps"] if app["app_id"] == "historical-id"
-    )["status"] == "active"
+    )["status"] == "historical"
+
+
+def test_running_registered_app_is_active_without_recent_billing():
+    registry = {
+        "running-id": {
+            "name": "cost-obs",
+            "url": "https://cost-obs.example.databricksapps.com",
+            "metadata": {
+                "app_status": {"state": "RUNNING"},
+                "compute_status": {"state": "ACTIVE"},
+            },
+        },
+        "stopped-id": {
+            "name": "stopped-app",
+            "url": "",
+            "metadata": {"app_status": {"state": "STOPPED"}},
+        },
+    }
+
+    result = apps._process_apps(
+        [],
+        False,
+        "2026-08-01",
+        "2026-08-30",
+        registry,
+    )
+
+    assert result["active_count"] == 1
+    assert result["inactive_count"] == 1
+    assert {
+        app["app_name"]: app["status"]
+        for app in result["apps"]
+    } == {"cost-obs": "active", "stopped-app": "inactive"}
+
+    active_only = apps._process_apps(
+        [],
+        True,
+        "2026-08-01",
+        "2026-08-30",
+        registry,
+    )
+    assert [app["app_name"] for app in active_only["apps"]] == ["cost-obs"]
+
+
+def test_app_status_takes_priority_over_compute_pool_state():
+    assert apps._registry_app_is_running({
+        "metadata": {
+            "app_status": {"state": "STOPPED"},
+            "compute_status": {"state": "ACTIVE"},
+        },
+    }) is False
 
 
 def test_active_count_contract_rejects_disagreement():

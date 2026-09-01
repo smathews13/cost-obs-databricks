@@ -4,6 +4,7 @@ import {
   buildExportScopeKey,
   cancelExportPreparationQueries,
   cancelRunningSubmitAndPollForTab,
+  clearTabDemandRefreshPhases,
   createTabDemandState,
   isTabDemandUnresolved,
   isTabProducerActive,
@@ -15,6 +16,14 @@ import {
 } from "../tabDemand";
 
 describe("on-demand tab data", () => {
+  it("clears waiting refresh phases after a refresh fails before fetching", () => {
+    const phase = { apps: "waiting" as const, tagging: "fetching" as const };
+
+    expect(clearTabDemandRefreshPhases(phase, ["apps"])).toEqual({
+      tagging: "fetching",
+    });
+  });
+
   it("keeps nine rapidly visited tabs spinning while only two producers run", () => {
     const tabs = [
       "dbu", "sql", "infra", "optimizer", "kpis", "aiml", "apps", "tagging",

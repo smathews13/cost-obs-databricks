@@ -3,6 +3,7 @@ import type { Query, QueryClient } from "@tanstack/react-query";
 
 export type DashboardTab = keyof TabVisibility;
 export const DEFAULT_TAB_PRODUCER_LIMIT = 2;
+export type TabDemandRefreshPhase = "waiting" | "fetching";
 
 export interface TabDemandState {
   scopeKey: string;
@@ -10,6 +11,16 @@ export interface TabDemandState {
   active: DashboardTab[];
   queued: DashboardTab[];
   settled: DashboardTab[];
+}
+
+export function clearTabDemandRefreshPhases(
+  current: Partial<Record<DashboardTab, TabDemandRefreshPhase>>,
+  tabs: readonly DashboardTab[],
+): Partial<Record<DashboardTab, TabDemandRefreshPhase>> {
+  if (!tabs.some((tab) => current[tab])) return current;
+  const next = { ...current };
+  tabs.forEach((tab) => { delete next[tab]; });
+  return next;
 }
 
 function uniqueTabs(tabs: readonly DashboardTab[]): DashboardTab[] {

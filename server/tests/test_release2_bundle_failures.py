@@ -62,7 +62,7 @@ def test_apps_required_failure_is_typed_and_short_cached_for_pollers():
             None,
             False,
             "apps-key",
-            db.CacheGeneration("apps:dashboard-bundle:v3:all", 0),
+            db.CacheGeneration("apps:dashboard-bundle:v4:all", 0),
         )
     payload = cache_put.call_args.args[2]
     assert payload["availability"] == "unavailable"
@@ -106,7 +106,7 @@ def test_apps_optional_failure_is_partial_and_short_cached():
             None,
             False,
             "apps-key",
-            db.CacheGeneration("apps:dashboard-bundle:v3:all", 0),
+            db.CacheGeneration("apps:dashboard-bundle:v4:all", 0),
         )
     payload = cache_put.call_args.args[2]
     assert payload["availability"] == "partial"
@@ -170,7 +170,7 @@ def test_apps_shared_cache_failure_keeps_the_successful_local_result(cache_outco
             None,
             False,
             cache_key,
-            db.CacheGeneration("apps:dashboard-bundle:v3:all", 0),
+            db.CacheGeneration("apps:dashboard-bundle:v4:all", 0),
         )
 
     with apps._apps_bundle_status_lock:
@@ -224,7 +224,7 @@ def test_apps_shared_cache_failure_releases_lease_as_successful(
                 None,
                 False,
                 cache_key,
-                db.CacheGeneration("apps:dashboard-bundle:v3:all", 0),
+                db.CacheGeneration("apps:dashboard-bundle:v4:all", 0),
             ),
             lease_seconds=30,
             hard_deadline_seconds=30,

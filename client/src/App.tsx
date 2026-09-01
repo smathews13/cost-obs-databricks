@@ -101,12 +101,14 @@ import { CostObsLockup, VersionPill, PageHero, Chip, InfoPanel } from "@/compone
 import { LoadingPanels, Spinner } from "@/components/Spinner";
 import {
   buildExportScopeKey,
+  clearTabDemandRefreshPhases,
   createTabDemandState,
   isTabDemandUnresolved,
   isTabProducerActive,
   queueTabDemand,
   requeueTabDemand,
   settleTabDemand,
+  type TabDemandRefreshPhase,
 } from "@/utils/tabDemand";
 import {
   isDashboardQuery,
@@ -525,7 +527,7 @@ function Dashboard() {
   const tabDemandRef = useRef(tabDemand);
   tabDemandRef.current = tabDemand;
   const [demandRefreshPhase, setDemandRefreshPhase] = useState<
-    Partial<Record<ViewTab, "waiting" | "fetching">>
+    Partial<Record<ViewTab, TabDemandRefreshPhase>>
   >({});
   const requeueDemandTabs = useCallback(async (
     tabs: readonly ViewTab[],
@@ -661,6 +663,7 @@ function Dashboard() {
         [tab]: "This tab could not be refreshed. Retry shortly.",
       }));
     } finally {
+      setDemandRefreshPhase((current) => clearTabDemandRefreshPhases(current, [tab]));
       setExplicitRefreshingTab(null);
     }
   };

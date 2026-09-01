@@ -23,6 +23,7 @@ import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatt
 import { C, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
+import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { KPICard } from "@/components/ui/KPICard";
 import { buildAimlCategoryColorMap } from "./aimlCategoryColors";
 import {
@@ -599,7 +600,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                       ? endpointWorkspaces.filter(w => resolveWsName(w).toLowerCase().includes(q) || w.toLowerCase().includes(q))
                       : endpointWorkspaces;
                     return (
-                    <div className="absolute right-0 top-full z-[9999] mt-1 w-60 rounded-lg border border-gray-200 bg-white shadow-lg">
+                    <FloatingMenu anchorRef={endpointsWorkspaceFilterRef} className="w-60 rounded-lg border border-gray-200 bg-white shadow-lg">
                       <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Workspace</span>
                         <div className="flex items-center gap-2 text-xs">
@@ -639,7 +640,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                         )}
                       />
                       )}
-                    </div>
+                    </FloatingMenu>
                     );
                   })()}
                 </div>
@@ -660,7 +661,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                     <svg className={`h-3 w-3 transition-transform ${endpointsCostTypeDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                   </button>
                   {endpointsCostTypeDropdownOpen && (
-                    <div className="absolute right-0 top-full z-[9999] mt-1 max-h-64 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                    <FloatingMenu anchorRef={endpointsCostTypeFilterRef} className="max-h-64 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                       <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                         <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Cost Type</span>
                         {endpointsCostTypeFilter && (
@@ -679,7 +680,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                           <span className="truncate text-gray-700">{ct}</span>
                         </button>
                       ))}
-                    </div>
+                    </FloatingMenu>
                   )}
                 </div>
               )}
@@ -790,7 +791,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                   </svg>
                 </button>
                 {modelsTypeDropdownOpen && (
-                  <div className="absolute right-0 top-full z-[9999] mt-1 min-w-[200px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                  <FloatingMenu anchorRef={modelsTypeDropdownRef} className="min-w-[200px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                     <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                       <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Types</span>
                       <div className="flex items-center gap-2 text-xs">
@@ -813,7 +814,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                         </button>
                       );
                     })}
-                  </div>
+                  </FloatingMenu>
                 )}
               </div>
               );
@@ -907,7 +908,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                         onChange={(e) => { setShowHistoricalMlClusters(e.target.checked); setMlClustersPage(1); }}
                         className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
                       Show historical ({historicalMlCount})
-                      <InfoTooltip className="ml-0.5" label="About historical clusters" text="Clusters whose names could not be resolved: likely terminated or from inaccessible workspaces" />
+                      <InfoTooltip className="ml-0.5" label="About historical clusters" text="Clusters whose names could not be resolved: likely terminated or from inaccessible workspaces" stopClick />
                     </label>
                   )}
                   {availableRuntimes.length > 0 && (
@@ -926,7 +927,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                         <svg className={`h-3 w-3 transition-transform ${mlRuntimeFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                       </button>
                       {mlRuntimeFilterOpen && (
-                        <div className="absolute right-0 top-full z-[9999] mt-1 max-h-64 w-56 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                        <FloatingMenu anchorRef={mlRuntimeFilterRef} className="max-h-64 w-56 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                           <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                             <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Runtime</span>
                             <div className="flex items-center gap-2 text-xs">
@@ -947,7 +948,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                               <span className="truncate text-gray-700">{r}</span>
                             </button>
                           ))}
-                        </div>
+                        </FloatingMenu>
                       )}
                     </div>
                   )}
@@ -1074,7 +1075,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                         className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
                       />
                       Show historical ({historicalAgentCount})
-                      <InfoTooltip className="ml-0.5" label="About historical agents" text="Agents whose names could not be resolved: likely deleted or renamed" />
+                      <InfoTooltip className="ml-0.5" label="About historical agents" text="Agents whose names could not be resolved: likely deleted or renamed" stopClick />
                     </label>
                   )}
                   {agentTypes.length > 1 && (() => {
@@ -1096,7 +1097,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                         </svg>
                       </button>
                       {agentTypeDropdownOpen && (
-                        <div className="absolute right-0 top-full z-[9999] mt-1 min-w-[180px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                        <FloatingMenu anchorRef={agentTypeDropdownRef} className="min-w-[180px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                           <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                             <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Types</span>
                             <div className="flex items-center gap-2 text-xs">
@@ -1118,7 +1119,7 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
                               <span className="truncate text-gray-700">{t}</span>
                             </button>
                           ))}
-                        </div>
+                        </FloatingMenu>
                       )}
                     </div>
                     );

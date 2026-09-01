@@ -4,6 +4,7 @@ import { formatCurrency, formatNumber, workspaceUrl } from "@/utils/formatters";
 import type { TaggingDashboardBundle } from "@/types/billing";
 import { C } from "@/theme";
 import { InfoPopover } from "@/components/ui/InfoPopover";
+import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { SortableHeader } from "@/components/ui/SortableHeader";
 
 type UntaggedItem = {
@@ -290,7 +291,7 @@ export function UntaggedResourcesTable({
             onChange={(e) => { onHistoricalToggle(e.target.checked); onPageChange(1); }}
             className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
           Show historical ({historicalCount})
-          <InfoPopover className="ml-0.5" label="About historical resources" text="Resources whose names could not be resolved: likely deleted or from inaccessible workspaces" />
+          <InfoPopover className="ml-0.5" label="About historical resources" text="Resources whose names could not be resolved: likely deleted or from inaccessible workspaces" stopClick />
         </label>
         <div className="relative" ref={tabDropdownRef}>
           <button
@@ -308,7 +309,7 @@ export function UntaggedResourcesTable({
             </svg>
           </button>
           {tabDropdownOpen && (
-            <div className="co-filter-menu absolute left-0 top-full z-9999 mt-2 min-w-52.5">
+            <FloatingMenu anchorRef={tabDropdownRef} align="start" gap={8} className="co-filter-menu min-w-52.5">
               <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Resource Type</span>
                 <div className="flex items-center gap-2 text-xs">
@@ -337,7 +338,7 @@ export function UntaggedResourcesTable({
                   )}
                 </button>
               ))}
-            </div>
+            </FloatingMenu>
           )}
         </div>
         <div className="relative">

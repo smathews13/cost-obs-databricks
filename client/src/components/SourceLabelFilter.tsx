@@ -7,6 +7,7 @@ import {
 } from "@/hooks/useBillingData";
 import { C } from "@/theme";
 import { Spinner } from "@/components/Spinner";
+import { FloatingMenu } from "@/components/ui/FloatingMenu";
 
 interface MvSource {
   label: string;
@@ -63,6 +64,7 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
   const [applying, setApplying] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [retrySelection, setRetrySelection] = useState<Set<string> | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const lastAppliedRef = useRef<string>(getActiveSourceScopeKey());
   const previousLabelsRef = useRef<string[]>([]);
   const selectedRef = useRef(selected);
@@ -157,6 +159,7 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
     <div className={variant === "rail" ? "relative min-w-0 shrink" : "relative"}>
       {open && <div className="fixed inset-0 z-10" onClick={() => { setOpen(false); apply(selected); }} />}
       <button
+        ref={triggerRef}
         onClick={() => setOpen((o) => !o)}
         aria-label={applying ? "Updating sources" : label()}
         className={variant === "rail"
@@ -196,7 +199,7 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
       )}
 
       {open && (
-        <div className="co-filter-menu absolute right-0 z-20 mt-2 min-w-[220px] p-3">
+        <FloatingMenu anchorRef={triggerRef} gap={8} className="co-filter-menu min-w-[220px] p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Data source</span>
             {/* No "Clear": at least one source must stay selected. "All" selects every source. */}
@@ -239,7 +242,7 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
               {applying ? "Applying…" : "Apply"}
             </button>
           </div>
-        </div>
+        </FloatingMenu>
       )}
     </div>
   );

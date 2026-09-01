@@ -331,6 +331,7 @@ textarea {
 .co-kpi-card {
   container-type: inline-size;
   display: block;
+  position: relative;
   width: 100%;
   min-width: 0;
   padding: 1.25rem;
@@ -342,6 +343,21 @@ textarea {
   min-width: 0;
   align-items: center;
   gap: 0.75rem;
+}
+.co-kpi-card--interactive .co-kpi-card__layout {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+.co-kpi-card__hit-area {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
 }
 .co-kpi-card__icon {
   display: flex;
@@ -424,7 +440,7 @@ textarea {
 .co-kpi-card--interactive:hover .co-kpi-card__trend {
   color: var(--lava-hover);
 }
-.co-kpi-card--interactive:focus-visible {
+.co-kpi-card--interactive:has(.co-kpi-card__hit-area:focus-visible) {
   outline: none;
   box-shadow: var(--focus), var(--sh-card) !important;
 }
@@ -484,6 +500,9 @@ textarea {
   border: 1px solid var(--hairline);
   background: var(--card-surface);
   box-shadow: var(--sh-menu);
+}
+.co-floating-menu {
+  z-index: 10000;
 }
 
 .cloud-integration-wizard a {

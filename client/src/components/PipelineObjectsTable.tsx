@@ -6,6 +6,7 @@ import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { C } from "@/theme";
 import { Spinner } from "./Spinner";
 import { InfoPopover } from "./ui/InfoPopover";
+import { FloatingMenu } from "./ui/FloatingMenu";
 import { SortableHeader } from "./ui/SortableHeader";
 
 interface PipelineObjectsTableProps {
@@ -151,7 +152,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
           <label className="flex shrink-0 items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
             <input type="checkbox" checked={showHistorical} onChange={(e) => { setShowHistorical(e.target.checked); setCurrentPage(1); }} className="rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
             Show historical ({historicalCount})
-            <InfoPopover className="ml-0.5" label="About historical objects" text="Objects whose names could not be resolved: likely deleted or from inaccessible workspaces" />
+            <InfoPopover className="ml-0.5" label="About historical objects" text="Objects whose names could not be resolved: likely deleted or from inaccessible workspaces" stopClick />
           </label>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -172,7 +173,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
               </svg>
             </button>
             {filterDropdownOpen && (
-              <div className="absolute right-0 top-full z-[9999] mt-1 w-44 rounded-lg border border-gray-200 bg-white shadow-lg">
+              <FloatingMenu anchorRef={filterDropdownRef} className="w-44 rounded-lg border border-gray-200 bg-white shadow-lg">
                 <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Type</span>
                   <div className="flex items-center gap-2 text-xs">
@@ -196,7 +197,7 @@ export const PipelineObjectsTable = memo(function PipelineObjectsTable({ data, i
                     </button>
                   );
                 })}
-              </div>
+              </FloatingMenu>
             )}
           </div>
           <div className="relative shrink-0">

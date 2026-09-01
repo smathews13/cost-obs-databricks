@@ -86,6 +86,19 @@ describe("DeploymentBadge", () => {
     expect(screen.queryByText(/\bcommit\b/)).not.toBeInTheDocument();
   });
 
+  it("does not crash when an older deployment response omits its source", () => {
+    render(<DeploymentBadge metadata={{
+      deployed_at: null,
+      deployer: null,
+      commit_sha: null,
+      available: false,
+    } as DeploymentMetadata} />);
+
+    expect(screen.getByRole("button", {
+      name: /deployment information: deploy info/i,
+    })).toBeVisible();
+  });
+
   it("labels process start as an approximation rather than deployment time", () => {
     render(<DeploymentBadge metadata={{
       ...metadata,

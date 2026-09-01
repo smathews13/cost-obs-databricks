@@ -225,10 +225,11 @@ describe("PlatformKPIsView: card trend mappings", () => {
     renderView({}, SAMPLE_DATA, true);
 
     const card = screen.getByText(title).closest(".co-kpi-card")!;
-    expect(card.tagName).toBe("BUTTON");
-    expect(card).toHaveAccessibleName(`See ${title} trend`);
-    expect(card.querySelector("button")).toBeNull();
-    fireEvent.click(card);
+    expect(card.tagName).toBe("DIV");
+    const hitArea = card.querySelector("button.co-kpi-card__hit-area");
+    expect(hitArea).toHaveAccessibleName(`See ${title} trend`);
+    expect(hitArea?.querySelector("button")).toBeNull();
+    fireEvent.click(hitArea!);
 
     expect(screen.getByTestId("selected-kpi")).toHaveTextContent(expectedKpi);
   });

@@ -19,7 +19,7 @@ export function DeploymentBadge({
   const deployedAt = formatDeploymentTimestamp(metadata?.deployed_at ?? null);
   const commit = abbreviateCommit(metadata?.commit_sha ?? null);
   const triggerText = badgeDate ?? "Deploy info";
-  const processStartApproximation = metadata?.source.includes("process_start") ?? false;
+  const processStartApproximation = metadata?.source?.includes("process_start") ?? false;
 
   return (
     <span data-testid="deployment-badge" className="shrink-0">

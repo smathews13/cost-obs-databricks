@@ -6,6 +6,7 @@ import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { C } from "@/theme";
 import { Spinner } from "./Spinner";
 import { InfoPopover } from "./ui/InfoPopover";
+import { FloatingMenu } from "./ui/FloatingMenu";
 import { SortableHeader } from "./ui/SortableHeader";
 
 interface InteractiveBreakdownProps {
@@ -273,7 +274,7 @@ export const InteractiveBreakdown = memo(function InteractiveBreakdown({ data, i
                 </svg>
               </button>
               {viewDropdownOpen && (
-                <div className="absolute right-0 top-full z-[9999] mt-1 w-44 rounded-lg border border-gray-200 bg-white shadow-lg">
+                <FloatingMenu anchorRef={viewDropdownRef} className="w-44 rounded-lg border border-gray-200 bg-white shadow-lg">
                   <div className="sticky top-0 flex items-center border-b border-gray-100 bg-white px-3 py-2">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Group by</span>
                   </div>
@@ -292,7 +293,7 @@ export const InteractiveBreakdown = memo(function InteractiveBreakdown({ data, i
                       </button>
                     );
                   })}
-                </div>
+                </FloatingMenu>
               )}
             </div>
             {historicalCount > 0 && (
@@ -304,7 +305,7 @@ export const InteractiveBreakdown = memo(function InteractiveBreakdown({ data, i
                   className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
                 />
                 Show historical ({historicalCount})
-                <InfoPopover className="ml-0.5" label="About historical clusters" text="Clusters whose names could not be resolved: likely terminated or from inaccessible workspaces" />
+                <InfoPopover className="ml-0.5" label="About historical clusters" text="Clusters whose names could not be resolved: likely terminated or from inaccessible workspaces" stopClick />
               </label>
             )}
             <div className="relative w-44 shrink-0">

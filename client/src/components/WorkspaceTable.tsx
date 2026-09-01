@@ -6,6 +6,8 @@ import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { VirtualizedList } from "./VirtualizedList";
 import { C } from "@/theme";
 import { Spinner } from "./Spinner";
+import { FloatingMenu } from "./ui/FloatingMenu";
+import { InfoPopover } from "./ui/InfoPopover";
 
 interface WorkspaceTableProps {
   data: WorkspaceBreakdownResponse | undefined;
@@ -201,10 +203,12 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
                 className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
               />
               Show historical ({historicalCount})
-                <span className="relative group ml-0.5">
-                  <svg className="inline h-3 w-3 text-gray-500 cursor-help" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block w-56 rounded-lg bg-gray-900 px-2 py-1.5 text-[10px] text-white shadow-lg z-20">Workspaces whose names could not be resolved: likely decommissioned or inaccessible</span>
-                </span>
+              <InfoPopover
+                className="ml-0.5"
+                label="About historical workspaces"
+                text="Workspaces whose names could not be resolved: likely decommissioned or inaccessible"
+                stopClick
+              />
             </label>
           )}
           {/* Product filter dropdown */}
@@ -221,7 +225,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
                 <svg className={`h-3 w-3 transition-transform ${productDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
               </button>
               {productDropdownOpen && (
-                <div className="absolute right-0 top-full z-[9999] mt-1 min-w-[180px] rounded-lg border border-gray-200 bg-white shadow-lg">
+                <FloatingMenu anchorRef={productDropdownRef} className="min-w-[180px] rounded-lg border border-gray-200 bg-white shadow-lg">
                   <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Products</span>
                     <div className="flex items-center gap-2 text-xs">
@@ -245,7 +249,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
                       </button>
                     )}
                   />
-                </div>
+                </FloatingMenu>
               )}
             </div>
           )}
@@ -269,7 +273,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
                   ? allUsers.filter((u) => u.toLowerCase().includes(q) || formatIdentity(u, spNameMap).toLowerCase().includes(q))
                   : allUsers;
                 return (
-                <div className="absolute right-0 top-full z-[9999] mt-1 min-w-[220px] rounded-lg border border-gray-200 bg-white shadow-lg">
+                <FloatingMenu anchorRef={userDropdownRef} className="min-w-[220px] rounded-lg border border-gray-200 bg-white shadow-lg">
                   <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Users</span>
                     <div className="flex items-center gap-2 text-xs">
@@ -307,7 +311,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
                       )}
                     />
                   )}
-                </div>
+                </FloatingMenu>
                 );
               })()}
             </div>

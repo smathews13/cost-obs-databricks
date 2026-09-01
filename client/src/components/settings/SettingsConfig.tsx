@@ -4,6 +4,7 @@ import { READINESS_QUERY_KEY } from "@/hooks/useFeatureAvailability";
 import { MvSourcesSection } from "./MvSourcesSection";
 import { Group, Select, SecondaryButton, TextInput, Callout, T, MONO } from "./dubois";
 import { Spinner } from "@/components/Spinner";
+import { InfoPopover } from "@/components/ui/InfoPopover";
 import "./settings.css";
 
 // Kept for the Data & tables section's storage-location chip (it imports this type).
@@ -17,11 +18,16 @@ export interface AppConfigInfo {
 // Small red danger indicator with a hover tooltip for per-column errors.
 function ColWarn({ error }: { error: string }) {
   return (
-    <span className="group relative inline-block ml-1 cursor-help" title={error}>
+    <InfoPopover
+      className="ml-1"
+      label="Column warning"
+      text={error}
+      triggerClassName="inline-flex h-4 w-4 items-center justify-center rounded text-red-700 focus-visible:outline-none focus-visible:shadow-(--focus)"
+    >
       <svg className="h-3 w-3" style={{ color: T.dangerFg }} viewBox="0 0 20 20" fill="currentColor">
         <path fillRule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
       </svg>
-    </span>
+    </InfoPopover>
   );
 }
 

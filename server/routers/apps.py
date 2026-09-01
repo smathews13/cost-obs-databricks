@@ -122,6 +122,16 @@ def get_default_end_date() -> str:
 # the last N days of the date range are considered active.
 ACTIVE_DAYS = 7
 
+_RUNNING_APP_STATES = {"ACTIVE", "RUNNING"}
+_STOPPED_APP_STATES = {
+    "CRASHED",
+    "DELETED",
+    "FAILED",
+    "INACTIVE",
+    "STOPPED",
+    "UNAVAILABLE",
+}
+
 # ── App name resolution (UUID → human-readable name) ────────────────────
 
 _app_name_cache: dict[str, dict[str, Any]] = {}  # uuid → safe list metadata
@@ -287,6 +297,27 @@ def _public_thumbnail_url(
     if not (metadata.get("_thumbnail_source_url") or registry_entry.get("url")):
         return None
     return f"/api/apps/thumbnail?app_id={quote(str(app_id), safe='')}"
+
+
+def _registry_app_is_running(entry: dict[str, Any]) -> bool | None:
+    """Return live Apps API state when available, otherwise defer to billing."""
+    metadata = entry.get("metadata") or {}
+    app_state = str(
+        (metadata.get("app_status") or {}).get("state") or ""
+    ).upper()
+    if app_state in _RUNNING_APP_STATES:
+        return True
+    if app_state in _STOPPED_APP_STATES:
+        return False
+
+    compute_state = str(
+        (metadata.get("compute_status") or {}).get("state") or ""
+    ).upper()
+    if compute_state in _RUNNING_APP_STATES:
+        return True
+    if compute_state in _STOPPED_APP_STATES:
+        return False
+    return None
 
 
 def _get_app_registry() -> dict[str, dict[str, Any]]:
@@ -829,15 +860,17 @@ def _process_apps(
                 last_date = None
         else:
             last_date = None
-        is_active = last_date is not None and last_date >= active_window_start
-        r["_is_active"] = is_active
-        if is_active:
+        billing_active = last_date is not None and last_date >= active_window_start
+        r["_billing_active"] = billing_active
+        if billing_active:
             active_rows.append(r)
         else:
             inactive_rows.append(r)
 
-    # Build the list we'll return as individual tiles
-    source = active_rows if active_only else raw_apps
+    # Build the list we'll return as individual tiles. Live deployment state is
+    # applied below for registered apps, so filtering raw rows here would drop a
+    # running app whose billing record has not landed yet.
+    source = raw_apps
     total_spend_all = sum(float(r.get("total_spend") or 0) for r in source)
 
     # Separate registered (real) apps from unregistered billing UUIDs
@@ -856,6 +889,14 @@ def _process_apps(
         raw_id = r.get("app_id") or r.get("app_name") or "Unknown"
         spend = float(r.get("total_spend") or 0)
         reg_entry = registry.get(raw_id, {})
+        platform_active = _registry_app_is_running(reg_entry)
+        is_active = (
+            platform_active
+            if platform_active is not None
+            else bool(r.get("_billing_active"))
+        )
+        if active_only and not is_active:
+            continue
         apps.append({
             "app_id": raw_id,
             "app_name": reg_entry.get("name", raw_id),
@@ -867,39 +908,39 @@ def _process_apps(
             "last_usage_date": str(r.get("last_usage_date")) if r.get("last_usage_date") else None,
             "percentage": (spend / total_spend_all * 100) if total_spend_all > 0 else 0,
             "is_registered": True,
-            "status": "active" if r.get("_is_active") else "inactive",
+            "status": "active" if is_active else "inactive",
         })
 
     # Sort registered apps by spend desc
     apps.sort(key=lambda a: a["total_spend"], reverse=True)
 
-    # Add inactive apps from two additional sources when not in active-only mode:
-    #   (A) Registered apps that have NO billing data in this window — they're deployed but idle
-    #   (B) Unregistered billing rows with old last_usage (deleted apps with stale billing data)
+    apps_in_list = {a["app_id"] for a in apps}
+
+    # Registry apps with no billing in the window still belong in the status
+    # population. A running app must remain active even before its usage lands.
+    for uid, entry in registry.items():
+        if uid in apps_in_list:
+            continue
+        platform_active = _registry_app_is_running(entry)
+        if active_only and platform_active is not True:
+            continue
+        apps.append({
+            "app_id": uid,
+            "app_name": entry.get("name", uid),
+            "app_url": entry.get("url", ""),
+            "total_dbus": 0,
+            "total_spend": 0,
+            "workspace_count": 0,
+            "days_active": 0,
+            "last_usage_date": None,
+            "percentage": 0,
+            "is_registered": True,
+            "status": "active" if platform_active is True else "inactive",
+        })
+        apps_in_list.add(uid)
+
+    # Unregistered billing rows are historical/deleted apps, not live status.
     if not active_only:
-        apps_in_list = {a["app_id"] for a in apps}
-
-        # (A) Registry apps with no billing at all in the window
-        for uid, entry in registry.items():
-            if uid in apps_in_list:
-                continue
-            apps.append({
-                "app_id": uid,
-                "app_name": entry.get("name", uid),
-                "app_url": entry.get("url", ""),
-                "total_dbus": 0,
-                "total_spend": 0,
-                "workspace_count": 0,
-                "days_active": 0,
-                "last_usage_date": None,
-                "percentage": 0,
-                "is_registered": True,
-                "status": "inactive",
-            })
-            apps_in_list.add(uid)
-
-        # (B) Every unregistered billing row. Metadata is optional, so a cold or
-        # unavailable Apps registry must not erase otherwise valid cost rows.
         for r in unregistered_rows:
             raw_id = r.get("app_id") or r.get("app_name") or "Unknown"
             if raw_id in apps_in_list:
@@ -916,7 +957,7 @@ def _process_apps(
                 "last_usage_date": str(r.get("last_usage_date")) if r.get("last_usage_date") else None,
                 "percentage": (spend / total_spend_all * 100) if total_spend_all > 0 else 0,
                 "is_registered": False,
-                "status": "active" if r.get("_is_active") else "inactive",
+                "status": "historical",
             })
             apps_in_list.add(raw_id)
 
@@ -953,13 +994,24 @@ def _process_apps(
         "apps": apps,
         "total_spend": registered_spend,
         "total_app_count": len(apps),
-        "active_count": sum(1 for a in apps if a.get("status") == "active"),
-        "inactive_count": sum(1 for a in apps if a.get("status") == "inactive"),
+        "active_count": sum(
+            1
+            for app in apps
+            if app.get("is_registered") and app.get("status") == "active"
+        ),
+        "inactive_count": sum(
+            1
+            for app in apps
+            if app.get("is_registered") and app.get("status") == "inactive"
+        ),
         "active_window": {
             "start_date": active_window_start.isoformat(),
             "end_date": selected_end.isoformat(),
             "days": (selected_end - active_window_start).days + 1,
-            "definition": "Apps with positive compute usage in the inclusive seven-day window",
+            "definition": (
+                "Currently running registered apps; recent compute usage is used "
+                "only when live Apps API status is unavailable"
+            ),
         },
         "inactive_summary": {
             "count": len(inactive_rows),
@@ -1053,7 +1105,7 @@ def _empty_bundle(params: dict, active_only: bool) -> dict[str, Any]:
     return {
         "summary": {"total_dbus": 0, "total_spend": 0, "workspace_count": 0, "app_count": 0, "active_app_count": 0, "days_in_range": 1, "avg_daily_spend": 0, "avg_cost_per_app": 0},
         "apps": {"apps": [], "total_spend": 0, "total_app_count": 0, "active_count": 0, "inactive_count": 0,
-                 "active_window": {"start_date": active_window_start.isoformat(), "end_date": selected_end.isoformat(), "days": (selected_end - active_window_start).days + 1, "definition": "Currently registered apps with positive Apps compute usage"},
+                 "active_window": {"start_date": active_window_start.isoformat(), "end_date": selected_end.isoformat(), "days": (selected_end - active_window_start).days + 1, "definition": "Currently running registered apps; recent compute usage is used only when live Apps API status is unavailable"},
                  "inactive_summary": {"count": 0, "total_spend": 0, "total_dbus": 0, "percentage": 0},
                  "unregistered_summary": {"count": 0, "total_spend": 0, "total_dbus": 0, "percentage": 0}},
         "timeseries": {"timeseries": [], "categories": ["Total"]},
@@ -1074,11 +1126,28 @@ def _compute_apps_bundle(
 ) -> None:
     """Background worker: run all Apps queries, build response, write to Delta cache."""
     import time as _time
-    _endpoint = f"apps:dashboard-bundle:v3:{'active' if active_only else 'all'}"
+    _endpoint = f"apps:dashboard-bundle:v4:{'active' if active_only else 'all'}"
     _start = _time.time()
     _set_apps_producer_status(dkey, "running")
 
     try:
+        metadata_thread: threading.Thread | None = None
+        metadata_stale = (
+            not _app_name_cache
+            or (time.time() - _app_name_cache_time) >= APP_NAME_CACHE_TTL
+            or not _app_details_cache
+            or (time.time() - _app_details_cache_time) >= APP_RESOURCES_CACHE_TTL
+        )
+        if metadata_stale:
+            metadata_context = contextvars.copy_context()
+            metadata_thread = threading.Thread(
+                target=metadata_context.run,
+                args=(_refresh_apps_metadata,),
+                daemon=True,
+                name="apps-metadata-bg",
+            )
+            metadata_thread.start()
+
         ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
         def _ws(sql: str) -> str:
@@ -1187,6 +1256,9 @@ def _compute_apps_bundle(
                 exc, required_queries
             )
         _set_apps_producer_status(dkey, "running", phase="formatting")
+        if metadata_thread is not None:
+            metadata_thread.join(timeout=2.0)
+            registry = dict(_app_name_cache)
         if not registry:
             optional_failures["app_registry"] = "METADATA_REFRESH_PENDING"
 
@@ -1392,7 +1464,7 @@ def _compute_apps_bundle(
 
         # Refresh optional registry/resource metadata only after required billing
         # data is durable and visible to pollers.
-        if {
+        if metadata_thread is None and {
             "app_registry",
             "app_details",
         }.intersection(optional_failures):
@@ -1444,7 +1516,7 @@ async def get_apps_dashboard_bundle(
     )
     params = {"start_date": validated_start, "end_date": validated_end}
     id_list = parse_workspace_ids(workspace_ids)
-    _endpoint = f"apps:dashboard-bundle:v3:{'active' if active_only else 'all'}"
+    _endpoint = f"apps:dashboard-bundle:v4:{'active' if active_only else 'all'}"
     _dkey = bundle_cache_key(_endpoint, params["start_date"], params["end_date"], id_list)
 
     producer_status = await asyncio.to_thread(get_bundle_compute_state, _dkey)

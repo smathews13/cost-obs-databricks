@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useId } from "react";
 import { useUpdatingIndicator } from "@/hooks/useUpdatingIndicator";
 import { C } from "@/theme";
 import { Spinner } from "./Spinner";
+import { FloatingMenu } from "./ui/FloatingMenu";
 
 interface Workspace {
   workspace_id: string | null;
@@ -202,11 +203,14 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
       )}
 
       {isOpen && (
-        <div
+        <FloatingMenu
+          anchorRef={triggerRef}
+          align="start"
+          gap={8}
           id={menuId}
           role="dialog"
           aria-label="Filter workspaces"
-          className="co-filter-menu absolute left-0 top-full z-20 mt-2 w-[min(20rem,calc(100vw-2rem))] p-3"
+          className="co-filter-menu w-[min(20rem,calc(100vw-2rem))] p-3"
         >
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Workspaces</span>
@@ -340,7 +344,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
               </button>
             </div>
           </div>
-        </div>
+        </FloatingMenu>
       )}
     </div>
   );

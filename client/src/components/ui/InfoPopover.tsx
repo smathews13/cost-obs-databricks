@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { Info } from "lucide-react";
 
 interface InfoPopoverProps {
   text?: string;
@@ -137,9 +138,9 @@ export function InfoPopover({
             setPinned(true);
           }
         }}
-        className={triggerClassName ?? "flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-semibold normal-case text-gray-600 hover:text-gray-800 focus-visible:outline-none focus-visible:shadow-(--focus)"}
+        className={triggerClassName ?? "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[var(--slate)] transition-colors hover:text-[var(--ink)] focus-visible:outline-none focus-visible:shadow-(--focus)"}
       >
-        {children ?? <span aria-hidden="true">i</span>}
+        {children ?? <Info size={14} strokeWidth={1.8} aria-hidden="true" />}
       </button>
       {open && createPortal(
         <span
@@ -156,7 +157,7 @@ export function InfoPopover({
               setOpen(false);
             }
           }}
-          className={`${interactive ? "pointer-events-auto" : "pointer-events-none"} fixed z-[10000] max-w-[calc(100vw-1rem)] whitespace-normal rounded-lg bg-gray-900 font-normal normal-case text-white shadow-lg ${
+          className={`${interactive ? "pointer-events-auto" : "pointer-events-none"} fixed z-[10000] max-w-[calc(100vw-1rem)] whitespace-normal rounded-lg border border-white/10 bg-[var(--ink-deep)] font-normal normal-case text-white shadow-[0_8px_28px_rgba(11,32,38,.24)] ${
             size === "compact"
               ? "px-2 py-1.5 text-[11px] leading-snug"
               : "px-3 py-2 text-xs leading-relaxed"

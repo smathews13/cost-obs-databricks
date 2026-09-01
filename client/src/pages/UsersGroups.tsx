@@ -19,6 +19,7 @@ import { C, productColor, seriesColor } from "@/theme";
 import { PageHero, Chip, InfoPanel } from "@/components/brand";
 import { Dialog } from "@/components/ui/Dialog";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
+import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { KPICard } from "@/components/ui/KPICard";
 
 // ── User Detail Modal ─────────────────────────────────────────────────────────
@@ -354,12 +355,12 @@ export default function UsersGroups({
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>}
         />
         <KPICard
-          title="User Spend"
+          title="Daily User Spend"
           value={summary ? formatKpiCurrency(summary.avg_spend_per_user) : "N/A"}
           subtitle={`Per-user spend over ${daysDiff} days`}
           infoText="Total list-price spend in the date range divided by the number of distinct active users. Includes all products."
           onActivate={summary && startDate && endDate ? () => setSelectedKPI({kpi: "avg_spend_per_user", label: "Daily Per-User Spend"}) : undefined}
-          ariaLabel="See User Spend trend"
+          ariaLabel="See Daily User Spend trend"
           icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>}
         />
         <KPICard
@@ -493,7 +494,7 @@ export default function UsersGroups({
                 <svg className={`h-3 w-3 transition-transform ${typeFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
               </button>
               {typeFilterOpen && (
-                <div className="absolute left-0 top-full z-[9999] mt-1 w-52 rounded-lg border border-gray-200 bg-white shadow-lg">
+                <FloatingMenu anchorRef={typeFilterRef} align="start" className="w-52 rounded-lg border border-gray-200 bg-white shadow-lg">
                   <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Type</span>
                     <div className="flex items-center gap-2 text-xs">
@@ -514,7 +515,7 @@ export default function UsersGroups({
                       <span className="text-gray-700">{t === "users" ? "Users" : "Service Principals"}</span>
                     </button>
                   ))}
-                </div>
+                </FloatingMenu>
               )}
             </div>
             {/* Product filter */}
@@ -533,7 +534,7 @@ export default function UsersGroups({
                 <svg className={`h-3 w-3 transition-transform ${productFilterOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
               </button>
               {productFilterOpen && (
-                <div className="absolute left-0 top-full z-[9999] mt-1 w-52 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg" style={{ maxHeight: 260 }}>
+                <FloatingMenu anchorRef={productFilterRef} align="start" className="w-52 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg" style={{ maxHeight: 260 }}>
                   <div className="sticky top-0 flex items-center justify-between border-b border-gray-100 bg-white px-3 py-2">
                     <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Product</span>
                     <div className="flex items-center gap-2 text-xs">
@@ -562,7 +563,7 @@ export default function UsersGroups({
                       <span className="truncate text-gray-700">{p}</span>
                     </button>
                   ))}
-                </div>
+                </FloatingMenu>
               )}
             </div>
             <div className="relative w-44">
