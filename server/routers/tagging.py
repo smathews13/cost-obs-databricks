@@ -1147,10 +1147,10 @@ async def get_tagging_dashboard_bundle(
     )
     params = {"start_date": validated_start, "end_date": validated_end}
     id_list = parse_workspace_ids(workspace_ids)
-    _dkey = bundle_cache_key("tagging:dashboard-bundle:v4", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("tagging:dashboard-bundle:v5", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v4")
+    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v5")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     def _ws(sql: str) -> str:
@@ -1262,7 +1262,7 @@ async def get_tagging_dashboard_bundle(
         return execute_query(_ws(TAG_COVERAGE_TIMESERIES), query_params)
 
     def lakeflow_query(name: str, enriched_sql: str, fallback_sql: str, query_params: dict, flag: list) -> list[dict[str, Any]]:
-        """Try lakeflow-enriched query with 45s timeout; fall back to billing-only on failure.
+        """Try Lakeflow enrichment briefly, then preserve billing rows as fallback.
 
         `name` (e.g. "lakeflow_jobs" / "lakeflow_pipelines") is used as the label in
         execute_queries_parallel so the timeout log message identifies which query stalled.
@@ -1271,7 +1271,10 @@ async def get_tagging_dashboard_bundle(
             flag[0] = False
             return execute_query(fallback_sql, query_params)
         try:
-            result = execute_queries_parallel([(name, lambda: execute_query(enriched_sql, query_params))], timeout=45.0)
+            result = execute_queries_parallel(
+                [(name, lambda: execute_query(enriched_sql, query_params))],
+                timeout=8.0,
+            )
             if result.get(name) is not None:
                 _lakeflow_mark_success()
                 return result[name]
@@ -1469,7 +1472,7 @@ async def get_tagging_dashboard_bundle(
     }
     delta_cache_put(
         _dkey,
-        "tagging:dashboard-bundle:v4",
+        "tagging:dashboard-bundle:v5",
         _resp,
         ttl_seconds=(
             60
