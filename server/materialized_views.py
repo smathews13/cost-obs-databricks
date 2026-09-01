@@ -1798,7 +1798,19 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
                         # fall through to full rebuild below
 
             # Full rebuild path (bootstrap or fallback)
-            execute_query(create_sql.format(catalog=catalog, schema=schema, billing_lookback_days=lookback_days), no_cache=True)
+            execute_query(
+                create_sql.format(
+                    catalog=catalog,
+                    schema=schema,
+                    billing_lookback_days=lookback_days,
+                ),
+                no_cache=True,
+                timeout=(
+                    300
+                    if table_name == "daily_tag_coverage_summary"
+                    else None
+                ),
+            )
             _update_refresh_state(catalog, schema, table_name, 1)
             elapsed = _time.monotonic() - t0
             logger.info(f"✓ {table_name} full rebuild done in {elapsed:.1f}s")
