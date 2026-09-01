@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import threading as _threading
 import time as _time
 from typing import Any
 
@@ -42,34 +41,6 @@ from server.routers.billing import _check_mv_available
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# Guard: skip system.lakeflow enriched queries for 2h after a timeout (matches TTLCache TTL).
-# Prevents every request from burning 45s waiting for a timeout when lakeflow is unavailable.
-# Circuit-breaker state is shared across worker threads — guard with a lock so we never
-# read a torn (available, last_failure) pair or flip-flop the flag on interleaved writes.
-_lakeflow_lock = _threading.Lock()
-_lakeflow_available: bool = True
-_lakeflow_last_failure: float = 0.0
-_LAKEFLOW_RETRY_INTERVAL: float = 7200.0
-
-
-def _lakeflow_in_cooldown() -> bool:
-    with _lakeflow_lock:
-        return (not _lakeflow_available) and (_time.time() - _lakeflow_last_failure) < _LAKEFLOW_RETRY_INTERVAL
-
-
-def _lakeflow_mark_success() -> None:
-    global _lakeflow_available
-    with _lakeflow_lock:
-        _lakeflow_available = True
-
-
-def _lakeflow_mark_failure() -> None:
-    global _lakeflow_available, _lakeflow_last_failure
-    with _lakeflow_lock:
-        _lakeflow_available = False
-        _lakeflow_last_failure = _time.time()
-
 
 def get_default_start_date() -> str:
     """Get default start date (last 30 days)."""
@@ -1147,17 +1118,17 @@ async def get_tagging_dashboard_bundle(
     )
     params = {"start_date": validated_start, "end_date": validated_end}
     id_list = parse_workspace_ids(workspace_ids)
-    _dkey = bundle_cache_key("tagging:dashboard-bundle:v5", params["start_date"], params["end_date"], id_list)
+    _dkey = bundle_cache_key("tagging:dashboard-bundle:v6", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v5")
+    _cache_generation = capture_cache_generation("tagging:dashboard-bundle:v6")
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
 
     def _ws(sql: str) -> str:
         return wf.inject_ws_filter(sql, ws_clause)
 
-    jobs_ok = [True]
-    pipelines_ok = [True]
+    jobs_ok = [False]
+    pipelines_ok = [False]
 
     def query_with_fallback(enriched_sql: str, fallback_sql: str, query_params: dict) -> list[dict[str, Any]]:
         """Try enriched query (with system.compute tables), fall back to billing-only."""
@@ -1261,30 +1232,6 @@ async def get_tagging_dashboard_bundle(
                 logger.warning("tag coverage timeseries MV path failed (%s); falling back to raw scan", type(e).__name__)
         return execute_query(_ws(TAG_COVERAGE_TIMESERIES), query_params)
 
-    def lakeflow_query(name: str, enriched_sql: str, fallback_sql: str, query_params: dict, flag: list) -> list[dict[str, Any]]:
-        """Try Lakeflow enrichment briefly, then preserve billing rows as fallback.
-
-        `name` (e.g. "lakeflow_jobs" / "lakeflow_pipelines") is used as the label in
-        execute_queries_parallel so the timeout log message identifies which query stalled.
-        """
-        if _lakeflow_in_cooldown():
-            flag[0] = False
-            return execute_query(fallback_sql, query_params)
-        try:
-            result = execute_queries_parallel(
-                [(name, lambda: execute_query(enriched_sql, query_params))],
-                timeout=8.0,
-            )
-            if result.get(name) is not None:
-                _lakeflow_mark_success()
-                return result[name]
-        except Exception as e:
-            logger.warning(f"{name} failed/timed out ({type(e).__name__}); falling back to billing-only")
-        _lakeflow_mark_failure()
-        logger.warning("system.lakeflow unavailable; skipping enriched queries for %.0fs", _LAKEFLOW_RETRY_INTERVAL)
-        flag[0] = False
-        return execute_query(fallback_sql, query_params)
-
     local_details_selected = local_source_is_selected()
 
     if local_details_selected:
@@ -1294,9 +1241,12 @@ async def get_tagging_dashboard_bundle(
             ("timeseries", lambda: coverage_timeseries_query(params)),
             ("cost_by_tag", lambda: cost_by_tag_query(params)),
             ("tag_stats", lambda: tag_stats_query(params)),
+            # Billing-only rows are preferred in this aggregate bundle. Lakeflow
+            # name enrichment has its own latency and previously consumed the
+            # entire dashboard deadline before these sections could render.
+            ("jobs", lambda: execute_query(_ws(UNTAGGED_JOBS), params)),
+            ("pipelines", lambda: execute_query(_ws(UNTAGGED_PIPELINES), params)),
             ("clusters", lambda: query_with_fallback(_ws(UNTAGGED_CLUSTERS_ENRICHED), _ws(UNTAGGED_CLUSTERS), params)),
-            ("jobs", lambda: lakeflow_query("lakeflow_jobs", _ws(UNTAGGED_JOBS_ENRICHED), _ws(UNTAGGED_JOBS), params, jobs_ok)),
-            ("pipelines", lambda: lakeflow_query("lakeflow_pipelines", _ws(UNTAGGED_PIPELINES_ENRICHED), _ws(UNTAGGED_PIPELINES), params, pipelines_ok)),
             ("warehouses", lambda: query_with_fallback(_ws(UNTAGGED_WAREHOUSES_ENRICHED), _ws(UNTAGGED_WAREHOUSES), params)),
             ("endpoints", lambda: execute_query(_ws(UNTAGGED_ENDPOINTS), params)),
         ]
@@ -1472,7 +1422,7 @@ async def get_tagging_dashboard_bundle(
     }
     delta_cache_put(
         _dkey,
-        "tagging:dashboard-bundle:v5",
+        "tagging:dashboard-bundle:v6",
         _resp,
         ttl_seconds=(
             60
