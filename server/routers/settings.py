@@ -23,8 +23,8 @@ from server.feedback import safe_feedback_slack_url
 router = APIRouter()
 logger = logging.getLogger(__name__)
 _MV_SHARE_RUNBOOK = (
-    Path(__file__).resolve().parents[2]
-    / "notebooks"
+    Path(__file__).resolve().parents[1]
+    / "assets"
     / "cost_obs_mv_share_publisher.py"
 )
 

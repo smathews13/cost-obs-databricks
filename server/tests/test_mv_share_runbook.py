@@ -1,32 +1,35 @@
 """Regression coverage for the standalone aggregate/share publisher runbook."""
 
 import asyncio
-import importlib.util
+import hashlib
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from server import db, materialized_views
+from server.queries.pricing import apply_temporal_list_price_join
 from server.routers import settings
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNBOOK = ROOT / "notebooks" / "cost_obs_mv_share_publisher.py"
-GENERATOR = ROOT / "scripts" / "generate_mv_share_runbook.py"
-
-
-def _generator_module():
-    spec = importlib.util.spec_from_file_location("generate_mv_share_runbook", GENERATOR)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+RUNBOOK = ROOT / "server" / "assets" / "cost_obs_mv_share_publisher.py"
 
 
 def test_runbook_is_generated_from_the_exact_runtime_table_contract():
-    generator = _generator_module()
-    rendered = generator.render()
+    rendered = RUNBOOK.read_text()
+    canonical_sql = {
+        name: apply_temporal_list_price_join(template).strip()
+        for name, template in materialized_views.CREATE_MV_TABLES.items()
+    }
+    contract_hash = hashlib.sha256(
+        json.dumps(
+            canonical_sql,
+            sort_keys=False,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
 
-    assert RUNBOOK.read_text() == rendered
     assert list(materialized_views.CREATE_MV_TABLES) == list(db.MV_UNIFIED_TABLE_NAMES)
+    assert f"Contract: `{contract_hash}`" in rendered
     for table_name in db.MV_UNIFIED_TABLE_NAMES:
         assert f"`{{catalog}}`.`{{schema}}`.`{table_name}`" in rendered
     assert rendered.count("CREATE OR REPLACE TABLE") == len(db.MV_UNIFIED_TABLE_NAMES)
