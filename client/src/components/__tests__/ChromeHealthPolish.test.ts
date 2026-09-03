@@ -35,9 +35,11 @@ describe("account rail health polish", () => {
 
   it("places deployment provenance beside the brand before account filters", () => {
     const badgeIndex = appSource.lastIndexOf("<DeploymentBadgeFromApi");
-    const accountIndex = appSource.lastIndexOf("<AccountIdentifier");
+    const accountIndex = appSource.lastIndexOf('label="account ID"');
     const workspaceFilterIndex = appSource.lastIndexOf("<WorkspaceFilter");
-    const servicePrincipalBadgeIndex = appSource.lastIndexOf("<CopyableRailBadge");
+    const servicePrincipalBadgeIndex = appSource.lastIndexOf(
+      'label="service principal display name"',
+    );
 
     expect(badgeIndex).toBeGreaterThan(0);
     expect(badgeIndex).toBeLessThan(accountIndex);
@@ -48,20 +50,19 @@ describe("account rail health polish", () => {
     expect(appSource).toContain('className="flex shrink-0 items-center gap-[4px]"');
   });
 
-  it("exposes the full account ID with a keyboard-accessible tooltip", () => {
-    expect(appSource).toContain('label="Show full account ID"');
-    expect(appSource).toContain("<InfoPopover");
-    expect(appSource).toContain("max-w-[210px]");
-    expect(appSource).toContain("rail-account-badge");
+  it("uses the same direct hover-copy state for the account ID", () => {
+    expect(appSource).not.toContain("<InfoPopover");
     expect(appSource).toContain("bg-green-500/20");
-    expect(appSource).toContain("RAIL_STATUS_BADGE_CLASS");
-    expect(appSource).toContain("h-[18px]");
-    expect(appSource).toContain("px-[6px] text-[9px]");
-    expect(appSource).not.toMatch(/rail-account-badge[^"]*border-green/);
-    expect(appSource).toContain('fontFamily: "var(--sans)"');
-    expect(appSource).toContain('displayValue={accountInfo?.account_name || "Databricks account"}');
-    expect(appSource).toContain('aria-label={copied ? "Account ID copied" : "Copy account ID"}');
-    expect(appSource).not.toContain('title={accountInfo?.account_id');
+    expect(appSource).toContain("RAIL_COPY_BADGE_CLASS");
+    expect(appSource).toContain("h-[16px]");
+    expect(appSource).toContain("px-[5px] text-[8px]");
+    expect(appSource).toContain(
+      'value={accountInfo?.account_id || accountInfo?.account_name || "Databricks account"}',
+    );
+    expect(appSource).toContain(
+      'text={accountInfo?.account_name || "Databricks account"}',
+    );
+    expect(appSource).toContain('label="account ID"');
     expect(styles).not.toContain(".account-id-tooltip-content");
     expect(styles).not.toContain(".deployment-badge-tooltip");
   });
@@ -75,7 +76,7 @@ describe("account rail health polish", () => {
   });
 
   it("gives only the healthy app, service-principal, and SQL dots a perceptible pulse", () => {
-    expect(appSource.match(/<CopyableRailBadge/g)).toHaveLength(2);
+    expect(appSource.match(/<CopyableRailBadge/g)).toHaveLength(3);
     expect(appSource.match(/healthy-status-dot/g)).toHaveLength(2);
     expect(appSource).toContain(
       'warehouseStatus.status === "warm" ? "healthy-status-dot " : ""',
@@ -92,8 +93,8 @@ describe("account rail health polish", () => {
   });
 
   it("labels the SP name correctly and copies the same ID used by Settings", () => {
-    expect(appSource).toContain('RAIL_STATUS_BADGE_CLASS');
-    expect(appSource.match(/RAIL_STATUS_BADGE_CLASS/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(appSource).toContain('RAIL_COPY_BADGE_CLASS');
+    expect(appSource.match(/RAIL_COPY_BADGE_CLASS/g)?.length).toBeGreaterThanOrEqual(2);
     expect(appSource).not.toContain('trailing="ID"');
     expect(appSource).not.toContain('trailing="Name"');
     expect(appSource).toContain(
