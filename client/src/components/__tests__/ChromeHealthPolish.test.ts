@@ -48,7 +48,9 @@ describe("account rail health polish", () => {
     expect(appSource).toContain('label="Show full account ID"');
     expect(appSource).toContain("<InfoPopover");
     expect(appSource).toContain("max-w-[210px]");
-    expect(appSource).toContain("px-1 py-0.5 text-[8.5px]");
+    expect(appSource).toContain("rail-account-badge");
+    expect(appSource).toContain("bg-green-500/20");
+    expect(appSource).toContain("px-[8px] text-[10px]");
     expect(appSource).toContain('fontFamily: "var(--sans)"');
     expect(appSource).toContain('displayValue={accountInfo?.account_name || "Databricks account"}');
     expect(appSource).toContain('aria-label={copied ? "Account ID copied" : "Copy account ID"}');
@@ -83,7 +85,10 @@ describe("account rail health polish", () => {
   });
 
   it("labels the SP name correctly and copies the same ID used by Settings", () => {
-    expect(appSource).toContain('trailing="Name"');
+    expect(appSource).toContain('h-[24px]');
+    expect(appSource).toContain('px-[8px]');
+    expect(appSource).not.toContain('trailing="ID"');
+    expect(appSource).not.toContain('trailing="Name"');
     expect(appSource).toContain(
       'value={authStatus.sp_object_id || authStatus.sp_client_id || ""}',
     );

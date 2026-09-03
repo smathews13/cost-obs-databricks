@@ -348,7 +348,7 @@ function AccountIdentifier({
       placement="bottom"
       interactive
       panelClassName="w-max max-w-[calc(100vw-1rem)] bg-[#0B2026] text-[11px]"
-      triggerClassName="block max-w-[210px] truncate rounded-[4px] bg-white/[.09] px-1 py-0.5 text-[8.5px] leading-[11px] text-[#E9EFED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
+      triggerClassName="rail-account-badge inline-flex h-[24px] max-w-[210px] items-center gap-[4px] truncate rounded-full border border-green-300/20 bg-green-500/20 px-[8px] text-[10px] font-semibold leading-none text-green-200 hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40"
       content={
         <span className="flex items-center gap-2">
           <span className="max-w-[420px] break-all font-mono">{idValue || "Account ID unavailable"}</span>
@@ -365,8 +365,11 @@ function AccountIdentifier({
         </span>
       }
     >
-      <span className="block truncate tracking-[-0.01em]" style={{ fontFamily: "var(--sans)" }}>
-        {displayValue}
+      <span className="inline-flex min-w-0 items-center gap-[4px]">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-400" />
+        <span className="truncate tracking-[-0.01em]" style={{ fontFamily: "var(--sans)" }}>
+          {displayValue}
+        </span>
       </span>
     </InfoPopover>
   );
@@ -379,7 +382,7 @@ function CopyableRailBadge({
 }: {
   value: string;
   label: string;
-  trailing: React.ReactNode;
+  trailing?: React.ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   const copyValue = async () => {
@@ -393,7 +396,7 @@ function CopyableRailBadge({
       aria-label={copied ? `${label} copied` : `Copy ${label}`}
       title={copied ? "Copied" : `${label}: ${value}`}
       onClick={() => { void copyValue(); }}
-      className="group hidden h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40 min-[1440px]:inline-flex"
+      className="group hidden h-[24px] min-w-0 shrink-0 appearance-none items-center gap-[4px] rounded-full px-[8px] text-[10px] font-semibold leading-none text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40 min-[1440px]:inline-flex"
       style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }}
     >
       <span className="healthy-status-dot h-1.5 w-1.5 rounded-full bg-green-400" />
@@ -401,10 +404,10 @@ function CopyableRailBadge({
       {copied ? (
         <Check className="h-3.5 w-3.5" aria-hidden="true" />
       ) : (
-        <>
-          <span className="inline-flex opacity-60 group-hover:hidden">{trailing}</span>
-          <Copy className="hidden h-3.5 w-3.5 opacity-80 group-hover:block" aria-hidden="true" />
-        </>
+        <span className="relative inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+          {trailing && <span className="inline-flex opacity-60 group-hover:hidden">{trailing}</span>}
+          <Copy className="absolute hidden h-3.5 w-3.5 opacity-80 group-hover:block" aria-hidden="true" />
+        </span>
       )}
     </button>
   );
@@ -1823,7 +1826,6 @@ function Dashboard() {
                     <CopyableRailBadge
                       value={authStatus.sp_display_name}
                       label="service principal display name"
-                      trailing="Name"
                     />
                   )}
                   {(authStatus.sp_object_id || authStatus.sp_client_id) && (
