@@ -347,7 +347,10 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
     { key: "resources", label: "Resources", icon: Boxes },
     { key: "experimental", label: "Experimental", icon: FlaskConical, admin: true },
   ];
-  const visibleNav = navItems.filter((n) => !n.admin || isAdmin);
+  // Keep the complete navigation stable while role verification is in flight.
+  // Once a consumer role is confirmed, admin-only entries are removed and the
+  // existing effect returns any protected selection to General.
+  const visibleNav = navItems.filter((n) => !n.admin || !permissions || isAdmin);
 
   const navBtn = (key: NavKey, label: string, Icon: LucideIcon, badge?: React.ReactNode) => {
     const active = nav === key && !overlay;

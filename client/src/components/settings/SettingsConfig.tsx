@@ -370,7 +370,18 @@ export function SettingsConfig() {
                         </td>
                         <td style={{ ...td, textAlign: "right", color: T.textSecondary }}>{e.status === "config" ? "N/A" : fmtWindow(e.lookback_days ?? 0)}</td>
                         <td style={{ ...td, textAlign: "right", color: T.textSecondary, fontVariantNumeric: "tabular-nums" }}>{e.status === "dropped" || e.status === "config" ? "N/A" : fmtDuration(e.duration_seconds)}</td>
-                        <td style={{ ...td, textAlign: "right", color: toneFor(e.status), fontWeight: 600, textTransform: "capitalize" }} title={e.error || e.block_reason}>{resultLabel(e)}</td>
+                        <td style={{ ...td, textAlign: "right", color: toneFor(e.status), fontWeight: 600, textTransform: "capitalize" }}>
+                          <span className="inline-flex items-center justify-end gap-1">
+                            {resultLabel(e)}
+                            {(e.error || e.block_reason) && (
+                              <InfoPopover
+                                size="compact"
+                                label="Show rebuild result details"
+                                text={e.error || e.block_reason}
+                              />
+                            )}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

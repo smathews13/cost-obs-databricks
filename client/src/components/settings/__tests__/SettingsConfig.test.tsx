@@ -242,6 +242,34 @@ describe("SettingsConfig: rebuild history recovery state", () => {
     expect(screen.queryByText(/startup rebuild not needed/i)).not.toBeInTheDocument();
   });
 
+  it("shows the concrete failure behind a partial rebuild result", async () => {
+    renderSettingsConfig({
+      tables: [{ name: "daily_usage_summary", exists: true, optional: false, row_count: 1 }],
+      refresh_status: {
+        status: "partial_error",
+        stale: true,
+        hours_since_refresh: 1,
+        last_refresh_utc: "2026-08-28T05:00:00Z",
+        error: "daily_usage_summary: price join failed",
+        refresh_history: [{
+          id: "partial-run",
+          timestamp: "2026-08-28T05:00:00Z",
+          status: "partial_error",
+          duration_seconds: 42,
+          lookback_days: 180,
+          trigger: "scheduled",
+          error: "daily_usage_summary: price join failed",
+        }],
+      },
+    });
+
+    expect(await screen.findByText(/^partial$/i)).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Show rebuild result details" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "daily_usage_summary: price join failed",
+    );
+  });
+
   it("surfaces Delta persistence failures", async () => {
     renderSettingsConfig({
       tables: [{ name: "daily_usage_summary", exists: true, optional: false, row_count: 1 }],

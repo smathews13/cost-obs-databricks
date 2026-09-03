@@ -1080,6 +1080,8 @@ _TABLE_REFRESH_CONFIG: dict[str, dict] = {
 }
 
 _OPTIMIZE_EVERY_N_REFRESHES = 12
+_MV_DDL_TIMEOUT_SECONDS = 300
+_MV_REFRESH_MAX_WORKERS = 3
 
 # Step 6: MERGE templates for incremental refresh
 
@@ -1556,31 +1558,6 @@ def _update_refresh_state(catalog: str, schema: str, table_name: str, refresh_co
         logger.warning("Could not update refresh state for %s (non-fatal): %s", table_name, e)
 
 
-CREATE_MV_TABLES: dict[str, str] = {
-    "daily_usage_summary": CREATE_DAILY_USAGE_SUMMARY,
-    "daily_product_breakdown": CREATE_DAILY_PRODUCT_BREAKDOWN,
-    "daily_workspace_breakdown": CREATE_DAILY_WORKSPACE_BREAKDOWN,
-    "sql_tool_attribution": CREATE_SQL_TOOL_ATTRIBUTION,
-    "daily_query_stats": CREATE_QUERY_STATS,
-    "dbsql_cost_per_query": CREATE_DBSQL_COST_PER_QUERY,
-    "daily_tag_summary": CREATE_DAILY_TAG_SUMMARY,
-    "daily_tag_coverage_summary": CREATE_DAILY_TAG_COVERAGE_SUMMARY,
-    "daily_apps_summary": CREATE_DAILY_APPS_SUMMARY,
-}
-
-MERGE_MV_TABLES: dict[str, str] = {
-    "daily_usage_summary": MERGE_DAILY_USAGE_SUMMARY,
-    "daily_product_breakdown": MERGE_DAILY_PRODUCT_BREAKDOWN,
-    "daily_workspace_breakdown": MERGE_DAILY_WORKSPACE_BREAKDOWN,
-    "sql_tool_attribution": MERGE_SQL_TOOL_ATTRIBUTION,
-    "daily_query_stats": MERGE_QUERY_STATS,
-    "dbsql_cost_per_query": MERGE_DBSQL_COST_PER_QUERY,
-    "daily_tag_summary": MERGE_DAILY_TAG_SUMMARY,
-    "daily_tag_coverage_summary": MERGE_DAILY_TAG_COVERAGE_SUMMARY,
-    "daily_apps_summary": MERGE_DAILY_APPS_SUMMARY,
-}
-
-
 def create_materialized_views(catalog: str | None = None, schema: str | None = None, lookback_days: int = 180, on_table_event: "Callable[[str, str], None] | None" = None, force_full_rebuild: bool = False) -> dict:
     """Refresh base tables and dependent unified views as one ordered operation."""
     with unified_views_rebuild_lock():
@@ -1776,7 +1753,7 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
                             catalog=catalog, schema=schema,
                             reprocess_start=str(reprocess_start),
                             billing_lookback_days=lookback_days,
-                        ), no_cache=True)
+                        ), no_cache=True, timeout=_MV_DDL_TIMEOUT_SECONDS)
                         # Self-heal duplicate rows the incremental MERGE path can leave
                         # (Delta has no PK enforcement). Full rebuilds are dup-free (GROUP BY).
                         _dedup_delta_table(catalog, schema, table_name,
@@ -1809,11 +1786,7 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
                     billing_lookback_days=lookback_days,
                 ),
                 no_cache=True,
-                timeout=(
-                    300
-                    if table_name == "daily_tag_coverage_summary"
-                    else None
-                ),
+                timeout=_MV_DDL_TIMEOUT_SECONDS,
             )
             _update_refresh_state(catalog, schema, table_name, 1)
             elapsed = _time.monotonic() - t0
@@ -1829,7 +1802,9 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
             return table_name, f"error: {e}", elapsed
 
     mv_timings: dict[str, float] = {}
-    with ThreadPoolExecutor(max_workers=len(tables)) as executor:
+    with ThreadPoolExecutor(
+        max_workers=min(_MV_REFRESH_MAX_WORKERS, len(tables))
+    ) as executor:
         futures = {executor.submit(_create_table, name, sql): name for name, sql in tables}
         for future in as_completed(futures):
             table_name, status, elapsed = future.result()
@@ -2530,3 +2505,30 @@ FROM (
 for _query_name, _query_value in tuple(globals().items()):
     if isinstance(_query_value, str) and "/* TEMPORAL_LIST_PRICE_JOIN */" in _query_value:
         globals()[_query_name] = apply_temporal_list_price_join(_query_value)
+
+
+# Canonical publisher/refresh contracts must be captured only after the temporal
+# price-join marker above has been materialized in every SQL template.
+CREATE_MV_TABLES: dict[str, str] = {
+    "daily_usage_summary": CREATE_DAILY_USAGE_SUMMARY,
+    "daily_product_breakdown": CREATE_DAILY_PRODUCT_BREAKDOWN,
+    "daily_workspace_breakdown": CREATE_DAILY_WORKSPACE_BREAKDOWN,
+    "sql_tool_attribution": CREATE_SQL_TOOL_ATTRIBUTION,
+    "daily_query_stats": CREATE_QUERY_STATS,
+    "dbsql_cost_per_query": CREATE_DBSQL_COST_PER_QUERY,
+    "daily_tag_summary": CREATE_DAILY_TAG_SUMMARY,
+    "daily_tag_coverage_summary": CREATE_DAILY_TAG_COVERAGE_SUMMARY,
+    "daily_apps_summary": CREATE_DAILY_APPS_SUMMARY,
+}
+
+MERGE_MV_TABLES: dict[str, str] = {
+    "daily_usage_summary": MERGE_DAILY_USAGE_SUMMARY,
+    "daily_product_breakdown": MERGE_DAILY_PRODUCT_BREAKDOWN,
+    "daily_workspace_breakdown": MERGE_DAILY_WORKSPACE_BREAKDOWN,
+    "sql_tool_attribution": MERGE_SQL_TOOL_ATTRIBUTION,
+    "daily_query_stats": MERGE_QUERY_STATS,
+    "dbsql_cost_per_query": MERGE_DBSQL_COST_PER_QUERY,
+    "daily_tag_summary": MERGE_DAILY_TAG_SUMMARY,
+    "daily_tag_coverage_summary": MERGE_DAILY_TAG_COVERAGE_SUMMARY,
+    "daily_apps_summary": MERGE_DAILY_APPS_SUMMARY,
+}

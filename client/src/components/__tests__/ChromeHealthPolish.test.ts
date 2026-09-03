@@ -53,9 +53,10 @@ describe("account rail health polish", () => {
   it("uses the same direct hover-copy state for the account ID", () => {
     expect(appSource).not.toContain("<InfoPopover");
     expect(appSource).toContain("bg-green-500/20");
-    expect(appSource).toContain("RAIL_COPY_BADGE_CLASS");
-    expect(appSource).toContain("h-[16px]");
-    expect(appSource).toContain("px-[5px] text-[8px]");
+    expect(appSource).toContain("RAIL_STATUS_BADGE_CLASS");
+    expect(appSource).toContain("h-[18px]");
+    expect(appSource).toContain("rounded-[4px]");
+    expect(appSource).toContain("px-[6px] text-[9px]");
     expect(appSource).toContain(
       'value={accountInfo?.account_id || accountInfo?.account_name || "Databricks account"}',
     );
@@ -93,8 +94,8 @@ describe("account rail health polish", () => {
   });
 
   it("labels the SP name correctly and copies the same ID used by Settings", () => {
-    expect(appSource).toContain('RAIL_COPY_BADGE_CLASS');
-    expect(appSource.match(/RAIL_COPY_BADGE_CLASS/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(appSource).not.toContain('RAIL_COPY_BADGE_CLASS');
+    expect(appSource.match(/RAIL_STATUS_BADGE_CLASS/g)?.length).toBeGreaterThanOrEqual(3);
     expect(appSource).not.toContain('trailing="ID"');
     expect(appSource).not.toContain('trailing="Name"');
     expect(appSource).toContain(

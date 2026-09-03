@@ -243,6 +243,23 @@ def test_all_nine_incremental_merges_delete_only_inside_reprocess_window():
         assert "THEN DELETE" in sql, table_name
 
 
+def test_runtime_refresh_maps_capture_materialized_temporal_price_joins():
+    for templates in (
+        materialized_views.CREATE_MV_TABLES,
+        materialized_views.MERGE_MV_TABLES,
+    ):
+        assert set(templates) == set(materialized_views._TABLE_REFRESH_CONFIG)
+        for table_name, sql in templates.items():
+            assert "/* TEMPORAL_LIST_PRICE_JOIN */" not in sql, table_name
+            if "p.pricing.default" in sql:
+                assert "LEFT JOIN LATERAL" in sql, table_name
+
+
+def test_refresh_ddl_is_bounded_without_using_request_timeouts():
+    assert materialized_views._MV_DDL_TIMEOUT_SECONDS == 300
+    assert materialized_views._MV_REFRESH_MAX_WORKERS == 3
+
+
 def test_bounded_replacement_removes_missing_and_reclassified_rows_not_history():
     window_start = _ts("2025-02-01T00:00:00").date()
     existing = {

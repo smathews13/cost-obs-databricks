@@ -325,8 +325,7 @@ interface User {
   role?: "admin" | "consumer";
 }
 
-const RAIL_STATUS_BADGE_CLASS = "inline-flex h-[18px] min-w-0 shrink-0 items-center gap-[3px] rounded-full bg-green-500/20 px-[6px] text-[9px] font-semibold leading-none text-green-200";
-const RAIL_COPY_BADGE_CLASS = "inline-flex h-[16px] min-w-0 shrink-0 items-center gap-[3px] rounded-full bg-green-500/20 px-[5px] text-[8px] font-semibold leading-none text-green-200";
+const RAIL_STATUS_BADGE_CLASS = "inline-flex h-[18px] min-w-0 shrink-0 items-center gap-[3px] rounded-[4px] bg-green-500/20 px-[6px] text-[9px] font-semibold leading-none text-green-200";
 
 function CopyableRailBadge({
   value,
@@ -349,7 +348,7 @@ function CopyableRailBadge({
       aria-label={copied ? `${label} copied` : `Copy ${label}`}
       title={copied ? "Copied" : `${label}: ${value}`}
       onClick={() => { void copyValue(); }}
-      className={`group ${RAIL_COPY_BADGE_CLASS} appearance-none transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
+      className={`group ${RAIL_STATUS_BADGE_CLASS} appearance-none transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
     >
       <span className="healthy-status-dot h-[5px] w-[5px] rounded-full bg-green-400" />
       <span className="max-w-[128px] truncate">{text}</span>

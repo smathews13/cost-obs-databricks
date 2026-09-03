@@ -47,6 +47,40 @@ it("starts settings queries only after the dialog opens and deduplicates config"
   expect(urls.filter((url) => url === "/api/settings/config")).toHaveLength(1);
 });
 
+it("renders every settings tab immediately while role verification loads", () => {
+  const never = new Promise<Response>(() => {});
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    if (String(input) === "/api/settings/user-permissions") return never;
+    return Promise.resolve(Response.json({}));
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  render(
+    <QueryClientProvider client={client}>
+      <SettingsDialog
+        isOpen
+        onClose={vi.fn()}
+        onTabVisibilityChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        tabVisibility={loadTabVisibility()}
+        appSettings={loadAppSettings()}
+      />
+    </QueryClientProvider>,
+  );
+
+  for (const label of [
+    "General",
+    "Dashboard tabs",
+    "Identity & Permissions",
+    "Data & tables",
+    "Alerts & notifications",
+    "Resources",
+    "Experimental",
+  ]) {
+    expect(screen.getByRole("button", { name: label })).toBeVisible();
+  }
+});
+
 it("animates the save spinner while respecting reduced motion", () => {
   const css = readFileSync("src/components/settings/settings.css", "utf8");
   expect(css).toMatch(/\.settings-save-spinner\s*\{[^}]*animation:\s*settings-save-spin/s);
