@@ -359,6 +359,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
         style={{
           display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left",
           padding: "7px 10px", borderRadius: 6, fontSize: 13, fontWeight: active ? 600 : 500,
+          whiteSpace: "nowrap",
           color: active ? T.text : T.textSecondary, backgroundColor: active ? T.surface : "transparent",
           border: active ? `1px solid ${T.borderGroup}` : "1px solid transparent", cursor: "pointer",
         }}>
@@ -393,7 +394,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
 
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
           {/* Left nav */}
-          <div style={{ width: 208, flexShrink: 0, backgroundColor: T.navBg, borderRight: `1px solid ${T.borderGroup}`, display: "flex", flexDirection: "column", padding: 12 }}>
+          <div style={{ width: 232, flexShrink: 0, backgroundColor: T.navBg, borderRight: `1px solid ${T.borderGroup}`, display: "flex", flexDirection: "column", padding: 12 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
               {visibleNav.map((n) => navBtn(n.key, n.label, n.icon))}
             </div>

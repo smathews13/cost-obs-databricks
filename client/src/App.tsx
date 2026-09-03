@@ -325,7 +325,16 @@ interface User {
   role?: "admin" | "consumer";
 }
 
-const RAIL_STATUS_BADGE_CLASS = "inline-flex h-[18px] min-w-0 shrink-0 items-center gap-[3px] rounded-[4px] bg-green-500/20 px-[6px] text-[9px] font-semibold leading-none text-green-200";
+const RAIL_STATUS_BADGE_CLASS = "inline-flex min-w-0 shrink-0 items-center gap-[3px] font-semibold text-green-200";
+const RAIL_STATUS_BADGE_STYLE: React.CSSProperties = {
+  height: 18,
+  padding: "0 6px",
+  border: "1px solid rgba(134, 239, 172, 0.22)",
+  borderRadius: 4,
+  background: "rgba(34, 197, 94, 0.2)",
+  fontSize: 9,
+  lineHeight: "9px",
+};
 
 function CopyableRailBadge({
   value,
@@ -349,6 +358,7 @@ function CopyableRailBadge({
       title={copied ? "Copied" : `${label}: ${value}`}
       onClick={() => { void copyValue(); }}
       className={`group ${RAIL_STATUS_BADGE_CLASS} appearance-none transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
+      style={RAIL_STATUS_BADGE_STYLE}
     >
       <span className="healthy-status-dot h-[5px] w-[5px] rounded-full bg-green-400" />
       <span className="max-w-[128px] truncate">{text}</span>
@@ -1788,6 +1798,7 @@ function Dashboard() {
               {warehouseStatus && (
                 <span
                   className={RAIL_STATUS_BADGE_CLASS}
+                  style={RAIL_STATUS_BADGE_STYLE}
                   title={`SQL Warehouse: ${warehouseStatus.state ?? warehouseStatus.status}`}
                 >
                   <span
@@ -1811,7 +1822,7 @@ function Dashboard() {
                   type="button"
                   onClick={openExportDialog}
                   aria-label="Export"
-                  className="rail-control-border inline-flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[8px] border bg-[#2272B4] px-0 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#1B5F96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4D98D0]/50 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1100px]:w-auto min-[1100px]:gap-1.5 min-[1100px]:px-[11px]"
+                  className="rail-control-border inline-flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[8px] border bg-[#1B5F96] px-0 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#2272B4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4D98D0]/50 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1100px]:w-auto min-[1100px]:gap-1.5 min-[1100px]:px-[11px]"
                   title="Export"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

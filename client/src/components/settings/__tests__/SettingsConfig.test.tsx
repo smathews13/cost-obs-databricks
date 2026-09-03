@@ -263,6 +263,9 @@ describe("SettingsConfig: rebuild history recovery state", () => {
       },
     });
 
+    expect(await screen.findByText(/Last rebuild partially failed: 1 managed table failed/i))
+      .toBeVisible();
+    expect(screen.queryByText("daily_usage_summary: price join failed")).not.toBeInTheDocument();
     expect(await screen.findByText(/^partial$/i)).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Show rebuild result details" }));
     expect(screen.getByRole("tooltip")).toHaveTextContent(

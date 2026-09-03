@@ -184,6 +184,12 @@ export function SettingsConfig() {
 
   const rs = tablesStatus?.refresh_status;
   const rebuildBlocked = tablesStatus?.storage_block_reason || rs?.block_reason;
+  const refreshFailureCount = rs?.error
+    ? Math.max(1, rs.error.match(/:\s*error:/gi)?.length ?? 0)
+    : 0;
+  const refreshFailureSummary = rs?.status === "partial_error"
+    ? `Last rebuild partially failed: ${refreshFailureCount} managed ${refreshFailureCount === 1 ? "table" : "tables"} failed.`
+    : "Last rebuild failed.";
   // Safety invariant: when a required (non-optional) managed table is already missing,
   // the system is degraded: the drop action is hard-blocked (no break-glass path) so a
   // broken deploy can't be dropped into a worse state. The CONFIRM gate is the second layer.
@@ -226,7 +232,19 @@ export function SettingsConfig() {
         <div style={{ marginBottom: 12 }}><Callout tone="danger">Rebuild {mvLastResult === "partial_error" ? "partially failed" : "failed"}. See details below.</Callout></div>
       )}
       {!mvRefreshing && rs?.status && ["error", "partial_error"].includes(rs.status) && rs.error && (
-        <div style={{ marginBottom: 12 }}><Callout tone="danger"><strong>Last rebuild failed.</strong> {rs.error}</Callout></div>
+        <div style={{ marginBottom: 12 }}>
+          <Callout tone="danger">
+            <span className="inline-flex items-center gap-1.5">
+              <strong>{refreshFailureSummary}</strong>
+              <span>Open a result below for details.</span>
+              <InfoPopover
+                size="compact"
+                label="Show latest rebuild error"
+                text={rs.error}
+              />
+            </span>
+          </Callout>
+        </div>
       )}
       {rebuildBlocked && (
         <div style={{ marginBottom: 12 }}><Callout tone="warning"><strong>Rebuild blocked.</strong> {rebuildBlocked}</Callout></div>

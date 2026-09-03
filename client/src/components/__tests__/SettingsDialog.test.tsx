@@ -108,6 +108,8 @@ it("places and labels Identity & Permissions as the third settings section", asy
   );
 
   const accessTab = await screen.findByRole("button", { name: "Identity & Permissions" });
+  expect(accessTab).toHaveStyle({ whiteSpace: "nowrap" });
+  expect(accessTab.parentElement?.parentElement).toHaveStyle({ width: "232px" });
   for (const label of [
     "General",
     "Dashboard tabs",

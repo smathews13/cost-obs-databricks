@@ -13,6 +13,9 @@ describe("account rail health polish", () => {
     expect(appSource).toMatch(
       /aria-label="Export"[\s\S]{0,250}className="rail-control-border/,
     );
+    expect(appSource).toMatch(
+      /aria-label="Export"[\s\S]{0,350}bg-\[#1B5F96\][\s\S]{0,100}hover:bg-\[#2272B4\]/,
+    );
   });
 
   it("keeps rail actions together without a redundant Admin badge", () => {
@@ -52,11 +55,12 @@ describe("account rail health polish", () => {
 
   it("uses the same direct hover-copy state for the account ID", () => {
     expect(appSource).not.toContain("<InfoPopover");
-    expect(appSource).toContain("bg-green-500/20");
     expect(appSource).toContain("RAIL_STATUS_BADGE_CLASS");
-    expect(appSource).toContain("h-[18px]");
-    expect(appSource).toContain("rounded-[4px]");
-    expect(appSource).toContain("px-[6px] text-[9px]");
+    expect(appSource).toContain('background: "rgba(34, 197, 94, 0.2)"');
+    expect(appSource).toContain("height: 18");
+    expect(appSource).toContain("borderRadius: 4");
+    expect(appSource).toContain('padding: "0 6px"');
+    expect(appSource).toContain("fontSize: 9");
     expect(appSource).toContain(
       'value={accountInfo?.account_id || accountInfo?.account_name || "Databricks account"}',
     );
