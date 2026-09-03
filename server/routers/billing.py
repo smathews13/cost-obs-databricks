@@ -2194,6 +2194,30 @@ async def get_workspace_list(
         ORDER BY workspace_id
     """
     def _fetch_rows() -> list:
+        if selected_source_labels():
+            catalog, schema = get_catalog_schema()
+            mv_template = """
+                SELECT
+                    CAST(workspace_id AS STRING) AS workspace_id,
+                    MAX(workspace_name) AS workspace_name
+                FROM `{catalog}`.`{schema}`.`daily_workspace_breakdown`
+                WHERE usage_date BETWEEN :start_date AND :end_date
+                  {ws_filter}
+                  {source_filter}
+                GROUP BY workspace_id
+                ORDER BY COALESCE(MAX(workspace_name), CAST(workspace_id AS STRING))
+            """
+            source_filter = source_label_filter_clause(mv_template)
+            scoped_query = mv_template.format(
+                catalog=catalog,
+                schema=schema,
+                ws_filter=wf.build_ws_filter_clause(col="workspace_id"),
+                source_filter=source_filter,
+            )
+            return execute_query(
+                apply_mv_overrides(scoped_query, catalog, schema),
+                params,
+            )
         try:
             rows = execute_query(sql_with_names, params)
         except Exception as e:
@@ -2210,7 +2234,6 @@ async def get_workspace_list(
         # when EVERY row was null — so partial gaps never got filled.)
         if any(r["workspace_name"] is None for r in rows):
             try:
-                from server.db import get_catalog_schema
                 _cat, _sch = get_catalog_schema()
                 mv = execute_query(
                     f"SELECT CAST(workspace_id AS STRING) AS workspace_id, MAX(workspace_name) AS workspace_name "

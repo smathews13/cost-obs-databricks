@@ -40,6 +40,40 @@ def test_explicit_workspace_selection_takes_precedence_over_history_scope():
     assert clause == "AND CAST(workspace_id AS STRING) IN ('historical-123')"
 
 
+def test_workspace_picker_uses_the_selected_managed_source():
+    captured: list[str] = []
+
+    def execute(sql, *_args, **_kwargs):
+        captured.append(sql)
+        return [{"workspace_id": "current-1", "workspace_name": "Current one"}]
+
+    source_token = db.set_source_labels(["shared-west"])
+    try:
+        with (
+            patch.object(billing, "execute_query", side_effect=execute),
+            patch.object(billing, "get_catalog_schema", return_value=("main", "cost_obs")),
+            patch.object(settings, "workspace_names_enabled", return_value=True),
+            patch.object(
+                billing,
+                "source_label_filter_clause",
+                return_value="AND source_label IN ('shared-west')",
+            ),
+            patch.object(billing, "apply_mv_overrides", side_effect=lambda sql, *_: sql),
+        ):
+            result = asyncio.run(
+                billing.get_workspace_list(
+                    start_date="2026-08-01",
+                    end_date="2026-08-31",
+                )
+            )
+    finally:
+        db.reset_source_labels(source_token)
+
+    assert result["workspaces"][0]["id"] == "current-1"
+    assert "daily_workspace_breakdown" in captured[0]
+    assert "source_label IN ('shared-west')" in captured[0]
+
+
 @pytest.fixture(autouse=True)
 def declared_shared_source_tables(monkeypatch):
     tables = list(db.MV_UNIFIED_TABLE_NAMES)

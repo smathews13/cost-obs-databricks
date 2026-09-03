@@ -387,11 +387,11 @@ export function DataTablesSection({ localSettings, updateSetting, caps }: Common
   );
 }
 
-// ── Permissions & Access ──────────────────────────────────────────────────────
+// ── Identity & Permissions ────────────────────────────────────────────────────
 export function AccessSection() {
   return (
     <div>
-      <SectionTitle title="Permissions & Access" subtitle="App roles, service-principal identity, and effective Databricks resource access." />
+      <SectionTitle title="Identity & Permissions" subtitle="App roles, service-principal identity, and effective Databricks resource access." />
       <SettingsPermissions />
     </div>
   );

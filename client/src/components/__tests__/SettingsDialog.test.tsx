@@ -53,7 +53,7 @@ it("animates the save spinner while respecting reduced motion", () => {
   expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.settings-save-spinner\s*\{[^}]*animation:\s*none/s);
 });
 
-it("labels the admin section Permissions & Access everywhere", async () => {
+it("places and labels Identity & Permissions as the third settings section", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({ current_role: "admin" }),
@@ -73,20 +73,25 @@ it("labels the admin section Permissions & Access everywhere", async () => {
     </QueryClientProvider>,
   );
 
-  const accessTab = await screen.findByRole("button", { name: "Permissions & Access" });
+  const accessTab = await screen.findByRole("button", { name: "Identity & Permissions" });
   for (const label of [
     "General",
     "Dashboard tabs",
+    "Identity & Permissions",
     "Data & tables",
     "Alerts & notifications",
-    "Permissions & Access",
     "Resources",
     "Experimental",
   ]) {
     expect(screen.getByRole("button", { name: label }).querySelector("svg")).toBeInTheDocument();
   }
+  const navButtons = ["General", "Dashboard tabs", "Identity & Permissions"].map(
+    (label) => screen.getByRole("button", { name: label }),
+  );
+  expect(navButtons[0].compareDocumentPosition(navButtons[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(navButtons[1].compareDocumentPosition(navButtons[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   await userEvent.click(accessTab);
-  expect(screen.getByRole("heading", { name: "Permissions & Access" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "Identity & Permissions" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Access" })).not.toBeInTheDocument();
 });
 

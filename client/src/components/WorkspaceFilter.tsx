@@ -86,6 +86,7 @@ export function WorkspaceFilter({
 
   const allSelected = selectedIds.length === 0;
   const applyEnabled = draftAll || draftIds.length > 0;
+  const allScopeCount = includeHistorical ? validWorkspaces.length : currentWorkspaces.length;
 
   function openMenu() {
     setDraftAll(selectedIds.length === 0);
@@ -142,7 +143,7 @@ export function WorkspaceFilter({
 
   function label() {
     if (allSelected) {
-      return includeHistorical ? "All Workspaces" : "Current Workspaces";
+      return `${allScopeCount} ${allScopeCount === 1 ? "Workspace" : "Workspaces"}`;
     }
     if (selectedIds.length === 1) {
       const ws = validWorkspaces.find((w) => w.workspace_id === selectedIds[0]);
@@ -190,7 +191,9 @@ export function WorkspaceFilter({
           {updating ? "Updating…" : (
             <>
               <span className="min-[1180px]:hidden">
-                {allSelected ? "Workspaces" : selectedIds.length === 1 ? "1 workspace" : `${selectedIds.length} workspaces`}
+                {allSelected
+                  ? `${allScopeCount} ${allScopeCount === 1 ? "workspace" : "workspaces"}`
+                  : selectedIds.length === 1 ? "1 workspace" : `${selectedIds.length} workspaces`}
               </span>
               <span className="hidden min-[1180px]:inline">{label()}</span>
             </>

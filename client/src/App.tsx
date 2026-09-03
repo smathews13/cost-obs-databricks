@@ -372,6 +372,44 @@ function AccountIdentifier({
   );
 }
 
+function CopyableRailBadge({
+  value,
+  label,
+  trailing,
+}: {
+  value: string;
+  label: string;
+  trailing: React.ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copyValue = async () => {
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
+  return (
+    <button
+      type="button"
+      aria-label={copied ? `${label} copied` : `Copy ${label}`}
+      title={copied ? "Copied" : `${label}: ${value}`}
+      onClick={() => { void copyValue(); }}
+      className="group hidden h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40 min-[1440px]:inline-flex"
+      style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }}
+    >
+      <span className="healthy-status-dot h-1.5 w-1.5 rounded-full bg-green-400" />
+      <span className="font-mono">{value.slice(0, 8)}</span>
+      {copied ? (
+        <Check className="h-3.5 w-3.5" aria-hidden="true" />
+      ) : (
+        <>
+          <span className="inline-flex opacity-60 group-hover:hidden">{trailing}</span>
+          <Copy className="hidden h-3.5 w-3.5 opacity-80 group-hover:block" aria-hidden="true" />
+        </>
+      )}
+    </button>
+  );
+}
+
 function DBUMethodologyPanel() {
   const minimizeKey = "cost-obs-minimize-dbu-info";
   const [minimized, setMinimized] = useState(() =>
@@ -1416,9 +1454,26 @@ function Dashboard() {
   }, [exportDemand?.tabs, requeueDemandTabs, rqClient]);
 
   // Workspace list for the filter dropdown: SQL-backed, only fire when warehouse is ready.
-  const { data: wsListData, isLoading: wsListLoading } = useQuery<{ workspaces: { id: string; name: string; historical?: boolean }[] }>({
-    queryKey: ["billing", "workspaces"],
-    queryFn: () => fetch("/api/billing/workspaces").then(r => r.json()),
+  const workspaceSourceKey = getActiveSourceScopeKey();
+  const { data: wsListData, isLoading: wsListLoading } = useQuery<{
+    workspaces: { id: string; name: string; historical?: boolean }[];
+    error?: string;
+  }>({
+    queryKey: [
+      "billing",
+      "workspaces",
+      dateRange.startDate,
+      dateRange.endDate,
+      workspaceSourceKey,
+    ],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        start_date: dateRange.startDate,
+        end_date: dateRange.endDate,
+        include_historical_workspaces: "true",
+      });
+      return fetch(buildFilteredUrl("/api/billing/workspaces", params)).then(r => r.json());
+    },
     staleTime: Infinity,
     enabled: warehouseQueriesAllowed,
   });
@@ -1456,6 +1511,9 @@ function Dashboard() {
     }),
     [wsListData?.workspaces, workspaceNameMap],
   );
+  const workspaceScopeCount = wsListData && !wsListData.error
+    ? wsFilterList.filter((workspace) => includeHistoricalWorkspaces || !workspace.historical).length
+    : undefined;
 
   // Service-principal display-name map: refetches after 10 min so if the first
   // SCIM call missed (e.g. permission granted later, backend was in cold-start),
@@ -1761,18 +1819,18 @@ function Dashboard() {
               {authStatus && authStatus.identity !== "user_oauth" && (
                 <>
                   {authStatus.sp_display_name && (
-                    <span className="hidden h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold text-green-200 min-[1440px]:inline-flex" style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }} title={authStatus.sp_display_name}>
-                      <span className="healthy-status-dot h-1.5 w-1.5 rounded-full bg-green-400" />
-                      <span className="font-mono">{authStatus.sp_display_name.slice(0, 8)}</span>
-                      <span className="opacity-60">ID</span>
-                    </span>
+                    <CopyableRailBadge
+                      value={authStatus.sp_display_name}
+                      label="service principal display name"
+                      trailing="ID"
+                    />
                   )}
                   {(authStatus.sp_user_name || authStatus.sp_client_id) && (
-                    <span className="hidden h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] font-semibold text-green-200 min-[1440px]:inline-flex" style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }} title={authStatus.sp_user_name || authStatus.sp_client_id}>
-                      <span className="healthy-status-dot h-1.5 w-1.5 rounded-full bg-green-400" />
-                      <span className="font-mono">{(authStatus.sp_user_name || authStatus.sp_client_id || "").slice(0, 8)}</span>
-                      <Bot className="h-3.5 w-3.5 opacity-70" aria-label="Service principal" />
-                    </span>
+                    <CopyableRailBadge
+                      value={authStatus.sp_user_name || authStatus.sp_client_id || ""}
+                      label="service principal ID"
+                      trailing={<Bot className="h-3.5 w-3.5" aria-hidden="true" />}
+                    />
                   )}
                 </>
               )}
@@ -1943,6 +2001,7 @@ function Dashboard() {
               startDate={dateRange.startDate}
               endDate={dateRange.endDate}
               workspaceIds={_wsIds}
+              workspaceScopeCount={workspaceScopeCount}
             />
 
             <SpendChart data={timeseries} isLoading={bundleLoading} />

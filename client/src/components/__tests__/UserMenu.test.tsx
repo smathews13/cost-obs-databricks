@@ -52,9 +52,9 @@ describe("UserMenu", () => {
       /\.rail-user-trigger:hover\s*\{[^}]*background-color:\s*#294a56/s,
     );
     expect(screen.queryByTestId("user-menu-silhouette")).not.toBeInTheDocument();
-    const organization = screen.getByTestId("user-menu-organization");
-    expect(organization).not.toHaveClass("border", "shadow-sm");
-    expect(organization.querySelector("img")).toHaveAttribute(
+    const domainIcon = screen.getByTestId("user-menu-domain-icon");
+    expect(domainIcon).not.toHaveClass("border", "shadow-sm");
+    expect(domainIcon.querySelector("img")).toHaveAttribute(
       "src",
       "/brand/databricks-symbol-white.svg",
     );
@@ -67,7 +67,12 @@ describe("UserMenu", () => {
 
     expect(trigger).toHaveAttribute("data-state", "open");
     expect(trigger).toHaveClass("bg-[#294A56]");
-    expect(await screen.findByRole("menu", { name: "User menu" })).toBeInTheDocument();
+    const menu = await screen.findByRole("menu", { name: "User menu" });
+    expect(menu).toBeInTheDocument();
+    expect(menu.querySelector("img")).toHaveAttribute(
+      "src",
+      "/brand/databricks-symbol-white.svg",
+    );
     expect(screen.getByRole("menuitem", { name: "Back to Apps" })).toHaveAttribute(
       "href",
       "https://dbc-example.cloud.databricks.com/apps",

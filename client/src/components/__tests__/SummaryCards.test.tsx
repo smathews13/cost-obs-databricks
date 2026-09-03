@@ -97,6 +97,33 @@ describe("SummaryCards KPI formatting", () => {
     }
   });
 
+  it("uses the workspace-picker population instead of latest-day activity", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SummaryCards
+          data={{
+            total_dbus: 10,
+            total_spend: 20,
+            workspace_count: 2,
+            days_in_range: 30,
+            avg_daily_spend: 0.67,
+            start_date: "2026-08-01",
+            end_date: "2026-08-30",
+            first_date: "2026-08-01",
+            last_date: "2026-08-30",
+          }}
+          workspaceScopeCount={3}
+          isLoading={false}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText("Workspaces").closest(".co-kpi-card")).toHaveTextContent("3");
+    expect(screen.getByText("Average Daily Spend").closest(".co-kpi-card"))
+      .toHaveTextContent("across 3 workspaces");
+  });
+
   it("gives every interactive summary card a metric-specific full-card label", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

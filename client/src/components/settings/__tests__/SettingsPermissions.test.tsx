@@ -2,7 +2,7 @@
  * Regression tests for SettingsPermissions SP identity and grant bundle.
  *
  * Key invariants:
- * 1. SP client ID and display name are rendered from /api/settings/auth-status.
+ * 1. SP object ID and display name are rendered from /api/settings/auth-status.
  * 2. The grant SQL bundle uses the actual SP name (not a placeholder).
  * 3. After running grants, the readiness cache is invalidated.
  * 4. When SP is the active identity, the remediation bundle is shown.
@@ -431,6 +431,11 @@ describe("SettingsPermissions: polished access controls", () => {
   });
 
   it("shows safe service-principal details without rendering credentials", async () => {
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
     mockApis(SP_AUTH_STATUS);
     renderPermissions();
 
@@ -439,6 +444,13 @@ describe("SettingsPermissions: polished access controls", () => {
       "href",
       "https://dbc.example.com/api/2.0/preview/scim/v2/ServicePrincipals/123456789",
     );
+    expect(screen.getByText("Display name")).toBeVisible();
+    expect(screen.getByText("Service principal ID")).toBeVisible();
+    expect(screen.queryByText("0000-aaaa-bbbb-1234")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Copy SP display name" }));
+    await userEvent.click(screen.getByRole("button", { name: "Copy service principal ID" }));
+    expect(writeText).toHaveBeenNthCalledWith(1, "cost-observer-app-sp");
+    expect(writeText).toHaveBeenNthCalledWith(2, "123456789");
     expect(screen.getByText("all-apis")).toBeVisible();
     expect(screen.getByText("123456789")).toBeVisible();
     expect(screen.getByTestId("service-principal-grants")).toBeVisible();

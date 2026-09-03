@@ -10,6 +10,7 @@ interface SummaryCardsProps {
   startDate?: string;
   endDate?: string;
   workspaceIds?: string[];
+  workspaceScopeCount?: number;
 }
 
 interface CardProps {
@@ -46,7 +47,7 @@ function Card({ title, value, subtitle, infoTooltip, icon, isLoading, onClick }:
 
 type KPIType = "total_spend" | "total_dbus" | "avg_daily_spend" | "workspace_count";
 
-export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds }: SummaryCardsProps) {
+export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds, workspaceScopeCount }: SummaryCardsProps) {
   const [selectedKPI, setSelectedKPI] = useState<{
     kpi: KPIType;
     label: string;
@@ -57,6 +58,9 @@ export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds
       setSelectedKPI({ kpi, label });
     }
   };
+  const displayedWorkspaceCount = workspaceIds?.length
+    ? workspaceIds.length
+    : workspaceScopeCount ?? data?.workspace_count ?? 0;
 
   return (
     <>
@@ -88,7 +92,9 @@ export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds
         <Card
           title="Average Daily Spend"
           value={formatKpiCurrency(data?.avg_daily_spend ?? 0)}
-          subtitle={data?.workspace_count != null ? `across ${data.workspace_count} workspaces` : "daily average"}
+          subtitle={data?.workspace_count != null || workspaceScopeCount != null || workspaceIds?.length
+            ? `across ${displayedWorkspaceCount} ${displayedWorkspaceCount === 1 ? "workspace" : "workspaces"}`
+            : "daily average"}
           isLoading={isLoading}
           onClick={!isLoading && data && startDate && endDate ? () => handleCardClick("avg_daily_spend", "Average Daily Spend") : undefined}
           icon={
@@ -99,9 +105,9 @@ export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds
         />
         <Card
           title="Workspaces"
-          value={formatNumber(data?.workspace_count ?? 0)}
-          subtitle={workspaceIds?.length ? "selected workspaces" : "active workspaces"}
-          infoTooltip={workspaceIds?.length
+          value={formatNumber(displayedWorkspaceCount)}
+          subtitle={workspaceIds?.length ? "selected workspaces" : "workspaces in scope"}
+          infoTooltip={workspaceIds?.length || workspaceScopeCount != null
             ? "Number of workspaces in the active filter. The trend drilldown shows how many of those selected workspaces had billable usage each day."
             : "Number of distinct workspaces with billable usage on the latest day. The trend drilldown shows daily active workspaces."}
           isLoading={isLoading}

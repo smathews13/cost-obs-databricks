@@ -10,6 +10,7 @@ import {
   Slack,
 } from "lucide-react";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
+import { domainIconForEmail } from "@/utils/domainIcons";
 
 interface UserMenuProps {
   name: string;
@@ -91,23 +92,6 @@ function readableUserName(name: string, email: string): string {
     .join(" ");
 }
 
-function userInitials(name: string, email: string): string {
-  const parts = readableUserName(name, email).split(/[\s._-]+/).filter(Boolean);
-  if (parts.length >= 2) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-  if (parts.length === 1 && parts[0]) return parts[0].slice(0, 2).toUpperCase();
-  return email.slice(0, 2).toUpperCase();
-}
-
-function organizationLogoForEmail(email: string): string {
-  const domain = email.split("@").at(-1)?.trim().toLowerCase();
-  // This local mapping is the fallback until the shared domain-to-organization
-  // registry is available. Unknown domains intentionally use Databricks for now.
-  const logos: Record<string, string> = {
-    "databricks.com": "/brand/databricks-symbol-white.svg",
-  };
-  return logos[domain ?? ""] ?? "/brand/databricks-symbol-white.svg";
-}
-
 export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
@@ -121,8 +105,7 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
   const hoverCloseTimerRef = useRef<number | null>(null);
   const baseUrl = useMemo(() => workspaceBaseUrl(workspaceHost), [workspaceHost]);
   const displayName = useMemo(() => readableUserName(name, email), [name, email]);
-  const initials = useMemo(() => userInitials(displayName, email), [displayName, email]);
-  const organizationLogo = useMemo(() => organizationLogoForEmail(email), [email]);
+  const domainIcon = useMemo(() => domainIconForEmail(email), [email]);
 
   const closeMenu = useCallback((returnFocus = true) => {
     setOpen(false);
@@ -300,14 +283,16 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
         className={`rail-user-trigger rail-control-border flex min-w-0 items-center gap-0 rounded-[8px] border py-[4px] px-[5px] text-[12.5px] font-medium text-[#E9EFED] transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[900px]:gap-[9px] min-[900px]:pl-[5px] min-[900px]:pr-[9px] ${open ? "bg-[#294A56] shadow-[0_1px_3px_rgba(4,18,23,.28),inset_0_1px_0_rgba(117,157,170,.12)]" : "bg-white/[.07] hover:bg-[#243F49]"}`}
       >
         <span
-          data-testid="user-menu-organization"
-          className="flex h-[24px] w-[24px] items-center justify-center rounded-full bg-[#FF5F46] text-[10px] font-bold text-white"
+          data-testid="user-menu-domain-icon"
+          className="flex h-[24px] w-[24px] items-center justify-center overflow-hidden rounded-full"
+          style={{ backgroundColor: domainIcon.background }}
         >
           <img
-            src={organizationLogo}
+            src={domainIcon.src}
             alt=""
             aria-hidden="true"
-            className="h-[14px] w-[16px] object-contain"
+            className="aspect-square object-contain"
+            style={{ width: `${domainIcon.scale}%`, height: `${domainIcon.scale}%` }}
           />
         </span>
         <span className="hidden max-w-[88px] truncate min-[900px]:block min-[1280px]:max-w-[160px] min-[1536px]:max-w-[220px]">{email}</span>
@@ -322,8 +307,17 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
           className="user-menu-panel animate-fade-in absolute right-0 top-full z-50 mt-[8px] w-[300px] rounded-[10px] border border-[#E4E2DD] bg-white p-[8px] text-[#1B3139] shadow-[0_8px_28px_rgba(11,32,38,.16)]"
         >
           <div className="flex items-center gap-[10px] px-[8px] py-[7px]">
-            <span className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-full border border-[#FFD9CE] bg-[#FFEDE8] text-[12px] font-bold text-[#D82A18]">
-              {initials}
+            <span
+              className="flex h-[36px] w-[36px] shrink-0 items-center justify-center overflow-hidden rounded-full"
+              style={{ backgroundColor: domainIcon.background }}
+            >
+              <img
+                src={domainIcon.src}
+                alt=""
+                aria-hidden="true"
+                className="aspect-square object-contain"
+                style={{ width: `${domainIcon.scale}%`, height: `${domainIcon.scale}%` }}
+              />
             </span>
             <span className="min-w-0 flex-1">
               <span className="user-menu-name block truncate text-[13.5px] font-semibold text-[#1B3139]">{displayName}</span>

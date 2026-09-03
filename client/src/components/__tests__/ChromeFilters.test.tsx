@@ -28,7 +28,7 @@ describe("chrome filter variants", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /All Workspaces/i })).toHaveClass("co-filter");
+    expect(screen.getByRole("button", { name: "2 Workspaces" })).toHaveClass("co-filter");
   });
 
   it("renders the workspace trigger with the rail skin", () => {
@@ -41,7 +41,7 @@ describe("chrome filter variants", () => {
       />,
     );
 
-    const trigger = screen.getByRole("button", { name: /All Workspaces/i });
+    const trigger = screen.getByRole("button", { name: "2 Workspaces" });
     expect(trigger).toHaveClass(
       "rail-workspace-filter",
       "h-[32px]",
@@ -51,7 +51,7 @@ describe("chrome filter variants", () => {
       "rail-control-border",
     );
     expect(trigger.className).not.toContain("border-white");
-    expect(screen.getByText("Workspaces")).toHaveClass("min-[1180px]:hidden");
+    expect(screen.getByText("2 workspaces")).toHaveClass("min-[1180px]:hidden");
     expect(trigger).not.toHaveClass("co-filter");
   });
 
@@ -115,13 +115,13 @@ describe("chrome filter variants", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: /Current Workspaces/i }));
+    await userEvent.click(screen.getByRole("button", { name: "2 Workspaces" }));
     expect(screen.queryByRole("checkbox", { name: "Deleted workspace" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onIncludeHistoricalChange).toHaveBeenLastCalledWith(false);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: /Current Workspaces/i })).toBeEnabled());
-    await userEvent.click(screen.getByRole("button", { name: /Current Workspaces/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "2 Workspaces" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "2 Workspaces" }));
     await userEvent.click(screen.getByRole("checkbox", { name: /Include historical workspaces/i }));
     expect(screen.getByRole("checkbox", { name: /^Deleted workspace/ })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Workspace one" })).toBeChecked();

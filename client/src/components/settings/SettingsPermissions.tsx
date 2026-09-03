@@ -234,6 +234,7 @@ export function SettingsPermissions() {
   // runs as a service principal (the common case), matching the pre-revamp behavior.
   const [grantsOpen, setGrantsOpen] = useState(true);
   const [sqlCopied, setSqlCopied] = useState(false);
+  const [copiedIdentity, setCopiedIdentity] = useState<"name" | "id" | null>(null);
 
   const { data: permissions, isLoading } = useQuery<UserPermissionsPayload>({
     queryKey: ["user-permissions"],
@@ -439,10 +440,32 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
       <path d="M3.5 10.5H3A1.5 1.5 0 0 1 1.5 9V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
     </svg>
   );
+  const copyIdentityValue = (kind: "name" | "id", value: string, label: string) => (
+    <button
+      type="button"
+      aria-label={copiedIdentity === kind ? `${label} copied` : `Copy ${label}`}
+      title={copiedIdentity === kind ? "Copied" : `Copy ${label}`}
+      onClick={() => {
+        void navigator.clipboard?.writeText(value);
+        setCopiedIdentity(kind);
+        toast(`${label} copied`);
+        window.setTimeout(() => setCopiedIdentity(null), 1600);
+      }}
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[#618794] hover:bg-[#F2F5F7] hover:text-[#1B3139] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2272B4]/25"
+    >
+      {copiedIdentity === kind ? (
+        <svg aria-hidden width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <path d="m3 8.25 3.1 3.1L13 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : copyIcon}
+    </button>
+  );
   const identityUrl = safeIdentityUrl(
     resources?.service_principal?.identity_url || authStatus?.sp_identity_url,
   );
   const objectId = resources?.service_principal?.object_id || authStatus?.sp_object_id;
+  const servicePrincipalDisplayName = authStatus?.sp_display_name || "Service principal";
+  const servicePrincipalId = objectId || authStatus?.sp_client_id;
   const effectiveScopes = resources?.service_principal?.effective_oauth_scopes
     ?? authStatus?.effective_oauth_scopes
     ?? [];
@@ -611,10 +634,19 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
             label="Identity"
             helper="Databricks Apps injects this identity. No credentials, OAuth tokens, or secrets are exposed."
             control={
-              <span className="inline-flex max-w-107.5 flex-wrap items-center justify-end gap-2">
-                <MonoChip>{authStatus?.sp_display_name || "Service principal"}</MonoChip>
-                {authStatus?.sp_client_id && <MonoChip>{authStatus.sp_client_id}</MonoChip>}
-                {objectId && <MonoChip>{objectId}</MonoChip>}
+              <span className="flex max-w-125 flex-col items-end gap-1.5">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="text-xs text-[#618794]">Display name</span>
+                  <MonoChip>{servicePrincipalDisplayName}</MonoChip>
+                  {copyIdentityValue("name", servicePrincipalDisplayName, "SP display name")}
+                </span>
+                {servicePrincipalId && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="text-xs text-[#618794]">Service principal ID</span>
+                    <MonoChip>{servicePrincipalId}</MonoChip>
+                    {copyIdentityValue("id", servicePrincipalId, "service principal ID")}
+                  </span>
+                )}
                 {identityUrl && <LinkButton href={identityUrl}>Open Databricks identity</LinkButton>}
               </span>
             }

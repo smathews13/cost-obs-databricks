@@ -70,13 +70,14 @@
 }
 
 .settings-user-action--remove {
-  border-color: var(--dob-danger-border, #EFB8C4);
-  background: var(--dob-surface, #FFFFFF);
-  color: var(--dob-danger-fg, #C82D4C);
+  border-color: var(--dob-danger-fg, #C82D4C);
+  background: var(--dob-danger-fg, #C82D4C);
+  color: #FFFFFF;
 }
 
 .settings-user-action--remove:hover:not(:disabled) {
-  background: var(--dob-danger-bg, #FBEBEF);
+  background: #A9223D;
+  border-color: #A9223D;
 }
 
 .settings-user-action:focus-visible {
@@ -90,6 +91,13 @@
   color: var(--dob-text-faint, #8CA0B0);
   cursor: not-allowed;
   opacity: 0.72;
+}
+
+.settings-user-action--add:disabled {
+  border-color: var(--dob-primary-fill, #2272B4);
+  background: var(--dob-primary-fill, #2272B4);
+  color: #FFFFFF;
+  opacity: 0.42;
 }
 
 .settings-user-action-cell {

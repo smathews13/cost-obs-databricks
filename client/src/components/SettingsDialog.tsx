@@ -341,9 +341,9 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
   const navItems: { key: NavKey; label: string; icon: LucideIcon; admin?: boolean }[] = [
     { key: "general", label: "General", icon: SlidersHorizontal },
     { key: "tabs", label: "Dashboard tabs", icon: LayoutDashboard },
+    { key: "access", label: "Identity & Permissions", icon: ShieldCheck, admin: true },
     { key: "data", label: "Data & tables", icon: Database, admin: true },
     { key: "alerts", label: "Alerts & notifications", icon: Bell, admin: true },
-    { key: "access", label: "Permissions & Access", icon: ShieldCheck, admin: true },
     { key: "resources", label: "Resources", icon: Boxes },
     { key: "experimental", label: "Experimental", icon: FlaskConical, admin: true },
   ];

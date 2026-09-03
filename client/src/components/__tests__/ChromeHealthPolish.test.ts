@@ -66,7 +66,8 @@ describe("account rail health polish", () => {
   });
 
   it("gives only the healthy app, service-principal, and SQL dots a perceptible pulse", () => {
-    expect(appSource.match(/healthy-status-dot/g)).toHaveLength(3);
+    expect(appSource.match(/<CopyableRailBadge/g)).toHaveLength(2);
+    expect(appSource.match(/healthy-status-dot/g)).toHaveLength(2);
     expect(appSource).toContain(
       'warehouseStatus.status === "warm" ? "healthy-status-dot " : ""',
     );

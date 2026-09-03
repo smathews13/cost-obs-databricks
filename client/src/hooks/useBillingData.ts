@@ -206,7 +206,7 @@ export function buildFilteredUrl(
   for (const label of _activeSourceLabels) {
     scoped.append("source_labels", label);
   }
-  if (!_includeHistoricalWorkspaces) {
+  if (!_includeHistoricalWorkspaces && !scoped.has("include_historical_workspaces")) {
     scoped.set("include_historical_workspaces", "false");
   }
   const wsKey = getWorkspaceScopeKey(workspaceIds);
