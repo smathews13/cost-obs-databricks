@@ -39,7 +39,7 @@ _widget("target_catalog", "main", "Target catalog")
 _widget("target_schema", "cost_obs_shared", "Target schema")
 _widget("share_name", "cost_obs_share", "Delta Share name")
 _widget("recipient_name", "", "Existing recipient name (optional)")
-_widget("lookback_days", "365", "Billing/query lookback days")
+_widget("lookback_days", "180", "Billing/query lookback days")
 
 CATALOG = dbutils.widgets.get("target_catalog").strip()  # noqa: F821
 SCHEMA = dbutils.widgets.get("target_schema").strip()  # noqa: F821

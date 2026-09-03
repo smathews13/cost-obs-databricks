@@ -36,6 +36,7 @@ def test_runbook_is_generated_from_the_exact_runtime_table_contract():
     assert "CREATE SHARE IF NOT EXISTS" in rendered
     assert "SHOW ALL IN SHARE" in rendered
     assert "ADD TABLE" in rendered
+    assert '_widget("lookback_days", "180", "Billing/query lookback days")' in rendered
     compile(rendered, str(RUNBOOK), "exec")
 
 
