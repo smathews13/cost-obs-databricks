@@ -8,6 +8,7 @@ import {
   getDefaultDateRange,
   responsePayloadIssue,
   setActiveSourceLabels,
+  setIncludeHistoricalWorkspaceData,
   useAppsDashboardBundle,
   useCloudCostsBundle,
   useDashboardBundleFast,
@@ -333,7 +334,33 @@ describe("report payload readiness", () => {
 describe("dashboard source scope", () => {
   afterEach(() => {
     setActiveSourceLabels([]);
+    setIncludeHistoricalWorkspaceData(true);
     vi.unstubAllGlobals();
+  });
+
+  it("separates current-only requests and tells the backend to exclude history", async () => {
+    setIncludeHistoricalWorkspaceData(false);
+    const request = vi.fn(async () => jsonResponse(200, {}));
+    vi.stubGlobal("fetch", request);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    const { result } = renderHook(
+      () => useDashboardBundleFast(
+        { startDate: "2026-08-01", endDate: "2026-08-28" },
+        undefined,
+        true,
+      ),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const url = new URL(String(request.mock.calls[0][0]), "https://example.test");
+    expect(url.searchParams.get("include_historical_workspaces")).toBe("false");
+    expect(client.getQueryCache().getAll()[0].queryKey).toContain("current-only");
   });
 
   it("includes source scope in active and on-demand tab query keys", async () => {

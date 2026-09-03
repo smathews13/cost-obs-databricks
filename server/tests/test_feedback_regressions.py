@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from server import db
+from server import db, workspace_filter
 from server.queries import (
     BILLING_KPIS_FAST,
     INFRA_COST_ESTIMATE,
@@ -13,6 +13,31 @@ from server.queries import (
     LAKEFLOW_JOB_STATS,
 )
 from server.routers import billing, dbsql_base, settings, tagging, warehouse_health
+
+
+def test_current_workspace_scope_excludes_historical_rows_without_large_id_lists():
+    token = workspace_filter.set_include_historical_workspaces(False)
+    try:
+        clause = workspace_filter.build_ws_filter_clause(col="u.workspace_id")
+    finally:
+        workspace_filter.reset_include_historical_workspaces(token)
+
+    assert "system.access.workspaces_latest" in clause
+    assert "current_ws.workspace_id" in clause
+    assert "u.workspace_id" in clause
+
+
+def test_explicit_workspace_selection_takes_precedence_over_history_scope():
+    token = workspace_filter.set_include_historical_workspaces(False)
+    try:
+        clause = workspace_filter.build_ws_filter_clause(
+            col="workspace_id",
+            id_list=["historical-123"],
+        )
+    finally:
+        workspace_filter.reset_include_historical_workspaces(token)
+
+    assert clause == "AND CAST(workspace_id AS STRING) IN ('historical-123')"
 
 
 @pytest.fixture(autouse=True)

@@ -163,6 +163,7 @@ async function fetchJson<T>(
 // means "all sources" (no filter). Appended to every data URL so the backend can
 // narrow MV reads by source; changing it invalidates queries to force a refetch.
 let _activeSourceLabels: string[] = [];
+let _includeHistoricalWorkspaces = true;
 export function setActiveSourceLabels(labels: string[]): void {
   _activeSourceLabels = Array.from(new Set(labels ?? [])).filter(Boolean).sort();
 }
@@ -175,12 +176,21 @@ export function getActiveSourceScopeKey(): string {
   return _activeSourceLabels.join("\u0001");
 }
 
+export function setIncludeHistoricalWorkspaceData(include: boolean): void {
+  _includeHistoricalWorkspaces = include;
+}
+
+export function getIncludeHistoricalWorkspaceData(): boolean {
+  return _includeHistoricalWorkspaces;
+}
+
 export function getWorkspaceScopeKey(workspaceIds?: string[]): string {
   return workspaceIds?.length ? [...workspaceIds].sort().join(",") : "";
 }
 
 function scopedQueryKey(...parts: unknown[]) {
-  return [...parts, getActiveSourceScopeKey()];
+  const scoped = [...parts, getActiveSourceScopeKey()];
+  return _includeHistoricalWorkspaces ? scoped : [...scoped, "current-only"];
 }
 
 /**
@@ -195,6 +205,9 @@ export function buildFilteredUrl(
   const scoped = new URLSearchParams(params);
   for (const label of _activeSourceLabels) {
     scoped.append("source_labels", label);
+  }
+  if (!_includeHistoricalWorkspaces) {
+    scoped.set("include_historical_workspaces", "false");
   }
   const wsKey = getWorkspaceScopeKey(workspaceIds);
   if (wsKey) scoped.set("workspace_ids", wsKey);

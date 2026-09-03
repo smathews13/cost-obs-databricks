@@ -13,6 +13,7 @@ import weakref
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,6 +39,10 @@ from server.routers import (
     warehouse_health,
 )
 from server.version import APP_VERSION
+from server.workspace_filter import (
+    reset_include_historical_workspaces,
+    set_include_historical_workspaces,
+)
 
 _request_id: ContextVar[str] = ContextVar("request_id", default="-")
 
@@ -141,19 +146,24 @@ class RequestContextMiddleware:
             # Propagate the MV source-label selection (?source_labels=a,b) so MV
             # reads can be narrowed to the chosen sources. Absent/blank = all.
             sl_token = None
+            workspace_history_token = None
             cache_tag_token = None
             try:
-                from urllib.parse import parse_qs
                 qs = parse_qs(scope.get("query_string", b"").decode())
                 # Repeated ?source_labels=a&source_labels=b — parse_qs returns the full
                 # list, so labels may safely contain commas.
                 labels = [x for x in qs.get("source_labels", []) if x and x.strip()]
                 sl_token = set_source_labels(labels)
+                include_history = qs.get("include_historical_workspaces", ["true"])[-1]
+                workspace_history_token = set_include_historical_workspaces(
+                    include_history.strip().lower() not in {"false", "0", "no"}
+                )
                 cache_tag_token = _request_cache_tag.set(
                     self._dashboard_cache_tag(scope.get("path", ""), qs)
                 )
             except Exception:
                 sl_token = set_source_labels([])
+                workspace_history_token = set_include_historical_workspaces(True)
                 cache_tag_token = _request_cache_tag.set(None)
             try:
                 await self.app(scope, receive, send)
@@ -161,6 +171,8 @@ class RequestContextMiddleware:
                 _user_token.reset(ctx_token)
                 if sl_token is not None:
                     reset_source_labels(sl_token)
+                if workspace_history_token is not None:
+                    reset_include_historical_workspaces(workspace_history_token)
                 if cache_tag_token is not None:
                     _request_cache_tag.reset(cache_tag_token)
         else:

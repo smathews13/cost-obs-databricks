@@ -2211,7 +2211,10 @@ def bundle_cache_key(endpoint: str, start_date: str, end_date: str, workspace_id
     ws_part = ",".join(sorted(workspace_ids)) if workspace_ids else ""
     labels = sorted(str(x) for x in _source_labels.get() if str(x).strip())
     src_part = ",".join(labels)
-    raw = f"{endpoint}:{start_date}:{end_date}:{ws_part}:{src_part}"
+    from server.workspace_filter import include_historical_workspaces
+
+    history_part = "with-history" if include_historical_workspaces() else "current-only"
+    raw = f"{endpoint}:{start_date}:{end_date}:{ws_part}:{src_part}:{history_part}"
     return hashlib.md5(raw.encode()).hexdigest()
 
 

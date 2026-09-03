@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+from contextvars import ContextVar
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,25 @@ _SETTINGS_FILE = os.path.join(
 )
 
 _SAFE_ID_RE = re.compile(r'^[a-zA-Z0-9_\-\.]+$')
+_include_historical_workspaces: ContextVar[bool] = ContextVar(
+    "include_historical_workspaces",
+    default=True,
+)
+
+
+def set_include_historical_workspaces(include: bool) -> object:
+    return _include_historical_workspaces.set(bool(include))
+
+
+def reset_include_historical_workspaces(token: object) -> None:
+    try:
+        _include_historical_workspaces.reset(token)  # type: ignore[arg-type]
+    except Exception:
+        pass
+
+
+def include_historical_workspaces() -> bool:
+    return _include_historical_workspaces.get()
 
 
 def _is_safe_id(s: str) -> bool:
@@ -75,10 +95,17 @@ def build_ws_filter_clause(
     if single_id and _is_safe_id(single_id):
         return f"AND CAST({col} AS STRING) = '{single_id}'"
     ids = get_configured_workspace_ids()
-    if not ids:
-        return ""
-    quoted = ", ".join(f"'{i}'" for i in ids)
-    return f"AND CAST({col} AS STRING) IN ({quoted})"
+    if ids:
+        quoted = ", ".join(f"'{i}'" for i in ids)
+        return f"AND CAST({col} AS STRING) IN ({quoted})"
+    if not include_historical_workspaces():
+        return (
+            f"AND EXISTS ("
+            "SELECT 1 FROM system.access.workspaces_latest AS current_ws "
+            f"WHERE CAST(current_ws.workspace_id AS STRING) = CAST({col} AS STRING)"
+            ")"
+        )
+    return ""
 
 
 def is_workspace_scoped() -> bool:

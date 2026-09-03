@@ -188,12 +188,14 @@ export function buildExportScopeKey(
   workspaceIds: string[],
   sourceVersion: number,
   visibleTabs: DashboardTab[],
+  includeHistoricalWorkspaces = true,
 ): string {
   return JSON.stringify([
     startDate,
     endDate,
     [...workspaceIds].sort(),
     sourceVersion,
+    includeHistoricalWorkspaces,
     [...visibleTabs].sort(),
   ]);
 }

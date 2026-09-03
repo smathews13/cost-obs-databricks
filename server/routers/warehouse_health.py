@@ -285,7 +285,8 @@ async def get_warehouse_health(
         }
 
     id_list = parse_workspace_ids(workspace_ids)
-    cache_key = ",".join(id_list or [])
+    history_scope = "with-history" if wf.include_historical_workspaces() else "current-only"
+    cache_key = f"{','.join(id_list or [])}:{history_scope}"
     if (
         _health_cache is not None
         and (time.time() - _health_cache_ts) < _HEALTH_CACHE_TTL
@@ -559,7 +560,8 @@ async def get_warehouse_idle_time(
     sd = start_date or get_default_start_date()
     ed = end_date or get_default_end_date()
     id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
-    cache_key = f"{sd}:{ed}:{','.join(id_list) if id_list else ''}"
+    history_scope = "with-history" if wf.include_historical_workspaces() else "current-only"
+    cache_key = f"{sd}:{ed}:{','.join(id_list) if id_list else ''}:{history_scope}"
     if not _local_source_selected():
         return {
             **_shared_scope_unavailable(),

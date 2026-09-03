@@ -94,6 +94,7 @@ import {
   getActiveSourceLabels,
   getActiveSourceScopeKey,
   responsePayloadIssue,
+  setIncludeHistoricalWorkspaceData,
 } from "@/hooks/useBillingData";
 import type { DateRange, WorkspaceBreakdown } from "@/types/billing";
 import { generateCostCSV } from "@/utils/csvExport";
@@ -503,6 +504,8 @@ function Dashboard() {
   const [exportPreparationArmed, setExportPreparationArmed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
+  const [includeHistoricalWorkspaces, setIncludeHistoricalWorkspaces] = useState(false);
+  setIncludeHistoricalWorkspaceData(includeHistoricalWorkspaces);
   const [tabVisibility, setTabVisibility] = useState<TabVisibility>(loadTabVisibility);
   const visibleDashboardTabs = useMemo(
     () => DASHBOARD_TABS.map(({ id }) => id).filter((tab) => tabVisibility[tab]),
@@ -513,6 +516,7 @@ function Dashboard() {
       dateRange.startDate,
       dateRange.endDate,
       [...selectedWorkspaceIds].sort(),
+      includeHistoricalWorkspaces,
       sourceScopeVersion,
       [...visibleDashboardTabs].sort(),
     ]),
@@ -520,6 +524,7 @@ function Dashboard() {
       dateRange.endDate,
       dateRange.startDate,
       selectedWorkspaceIds,
+      includeHistoricalWorkspaces,
       sourceScopeVersion,
       visibleDashboardTabs,
     ],
@@ -678,6 +683,7 @@ function Dashboard() {
       dateRange.startDate,
       dateRange.endDate,
       [...selectedWorkspaceIds].sort(),
+      includeHistoricalWorkspaces,
       nextSourceVersion,
       [...visibleDashboardTabs].sort(),
     ]);
@@ -710,6 +716,7 @@ function Dashboard() {
     dateRange.startDate,
     rqClient,
     selectedWorkspaceIds,
+    includeHistoricalWorkspaces,
     sourceScopeVersion,
     visibleDashboardTabs,
   ]);
@@ -1095,7 +1102,7 @@ function Dashboard() {
   // Optimizer queries run when its tab or the report exporter requests them.
   const optimizerSourceKey = getActiveSourceScopeKey();
   const { data: optimizeRightsizingData, isLoading: optimizeRightsizingLoading, isError: optimizeRightsizingError } = useQuery<WarehouseHealthData>({
-    queryKey: ["warehouse-health", _wsIds?.join(","), optimizerSourceKey],
+    queryKey: ["warehouse-health", _wsIds?.join(","), optimizerSourceKey, includeHistoricalWorkspaces],
     queryFn: async () => {
       const response = await fetch(buildFilteredUrl(
         "/api/sql/warehouse-health",
@@ -1112,7 +1119,7 @@ function Dashboard() {
     enabled: optimizerRequested,
   });
   const { data: optimizeIdleData, isLoading: optimizeIdleLoading, isError: optimizeIdleError } = useQuery<WarehouseIdleTimeData>({
-    queryKey: ["warehouse-idle-time", dateRange.startDate, dateRange.endDate, _wsIds?.join(","), optimizerSourceKey],
+    queryKey: ["warehouse-idle-time", dateRange.startDate, dateRange.endDate, _wsIds?.join(","), optimizerSourceKey, includeHistoricalWorkspaces],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (dateRange.startDate) params.set("start_date", dateRange.startDate);
@@ -1361,6 +1368,7 @@ function Dashboard() {
       selectedWorkspaceIds,
       sourceScopeVersion,
       tabs,
+      includeHistoricalWorkspaces,
     );
     setPreparedExportScope(null);
     setExportPreparationArmed(false);
@@ -1378,6 +1386,7 @@ function Dashboard() {
     dateRange.endDate,
     dateRange.startDate,
     selectedWorkspaceIds,
+    includeHistoricalWorkspaces,
     sourceScopeVersion,
     tabVisibility,
     requeueDemandTabs,
@@ -1737,6 +1746,8 @@ function Dashboard() {
               workspaces={wsFilterList}
               selectedIds={selectedWorkspaceIds}
               onChange={setSelectedWorkspaceIds}
+              includeHistorical={includeHistoricalWorkspaces}
+              onIncludeHistoricalChange={setIncludeHistoricalWorkspaces}
               isLoading={wsListLoading}
               variant="rail"
             />

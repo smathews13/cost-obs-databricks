@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SourceLabelFilter } from "../SourceLabelFilter";
@@ -101,6 +101,7 @@ describe("chrome filter variants", () => {
   });
 
   it("keeps historical workspaces hidden and unselected until requested", async () => {
+    const onIncludeHistoricalChange = vi.fn();
     renderWithQueryClient(
       <WorkspaceFilter
         workspaces={[
@@ -109,14 +110,20 @@ describe("chrome filter variants", () => {
         ]}
         selectedIds={[]}
         onChange={vi.fn()}
+        includeHistorical={false}
+        onIncludeHistoricalChange={onIncludeHistoricalChange}
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: /All Workspaces/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Current Workspaces/i }));
     expect(screen.queryByRole("checkbox", { name: "Deleted workspace" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onIncludeHistoricalChange).toHaveBeenLastCalledWith(false);
 
+    await waitFor(() => expect(screen.getByRole("button", { name: /Current Workspaces/i })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: /Current Workspaces/i }));
     await userEvent.click(screen.getByRole("checkbox", { name: /Include historical workspaces/i }));
-    expect(screen.getByRole("checkbox", { name: /^Deleted workspace/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /^Deleted workspace/ })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Workspace one" })).toBeChecked();
   });
 

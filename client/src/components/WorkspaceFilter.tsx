@@ -22,11 +22,21 @@ interface WorkspaceFilterProps {
   workspaces: Workspace[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
+  includeHistorical?: boolean;
+  onIncludeHistoricalChange?: (include: boolean) => void;
   isLoading?: boolean;
   variant?: "header" | "rail";
 }
 
-export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, variant = "header" }: WorkspaceFilterProps) {
+export function WorkspaceFilter({
+  workspaces,
+  selectedIds,
+  onChange,
+  includeHistorical = true,
+  onIncludeHistoricalChange,
+  isLoading,
+  variant = "header",
+}: WorkspaceFilterProps) {
   const { updating, arm } = useUpdatingIndicator();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -80,7 +90,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
   function openMenu() {
     setDraftAll(selectedIds.length === 0);
     setDraftIds(selectedIds);
-    setShowHistorical(selectedIds.some((id) =>
+    setShowHistorical(includeHistorical || selectedIds.some((id) =>
       historicalWorkspaces.some((workspace) => workspace.workspace_id === id)
     ));
     setSearch("");
@@ -113,6 +123,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
   function handleApply() {
     if (!applyEnabled) return;
     onChange(draftAll ? [] : draftIds);
+    onIncludeHistoricalChange?.(showHistorical);
     arm();
     setIsOpen(false);
   }
@@ -124,13 +135,14 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
 
   function handleClearApplied() {
     onChange([]);
+    onIncludeHistoricalChange?.(false);
     arm();
     setIsOpen(false);
   }
 
   function label() {
     if (allSelected) {
-      return "All Workspaces";
+      return includeHistorical ? "All Workspaces" : "Current Workspaces";
     }
     if (selectedIds.length === 1) {
       const ws = validWorkspaces.find((w) => w.workspace_id === selectedIds[0]);
@@ -290,7 +302,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
 
               const renderRow = (ws: Workspace) => {
                 const id = ws.workspace_id!;
-                const checked = draftAll ? !ws.historical : draftIds.includes(id);
+                const checked = draftAll ? (showHistorical || !ws.historical) : draftIds.includes(id);
                 return (
                   <label
                     key={id}
@@ -349,7 +361,9 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-gray-100 pt-2">
             <span className="text-[11px] text-gray-500">
               {draftAll
-                ? `All ${currentWorkspaces.length} current selected`
+                ? showHistorical
+                  ? `All ${validWorkspaces.length} selected`
+                  : `All ${currentWorkspaces.length} current selected`
                 : `${draftIds.filter((id) => visibleWorkspaces.some((workspace) => workspace.workspace_id === id)).length} of ${visibleWorkspaces.length} selected`}
             </span>
             <div className="flex items-center gap-2">
