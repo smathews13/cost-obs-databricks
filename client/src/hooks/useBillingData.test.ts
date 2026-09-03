@@ -9,6 +9,7 @@ import {
   responsePayloadIssue,
   setActiveSourceLabels,
   setIncludeHistoricalWorkspaceData,
+  useAccountInfo,
   useAppsDashboardBundle,
   useCloudCostsBundle,
   useDashboardBundleFast,
@@ -450,6 +451,35 @@ describe("dashboard source scope", () => {
 
     east.unmount();
     west.unmount();
+  });
+});
+
+describe("account display metadata", () => {
+  it("prefers the resolved account display name over a numeric host label", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/billing/account-details")) {
+        return jsonResponse(200, {
+          account_id: "account-1",
+          account_name: "fevm-cmegdemos",
+          cloud: "GCP",
+        });
+      }
+      return jsonResponse(200, {
+        account_id: null,
+        account_name: null,
+        cloud: "GCP",
+        host: `https://${"8".repeat(16)}.gcp.databricks.com`,
+      });
+    }));
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    const { result } = renderHook(() => useAccountInfo(), { wrapper });
+    await waitFor(() => expect(result.current.data?.account_name).toBe("fevm-cmegdemos"));
   });
 });
 

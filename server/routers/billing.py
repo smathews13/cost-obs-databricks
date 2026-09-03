@@ -352,14 +352,21 @@ async def get_account_info() -> dict[str, Any]:
         "cloud": None,
         "host": None,
     }
+    configured_name = os.environ.get("DATABRICKS_ACCOUNT_NAME", "").strip()
+    if configured_name:
+        result["account_name"] = configured_name
 
     # Instant: detect everything from host URL
     host = get_host_url()
     if host:
         result["host"] = host
         parts = host.replace("https://", "").replace("http://", "").split(".")
-        if parts:
-            result["account_name"] = parts[0]
+        if parts and not result["account_name"]:
+            host_label = parts[0].strip()
+            # GCP workspace hosts commonly begin with a numeric workspace ID.
+            # That identifier must never be presented as an account display name.
+            if host_label and not host_label.isdigit():
+                result["account_name"] = host_label
         host_lower = host.lower()
         if "azuredatabricks.net" in host_lower:
             result["cloud"] = "AZURE"
@@ -383,13 +390,26 @@ async def get_account_details() -> dict[str, Any]:
         )
         if results:
             row = results[0]
+            account_name = os.environ.get("DATABRICKS_ACCOUNT_NAME", "").strip() or None
+            if account_name is None:
+                workspace_id = os.environ.get("DATABRICKS_WORKSPACE_ID", "").strip()
+                if workspace_id:
+                    try:
+                        names = await asyncio.wait_for(
+                            asyncio.to_thread(_get_account_workspace_names),
+                            timeout=5.0,
+                        )
+                        account_name = names.get(workspace_id)
+                    except Exception as exc:
+                        logger.debug("Could not resolve account display name: %s", exc)
             return {
                 "account_id": row.get("account_id"),
+                "account_name": account_name,
                 "cloud": row.get("cloud"),
             }
     except Exception as e:
         logger.warning(f"Could not query account details from billing tables: {e}")
-    return {"account_id": None, "cloud": None}
+    return {"account_id": None, "account_name": None, "cloud": None}
 
 
 def get_default_start_date() -> str:

@@ -15,6 +15,39 @@ from server.queries import (
 from server.routers import billing, dbsql_base, settings, tagging, warehouse_health
 
 
+def test_numeric_workspace_host_is_not_used_as_account_display_name(monkeypatch):
+    monkeypatch.delenv("DATABRICKS_ACCOUNT_NAME", raising=False)
+    numeric_workspace_id = "8" * 16
+    with patch.object(
+        billing,
+        "get_host_url",
+        return_value=f"https://{numeric_workspace_id}.gcp.databricks.com",
+    ):
+        result = asyncio.run(billing.get_account_info())
+
+    assert result["account_name"] is None
+
+
+def test_account_details_resolve_the_current_workspace_display_name(monkeypatch):
+    monkeypatch.delenv("DATABRICKS_ACCOUNT_NAME", raising=False)
+    monkeypatch.setenv("DATABRICKS_WORKSPACE_ID", "workspace-gcp-1")
+    with (
+        patch.object(
+            billing,
+            "execute_query",
+            return_value=[{"account_id": "account-1", "cloud": "GCP"}],
+        ),
+        patch.object(
+            billing,
+            "_get_account_workspace_names",
+            return_value={"workspace-gcp-1": "fevm-cmegdemos"},
+        ),
+    ):
+        result = asyncio.run(billing.get_account_details())
+
+    assert result["account_name"] == "fevm-cmegdemos"
+
+
 def test_current_workspace_scope_excludes_historical_rows_without_large_id_lists():
     token = workspace_filter.set_include_historical_workspaces(False)
     try:

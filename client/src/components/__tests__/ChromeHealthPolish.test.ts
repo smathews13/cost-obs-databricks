@@ -54,8 +54,8 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("max-w-[210px]");
     expect(appSource).toContain("rail-account-badge");
     expect(appSource).toContain("bg-green-500/20");
-    expect(appSource).toContain("h-[20px]");
-    expect(appSource).toContain("px-[6px] text-[9px]");
+    expect(appSource).toContain("h-[16px]");
+    expect(appSource).toContain("px-[5px] text-[8px]");
     expect(appSource).not.toMatch(/rail-account-badge[^"]*border-green/);
     expect(appSource).toContain('fontFamily: "var(--sans)"');
     expect(appSource).toContain('displayValue={accountInfo?.account_name || "Databricks account"}');
@@ -91,8 +91,8 @@ describe("account rail health polish", () => {
   });
 
   it("labels the SP name correctly and copies the same ID used by Settings", () => {
-    expect(appSource).toContain('h-[20px]');
-    expect(appSource).toContain('px-[6px]');
+    expect(appSource).toContain('h-[16px]');
+    expect(appSource).toContain('px-[5px]');
     expect(appSource).not.toContain('trailing="ID"');
     expect(appSource).not.toContain('trailing="Name"');
     expect(appSource).toContain(

@@ -363,7 +363,11 @@ export function useAccountInfo() {
   });
 
   // Slow call: backfills account_id from billing data (may take seconds)
-  const details = useQuery<{ account_id: string | null; cloud: string | null }>({
+  const details = useQuery<{
+    account_id: string | null;
+    account_name: string | null;
+    cloud: string | null;
+  }>({
     queryKey: ["billing", "account-details"],
     queryFn: () => fetchJson("/api/billing/account-details"),
     staleTime: Infinity,
@@ -374,6 +378,7 @@ export function useAccountInfo() {
   const merged = fast.data ? {
     ...fast.data,
     account_id: details.data?.account_id || fast.data.account_id,
+    account_name: details.data?.account_name || fast.data.account_name,
     cloud: details.data?.cloud || fast.data.cloud,
   } : undefined;
 
