@@ -81,4 +81,14 @@ describe("account rail health polish", () => {
       /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.healthy-status-dot[\s\S]*animation: none !important/,
     );
   });
+
+  it("labels the SP name correctly and copies the same ID used by Settings", () => {
+    expect(appSource).toContain('trailing="Name"');
+    expect(appSource).toContain(
+      'value={authStatus.sp_object_id || authStatus.sp_client_id || ""}',
+    );
+    expect(appSource).not.toContain(
+      'value={authStatus.sp_user_name || authStatus.sp_client_id || ""}',
+    );
+  });
 });

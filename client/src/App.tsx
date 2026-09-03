@@ -900,6 +900,7 @@ function Dashboard() {
     locked_to_sp: boolean;
     has_sql_scope: boolean | null;
     sp_client_id?: string;
+    sp_object_id?: string;
     sp_display_name?: string;
     sp_user_name?: string;
   } | null>({
@@ -1822,12 +1823,12 @@ function Dashboard() {
                     <CopyableRailBadge
                       value={authStatus.sp_display_name}
                       label="service principal display name"
-                      trailing="ID"
+                      trailing="Name"
                     />
                   )}
-                  {(authStatus.sp_user_name || authStatus.sp_client_id) && (
+                  {(authStatus.sp_object_id || authStatus.sp_client_id) && (
                     <CopyableRailBadge
-                      value={authStatus.sp_user_name || authStatus.sp_client_id || ""}
+                      value={authStatus.sp_object_id || authStatus.sp_client_id || ""}
                       label="service principal ID"
                       trailing={<Bot className="h-3.5 w-3.5" aria-hidden="true" />}
                     />
