@@ -34,6 +34,7 @@ Built on FastAPI + React, deployed as a [Databricks App](https://docs.databricks
 - [Architecture and data lineage](#architecture)
 - [Detailed deployment guide](#detailed-deployment)
 - [Cloud cost integration](#cloud-cost-integration)
+- [Cross-workspace aggregate sharing](#cross-workspace-sharing)
 - [Security](#security)
 - [Project structure](#project-structure)
 - [API overview](#api-overview)
@@ -65,6 +66,25 @@ Optional grants enable richer SQL, compute, Lakeflow, model-serving, and workspa
 6. Confirm the DBU Overview loads; then enable optional source grants or cloud billing exports as needed.
 
 Deploy from Git is the supported path. See the [detailed deployment guide](#detailed-deployment) for screenshots-equivalent navigation, environment overrides, first-run checks, and troubleshooting.
+
+---
+
+<a id="cross-workspace-sharing"></a>
+## Cross-workspace aggregate sharing
+
+Admins can open **Settings → Experimental → Materialized view share runbook**
+and download a standalone Databricks notebook. Import it into the workspace
+that owns the source system tables, review the catalog/schema/share widgets,
+and use **Run All**. The notebook:
+
+1. Builds the exact nine managed aggregate tables used by this app.
+2. Verifies each table and reports its row count.
+3. Creates or reuses a Delta Share and idempotently adds all nine tables.
+4. Optionally grants an existing Delta Sharing recipient access.
+
+The notebook is generated from the same SQL constants used by the app. The
+release gate fails if the checked-in runbook drifts from the runtime table
+contract.
 
 ---
 

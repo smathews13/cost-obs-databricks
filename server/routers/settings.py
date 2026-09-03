@@ -9,17 +9,24 @@ import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from server.feedback import safe_feedback_slack_url
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+_MV_SHARE_RUNBOOK = (
+    Path(__file__).resolve().parents[2]
+    / "notebooks"
+    / "cost_obs_mv_share_publisher.py"
+)
 
 # Captured at module load time — proxy for "when this app process started",
 # which in Databricks Apps corresponds to the most recent deployment.
@@ -60,6 +67,19 @@ async def _require_admin_async(request: Request) -> str:
             status_code=503,
             detail="Administrator authorization timed out",
         ) from exc
+
+
+@router.get("/materialized-view-runbook")
+async def download_materialized_view_runbook(request: Request) -> FileResponse:
+    """Download the generated standalone publisher/share Run All notebook."""
+    await _require_admin_async(request)
+    if not _MV_SHARE_RUNBOOK.is_file():
+        raise HTTPException(status_code=404, detail="Materialized view runbook is unavailable")
+    return FileResponse(
+        _MV_SHARE_RUNBOOK,
+        media_type="text/x-python",
+        filename="cost_obs_mv_share_publisher.py",
+    )
 
 # In-process cache for /api/settings/tables — expensive parallel SQL + owner lookups
 _tables_cache: dict | None = None

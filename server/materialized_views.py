@@ -1556,6 +1556,31 @@ def _update_refresh_state(catalog: str, schema: str, table_name: str, refresh_co
         logger.warning("Could not update refresh state for %s (non-fatal): %s", table_name, e)
 
 
+CREATE_MV_TABLES: dict[str, str] = {
+    "daily_usage_summary": CREATE_DAILY_USAGE_SUMMARY,
+    "daily_product_breakdown": CREATE_DAILY_PRODUCT_BREAKDOWN,
+    "daily_workspace_breakdown": CREATE_DAILY_WORKSPACE_BREAKDOWN,
+    "sql_tool_attribution": CREATE_SQL_TOOL_ATTRIBUTION,
+    "daily_query_stats": CREATE_QUERY_STATS,
+    "dbsql_cost_per_query": CREATE_DBSQL_COST_PER_QUERY,
+    "daily_tag_summary": CREATE_DAILY_TAG_SUMMARY,
+    "daily_tag_coverage_summary": CREATE_DAILY_TAG_COVERAGE_SUMMARY,
+    "daily_apps_summary": CREATE_DAILY_APPS_SUMMARY,
+}
+
+MERGE_MV_TABLES: dict[str, str] = {
+    "daily_usage_summary": MERGE_DAILY_USAGE_SUMMARY,
+    "daily_product_breakdown": MERGE_DAILY_PRODUCT_BREAKDOWN,
+    "daily_workspace_breakdown": MERGE_DAILY_WORKSPACE_BREAKDOWN,
+    "sql_tool_attribution": MERGE_SQL_TOOL_ATTRIBUTION,
+    "daily_query_stats": MERGE_QUERY_STATS,
+    "dbsql_cost_per_query": MERGE_DBSQL_COST_PER_QUERY,
+    "daily_tag_summary": MERGE_DAILY_TAG_SUMMARY,
+    "daily_tag_coverage_summary": MERGE_DAILY_TAG_COVERAGE_SUMMARY,
+    "daily_apps_summary": MERGE_DAILY_APPS_SUMMARY,
+}
+
+
 def create_materialized_views(catalog: str | None = None, schema: str | None = None, lookback_days: int = 180, on_table_event: "Callable[[str, str], None] | None" = None, force_full_rebuild: bool = False) -> dict:
     """Refresh base tables and dependent unified views as one ordered operation."""
     with unified_views_rebuild_lock():
@@ -1703,17 +1728,7 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
         logger.warning("_ensure_refresh_state_table failed (non-fatal): %s", _rse)
 
     # List of tables to create
-    tables = [
-        ("daily_usage_summary", CREATE_DAILY_USAGE_SUMMARY),
-        ("daily_product_breakdown", CREATE_DAILY_PRODUCT_BREAKDOWN),
-        ("daily_workspace_breakdown", CREATE_DAILY_WORKSPACE_BREAKDOWN),
-        ("sql_tool_attribution", CREATE_SQL_TOOL_ATTRIBUTION),
-        ("daily_query_stats", CREATE_QUERY_STATS),
-        ("dbsql_cost_per_query", CREATE_DBSQL_COST_PER_QUERY),
-        ("daily_tag_summary", CREATE_DAILY_TAG_SUMMARY),
-        ("daily_tag_coverage_summary", CREATE_DAILY_TAG_COVERAGE_SUMMARY),
-        ("daily_apps_summary", CREATE_DAILY_APPS_SUMMARY),
-    ]
+    tables = list(CREATE_MV_TABLES.items())
 
     # Create all tables in parallel — none depend on each other
     import time as _time
@@ -1753,18 +1768,7 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
                 overlap_days = cfg.get("overlap_days", 0)
                 reprocess_start = date.today() - _td(days=reprocess_days + overlap_days)
 
-                merge_sql_map = {
-                    "daily_usage_summary": MERGE_DAILY_USAGE_SUMMARY,
-                    "daily_product_breakdown": MERGE_DAILY_PRODUCT_BREAKDOWN,
-                    "daily_workspace_breakdown": MERGE_DAILY_WORKSPACE_BREAKDOWN,
-                    "sql_tool_attribution": MERGE_SQL_TOOL_ATTRIBUTION,
-                    "daily_query_stats": MERGE_QUERY_STATS,
-                    "dbsql_cost_per_query": MERGE_DBSQL_COST_PER_QUERY,
-                    "daily_tag_summary": MERGE_DAILY_TAG_SUMMARY,
-                    "daily_tag_coverage_summary": MERGE_DAILY_TAG_COVERAGE_SUMMARY,
-                    "daily_apps_summary": MERGE_DAILY_APPS_SUMMARY,
-                }
-                merge_sql = merge_sql_map.get(table_name)
+                merge_sql = MERGE_MV_TABLES.get(table_name)
 
                 if merge_sql:
                     try:
