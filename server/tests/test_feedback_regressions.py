@@ -39,13 +39,32 @@ def test_account_details_resolve_the_current_workspace_display_name(monkeypatch)
         ),
         patch.object(
             billing,
-            "_get_account_workspace_names",
-            return_value={"workspace-gcp-1": "fevm-cmegdemos"},
+            "_get_current_workspace_display_label",
+            return_value="fevm-cmegdemos",
         ),
     ):
         result = asyncio.run(billing.get_account_details())
 
     assert result["account_name"] == "fevm-cmegdemos"
+
+
+def test_account_label_prefers_deployment_name_over_workspace_name():
+    with (
+        patch.object(
+            billing,
+            "_get_account_workspace_names",
+            return_value={"workspace-gcp-1": "cmegdemos"},
+        ),
+        patch.object(
+            billing,
+            "_account_ws_deployment_names",
+            {"workspace-gcp-1": "fevm-cmegdemos"},
+        ),
+    ):
+        assert (
+            billing._get_current_workspace_display_label("workspace-gcp-1")
+            == "fevm-cmegdemos"
+        )
 
 
 def test_current_workspace_scope_excludes_historical_rows_without_large_id_lists():

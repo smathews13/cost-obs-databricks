@@ -395,11 +395,13 @@ async def get_account_details() -> dict[str, Any]:
                 workspace_id = os.environ.get("DATABRICKS_WORKSPACE_ID", "").strip()
                 if workspace_id:
                     try:
-                        names = await asyncio.wait_for(
-                            asyncio.to_thread(_get_account_workspace_names),
+                        account_name = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                _get_current_workspace_display_label,
+                                workspace_id,
+                            ),
                             timeout=5.0,
                         )
-                        account_name = names.get(workspace_id)
                     except Exception as exc:
                         logger.debug("Could not resolve account display name: %s", exc)
             return {
@@ -2130,6 +2132,7 @@ def _inject_qh_ws_filter(sql: str, clause: str) -> str:
 # Module-level cache for account workspace names (1h TTL).
 # Populated by AccountClient.workspaces.list() when DATABRICKS_ACCOUNT_ID is set.
 _account_ws_names: dict[str, str] = {}
+_account_ws_deployment_names: dict[str, str] = {}
 _account_ws_names_ts: float = 0.0
 _background_tasks: set = set()  # keeps fire-and-forget tasks alive
 
@@ -2143,7 +2146,7 @@ def _get_account_workspace_names() -> dict[str, str]:
     ~thousands of non-billing account workspaces (names resolve elsewhere via the
     billing.usage ⋈ workspaces_latest join, which only covers spending workspaces).
     """
-    global _account_ws_names, _account_ws_names_ts
+    global _account_ws_deployment_names, _account_ws_names, _account_ws_names_ts
     if time.time() - _account_ws_names_ts < 3600:
         return _account_ws_names
 
@@ -2153,7 +2156,17 @@ def _get_account_workspace_names() -> dict[str, str]:
         if a is None:
             _account_ws_names_ts = time.time()
             return {}
-        names = {str(w.workspace_id): w.workspace_name for w in a.workspaces.list() if w.workspace_name}
+        workspaces = list(a.workspaces.list())
+        names = {
+            str(w.workspace_id): w.workspace_name
+            for w in workspaces
+            if w.workspace_name
+        }
+        _account_ws_deployment_names = {
+            str(w.workspace_id): w.deployment_name
+            for w in workspaces
+            if getattr(w, "deployment_name", None)
+        }
         _account_ws_names = names
         _account_ws_names_ts = time.time()
         logger.info("AccountClient: fetched %d workspace names", len(names))
@@ -2162,6 +2175,11 @@ def _get_account_workspace_names() -> dict[str, str]:
         logger.warning("AccountClient workspace list failed: %s", e)
         _account_ws_names_ts = time.time()  # backoff: don't retry for another hour
         return {}
+
+
+def _get_current_workspace_display_label(workspace_id: str) -> str | None:
+    names = _get_account_workspace_names()
+    return _account_ws_deployment_names.get(workspace_id) or names.get(workspace_id)
 
 
 async def _refresh_account_ws_names_bg() -> None:
