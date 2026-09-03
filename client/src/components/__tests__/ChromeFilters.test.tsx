@@ -100,6 +100,26 @@ describe("chrome filter variants", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("keeps historical workspaces hidden and unselected until requested", async () => {
+    renderWithQueryClient(
+      <WorkspaceFilter
+        workspaces={[
+          ...workspaces,
+          { workspace_id: "3", workspace_name: "Deleted workspace", historical: true },
+        ]}
+        selectedIds={[]}
+        onChange={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /All Workspaces/i }));
+    expect(screen.queryByRole("checkbox", { name: "Deleted workspace" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("checkbox", { name: /Include historical workspaces/i }));
+    expect(screen.getByRole("checkbox", { name: /^Deleted workspace/ })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Workspace one" })).toBeChecked();
+  });
+
   it("uses the shared dark rail border while workspaces load", () => {
     renderWithQueryClient(
       <WorkspaceFilter

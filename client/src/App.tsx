@@ -1429,12 +1429,15 @@ function Dashboard() {
   const wsFilterList = useMemo(
     () => (wsListData?.workspaces ?? []).map(w => {
       const name = workspaceNameMap[w.id] || w.name || null;
-      // Trust the server's `historical` (computed from the true resolved name), so the
-      // "workspace display names" toggle nulling names never mislabels a live workspace.
+      const hasResolvedName = Boolean(
+        name && name !== w.id && name !== `Workspace ${w.id}`,
+      );
       return {
         workspace_id: w.id,
         workspace_name: name,
-        historical: w.historical ?? !name,
+        // A resolved account-level name is stronger evidence than a stale historical
+        // flag from billing metadata.
+        historical: hasResolvedName ? false : (w.historical ?? true),
         total_dbus: 0,
         total_spend: 0,
         percentage: 0,

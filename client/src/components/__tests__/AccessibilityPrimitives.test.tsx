@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Dialog } from "../ui/Dialog";
@@ -162,6 +162,25 @@ describe("shared accessibility primitives", () => {
     expect(panel).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Copy account ID" }));
     expect(copy).toHaveBeenCalledOnce();
+  });
+
+  it("pins an interactive popover when its content is selected", () => {
+    render(
+      <InfoPopover
+        interactive
+        label="Show full account ID"
+        content={<span>05d08df7-ae03-43ad-bbae-14babb530ec0</span>}
+      >
+        <span>Account display name</span>
+      </InfoPopover>,
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "Show full account ID" }));
+    const panel = screen.getByRole("dialog", { name: "Show full account ID details" });
+    fireEvent.pointerDown(panel);
+    fireEvent.mouseLeave(panel);
+
+    expect(panel).toBeVisible();
   });
 
   it("sorts from a real header button and reports aria-sort", async () => {

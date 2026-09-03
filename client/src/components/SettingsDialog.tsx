@@ -27,6 +27,16 @@ import {
   type UnifiedSettings,
 } from "@/utils/settingsHydration";
 import { useDocumentScrollLock } from "@/utils/scrolling";
+import {
+  Bell,
+  Boxes,
+  Database,
+  FlaskConical,
+  LayoutDashboard,
+  ShieldCheck,
+  SlidersHorizontal,
+  type LucideIcon,
+} from "lucide-react";
 
 export {
   type AppSettings,
@@ -328,18 +338,18 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
     await saveDraft(d, visibility, "Settings reset to defaults");
   };
 
-  const navItems: { key: NavKey; label: string; admin?: boolean }[] = [
-    { key: "general", label: "General" },
-    { key: "tabs", label: "Dashboard tabs" },
-    { key: "data", label: "Data & tables", admin: true },
-    { key: "alerts", label: "Alerts & notifications", admin: true },
-    { key: "access", label: "Permissions & Access", admin: true },
-    { key: "resources", label: "Resources" },
-    { key: "experimental", label: "Experimental", admin: true },
+  const navItems: { key: NavKey; label: string; icon: LucideIcon; admin?: boolean }[] = [
+    { key: "general", label: "General", icon: SlidersHorizontal },
+    { key: "tabs", label: "Dashboard tabs", icon: LayoutDashboard },
+    { key: "data", label: "Data & tables", icon: Database, admin: true },
+    { key: "alerts", label: "Alerts & notifications", icon: Bell, admin: true },
+    { key: "access", label: "Permissions & Access", icon: ShieldCheck, admin: true },
+    { key: "resources", label: "Resources", icon: Boxes },
+    { key: "experimental", label: "Experimental", icon: FlaskConical, admin: true },
   ];
   const visibleNav = navItems.filter((n) => !n.admin || isAdmin);
 
-  const navBtn = (key: NavKey, label: string, badge?: React.ReactNode) => {
+  const navBtn = (key: NavKey, label: string, Icon: LucideIcon, badge?: React.ReactNode) => {
     const active = nav === key && !overlay;
     return (
       <button key={key} onClick={() => { setOverlay(null); setNav(key); }}
@@ -349,7 +359,9 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
           color: active ? T.text : T.textSecondary, backgroundColor: active ? T.surface : "transparent",
           border: active ? `1px solid ${T.borderGroup}` : "1px solid transparent", cursor: "pointer",
         }}>
-        {label}{badge}
+        <Icon size={15} strokeWidth={1.8} aria-hidden="true" />
+        <span style={{ flex: 1 }}>{label}</span>
+        {badge}
       </button>
     );
   };
@@ -380,7 +392,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
           {/* Left nav */}
           <div style={{ width: 208, flexShrink: 0, backgroundColor: T.navBg, borderRight: `1px solid ${T.borderGroup}`, display: "flex", flexDirection: "column", padding: 12 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-              {visibleNav.map((n) => navBtn(n.key, n.label))}
+              {visibleNav.map((n) => navBtn(n.key, n.label, n.icon))}
             </div>
             <div style={{ borderTop: `1px solid ${T.borderGroup}`, paddingTop: 10, marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
               {isAdmin && localSettings.expSetupWizardLink && (

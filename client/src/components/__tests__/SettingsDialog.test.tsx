@@ -73,7 +73,19 @@ it("labels the admin section Permissions & Access everywhere", async () => {
     </QueryClientProvider>,
   );
 
-  await userEvent.click(await screen.findByRole("button", { name: "Permissions & Access" }));
+  const accessTab = await screen.findByRole("button", { name: "Permissions & Access" });
+  for (const label of [
+    "General",
+    "Dashboard tabs",
+    "Data & tables",
+    "Alerts & notifications",
+    "Permissions & Access",
+    "Resources",
+    "Experimental",
+  ]) {
+    expect(screen.getByRole("button", { name: label }).querySelector("svg")).toBeInTheDocument();
+  }
+  await userEvent.click(accessTab);
   expect(screen.getByRole("heading", { name: "Permissions & Access" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "Access" })).not.toBeInTheDocument();
 });

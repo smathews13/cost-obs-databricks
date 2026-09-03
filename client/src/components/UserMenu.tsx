@@ -8,7 +8,6 @@ import {
   LogOut,
   Mail,
   Slack,
-  UserRound,
 } from "lucide-react";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 
@@ -99,6 +98,16 @@ function userInitials(name: string, email: string): string {
   return email.slice(0, 2).toUpperCase();
 }
 
+function organizationLogoForEmail(email: string): string {
+  const domain = email.split("@").at(-1)?.trim().toLowerCase();
+  // This local mapping is the fallback until the shared domain-to-organization
+  // registry is available. Unknown domains intentionally use Databricks for now.
+  const logos: Record<string, string> = {
+    "databricks.com": "/brand/databricks-symbol-white.svg",
+  };
+  return logos[domain ?? ""] ?? "/brand/databricks-symbol-white.svg";
+}
+
 export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const [chooserOpen, setChooserOpen] = useState(false);
@@ -113,6 +122,7 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
   const baseUrl = useMemo(() => workspaceBaseUrl(workspaceHost), [workspaceHost]);
   const displayName = useMemo(() => readableUserName(name, email), [name, email]);
   const initials = useMemo(() => userInitials(displayName, email), [displayName, email]);
+  const organizationLogo = useMemo(() => organizationLogoForEmail(email), [email]);
 
   const closeMenu = useCallback((returnFocus = true) => {
     setOpen(false);
@@ -290,18 +300,16 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
         className={`rail-user-trigger rail-control-border flex min-w-0 items-center gap-0 rounded-[8px] border py-[4px] px-[5px] text-[12.5px] font-medium text-[#E9EFED] transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[900px]:gap-[9px] min-[900px]:pl-[5px] min-[900px]:pr-[9px] ${open ? "bg-[#294A56] shadow-[0_1px_3px_rgba(4,18,23,.28),inset_0_1px_0_rgba(117,157,170,.12)]" : "bg-white/[.07] hover:bg-[#243F49]"}`}
       >
         <span
-          data-testid="user-menu-avatar"
+          data-testid="user-menu-organization"
           className="flex h-[24px] w-[24px] items-center justify-center rounded-full bg-[#FF5F46] text-[10px] font-bold text-white"
         >
-          {initials}
+          <img
+            src={organizationLogo}
+            alt=""
+            aria-hidden="true"
+            className="h-[14px] w-[16px] object-contain"
+          />
         </span>
-        <UserRound
-          size={13}
-          strokeWidth={1.8}
-          className="ml-[5px] shrink-0 text-[#B8CCD2] min-[900px]:ml-0"
-          data-testid="user-menu-silhouette"
-          aria-hidden="true"
-        />
         <span className="hidden max-w-[88px] truncate min-[900px]:block min-[1280px]:max-w-[160px] min-[1536px]:max-w-[220px]">{email}</span>
         <ChevronDown size={12} strokeWidth={2} className={`hidden shrink-0 text-[#B8CCD2] transition-transform min-[900px]:block ${open ? "rotate-180" : ""}`} aria-hidden="true" />
       </button>

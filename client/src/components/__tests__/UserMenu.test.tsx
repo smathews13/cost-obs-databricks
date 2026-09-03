@@ -48,8 +48,16 @@ describe("UserMenu", () => {
     );
     expect(trigger.className).not.toContain("border-white");
     expect(trigger).toHaveAttribute("data-state", "closed");
-    expect(screen.getByTestId("user-menu-silhouette")).toBeInTheDocument();
-    expect(screen.getByTestId("user-menu-avatar")).not.toHaveClass("border", "shadow-sm");
+    expect(readFileSync("src/index.css", "utf8")).toMatch(
+      /\.rail-user-trigger:hover\s*\{[^}]*background-color:\s*#294a56/s,
+    );
+    expect(screen.queryByTestId("user-menu-silhouette")).not.toBeInTheDocument();
+    const organization = screen.getByTestId("user-menu-organization");
+    expect(organization).not.toHaveClass("border", "shadow-sm");
+    expect(organization.querySelector("img")).toHaveAttribute(
+      "src",
+      "/brand/databricks-symbol-white.svg",
+    );
     expect(screen.getByText(props.email)).toHaveClass(
       "hidden",
       "min-[900px]:block",

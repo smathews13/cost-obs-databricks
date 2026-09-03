@@ -31,7 +31,7 @@ const data = {
   total_spend: 44,
 } as WorkspaceBreakdownResponse;
 
-function renderTable() {
+function renderTable(workspaceNameMap?: Record<string, string>) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -41,6 +41,7 @@ function renderTable() {
         data={data}
         isLoading={false}
         host="https://workspace.example.com"
+        workspaceNameMap={workspaceNameMap}
       />
     </QueryClientProvider>,
   );
@@ -71,5 +72,12 @@ describe("WorkspaceTable floating controls", () => {
 
     expect(checkbox).not.toBeChecked();
     expect(screen.getByRole("tooltip")).toHaveTextContent("decommissioned or inaccessible");
+  });
+
+  it("treats an account-resolved workspace name as current even when billing marks it historical", () => {
+    renderTable({ "workspace-2": "Recovered workspace" });
+
+    expect(screen.getByText("Recovered workspace")).toBeVisible();
+    expect(screen.queryByText("Historical")).not.toBeInTheDocument();
   });
 });

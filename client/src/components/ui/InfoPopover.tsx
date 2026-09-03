@@ -33,11 +33,20 @@ export function InfoPopover({
   const rootRef = useRef<HTMLSpanElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLSpanElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
 
+  const cancelScheduledClose = () => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
   const show = () => {
+    cancelScheduledClose();
     const rect = triggerRef.current?.getBoundingClientRect();
     if (rect) {
       setPosition({
@@ -46,6 +55,14 @@ export function InfoPopover({
       });
     }
     setOpen(true);
+  };
+
+  const scheduleClose = () => {
+    cancelScheduledClose();
+    closeTimerRef.current = window.setTimeout(() => {
+      if (!pinned && document.activeElement !== triggerRef.current) setOpen(false);
+      closeTimerRef.current = null;
+    }, 180);
   };
 
   const positionPanel = (panel: HTMLSpanElement | null) => {
@@ -95,6 +112,10 @@ export function InfoPopover({
     };
   }, [open]);
 
+  useEffect(() => () => {
+    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+  }, []);
+
   return (
     <span
       ref={rootRef}
@@ -106,7 +127,11 @@ export function InfoPopover({
           && event.relatedTarget instanceof Node
           && panelRef.current?.contains(event.relatedTarget)
         ) return;
-        if (!pinned && document.activeElement !== triggerRef.current) setOpen(false);
+        if (interactive) {
+          scheduleClose();
+        } else if (!pinned && document.activeElement !== triggerRef.current) {
+          setOpen(false);
+        }
       }}
     >
       <button
@@ -151,11 +176,20 @@ export function InfoPopover({
           id={id}
           role={interactive ? "dialog" : "tooltip"}
           aria-label={interactive ? `${label} details` : undefined}
-          onMouseEnter={() => interactive && setOpen(true)}
-          onMouseLeave={() => {
-            if (interactive && !pinned && !rootRef.current?.contains(document.activeElement)) {
-              setOpen(false);
+          onMouseEnter={() => {
+            if (interactive) {
+              cancelScheduledClose();
+              setOpen(true);
             }
+          }}
+          onPointerDown={() => {
+            if (interactive) {
+              cancelScheduledClose();
+              setPinned(true);
+            }
+          }}
+          onMouseLeave={() => {
+            if (interactive && !pinned && !rootRef.current?.contains(document.activeElement)) scheduleClose();
           }}
           className={`${interactive ? "pointer-events-auto" : "pointer-events-none"} fixed z-[10000] max-w-[calc(100vw-1rem)] whitespace-normal rounded-lg border border-white/10 bg-[var(--ink-deep)] font-normal normal-case text-white shadow-[0_8px_28px_rgba(11,32,38,.24)] ${
             size === "compact"

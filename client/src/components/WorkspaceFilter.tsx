@@ -35,11 +35,15 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
   // means "nothing selected" (Apply is disabled until at least one is checked).
   const [draftAll, setDraftAll] = useState(true);
   const [draftIds, setDraftIds] = useState<string[]>([]);
+  const [showHistorical, setShowHistorical] = useState(false);
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const validWorkspaces = workspaces.filter((ws) => isValidWorkspaceId(ws.workspace_id));
+  const currentWorkspaces = validWorkspaces.filter((ws) => !ws.historical);
+  const historicalWorkspaces = validWorkspaces.filter((ws) => ws.historical);
+  const visibleWorkspaces = showHistorical ? validWorkspaces : currentWorkspaces;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -76,6 +80,9 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
   function openMenu() {
     setDraftAll(selectedIds.length === 0);
     setDraftIds(selectedIds);
+    setShowHistorical(selectedIds.some((id) =>
+      historicalWorkspaces.some((workspace) => workspace.workspace_id === id)
+    ));
     setSearch("");
     setIsOpen(true);
     window.setTimeout(() => searchRef.current?.focus(), 0);
@@ -253,10 +260,28 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
               )}
             </div>
           </div>
+          {historicalWorkspaces.length > 0 && (
+            <label className="mb-2 flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50">
+              <input
+                type="checkbox"
+                checked={showHistorical}
+                onChange={(event) => {
+                  const next = event.target.checked;
+                  setShowHistorical(next);
+                  if (!next) {
+                    const historicalIds = new Set(historicalWorkspaces.map((workspace) => workspace.workspace_id));
+                    setDraftIds((ids) => ids.filter((id) => !historicalIds.has(id)));
+                  }
+                }}
+                className="h-3.5 w-3.5 rounded border-gray-300 accent-lava"
+              />
+              Include historical workspaces ({historicalWorkspaces.length})
+            </label>
+          )}
           <div className="space-y-1 max-h-60 overflow-y-auto">
             {(() => {
               const q = search.toLowerCase();
-              const filtered = validWorkspaces.filter((ws) =>
+              const filtered = visibleWorkspaces.filter((ws) =>
                 !search || (ws.workspace_name || `Workspace ${ws.workspace_id}` || "").toLowerCase().includes(q)
               );
               if (filtered.length === 0) {
@@ -265,7 +290,7 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
 
               const renderRow = (ws: Workspace) => {
                 const id = ws.workspace_id!;
-                const checked = draftAll || draftIds.includes(id);
+                const checked = draftAll ? !ws.historical : draftIds.includes(id);
                 return (
                   <label
                     key={id}
@@ -323,7 +348,9 @@ export function WorkspaceFilter({ workspaces, selectedIds, onChange, isLoading, 
           </div>
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-gray-100 pt-2">
             <span className="text-[11px] text-gray-500">
-              {draftAll ? `All ${validWorkspaces.length}` : `${draftIds.length} of ${validWorkspaces.length}`} selected
+              {draftAll
+                ? `All ${currentWorkspaces.length} current selected`
+                : `${draftIds.filter((id) => visibleWorkspaces.some((workspace) => workspace.workspace_id === id)).length} of ${visibleWorkspaces.length} selected`}
             </span>
             <div className="flex items-center gap-2">
               <button
