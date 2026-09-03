@@ -37,6 +37,15 @@ def test_runbook_is_generated_from_the_exact_runtime_table_contract():
     assert "SHOW ALL IN SHARE" in rendered
     assert "ADD TABLE" in rendered
     assert '_widget("lookback_days", "180", "Billing/query lookback days")' in rendered
+    for source_table in (
+        "system.access.workspaces_latest",
+        "system.billing.list_prices",
+        "system.billing.usage",
+        "system.query.history",
+    ):
+        assert source_table in rendered
+    assert "Source-table permission preflight failed" in rendered
+    assert "GRANT SELECT ON TABLE" in rendered
     compile(rendered, str(RUNBOOK), "exec")
 
 
