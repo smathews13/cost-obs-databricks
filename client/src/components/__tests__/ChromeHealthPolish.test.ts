@@ -37,10 +37,14 @@ describe("account rail health polish", () => {
     const badgeIndex = appSource.lastIndexOf("<DeploymentBadgeFromApi");
     const accountIndex = appSource.lastIndexOf("<AccountIdentifier");
     const workspaceFilterIndex = appSource.lastIndexOf("<WorkspaceFilter");
+    const servicePrincipalBadgeIndex = appSource.lastIndexOf("<CopyableRailBadge");
 
     expect(badgeIndex).toBeGreaterThan(0);
     expect(badgeIndex).toBeLessThan(accountIndex);
     expect(badgeIndex).toBeLessThan(workspaceFilterIndex);
+    expect(workspaceFilterIndex).toBeLessThan(accountIndex);
+    expect(accountIndex).toBeLessThan(servicePrincipalBadgeIndex);
+    expect(appSource).not.toContain(">ACCOUNT</span>");
     expect(appSource).toContain('className="flex shrink-0 items-center gap-[4px]"');
   });
 
@@ -50,7 +54,9 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("max-w-[210px]");
     expect(appSource).toContain("rail-account-badge");
     expect(appSource).toContain("bg-green-500/20");
-    expect(appSource).toContain("px-[8px] text-[10px]");
+    expect(appSource).toContain("h-[20px]");
+    expect(appSource).toContain("px-[6px] text-[9px]");
+    expect(appSource).not.toMatch(/rail-account-badge[^"]*border-green/);
     expect(appSource).toContain('fontFamily: "var(--sans)"');
     expect(appSource).toContain('displayValue={accountInfo?.account_name || "Databricks account"}');
     expect(appSource).toContain('aria-label={copied ? "Account ID copied" : "Copy account ID"}');
@@ -85,8 +91,8 @@ describe("account rail health polish", () => {
   });
 
   it("labels the SP name correctly and copies the same ID used by Settings", () => {
-    expect(appSource).toContain('h-[24px]');
-    expect(appSource).toContain('px-[8px]');
+    expect(appSource).toContain('h-[20px]');
+    expect(appSource).toContain('px-[6px]');
     expect(appSource).not.toContain('trailing="ID"');
     expect(appSource).not.toContain('trailing="Name"');
     expect(appSource).toContain(

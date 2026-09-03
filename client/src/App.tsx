@@ -344,11 +344,11 @@ function AccountIdentifier({
   return (
     <InfoPopover
       label="Show full account ID"
-      className="mt-[3px] min-w-0"
+      className="min-w-0 shrink-0"
       placement="bottom"
       interactive
       panelClassName="w-max max-w-[calc(100vw-1rem)] bg-[#0B2026] text-[11px]"
-      triggerClassName="rail-account-badge inline-flex h-[24px] max-w-[210px] items-center gap-[4px] truncate rounded-full border border-green-300/20 bg-green-500/20 px-[8px] text-[10px] font-semibold leading-none text-green-200 hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40"
+      triggerClassName="rail-account-badge inline-flex h-[20px] max-w-[210px] items-center gap-[3px] truncate rounded-full bg-green-500/20 px-[6px] text-[9px] font-semibold leading-none text-green-200 hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40"
       content={
         <span className="flex items-center gap-2">
           <span className="max-w-[420px] break-all font-mono">{idValue || "Account ID unavailable"}</span>
@@ -366,7 +366,7 @@ function AccountIdentifier({
       }
     >
       <span className="inline-flex min-w-0 items-center gap-[4px]">
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-400" />
+        <span className="h-[5px] w-[5px] shrink-0 rounded-full bg-green-400" />
         <span className="truncate tracking-[-0.01em]" style={{ fontFamily: "var(--sans)" }}>
           {displayValue}
         </span>
@@ -396,17 +396,17 @@ function CopyableRailBadge({
       aria-label={copied ? `${label} copied` : `Copy ${label}`}
       title={copied ? "Copied" : `${label}: ${value}`}
       onClick={() => { void copyValue(); }}
-      className="group hidden h-[24px] min-w-0 shrink-0 appearance-none items-center gap-[4px] rounded-full px-[8px] text-[10px] font-semibold leading-none text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40 min-[1440px]:inline-flex"
+      className="group hidden h-[20px] min-w-0 shrink-0 appearance-none items-center gap-[3px] rounded-full px-[6px] text-[9px] font-semibold leading-none text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40 min-[1440px]:inline-flex"
       style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }}
     >
-      <span className="healthy-status-dot h-1.5 w-1.5 rounded-full bg-green-400" />
+      <span className="healthy-status-dot h-[5px] w-[5px] rounded-full bg-green-400" />
       <span className="font-mono">{value.slice(0, 8)}</span>
       {copied ? (
-        <Check className="h-3.5 w-3.5" aria-hidden="true" />
+        <Check className="h-3 w-3" aria-hidden="true" />
       ) : (
-        <span className="relative inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+        <span className="relative inline-flex h-3 w-3 shrink-0 items-center justify-center">
           {trailing && <span className="inline-flex opacity-60 group-hover:hidden">{trailing}</span>}
-          <Copy className="absolute hidden h-3.5 w-3.5 opacity-80 group-hover:block" aria-hidden="true" />
+          <Copy className="absolute hidden h-3 w-3 opacity-80 group-hover:block" aria-hidden="true" />
         </span>
       )}
     </button>
@@ -1795,14 +1795,6 @@ function Dashboard() {
 
           <span className="hidden h-[22px] w-px shrink-0 bg-white/[.16] min-[1180px]:block" aria-hidden="true" />
 
-          <div className="hidden shrink-0 flex-col leading-none min-[1100px]:flex">
-            <span className="text-[9px] font-semibold tracking-[.1em] text-[#E9EFED]/55">ACCOUNT</span>
-            <AccountIdentifier
-              displayValue={accountInfo?.account_name || "Databricks account"}
-              idValue={accountInfo?.account_id}
-            />
-          </div>
-
           <div className="order-last flex w-full min-w-0 items-center gap-[8px] sm:order-none sm:w-auto sm:flex-1">
             <WorkspaceFilter
               workspaces={wsFilterList}
@@ -1820,6 +1812,10 @@ function Dashboard() {
 
           {user && (
             <>
+              <AccountIdentifier
+                displayValue={accountInfo?.account_name || "Databricks account"}
+                idValue={accountInfo?.account_id}
+              />
               {authStatus && authStatus.identity !== "user_oauth" && (
                 <>
                   {authStatus.sp_display_name && (
@@ -1839,12 +1835,12 @@ function Dashboard() {
               )}
               {warehouseStatus && (
                 <span
-                  className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-1.5 text-[10px] font-semibold text-green-200 min-[1280px]:px-2"
+                  className="inline-flex h-[20px] shrink-0 items-center gap-[3px] rounded-full px-[6px] text-[9px] font-semibold leading-none text-green-200"
                   style={{ background: "rgba(34,197,94,0.2)", border: "1px solid rgba(134,239,172,0.22)" }}
                   title={`SQL Warehouse: ${warehouseStatus.state ?? warehouseStatus.status}`}
                 >
                   <span
-                    className={`${warehouseStatus.status === "warm" ? "healthy-status-dot " : ""}h-1.5 w-1.5 rounded-full`}
+                    className={`${warehouseStatus.status === "warm" ? "healthy-status-dot " : ""}h-[5px] w-[5px] rounded-full`}
                     style={{ background: warehouseStatus.status === "warm" ? "var(--status-dot)" : warehouseStatus.status === "warming_up" ? "var(--amber)" : "var(--maroon)" }}
                   />
                   <span className="hidden min-[1280px]:inline">
