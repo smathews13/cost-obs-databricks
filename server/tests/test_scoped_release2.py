@@ -149,7 +149,7 @@ def test_dbsql_source_drilldown_uses_unified_source_and_workspace_scope():
         with (
             patch.object(dbsql_base, "get_catalog_schema", return_value=("c", "s")),
             patch.object(
-                db, "_list_existing_unified_views", return_value=["dbsql_cost_per_query"]
+                db, "_list_existing_source_row_views", return_value=["dbsql_cost_per_query"]
             ),
             patch.object(db, "get_mv_table_overrides", return_value={}),
             patch.object(
@@ -174,6 +174,6 @@ def test_dbsql_source_drilldown_uses_unified_source_and_workspace_scope():
 
     assert result["available"] is True
     assert len(captured) == 1
-    assert "`c`.`s`.`dbsql_cost_per_query__unified`" in captured[0]
+    assert "`c`.`s`.`dbsql_cost_per_query__source_rows`" in captured[0]
     assert "source_label IN ('shared-west')" in captured[0]
     assert "CAST(workspace_id AS STRING) IN ('123')" in captured[0]

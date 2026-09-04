@@ -1956,11 +1956,12 @@ def _replace_unified_view(
     body: str,
     *,
     existed: bool,
+    view_suffix: str | None = None,
 ) -> str:
     """Create or alter one unified view without CREATE OR REPLACE races."""
     from server.db import MV_UNIFIED_SUFFIX, execute_query
 
-    view_name = f"{table_name}{MV_UNIFIED_SUFFIX}"
+    view_name = f"{table_name}{view_suffix or MV_UNIFIED_SUFFIX}"
     target = f"`{catalog}`.`{schema}`.`{view_name}`"
     normalized_target = f"{catalog}.{schema}.{view_name}".lower()
     if normalized_target in body.replace("`", "").lower():
@@ -1986,6 +1987,19 @@ def _replace_unified_view(
         return "recreated"
 
 
+_MV_DEDUPE_KEYS: dict[str, tuple[str, ...]] = {
+    "daily_usage_summary": ("usage_date", "workspace_id"),
+    "daily_product_breakdown": ("usage_date", "workspace_id", "product_category"),
+    "daily_workspace_breakdown": ("usage_date", "workspace_id"),
+    "sql_tool_attribution": ("sql_product", "usage_date", "workspace_id", "warehouse_id"),
+    "daily_query_stats": ("usage_date", "workspace_id"),
+    "dbsql_cost_per_query": ("statement_id",),
+    "daily_tag_summary": ("usage_date", "workspace_id", "tag_key", "tag_value"),
+    "daily_tag_coverage_summary": ("usage_date", "workspace_id"),
+    "daily_apps_summary": ("usage_date", "workspace_id", "app_id", "sku_name"),
+}
+
+
 def rebuild_unified_views(catalog: str | None = None, schema: str | None = None) -> dict:
     """(Re)create per-table `<name>__unified` views: local MV UNION ALL each source.
 
@@ -2009,6 +2023,7 @@ def _rebuild_unified_views_locked(
 ) -> dict:
     """Implementation of ``rebuild_unified_views`` with the DDL lock held."""
     from server.db import (
+        MV_SOURCE_ROWS_SUFFIX,
         MV_UNIFIED_SUFFIX,
         get_catalog_schema,
         get_local_source_label,
@@ -2044,9 +2059,11 @@ def _rebuild_unified_views_locked(
     for t in _MV_TABLES:
         view_name = f"{t}{MV_UNIFIED_SUFFIX}"
         existed = _unified_view_exists(catalog, schema, view_name)
-        if existed is True:
+        source_rows_name = f"{t}{MV_SOURCE_ROWS_SUFFIX}"
+        source_rows_existed = _unified_view_exists(catalog, schema, source_rows_name)
+        if existed is True and source_rows_existed is True:
             known_existing.add(t)
-        elif existed is False:
+        elif existed is False or source_rows_existed is False:
             known_existing.discard(t)
         else:
             summary[t] = {"built": False, "reason": "view existence check failed"}
@@ -2076,17 +2093,40 @@ def _rebuild_unified_views_locked(
                 slabel = src["label"].replace("'", "''")
                 selects.append(f"SELECT *, '{slabel}' AS source_label FROM {full}")
                 included.append(src["label"])
-        union_sql = "\nUNION ALL\n".join(selects)
+        source_rows_sql = "\nUNION ALL\n".join(selects)
+        dedupe_keys = [
+            column for column in _MV_DEDUPE_KEYS.get(t, ())
+            if column in local_cols
+        ] or local_cols
+        partition_sql = ", ".join(f"`{column.replace('`', '``')}`" for column in dedupe_keys)
+        deduped_sql = (
+            f"SELECT * FROM `{catalog}`.`{schema}`.`{source_rows_name}`\n"
+            "QUALIFY ROW_NUMBER() OVER (\n"
+            f"  PARTITION BY {partition_sql}\n"
+            f"  ORDER BY CASE WHEN source_label = '{local_label}' THEN 0 ELSE 1 END, "
+            "source_label\n"
+            ") = 1"
+        )
         try:
-            action = _replace_unified_view(
-                catalog, schema, t, union_sql, existed=existed
+            source_rows_action = _replace_unified_view(
+                catalog,
+                schema,
+                t,
+                source_rows_sql,
+                existed=source_rows_existed,
+                view_suffix=MV_SOURCE_ROWS_SUFFIX,
+            )
+            deduped_action = _replace_unified_view(
+                catalog, schema, t, deduped_sql, existed=existed
             )
             known_existing.add(t)
             summary[t] = {
                 "built": True,
-                "action": action,
+                "action": deduped_action,
+                "source_rows_action": source_rows_action,
                 "included": included,
                 "skipped": skipped,
+                "dedupe_keys": dedupe_keys,
             }
         except Exception as e:
             summary[t] = {"built": False, "reason": str(e), "skipped": skipped}
@@ -2094,9 +2134,12 @@ def _rebuild_unified_views_locked(
             # ALTER failures leave the previous view intact. A DROP/CREATE
             # fallback can fail after DROP, so re-check before preserving it.
             still_exists = _unified_view_exists(catalog, schema, view_name)
-            if still_exists is True:
+            source_rows_still_exists = _unified_view_exists(
+                catalog, schema, source_rows_name
+            )
+            if still_exists is True and source_rows_still_exists is True:
                 known_existing.add(t)
-            elif still_exists is False:
+            elif still_exists is False or source_rows_still_exists is False:
                 known_existing.discard(t)
 
     # Preserve prior live entries on partial failures; remove only views that
@@ -2132,6 +2175,7 @@ def _drop_unified_views_locked(
 ) -> None:
     """Drop unified views while the caller holds ``unified_views_rebuild_lock``."""
     from server.db import (
+        MV_SOURCE_ROWS_SUFFIX,
         MV_UNIFIED_SUFFIX,
         execute_query,
         get_catalog_schema,
@@ -2145,10 +2189,19 @@ def _drop_unified_views_locked(
     if not catalog or not schema:
         return
     for t in _MV_TABLES:
-        try:
-            execute_query(f"DROP VIEW IF EXISTS `{catalog}`.`{schema}`.`{t}{MV_UNIFIED_SUFFIX}`", no_cache=True)
-        except Exception as e:
-            logger.debug("drop unified view %s failed (non-fatal): %s", t, e)
+        for suffix in (MV_UNIFIED_SUFFIX, MV_SOURCE_ROWS_SUFFIX):
+            try:
+                execute_query(
+                    f"DROP VIEW IF EXISTS `{catalog}`.`{schema}`.`{t}{suffix}`",
+                    no_cache=True,
+                )
+            except Exception as e:
+                logger.debug(
+                    "drop routed view %s%s failed (non-fatal): %s",
+                    t,
+                    suffix,
+                    e,
+                )
     # Update routing only after the DDL pass, so readers never drop all registry
     # entries before the physical views are actually removed.
     remaining = [

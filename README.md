@@ -91,6 +91,10 @@ The notebook is generated from the same SQL constants used by the app. The
 release gate fails if the checked-in runbook drifts from the runtime table
 contract.
 
+When local and shared sources cover the same workspace and date, the default
+all-source view keeps one row per aggregate business key instead of double
+counting it. Explicit source filters still expose each source independently.
+
 ---
 
 <a id="release-highlights"></a>

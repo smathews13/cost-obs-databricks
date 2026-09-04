@@ -1496,8 +1496,10 @@ _MV_SOURCES_FILE = os.path.join(
     os.path.dirname(__file__), "..", ".settings", "mv_sources.json"
 )
 
-# Suffix of the per-table union view. Public so the router/view-builder agree.
+# Default all-source view is deduplicated. Explicit source filters route through
+# the companion raw source-row view so each source remains independently queryable.
 MV_UNIFIED_SUFFIX = "__unified"
+MV_SOURCE_ROWS_SUFFIX = "__source_rows"
 MV_UNIFIED_TABLE_NAMES = (
     "daily_usage_summary",
     "daily_product_breakdown",
@@ -1562,6 +1564,29 @@ def _list_existing_unified_views(*, force_refresh: bool = False) -> list[str] | 
         return names
     except Exception as e:
         logger.debug("Could not list existing unified views (non-fatal): %s", e)
+        return None
+
+
+def _list_existing_source_row_views() -> list[str] | None:
+    """MV tables with a raw per-source view used by explicit source filters."""
+    try:
+        catalog, schema = get_catalog_schema()
+        if not catalog or not schema:
+            return None
+        rows = execute_query(
+            "SELECT table_name FROM system.information_schema.views "
+            "WHERE table_catalog = :c AND table_schema = :s AND table_name LIKE :p",
+            {"c": catalog, "s": schema, "p": f"%{MV_SOURCE_ROWS_SUFFIX}"},
+            no_cache=True,
+        )
+        suffix_len = len(MV_SOURCE_ROWS_SUFFIX)
+        return [
+            row["table_name"][:-suffix_len]
+            for row in (rows or [])
+            if str(row.get("table_name", "")).endswith(MV_SOURCE_ROWS_SUFFIX)
+        ]
+    except Exception as exc:
+        logger.debug("Could not list source-row views (non-fatal): %s", exc)
         return None
 
 
@@ -1979,7 +2004,7 @@ def source_label_filter_clause(mv_query: str | None = None) -> str:
                 "None of the selected sources publish the managed data "
                 "required by this view."
             )
-        live = _list_existing_unified_views()
+        live = _list_existing_source_row_views()
         explicit = get_mv_table_overrides()
         if (
             not referenced
@@ -2009,7 +2034,7 @@ def apply_mv_overrides(sql: str, catalog: str, schema: str) -> str:
     selected = selected_source_labels()
     # Selected-source routing is strict: verify physical views now rather than
     # trusting the normal five-minute discovery cache.
-    live = _list_existing_unified_views(force_refresh=True) if selected else None
+    live = _list_existing_source_row_views() if selected else None
     if selected and live is None:
         raise RuntimeError(
             "Selected shared sources cannot be queried because unified-view "
@@ -2020,7 +2045,8 @@ def apply_mv_overrides(sql: str, catalog: str, schema: str) -> str:
     # missing __unified view). Empty when no sources are configured.
     for t in routable:
         # Don't override a table the user already remapped explicitly.
-        overrides.setdefault(t, f"`{catalog}`.`{schema}`.`{t}{MV_UNIFIED_SUFFIX}`")
+        suffix = MV_SOURCE_ROWS_SUFFIX if selected else MV_UNIFIED_SUFFIX
+        overrides.setdefault(t, f"`{catalog}`.`{schema}`.`{t}{suffix}`")
     if selected:
         live_set = set(live or [])
         for table in MV_UNIFIED_TABLE_NAMES:
@@ -2036,7 +2062,7 @@ def apply_mv_overrides(sql: str, catalog: str, schema: str) -> str:
             if table not in live_set:
                 raise RuntimeError(
                     f"Selected shared sources cannot be queried because unified "
-                    f"view {table}{MV_UNIFIED_SUFFIX} does not physically exist."
+                    f"view {table}{MV_SOURCE_ROWS_SUFFIX} does not physically exist."
                 )
             if "source_label" not in sql.lower():
                 raise RuntimeError(

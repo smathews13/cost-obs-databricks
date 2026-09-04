@@ -173,9 +173,9 @@ def test_unified_view_ddl_uses_locked_drop_create_fallback_for_unsupported_alter
 def test_partial_failure_preserves_other_live_registry_entries():
     saved: list[list[str]] = []
 
-    def replace(_catalog, _schema, table_name, _body, *, existed):
+    def replace(_catalog, _schema, table_name, _body, *, existed, view_suffix=None):
         assert existed is True
-        if table_name == "one":
+        if table_name == "one" and view_suffix is not None:
             raise RuntimeError("transient alter failure")
         return "altered"
 
@@ -199,6 +199,47 @@ def test_partial_failure_preserves_other_live_registry_entries():
     assert saved == []
 
 
+def test_unified_views_deduplicate_overlapping_sources_by_business_key():
+    bodies: dict[str, str] = {}
+
+    def replace(_catalog, _schema, _table_name, body, *, existed, view_suffix=None):
+        del existed
+        bodies[view_suffix or db.MV_UNIFIED_SUFFIX] = body
+        return "altered"
+
+    with (
+        patch.object(materialized_views, "_MV_TABLES", ["daily_usage_summary"]),
+        patch("server.db.get_mv_sources", return_value=[{
+            "label": "west4",
+            "catalog": "share",
+            "schema": "cost",
+        }]),
+        patch("server.db.get_local_source_label", return_value="local"),
+        patch("server.db.get_unified_view_tables", return_value=["daily_usage_summary"]),
+        patch("server.db.save_unified_view_tables"),
+        patch.object(materialized_views, "_unified_view_exists", return_value=True),
+        patch.object(
+            materialized_views,
+            "_table_columns",
+            return_value=["usage_date", "workspace_id", "total_spend"],
+        ),
+        patch.object(materialized_views, "_replace_unified_view", side_effect=replace),
+    ):
+        result = materialized_views._rebuild_unified_views_locked("c", "s")
+
+    assert "UNION ALL" in bodies[db.MV_SOURCE_ROWS_SUFFIX]
+    assert "'local' AS source_label" in bodies[db.MV_SOURCE_ROWS_SUFFIX]
+    assert "'west4' AS source_label" in bodies[db.MV_SOURCE_ROWS_SUFFIX]
+    assert "PARTITION BY `usage_date`, `workspace_id`" in bodies[db.MV_UNIFIED_SUFFIX]
+    assert "CASE WHEN source_label = 'local' THEN 0 ELSE 1 END" in bodies[
+        db.MV_UNIFIED_SUFFIX
+    ]
+    assert result["views"]["daily_usage_summary"]["dedupe_keys"] == [
+        "usage_date",
+        "workspace_id",
+    ]
+
+
 def test_selected_source_routes_only_to_verified_physical_view():
     token = db.set_source_labels(["shared"])
     template = (
@@ -207,7 +248,7 @@ def test_selected_source_routes_only_to_verified_physical_view():
     )
     try:
         with (
-            patch.object(db, "_list_existing_unified_views", return_value=["daily_usage_summary"]),
+            patch.object(db, "_list_existing_source_row_views", return_value=["daily_usage_summary"]),
             patch.object(
                 db,
                 "get_mv_sources",
@@ -223,10 +264,10 @@ def test_selected_source_routes_only_to_verified_physical_view():
             routed = db.apply_mv_overrides(sql, "c", "s")
 
         assert "source_label IN ('shared')" in routed
-        assert "`c`.`s`.`daily_usage_summary__unified`" in routed
+        assert "`c`.`s`.`daily_usage_summary__source_rows`" in routed
 
         with (
-            patch.object(db, "_list_existing_unified_views", return_value=[]),
+            patch.object(db, "_list_existing_source_row_views", return_value=[]),
             patch.object(
                 db,
                 "get_mv_sources",
@@ -289,7 +330,7 @@ def test_mixed_source_scope_keeps_capable_contributors():
             ),
             patch.object(
                 db,
-                "_list_existing_unified_views",
+                "_list_existing_source_row_views",
                 return_value=["daily_apps_summary"],
             ),
         ):
@@ -324,7 +365,7 @@ def test_tagging_mv_queries_include_selected_source_filter():
             patch.object(tagging, "execute_queries_parallel", side_effect=execute_selected),
             patch.object(
                 db,
-                "_list_existing_unified_views",
+                "_list_existing_source_row_views",
                 return_value=["daily_tag_coverage_summary", "daily_tag_summary"],
             ),
             patch.object(
@@ -347,7 +388,7 @@ def test_tagging_mv_queries_include_selected_source_filter():
     finally:
         db.reset_source_labels(token)
 
-    usage_sql = next(sql for sql in captured if "daily_tag_coverage_summary__unified" in sql)
-    tag_sql = next(sql for sql in captured if "daily_tag_summary__unified" in sql)
+    usage_sql = next(sql for sql in captured if "daily_tag_coverage_summary__source_rows" in sql)
+    tag_sql = next(sql for sql in captured if "daily_tag_summary__source_rows" in sql)
     assert "source_label IN ('shared')" in usage_sql
     assert "source_label IN ('shared')" in tag_sql

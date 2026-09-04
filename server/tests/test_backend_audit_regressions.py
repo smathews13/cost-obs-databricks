@@ -226,7 +226,7 @@ def test_dbsql_mv_query_routes_and_filters_selected_source():
     try:
         with (
             patch.object(
-                db, "_list_existing_unified_views", return_value=["dbsql_cost_per_query"]
+                db, "_list_existing_source_row_views", return_value=["dbsql_cost_per_query"]
             ),
             patch.object(
                 db,
@@ -244,7 +244,7 @@ def test_dbsql_mv_query_routes_and_filters_selected_source():
                 "schema",
                 "AND CAST(workspace_id AS STRING) IN ('123')",
             )
-        assert "`catalog`.`schema`.`dbsql_cost_per_query__unified`" in query
+        assert "`catalog`.`schema`.`dbsql_cost_per_query__source_rows`" in query
         assert "source_label IN ('shared')" in query
         assert "CAST(workspace_id AS STRING) IN ('123')" in query
     finally:
@@ -256,7 +256,7 @@ def test_dbsql_mv_query_refuses_unfiltered_source_fallback():
     token = db.set_source_labels(["shared"])
     try:
         with (
-            patch.object(db, "_list_existing_unified_views", return_value=[]),
+            patch.object(db, "_list_existing_source_row_views", return_value=[]),
             patch.object(
                 db,
                 "get_mv_sources",
@@ -934,7 +934,7 @@ def test_billing_trend_combines_workspace_and_source_scope():
             ),
             patch.object(billing, "_check_mv_available", return_value=True),
             patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
-            patch.object(db, "_list_existing_unified_views", return_value=["daily_usage_summary"]),
+            patch.object(db, "_list_existing_source_row_views", return_value=["daily_usage_summary"]),
             patch.object(db, "get_mv_table_overrides", return_value={}),
             patch.object(
                 billing,
@@ -953,7 +953,7 @@ def test_billing_trend_combines_workspace_and_source_scope():
                 )
             )
         query = execute.call_args.args[0]
-        assert "`daily_usage_summary__unified`" in query
+        assert "`daily_usage_summary__source_rows`" in query
         assert "CAST(workspace_id AS STRING) IN ('123')" in query
         assert "source_label IN ('shared-west')" in query
     finally:

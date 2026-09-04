@@ -377,7 +377,7 @@ def test_shared_only_kpis_never_reuse_unfiltered_stale_fallback():
         patch.object(billing, "get_local_source_label", return_value="local"),
         patch.object(
             db,
-            "_list_existing_unified_views",
+            "_list_existing_source_row_views",
             return_value=[
                 "daily_usage_summary",
                 "daily_query_stats",
@@ -506,7 +506,7 @@ def test_source_capable_platform_trends_match_card_tables_and_scope(kpi, table_n
             ),
             patch.object(billing, "_check_mv_available", return_value=True),
             patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
-            patch.object(db, "_list_existing_unified_views", return_value=[table_name]),
+            patch.object(db, "_list_existing_source_row_views", return_value=[table_name]),
             patch.object(db, "get_mv_table_overrides", return_value={}),
             patch.object(
                 billing,
@@ -526,7 +526,7 @@ def test_source_capable_platform_trends_match_card_tables_and_scope(kpi, table_n
             )
 
         sql = execute.call_args.args[0]
-        assert f"`{table_name}__unified`" in sql
+        assert f"`{table_name}__source_rows`" in sql
         assert "source_label IN ('shared-west')" in sql
         assert "CAST(workspace_id AS STRING) IN ('123')" in sql
         assert result["summary"]["avg_value"] == 3.0
@@ -563,10 +563,20 @@ def test_query_user_card_and_trend_use_identical_managed_scope(kpi):
             patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
             patch.object(
                 db,
-                "_list_existing_unified_views",
+                "_list_existing_source_row_views",
                 return_value=[
                     "dbsql_cost_per_query",
                     "daily_usage_summary",
+                    "daily_query_stats",
+                    "daily_workspace_breakdown",
+                ],
+            ),
+            patch.object(
+                db,
+                "_list_existing_unified_views",
+                return_value=[
+                    "daily_usage_summary",
+                    "dbsql_cost_per_query",
                     "daily_query_stats",
                     "daily_workspace_breakdown",
                 ],
@@ -599,7 +609,7 @@ def test_query_user_card_and_trend_use_identical_managed_scope(kpi):
             patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
             patch.object(
                 db,
-                "_list_existing_unified_views",
+                "_list_existing_source_row_views",
                 return_value=["dbsql_cost_per_query"],
             ),
             patch.object(db, "get_mv_table_overrides", return_value={}),
@@ -627,7 +637,7 @@ def test_query_user_card_and_trend_use_identical_managed_scope(kpi):
         scoped_card_sql = next(sql for sql in card_sql if alias in sql.lower())
         scoped_trend_sql = trend_sql[0]
         for sql in (scoped_card_sql, scoped_trend_sql):
-            assert "`dbsql_cost_per_query__unified`" in sql
+            assert "`dbsql_cost_per_query__source_rows`" in sql
             assert "source_label IN ('shared-west')" in sql
             assert "CAST(workspace_id AS STRING) IN ('123')" in sql
             assert "start_time >= :start_date" in sql
@@ -671,6 +681,16 @@ def test_kpis_anomalies_use_source_aware_daily_summary(labels, expected_filter):
             patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
             patch.object(
                 db,
+                "_list_existing_source_row_views",
+                return_value=[
+                    "daily_usage_summary",
+                    "dbsql_cost_per_query",
+                    "daily_query_stats",
+                    "daily_workspace_breakdown",
+                ],
+            ),
+            patch.object(
+                db,
                 "_list_existing_unified_views",
                 return_value=[
                     "daily_usage_summary",
@@ -696,7 +716,12 @@ def test_kpis_anomalies_use_source_aware_daily_summary(labels, expected_filter):
             )
 
         assert len(anomaly_sql) == 1
-        assert "`daily_usage_summary__unified`" in anomaly_sql[0]
+        expected_view = (
+            "`daily_usage_summary__source_rows`"
+            if labels
+            else "`daily_usage_summary__unified`"
+        )
+        assert expected_view in anomaly_sql[0]
         assert "CAST(workspace_id AS STRING) IN ('123')" in anomaly_sql[0]
         assert "system.billing.usage" not in anomaly_sql[0]
         if expected_filter:
@@ -725,7 +750,7 @@ def test_kpis_anomalies_do_not_query_local_when_shared_scope_cannot_be_routed():
             patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
             patch.object(
                 db,
-                "_list_existing_unified_views",
+                "_list_existing_source_row_views",
                 return_value=[
                     "dbsql_cost_per_query",
                     "daily_query_stats",
@@ -771,7 +796,7 @@ def test_query_user_cards_are_unavailable_when_managed_source_cannot_be_routed()
             patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
             patch.object(
                 db,
-                "_list_existing_unified_views",
+                "_list_existing_source_row_views",
                 return_value=[
                     "daily_usage_summary",
                     "daily_query_stats",
