@@ -431,6 +431,26 @@ def test_gcp_status_requires_explicit_choice_when_multiple_exports_exist(monkeyp
     assert "Set GCP_COST_TABLE" in status["message"]
 
 
+def test_gcp_status_treats_a_missing_default_catalog_as_not_configured():
+    gcp_actual._gcp_status_cache.update({
+        "available": None,
+        "checked_at": 0,
+        "table": None,
+        "reason": None,
+        "message": None,
+    })
+    missing = billing.SQLExecutionError(
+        "[TABLE_OR_VIEW_NOT_FOUND] billing.information_schema.tables cannot be found"
+    )
+
+    with patch.object(gcp_actual, "execute_query", side_effect=missing):
+        status = asyncio.run(gcp_actual.get_gcp_status())
+
+    assert status["gcp_available"] is False
+    assert status["reason"] == "not_configured"
+    assert "GCP_COST_CATALOG" in status["message"]
+
+
 def test_gcp_actual_queries_use_net_cost_including_credits():
     queries = (
         gcp_actual.GCP_ACTUAL_SUMMARY,

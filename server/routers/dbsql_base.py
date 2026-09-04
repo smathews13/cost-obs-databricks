@@ -22,6 +22,7 @@ from server import workspace_filter as wf
 from server.db import (
     BundleOverloadedError,
     CacheGeneration,
+    SourceScopeUnsupportedError,
     SQLExecutionError,
     apply_mv_overrides,
     bundle_cache_key,
@@ -984,7 +985,24 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         if not status["mv_available"]:
             return {"available": False, "queries": [], "start_date": start_date, "end_date": end_date}
 
-        results = await _exec_async("top_queries", {"start_date": start_date, "end_date": end_date, "limit": limit}, catalog, schema, _ws_clause(id_list))
+        try:
+            results = await _exec_async(
+                "top_queries",
+                {"start_date": start_date, "end_date": end_date, "limit": limit},
+                catalog,
+                schema,
+                _ws_clause(id_list),
+            )
+        except SourceScopeUnsupportedError:
+            return {
+                "available": False,
+                "availability": "unavailable",
+                "reason": "shared_scope_unsupported",
+                "error_code": "SOURCE_SCOPE_UNSUPPORTED",
+                "queries": [],
+                "start_date": start_date,
+                "end_date": end_date,
+            }
 
         host = get_host_url()
         queries = []
@@ -1040,13 +1058,25 @@ def create_dbsql_router(table_name: str) -> APIRouter:
             "source_type": source_type,
             "limit": safe_limit,
         }
-        results = await _exec_async(
-            "top_queries_by_source",
-            params,
-            catalog,
-            schema,
-            _ws_clause(id_list),
-        )
+        try:
+            results = await _exec_async(
+                "top_queries_by_source",
+                params,
+                catalog,
+                schema,
+                _ws_clause(id_list),
+            )
+        except SourceScopeUnsupportedError:
+            return {
+                "available": False,
+                "availability": "unavailable",
+                "reason": "shared_scope_unsupported",
+                "error_code": "SOURCE_SCOPE_UNSUPPORTED",
+                "queries": [],
+                "source_type": source_type,
+                "start_date": start_date,
+                "end_date": end_date,
+            }
 
         host = get_host_url()
         queries = []
@@ -1094,11 +1124,30 @@ def create_dbsql_router(table_name: str) -> APIRouter:
         if not status["mv_available"]:
             return {"available": False, "queries": [], "user": user, "start_date": start_date, "end_date": end_date}
 
-        results = await _exec_async(
-            "queries_by_user",
-            {"start_date": start_date, "end_date": end_date, "user": user, "limit": limit},
-            catalog, schema, _ws_clause(id_list),
-        )
+        try:
+            results = await _exec_async(
+                "queries_by_user",
+                {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "user": user,
+                    "limit": limit,
+                },
+                catalog,
+                schema,
+                _ws_clause(id_list),
+            )
+        except SourceScopeUnsupportedError:
+            return {
+                "available": False,
+                "availability": "unavailable",
+                "reason": "shared_scope_unsupported",
+                "error_code": "SOURCE_SCOPE_UNSUPPORTED",
+                "queries": [],
+                "user": user,
+                "start_date": start_date,
+                "end_date": end_date,
+            }
 
         host = get_host_url()
         queries = []

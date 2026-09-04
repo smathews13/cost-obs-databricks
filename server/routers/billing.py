@@ -2236,20 +2236,23 @@ async def get_workspace_list(
             catalog, schema = get_catalog_schema()
             mv_template = """
                 SELECT
-                    CAST(workspace_id AS STRING) AS workspace_id,
-                    MAX(workspace_name) AS workspace_name
-                FROM `{catalog}`.`{schema}`.`daily_workspace_breakdown`
-                WHERE usage_date BETWEEN :start_date AND :end_date
+                    CAST(ws.workspace_id AS STRING) AS workspace_id,
+                    MAX(ws.workspace_name) AS workspace_name
+                FROM `{catalog}`.`{schema}`.`daily_workspace_breakdown` AS ws
+                WHERE ws.usage_date BETWEEN :start_date AND :end_date
                   {ws_filter}
                   {source_filter}
-                GROUP BY workspace_id
-                ORDER BY COALESCE(MAX(workspace_name), CAST(workspace_id AS STRING))
+                GROUP BY ws.workspace_id
+                ORDER BY COALESCE(
+                    MAX(ws.workspace_name),
+                    CAST(ws.workspace_id AS STRING)
+                )
             """
             source_filter = source_label_filter_clause(mv_template)
             scoped_query = mv_template.format(
                 catalog=catalog,
                 schema=schema,
-                ws_filter=wf.build_ws_filter_clause(col="workspace_id"),
+                ws_filter=wf.build_ws_filter_clause(col="ws.workspace_id"),
                 source_filter=source_filter,
             )
             return execute_query(

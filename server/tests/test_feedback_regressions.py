@@ -124,6 +124,9 @@ def test_workspace_picker_uses_the_selected_managed_source():
     assert result["workspaces"][0]["id"] == "current-1"
     assert "daily_workspace_breakdown" in captured[0]
     assert "source_label IN ('shared-west')" in captured[0]
+    assert "AS ws" in captured[0]
+    assert "MAX(ws.workspace_name)" in captured[0]
+    assert "GROUP BY ws.workspace_id" in captured[0]
 
 
 @pytest.fixture(autouse=True)

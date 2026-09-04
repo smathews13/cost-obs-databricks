@@ -177,3 +177,35 @@ def test_dbsql_source_drilldown_uses_unified_source_and_workspace_scope():
     assert "`c`.`s`.`dbsql_cost_per_query__source_rows`" in captured[0]
     assert "source_label IN ('shared-west')" in captured[0]
     assert "CAST(workspace_id AS STRING) IN ('123')" in captured[0]
+
+
+def test_dbsql_detail_returns_typed_unavailable_for_unsupported_shared_source():
+    router = dbsql_base.create_dbsql_router("dbsql_cost_per_query")
+    endpoint = _endpoint(router, "/top-queries")
+    dbsql_base._mv_status_cache["dbsql_cost_per_query"] = (
+        time.monotonic(),
+        {"mv_available": True},
+    )
+
+    with (
+        patch.object(dbsql_base, "get_catalog_schema", return_value=("c", "s")),
+        patch.object(
+            dbsql_base,
+            "_route_dbsql_mv_query",
+            side_effect=db.SourceScopeUnsupportedError("unsupported"),
+        ),
+    ):
+        result = asyncio.run(
+            endpoint(
+                start_date="2026-08-01",
+                end_date="2026-08-28",
+                limit=20,
+                workspace_ids=None,
+                source_labels=["west4"],
+            )
+        )
+
+    assert result["available"] is False
+    assert result["reason"] == "shared_scope_unsupported"
+    assert result["error_code"] == "SOURCE_SCOPE_UNSUPPORTED"
+    assert result["queries"] == []

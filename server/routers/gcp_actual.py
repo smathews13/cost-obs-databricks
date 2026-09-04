@@ -257,13 +257,33 @@ async def get_gcp_status() -> dict[str, Any]:
                     table = None
                     available = False
         except Exception as exc:
-            # Permission, network, timeout, and capacity failures are transient;
-            # only a successful empty existence query establishes absence.
-            logger.warning(
-                "GCP billing availability query failed transiently: %s",
-                exc,
-            )
-            raise
+            error_text = str(exc).lower()
+            if any(
+                marker in error_text
+                for marker in (
+                    "table_or_view_not_found",
+                    "catalog_not_found",
+                    "schema_not_found",
+                    "cannot be found",
+                    "does not exist",
+                )
+            ):
+                available = False
+                table = None
+                reason = "not_configured"
+                message = (
+                    "GCP billing data is not configured. Set GCP_COST_CATALOG, "
+                    "GCP_COST_SCHEMA, and GCP_COST_TABLE after creating the "
+                    "BigQuery foreign catalog."
+                )
+            else:
+                # Permission, network, timeout, and capacity failures are
+                # transient and must not be cached as integration absence.
+                logger.warning(
+                    "GCP billing availability query failed transiently: %s",
+                    exc,
+                )
+                raise
         _gcp_status_cache["available"] = available
         _gcp_status_cache["checked_at"] = time.time()
         _gcp_status_cache["table"] = table
