@@ -239,6 +239,10 @@ textarea {
   border-color: var(--rail-control-border);
 }
 
+.rail-status-badge {
+  border: 0 !important;
+}
+
 .rail-user-trigger:hover {
   border-color: #4f7b88;
   background-color: #294a56;

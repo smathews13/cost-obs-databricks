@@ -58,7 +58,8 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("RAIL_STATUS_BADGE_CLASS");
     expect(appSource).toContain("h-[22px] w-[88px]");
     expect(appSource).toContain("rounded-[4px]");
-    expect(appSource).toContain("border-transparent");
+    expect(appSource).toContain("rail-status-badge");
+    expect(styles).toContain(".rail-status-badge {\n  border: 0 !important;\n}");
     expect(appSource).toContain("bg-green-500/20");
     expect(appSource).toContain("text-[9px]");
     expect(appSource).toContain(

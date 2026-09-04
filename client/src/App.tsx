@@ -325,7 +325,7 @@ interface User {
   role?: "admin" | "consumer";
 }
 
-const RAIL_STATUS_BADGE_CLASS = "inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] border border-transparent bg-green-500/20 px-[6px] text-[9px] font-semibold leading-[9px] text-green-200";
+const RAIL_STATUS_BADGE_CLASS = "rail-status-badge inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[9px] font-semibold leading-[9px] text-green-200";
 
 function CopyableRailBadge({
   value,
