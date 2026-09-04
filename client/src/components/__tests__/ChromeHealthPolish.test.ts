@@ -57,10 +57,13 @@ describe("account rail health polish", () => {
     expect(appSource).not.toContain("<InfoPopover");
     expect(appSource).toContain("RAIL_STATUS_BADGE_CLASS");
     expect(appSource).toContain('background: "rgba(34, 197, 94, 0.2)"');
-    expect(appSource).toContain("height: 18");
+    expect(appSource).toContain("height: 20");
     expect(appSource).toContain("borderRadius: 4");
     expect(appSource).toContain('padding: "0 6px"');
-    expect(appSource).toContain("fontSize: 9");
+    expect(appSource).toContain("fontSize: 10");
+    expect(appSource).toContain(
+      'className="h-2.5 w-2.5 opacity-60 transition-opacity group-hover:opacity-100"',
+    );
     expect(appSource).toContain(
       'value={accountInfo?.account_id || accountInfo?.account_name || "Databricks account"}',
     );

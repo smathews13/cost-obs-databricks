@@ -327,13 +327,13 @@ interface User {
 
 const RAIL_STATUS_BADGE_CLASS = "inline-flex min-w-0 shrink-0 items-center gap-[3px] font-semibold text-green-200";
 const RAIL_STATUS_BADGE_STYLE: React.CSSProperties = {
-  height: 18,
+  height: 20,
   padding: "0 6px",
   border: "1px solid rgba(134, 239, 172, 0.22)",
   borderRadius: 4,
   background: "rgba(34, 197, 94, 0.2)",
-  fontSize: 9,
-  lineHeight: "9px",
+  fontSize: 10,
+  lineHeight: "10px",
 };
 
 function CopyableRailBadge({
@@ -366,7 +366,7 @@ function CopyableRailBadge({
         <Check className="h-2.5 w-2.5" aria-hidden="true" />
       ) : (
         <span className="relative inline-flex h-2.5 w-2.5 shrink-0 items-center justify-center">
-          <Copy className="absolute hidden h-2.5 w-2.5 opacity-80 group-hover:block" aria-hidden="true" />
+          <Copy className="h-2.5 w-2.5 opacity-60 transition-opacity group-hover:opacity-100" aria-hidden="true" />
         </span>
       )}
     </button>
