@@ -39,7 +39,7 @@ describe("source label reconciliation", () => {
       </QueryClientProvider>,
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "All sources" }));
+    await userEvent.click(await screen.findByRole("button", { name: "2 Sources" }));
     await userEvent.click(screen.getByRole("checkbox", { name: /west/i }));
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
 
@@ -61,12 +61,12 @@ describe("source label reconciliation", () => {
         <SourceLabelFilter onApplied={onApplied} />
       </QueryClientProvider>,
     );
-    expect(await screen.findByRole("button", { name: "All sources" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "2 Sources" })).toBeInTheDocument();
 
     current = sourceData(["local", "west", "east"]);
     client.setQueryData(["mv-sources"], current);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "All sources" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "3 Sources" })).toBeInTheDocument());
     expect(getActiveSourceLabels()).toEqual([]);
     expect(onApplied).not.toHaveBeenCalled();
   });
@@ -118,14 +118,14 @@ describe("source label reconciliation", () => {
       </QueryClientProvider>,
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: "All sources" }));
+    await userEvent.click(await screen.findByRole("button", { name: "2 Sources" }));
     await userEvent.click(screen.getByRole("checkbox", { name: /west/i }));
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Source filter was not applied");
     expect(getActiveSourceLabels()).toEqual([]);
     expect(scopesSeen).toEqual([["local"], []]);
-    expect(screen.getByRole("button", { name: "All sources" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "2 Sources" })).toBeVisible();
 
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(getActiveSourceLabels()).toEqual(["local"]));

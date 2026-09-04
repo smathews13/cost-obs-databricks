@@ -158,7 +158,7 @@ describe("chrome filter variants", () => {
       </QueryClientProvider>,
     );
 
-    const trigger = await screen.findByRole("button", { name: /All sources/i });
+    const trigger = await screen.findByRole("button", { name: "2 Sources" });
     expect(trigger).toHaveClass(
       "rail-source-filter",
       "h-[32px]",
@@ -168,7 +168,7 @@ describe("chrome filter variants", () => {
       "rail-control-border",
     );
     expect(trigger.className).not.toContain("border-white");
-    expect(screen.getByText("Sources")).toHaveClass("min-[1180px]:hidden");
+    expect(screen.getByText("2 sources")).toHaveClass("min-[1180px]:hidden");
     expect(trigger).not.toHaveClass("co-filter");
   });
 });

@@ -253,7 +253,7 @@ export function ExportDialog({
                   <div className="flex items-center gap-2">
                     <h4 className="text-sm font-bold" style={{ color: C.navy }}>Architecture PDF</h4>
                     <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ color: C.lava, background: C.coralTint }}>
-                      Preview
+                      Experimental
                     </span>
                   </div>
                   <p className="mt-1 text-xs leading-5" style={{ color: C.slate }}>

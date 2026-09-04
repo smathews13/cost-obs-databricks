@@ -36,7 +36,7 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("overflow-x-auto overflow-y-hidden");
   });
 
-  it("places deployment provenance beside the brand before account filters", () => {
+  it("places deployment provenance with the equal-sized status badges", () => {
     const badgeIndex = appSource.lastIndexOf("<DeploymentBadgeFromApi");
     const accountIndex = appSource.lastIndexOf('label="account ID"');
     const workspaceFilterIndex = appSource.lastIndexOf("<WorkspaceFilter");
@@ -46,8 +46,8 @@ describe("account rail health polish", () => {
 
     expect(badgeIndex).toBeGreaterThan(0);
     expect(badgeIndex).toBeLessThan(accountIndex);
-    expect(badgeIndex).toBeLessThan(workspaceFilterIndex);
     expect(workspaceFilterIndex).toBeLessThan(accountIndex);
+    expect(workspaceFilterIndex).toBeLessThan(badgeIndex);
     expect(accountIndex).toBeLessThan(servicePrincipalBadgeIndex);
     expect(appSource).not.toContain(">ACCOUNT</span>");
     expect(appSource).toContain('className="flex shrink-0 items-center gap-[4px]"');
@@ -56,11 +56,11 @@ describe("account rail health polish", () => {
   it("uses the same direct hover-copy state for the account ID", () => {
     expect(appSource).not.toContain("<InfoPopover");
     expect(appSource).toContain("RAIL_STATUS_BADGE_CLASS");
-    expect(appSource).toContain('background: "rgba(34, 197, 94, 0.2)"');
-    expect(appSource).toContain("height: 20");
-    expect(appSource).toContain("borderRadius: 4");
-    expect(appSource).toContain('padding: "0 6px"');
-    expect(appSource).toContain("fontSize: 10");
+    expect(appSource).toContain("h-[22px] w-[88px]");
+    expect(appSource).toContain("rounded-[4px]");
+    expect(appSource).toContain("border-green-300/20");
+    expect(appSource).toContain("bg-green-500/20");
+    expect(appSource).toContain("text-[10px]");
     expect(appSource).toContain(
       'className="h-2.5 w-2.5 opacity-60 transition-opacity group-hover:opacity-100"',
     );

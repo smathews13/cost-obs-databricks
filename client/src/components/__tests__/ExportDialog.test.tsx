@@ -175,6 +175,7 @@ describe("ExportDialog report data loading", () => {
     const architecture = screen.getByRole("heading", { name: "Architecture PDF" });
     const runbook = screen.getByRole("heading", { name: "MV Share Runbook" });
     expect(architecture.closest(".lg\\:grid-cols-2")).toContainElement(runbook.closest("div"));
+    expect(screen.getAllByText("Experimental")).toHaveLength(2);
     expect(screen.getByRole("link", { name: "Download Runbook" })).toHaveAttribute(
       "href",
       "/api/settings/materialized-view-runbook",

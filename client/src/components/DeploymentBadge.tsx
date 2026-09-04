@@ -11,9 +11,11 @@ import {
 export function DeploymentBadge({
   metadata,
   loading = false,
+  triggerClassName = "inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] border border-green-300/20 bg-green-500/20 px-[6px] text-[10px] font-semibold leading-[10px] text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40",
 }: {
   metadata: DeploymentMetadata | null | undefined;
   loading?: boolean;
+  triggerClassName?: string;
 }) {
   const badgeDate = formatDeploymentBadgeDate(metadata?.deployed_at ?? null);
   const deployedAt = formatDeploymentTimestamp(metadata?.deployed_at ?? null);
@@ -28,7 +30,7 @@ export function DeploymentBadge({
         className=""
         placement="bottom"
         panelClassName="w-max max-w-[calc(100vw-1rem)] border border-white/[.10] bg-[#0B2026] text-[11.5px]"
-        triggerClassName="inline-flex h-[22px] items-center justify-center gap-[3px] rounded-[4px] border border-green-300/20 bg-green-500/20 px-[6px] text-[9px] font-semibold leading-none text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40 lg:w-[58px]"
+        triggerClassName={triggerClassName}
         content={loading ? (
           "Loading deployment details…"
         ) : (
@@ -54,7 +56,11 @@ export function DeploymentBadge({
   );
 }
 
-export function DeploymentBadgeFromApi() {
+export function DeploymentBadgeFromApi({
+  triggerClassName,
+}: {
+  triggerClassName?: string;
+}) {
   const { data, isLoading } = useQuery<DeploymentMetadata | null>({
     queryKey: ["deployment-metadata"],
     queryFn: async () => {
@@ -66,5 +72,5 @@ export function DeploymentBadgeFromApi() {
     retry: 1,
   });
 
-  return <DeploymentBadge metadata={data} loading={isLoading} />;
+  return <DeploymentBadge metadata={data} loading={isLoading} triggerClassName={triggerClassName} />;
 }

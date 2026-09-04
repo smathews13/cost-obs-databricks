@@ -151,7 +151,7 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
   };
 
   const label = () => {
-    if (allSelected) return "All sources";
+    if (allSelected) return `${allLabels.length} ${allLabels.length === 1 ? "Source" : "Sources"}`;
     if (selected.size === 1) return Array.from(selected)[0];
     return `${selected.size} sources`;
   };
@@ -180,7 +180,9 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
           {applying ? "Updating…" : (
             <>
               <span className="min-[1180px]:hidden">
-                {allSelected ? "Sources" : selected.size === 1 ? "1 source" : `${selected.size} sources`}
+                {allSelected
+                  ? `${allLabels.length} ${allLabels.length === 1 ? "source" : "sources"}`
+                  : selected.size === 1 ? "1 source" : `${selected.size} sources`}
               </span>
               <span className="hidden min-[1180px]:inline">{label()}</span>
             </>

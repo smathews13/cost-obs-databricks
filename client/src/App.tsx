@@ -325,16 +325,7 @@ interface User {
   role?: "admin" | "consumer";
 }
 
-const RAIL_STATUS_BADGE_CLASS = "inline-flex min-w-0 shrink-0 items-center gap-[3px] font-semibold text-green-200";
-const RAIL_STATUS_BADGE_STYLE: React.CSSProperties = {
-  height: 20,
-  padding: "0 6px",
-  border: "1px solid rgba(134, 239, 172, 0.22)",
-  borderRadius: 4,
-  background: "rgba(34, 197, 94, 0.2)",
-  fontSize: 10,
-  lineHeight: "10px",
-};
+const RAIL_STATUS_BADGE_CLASS = "inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] border border-green-300/20 bg-green-500/20 px-[6px] text-[10px] font-semibold leading-[10px] text-green-200";
 
 function CopyableRailBadge({
   value,
@@ -358,7 +349,6 @@ function CopyableRailBadge({
       title={copied ? "Copied" : `${label}: ${value}`}
       onClick={() => { void copyValue(); }}
       className={`group ${RAIL_STATUS_BADGE_CLASS} appearance-none transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
-      style={RAIL_STATUS_BADGE_STYLE}
     >
       <span className="healthy-status-dot h-[5px] w-[5px] rounded-full bg-green-400" />
       <span className="max-w-[128px] truncate">{text}</span>
@@ -1751,8 +1741,6 @@ function Dashboard() {
             </span>
           </a>
 
-          <DeploymentBadgeFromApi />
-
           <span className="hidden h-[22px] w-px shrink-0 bg-white/[.16] min-[1180px]:block" aria-hidden="true" />
 
           <div className="order-last flex w-full min-w-0 items-center gap-[8px] sm:order-none sm:w-auto sm:flex-1">
@@ -1772,6 +1760,9 @@ function Dashboard() {
 
           {user && (
             <>
+              <DeploymentBadgeFromApi
+                triggerClassName={`${RAIL_STATUS_BADGE_CLASS} transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
+              />
               <CopyableRailBadge
                 value={accountInfo?.account_id || accountInfo?.account_name || "Databricks account"}
                 text={accountInfo?.account_name || "Databricks account"}
@@ -1798,7 +1789,6 @@ function Dashboard() {
               {warehouseStatus && (
                 <span
                   className={RAIL_STATUS_BADGE_CLASS}
-                  style={RAIL_STATUS_BADGE_STYLE}
                   title={`SQL Warehouse: ${warehouseStatus.state ?? warehouseStatus.status}`}
                 >
                   <span
