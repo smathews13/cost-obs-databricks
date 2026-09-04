@@ -1,11 +1,22 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "5"
+# ///
 # MAGIC %md
 # MAGIC # Cost Observability — Materialized View Share Publisher
 # MAGIC
 # MAGIC Run this notebook with **Run All** in the workspace that owns the source
 # MAGIC system tables. It creates every app-managed aggregate supported by the
-# MAGIC runner's system-table permissions, adds the successful tables to a Delta
-# MAGIC Share, and optionally grants an existing recipient access to that share.
+# MAGIC runner's system-table permissions, publishes them through a Delta Share,
+# MAGIC and optionally grants an existing recipient access to that share.
+# MAGIC
+# MAGIC **Sharing mode** (`share_mode` widget)
+# MAGIC - `schema` (default, recommended): shares the whole target schema, so every
+# MAGIC   current **and future** aggregate flows to recipients without re-running the
+# MAGIC   share step. The run also reconciles an existing table-level share up to a
+# MAGIC   schema share automatically.
+# MAGIC - `table`: shares only the individual tables built in this run.
 # MAGIC
 # MAGIC **Required privileges**
 # MAGIC - Read the referenced `system.*` tables
@@ -14,8 +25,9 @@
 # MAGIC - `SELECT` on every generated table
 # MAGIC
 # MAGIC The notebook is idempotent. Re-running replaces available aggregate data,
-# MAGIC only adds missing share tables, and reports permission-dependent tables
-# MAGIC as skipped rather than failing the entire run.
+# MAGIC converges the share to the requested mode without duplicate-object errors,
+# MAGIC and reports permission-dependent tables as skipped rather than failing the
+# MAGIC entire run.
 # MAGIC
 # MAGIC Contract: `e53b0cac0e8f776f1ff48ff29610c67ad7dbd1f296d8fd7f4da7ab7830be6221`
 
@@ -36,15 +48,24 @@ def _widget(name: str, default: str, label: str) -> None:
         dbutils.widgets.text(name, default, label)  # noqa: F821
 
 
+def _dropdown(name: str, default: str, choices: list, label: str) -> None:
+    try:
+        dbutils.widgets.get(name)  # noqa: F821
+    except Exception:
+        dbutils.widgets.dropdown(name, default, choices, label)  # noqa: F821
+
+
 _widget("target_catalog", "main", "Target catalog")
 _widget("target_schema", "cost_obs_shared", "Target schema")
 _widget("share_name", "cost_obs_share", "Delta Share name")
+_dropdown("share_mode", "schema", ["schema", "table"], "Share mode")
 _widget("recipient_name", "", "Existing recipient name (optional)")
 _widget("lookback_days", "180", "Billing/query lookback days")
 
 CATALOG = dbutils.widgets.get("target_catalog").strip()  # noqa: F821
 SCHEMA = dbutils.widgets.get("target_schema").strip()  # noqa: F821
 SHARE = dbutils.widgets.get("share_name").strip()  # noqa: F821
+SHARE_MODE = dbutils.widgets.get("share_mode").strip().lower()  # noqa: F821
 RECIPIENT = dbutils.widgets.get("recipient_name").strip()  # noqa: F821
 LOOKBACK_DAYS = int(dbutils.widgets.get("lookback_days"))  # noqa: F821
 
@@ -58,11 +79,13 @@ for field, value in {
         raise ValueError(f"{field} must be a single catalog identifier: {value!r}")
 if RECIPIENT and not _IDENTIFIER.fullmatch(RECIPIENT):
     raise ValueError("recipient_name must be a single recipient identifier")
+if SHARE_MODE not in ("schema", "table"):
+    raise ValueError("share_mode must be 'schema' or 'table'")
 if not 30 <= LOOKBACK_DAYS <= 1095:
     raise ValueError("lookback_days must be between 30 and 1095")
 
 print(f"Publishing cost-obs aggregates to {CATALOG}.{SCHEMA}")
-print(f"Delta Share: {SHARE}")
+print(f"Delta Share: {SHARE}  (mode: {SHARE_MODE})")
 print(f"Recipient: {RECIPIENT or 'not granted by this run'}")
 
 # COMMAND ----------
@@ -167,23 +190,62 @@ spark.sql(
     "COMMENT 'Cost Observability managed aggregate tables'"
 )
 
-existing = {
-    str(row.asDict().get("shared_object") or "").lower()
-    for row in spark.sql(f"SHOW ALL IN SHARE `{SHARE}`").collect()
-}
-share_results = []
+schema_fqn = f"{CATALOG}.{SCHEMA}"
 ready_tables = [row[0] for row in build_results if row[1] == "READY"]
-for table_name in ready_tables:
-    full_name = f"{CATALOG}.{SCHEMA}.{table_name}"
-    if full_name.lower() not in existing:
-        spark.sql(
-            f"ALTER SHARE `{SHARE}` "
-            f"ADD TABLE `{CATALOG}`.`{SCHEMA}`.`{table_name}`"
-        )
-        state = "ADDED"
+
+# Inventory the share so the run is idempotent and can reconcile an existing
+# table-level share into a schema-level one (a schema object and a table object
+# from the same schema cannot coexist).
+current_objects = []
+for row in spark.sql(f"SHOW ALL IN SHARE `{SHARE}`").collect():
+    d = row.asDict()
+    current_objects.append(
+        (str(d.get("shared_object") or ""), str(d.get("type") or "").upper())
+    )
+schema_shared = any(
+    obj.lower() == schema_fqn.lower() and typ == "SCHEMA"
+    for obj, typ in current_objects
+)
+
+share_results = []
+
+if SHARE_MODE == "schema":
+    # A schema share covers every current AND future table in the schema, so the
+    # app keeps working as new aggregates land without re-running the share step.
+    # Remove any stale table-level objects from this schema first — they block
+    # the schema-level add.
+    stale_tables = [
+        obj for obj, typ in current_objects
+        if typ == "TABLE" and obj.lower().startswith(schema_fqn.lower() + ".")
+    ]
+    for obj in stale_tables:
+        cat, sch, tbl = obj.split(".", 2)
+        spark.sql(f"ALTER SHARE `{SHARE}` REMOVE TABLE `{cat}`.`{sch}`.`{tbl}`")
+        share_results.append((obj, "REMOVED (replaced by schema share)"))
+    if schema_shared:
+        share_results.append((schema_fqn, "SCHEMA ALREADY SHARED"))
     else:
-        state = "ALREADY SHARED"
-    share_results.append((table_name, state))
+        spark.sql(f"ALTER SHARE `{SHARE}` ADD SCHEMA `{CATALOG}`.`{SCHEMA}`")
+        share_results.append((schema_fqn, "SCHEMA ADDED"))
+else:
+    # Table mode: expose only the tables built in this run. New aggregates need
+    # another run. Refuse to mix with an existing schema-level share.
+    if schema_shared:
+        raise RuntimeError(
+            f"Share `{SHARE}` already shares the whole schema {schema_fqn}. "
+            "Use share_mode=schema, or manually REMOVE SCHEMA before using table mode."
+        )
+    existing = {obj.lower() for obj, _ in current_objects}
+    for table_name in ready_tables:
+        full_name = f"{CATALOG}.{SCHEMA}.{table_name}"
+        if full_name.lower() not in existing:
+            spark.sql(
+                f"ALTER SHARE `{SHARE}` "
+                f"ADD TABLE `{CATALOG}`.`{SCHEMA}`.`{table_name}`"
+            )
+            share_results.append((table_name, "ADDED"))
+        else:
+            share_results.append((table_name, "ALREADY SHARED"))
 
 if RECIPIENT:
     spark.sql(f"GRANT SELECT ON SHARE `{SHARE}` TO RECIPIENT `{RECIPIENT}`")
@@ -191,7 +253,7 @@ if RECIPIENT:
 display(
     spark.createDataFrame(
         share_results,
-        "table_name STRING, share_status STRING",
+        "object STRING, share_status STRING",
     )
 )
 
@@ -203,12 +265,15 @@ display(
 # MAGIC Create or refresh a catalog from the provider/recipient share, then open
 # MAGIC **cost-obs → Settings → Data & tables → Shared sources** and add the
 # MAGIC receiving catalog and schema. The app discovers these exact table names
-# MAGIC and builds its source-routing views automatically.
+# MAGIC and builds its source-routing views automatically. With `share_mode=schema`,
+# MAGIC new aggregates added on a later run appear in the recipient catalog with no
+# MAGIC change on the receiving side.
 
 # COMMAND ----------
 
 print("Runbook complete.")
-print(f"Tables built/shared: {len(ready_tables)}")
+print(f"Share mode: {SHARE_MODE}")
+print(f"Tables built: {len(ready_tables)}")
 print(f"Tables skipped for permissions: {len(skipped)}")
 print(f"Share: {SHARE}")
 print(f"Source schema: {CATALOG}.{SCHEMA}")

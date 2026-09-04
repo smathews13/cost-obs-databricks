@@ -12,6 +12,7 @@ from server.routers import settings
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNBOOK = ROOT / "server" / "assets" / "cost_obs_mv_share_publisher.py"
+REPOSITORY_RUNBOOK = ROOT / "notebooks" / "cost_obs_mv_share_publisher.py"
 
 
 def test_runbook_is_generated_from_the_exact_runtime_table_contract():
@@ -36,6 +37,11 @@ def test_runbook_is_generated_from_the_exact_runtime_table_contract():
     assert "CREATE SHARE IF NOT EXISTS" in rendered
     assert "SHOW ALL IN SHARE" in rendered
     assert "ADD TABLE" in rendered
+    assert "# environment_version = \"5\"" in rendered
+    assert '_dropdown("share_mode", "schema", ["schema", "table"], "Share mode")' in rendered
+    assert 'ALTER SHARE `{SHARE}` ADD SCHEMA `{CATALOG}`.`{SCHEMA}`' in rendered
+    assert 'ALTER SHARE `{SHARE}` REMOVE TABLE `{cat}`.`{sch}`.`{tbl}`' in rendered
+    assert "SCHEMA ALREADY SHARED" in rendered
     assert '_widget("lookback_days", "180", "Billing/query lookback days")' in rendered
     for source_table in (
         "system.access.workspaces_latest",
@@ -48,6 +54,7 @@ def test_runbook_is_generated_from_the_exact_runtime_table_contract():
     assert "Continuing with partial capability" in rendered
     assert "Source-table permission preflight failed" not in rendered
     assert "GRANT SELECT ON TABLE" in rendered
+    assert REPOSITORY_RUNBOOK.read_text() == rendered
     compile(rendered, str(RUNBOOK), "exec")
 
 

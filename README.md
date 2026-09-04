@@ -72,7 +72,7 @@ Deploy from Git is the supported path. See the [detailed deployment guide](#deta
 <a id="cross-workspace-sharing"></a>
 ## Cross-workspace aggregate sharing
 
-Admins can open **Settings → Experimental → Materialized view share runbook**
+Admins can open **Export → MV Share Runbook**
 and download a standalone Databricks notebook. Import it into the workspace
 that owns the source system tables, review the catalog/schema/share widgets,
 and use **Run All**. The notebook:
@@ -80,7 +80,9 @@ and use **Run All**. The notebook:
 1. Preflights the four required system tables and prints exact grant SQL.
 2. Builds each compatible aggregate and marks permission-dependent tables as skipped.
 3. Verifies successful tables and reports their row counts.
-4. Creates or reuses a Delta Share and idempotently adds successful tables.
+4. Creates or reuses a Delta Share and shares the complete target schema by default,
+   automatically replacing stale table-level entries; an optional table mode remains
+   available for tightly scoped sharing.
 5. Optionally grants an existing Delta Sharing recipient access.
 
 The notebook is generated from the same SQL constants used by the app. The
