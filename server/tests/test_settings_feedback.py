@@ -300,6 +300,11 @@ def test_shared_source_payload_marks_provider_managed_refresh():
     )
 
 
+def test_shared_source_cloud_falls_back_to_gcp_region_name():
+    with patch("server.db.get_workspace_client", side_effect=PermissionError("hidden")):
+        assert settings._detect_source_cloud("west4_share") == "gcp"
+
+
 def test_role_payloads_match_admin_route_policy():
     consumer_request = SimpleNamespace(
         headers={"X-Forwarded-Email": "viewer@example.com"}

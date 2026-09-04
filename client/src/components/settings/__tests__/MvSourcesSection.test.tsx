@@ -55,6 +55,7 @@ describe("shared source freshness", () => {
           label: "west4",
           catalog: "west4_share",
           schema: "cost_obs_shared",
+          cloud: "gcp",
           tables: ["daily_usage_summary", "daily_apps_summary"],
           catalog_explorer_schema_url: "https://dbc.example.com/explore/data/west4_share/cost_obs_shared",
           catalog_explorer_tables: [
@@ -73,6 +74,8 @@ describe("shared source freshness", () => {
     );
 
     expect(await screen.findByText("2 shared views")).toBeVisible();
+    expect(screen.getByRole("img", { name: "Google Cloud" })).toBeVisible();
+    expect(screen.getByText("west4")).toHaveStyle({ color: "#B3261E" });
     expect(screen.getByRole("link", {
       name: "Open west4_share.cost_obs_shared in Catalog Explorer (opens in a new tab)",
     })).toHaveAttribute(

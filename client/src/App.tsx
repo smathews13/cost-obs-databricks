@@ -325,7 +325,7 @@ interface User {
   role?: "admin" | "consumer";
 }
 
-const RAIL_STATUS_BADGE_CLASS = "rail-status-badge inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[8px] font-semibold leading-[8px] text-green-200";
+const RAIL_STATUS_BADGE_CLASS = "rail-status-badge inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[10px] font-bold leading-[10px] text-green-200";
 
 function CopyableRailBadge({
   value,
@@ -1788,7 +1788,7 @@ function Dashboard() {
               )}
               {warehouseStatus && (
                 <span
-                  className={`${RAIL_STATUS_BADGE_CLASS} rail-status-badge--sql text-[10px] leading-[10px]`}
+                  className={RAIL_STATUS_BADGE_CLASS}
                   title={`SQL Warehouse: ${warehouseStatus.state ?? warehouseStatus.status}`}
                 >
                   <span

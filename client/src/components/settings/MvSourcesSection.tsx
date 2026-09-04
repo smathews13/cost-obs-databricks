@@ -22,7 +22,7 @@ interface MvSource {
 
 // Cloud → { logo, label font color } per spec: Google red, AWS gold, Azure light green.
 const CLOUD_META: Record<Cloud, { logo: string; color: string; name: string }> = {
-  gcp: { logo: gcpLogo, color: "#D93025", name: "Google Cloud" },
+  gcp: { logo: gcpLogo, color: "#B3261E", name: "Google Cloud" },
   aws: { logo: awsLogo, color: "#B8860B", name: "AWS" },
   azure: { logo: azureLogo, color: "#3E9C3E", name: "Azure" },
 };

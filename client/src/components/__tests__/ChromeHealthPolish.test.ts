@@ -60,14 +60,14 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("rounded-[4px]");
     expect(appSource).toContain("rail-status-badge");
     expect(styles).toContain("border: 0 !important;");
-    expect(styles).toContain("font-size: 8px !important;");
-    expect(styles).toContain(".rail-status-badge--sql");
     expect(styles).toContain("font-size: 10px !important;");
+    expect(styles).toContain("font-weight: 700 !important;");
+    expect(styles).toContain("width: 88px !important;");
+    expect(styles).toContain("height: 22px !important;");
     expect(appSource).toContain("bg-green-500/20");
-    expect(appSource).toContain("text-[8px]");
-    expect(appSource).toContain(
-      'className={`${RAIL_STATUS_BADGE_CLASS} rail-status-badge--sql text-[10px] leading-[10px]`}',
-    );
+    expect(appSource).toContain("text-[10px]");
+    expect(appSource).toContain("font-bold");
+    expect(appSource).toContain("className={RAIL_STATUS_BADGE_CLASS}");
     expect(appSource).toContain(
       'className="h-2.5 w-2.5 opacity-60 transition-opacity group-hover:opacity-100"',
     );

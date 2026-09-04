@@ -2152,6 +2152,14 @@ def _rebuild_unified_views_locked(
     ) and len(summary) == len(_MV_TABLES)
     if persist_registry and build_ok:
         save_unified_view_tables(routed_tables)
+    if build_ok:
+        # A routed-view definition change must fence response payloads produced
+        # against the prior view graph, including durable cache rows that survive
+        # an app redeploy.
+        from server.db import clear_query_cache, delta_cache_invalidate
+
+        clear_query_cache()
+        delta_cache_invalidate(remote_cleanup=False)
     logger.info("Unified MV views rebuilt (%d source(s) configured)", len(sources))
     return {
         "ok": build_ok,

@@ -1738,6 +1738,16 @@ def _detect_source_cloud(catalog: str) -> str | None:
             return "aws"
     except Exception as e:
         logger.debug("Source cloud detection failed for %s (non-fatal): %s", catalog, e)
+    # Provider metadata can be hidden from the app SP even when the shared
+    # catalog itself is readable. Preserve common cloud/region hints in the
+    # catalog name so a source does not lose its icon after being re-saved.
+    name_hint = (catalog or "").lower().replace("-", "").replace("_", "")
+    if any(marker in name_hint for marker in ("gcp", "google", "west4", "central1", "east4")):
+        return "gcp"
+    if any(marker in name_hint for marker in ("azure", "eastus", "westus", "westeurope")):
+        return "azure"
+    if any(marker in name_hint for marker in ("aws", "useast", "uswest", "euwest")):
+        return "aws"
     return None
 
 
@@ -2066,6 +2076,20 @@ async def add_mv_source(request: Request, body: dict) -> dict:
             if tables is not None:
                 entry["tables"] = tables
             cloud = _detect_source_cloud(catalog)
+            if not cloud:
+                prior = next(
+                    (
+                        item
+                        for item in previous_sources
+                        if (
+                            item.get("catalog") == catalog
+                            and item.get("schema") == schema
+                        )
+                        or item.get("label") == label
+                    ),
+                    None,
+                )
+                cloud = prior.get("cloud") if prior else None
             if cloud:
                 entry["cloud"] = cloud
             sources.append(entry)

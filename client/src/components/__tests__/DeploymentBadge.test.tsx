@@ -67,9 +67,10 @@ describe("DeploymentBadge", () => {
     expect(trigger).toHaveClass(
       "h-[22px]",
       "rounded-[4px]",
-      "text-[8px]",
+      "text-[10px]",
       "w-[88px]",
       "rail-status-badge",
+      "font-bold",
     );
     expect(trigger.className).not.toContain("border-");
     expect(screen.getByTestId("deployment-status-dot")).toBeVisible();

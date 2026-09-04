@@ -217,6 +217,8 @@ def test_unified_views_deduplicate_overlapping_sources_by_business_key():
         patch("server.db.get_local_source_label", return_value="local"),
         patch("server.db.get_unified_view_tables", return_value=["daily_usage_summary"]),
         patch("server.db.save_unified_view_tables"),
+        patch("server.db.clear_query_cache") as clear_query_cache,
+        patch("server.db.delta_cache_invalidate") as invalidate_payloads,
         patch.object(materialized_views, "_unified_view_exists", return_value=True),
         patch.object(
             materialized_views,
@@ -238,6 +240,8 @@ def test_unified_views_deduplicate_overlapping_sources_by_business_key():
         "usage_date",
         "workspace_id",
     ]
+    clear_query_cache.assert_called_once_with()
+    invalidate_payloads.assert_called_once_with(remote_cleanup=False)
 
 
 def test_selected_source_routes_only_to_verified_physical_view():
