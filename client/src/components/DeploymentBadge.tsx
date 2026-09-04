@@ -11,7 +11,7 @@ import {
 export function DeploymentBadge({
   metadata,
   loading = false,
-  triggerClassName = "rail-status-badge inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[9px] font-semibold leading-[9px] text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40",
+  triggerClassName = "rail-status-badge inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[8px] font-semibold leading-[8px] text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40",
 }: {
   metadata: DeploymentMetadata | null | undefined;
   loading?: boolean;
@@ -47,7 +47,8 @@ export function DeploymentBadge({
           </>
         )}
       >
-        <Clock size={11} strokeWidth={1.8} aria-hidden="true" />
+        <span data-testid="deployment-status-dot" className="healthy-status-dot h-[5px] w-[5px] shrink-0 rounded-full bg-green-400" />
+        <Clock size={10} strokeWidth={1.8} aria-hidden="true" />
         <span data-testid="deployment-badge-date" className="hidden whitespace-nowrap lg:inline">
           {triggerText}
         </span>

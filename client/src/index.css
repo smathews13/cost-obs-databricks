@@ -241,6 +241,13 @@ textarea {
 
 .rail-status-badge {
   border: 0 !important;
+  font-size: 8px !important;
+  line-height: 8px !important;
+}
+
+.rail-status-badge--sql {
+  font-size: 10px !important;
+  line-height: 10px !important;
 }
 
 .rail-user-trigger:hover {

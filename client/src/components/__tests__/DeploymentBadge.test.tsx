@@ -67,11 +67,12 @@ describe("DeploymentBadge", () => {
     expect(trigger).toHaveClass(
       "h-[22px]",
       "rounded-[4px]",
-      "text-[9px]",
+      "text-[8px]",
       "w-[88px]",
       "rail-status-badge",
     );
     expect(trigger.className).not.toContain("border-");
+    expect(screen.getByTestId("deployment-status-dot")).toBeVisible();
     expect(trigger).not.toHaveAttribute("aria-describedby");
     act(() => trigger.focus());
     expect(trigger).toHaveAttribute("aria-describedby", screen.getByRole("tooltip").id);
