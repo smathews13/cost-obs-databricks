@@ -58,9 +58,12 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("RAIL_STATUS_BADGE_CLASS");
     expect(appSource).toContain("h-[22px] w-[88px]");
     expect(appSource).toContain("rounded-[4px]");
-    expect(appSource).toContain("border-green-300/20");
+    expect(appSource).toContain("border-transparent");
     expect(appSource).toContain("bg-green-500/20");
-    expect(appSource).toContain("text-[10px]");
+    expect(appSource).toContain("text-[9px]");
+    expect(appSource).toContain(
+      'className={`${RAIL_STATUS_BADGE_CLASS} text-[10px] leading-[10px]`}',
+    );
     expect(appSource).toContain(
       'className="h-2.5 w-2.5 opacity-60 transition-opacity group-hover:opacity-100"',
     );

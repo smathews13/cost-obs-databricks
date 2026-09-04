@@ -67,9 +67,9 @@ describe("DeploymentBadge", () => {
     expect(trigger).toHaveClass(
       "h-[22px]",
       "rounded-[4px]",
-      "text-[10px]",
+      "text-[9px]",
       "w-[88px]",
-      "border-green-300/20",
+      "border-transparent",
     );
     expect(trigger).not.toHaveAttribute("aria-describedby");
     act(() => trigger.focus());

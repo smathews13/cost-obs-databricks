@@ -11,7 +11,7 @@ import {
 export function DeploymentBadge({
   metadata,
   loading = false,
-  triggerClassName = "inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] border border-green-300/20 bg-green-500/20 px-[6px] text-[10px] font-semibold leading-[10px] text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40",
+  triggerClassName = "inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] border border-transparent bg-green-500/20 px-[6px] text-[9px] font-semibold leading-[9px] text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40",
 }: {
   metadata: DeploymentMetadata | null | undefined;
   loading?: boolean;
