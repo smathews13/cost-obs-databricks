@@ -159,6 +159,28 @@ describe("ExportDialog report data loading", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
+  it("splits the top export area between architecture and the admin runbook", () => {
+    render(
+      <ExportDialog
+        isOpen
+        isAdmin
+        onClose={vi.fn()}
+        onExport={vi.fn()}
+        enableArchitectureView
+        onExportArchitecture={vi.fn()}
+        tabVisibility={visibility}
+      />,
+    );
+
+    const architecture = screen.getByRole("heading", { name: "Architecture PDF" });
+    const runbook = screen.getByRole("heading", { name: "MV Share Runbook" });
+    expect(architecture.closest(".lg\\:grid-cols-2")).toContainElement(runbook.closest("div"));
+    expect(screen.getByRole("link", { name: "Download Runbook" })).toHaveAttribute(
+      "href",
+      "/api/settings/materialized-view-runbook",
+    );
+  });
+
   it("labels the architecture and cost report as separate ordered export products", () => {
     render(
       <ExportDialog

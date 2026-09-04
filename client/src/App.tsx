@@ -2134,6 +2134,7 @@ function Dashboard() {
         onClose={closeExportDialog}
         onExport={handleExport}
         enableArchitectureView={appSettings.enableArchitectureView}
+        isAdmin={user?.role === "admin"}
         onExportArchitecture={handleArchitectureExport}
         tabVisibility={tabVisibility}
         dataLoading={exportPreparing}

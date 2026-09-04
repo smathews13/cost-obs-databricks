@@ -19,6 +19,7 @@ interface ExportDialogProps {
   onClose: () => void;
   onExport: (sections: ExportSections, format: ExportFormat) => void;
   enableArchitectureView?: boolean;
+  isAdmin?: boolean;
   onExportArchitecture?: () => Promise<void>;
   tabVisibility: TabVisibility;
   dataLoading?: boolean;
@@ -68,6 +69,7 @@ export function ExportDialog({
   onClose,
   onExport,
   enableArchitectureView = false,
+  isAdmin = false,
   onExportArchitecture,
   tabVisibility,
   dataLoading = false,
@@ -234,17 +236,19 @@ export function ExportDialog({
             </div>
           </div>
 
-          {enableArchitectureView && (
+          {(enableArchitectureView || isAdmin) && (
             <div className="px-6 pt-5" style={{ background: C.oatPage }}>
-              <div
-                className="flex flex-wrap items-center justify-between gap-4 px-4 py-3.5"
-                style={{
-                  background: C.card,
-                  border: `1px solid ${C.navy}`,
-                  borderLeft: `4px solid ${C.lava}`,
-                  borderRadius: 8,
-                }}
-              >
+              <div className={`grid grid-cols-1 gap-3 ${enableArchitectureView && isAdmin ? "lg:grid-cols-2" : ""}`}>
+              {enableArchitectureView && (
+                <div
+                  className="flex flex-col justify-between gap-4 px-4 py-3.5"
+                  style={{
+                    background: C.card,
+                    border: `1px solid ${C.navy}`,
+                    borderLeft: `4px solid ${C.lava}`,
+                    borderRadius: 8,
+                  }}
+                >
                 <div>
                   <div className="flex items-center gap-2">
                     <h4 className="text-sm font-bold" style={{ color: C.navy }}>Architecture PDF</h4>
@@ -275,6 +279,42 @@ export function ExportDialog({
                   )}
                   {architectureBusy ? "Downloading architecture PDF…" : "Download Architecture PDF"}
                 </button>
+                </div>
+              )}
+              {isAdmin && (
+                <div
+                  className="flex flex-col justify-between gap-4 px-4 py-3.5"
+                  style={{
+                    background: C.card,
+                    border: `1px solid ${C.navy}`,
+                    borderLeft: `4px solid ${C.s3}`,
+                    borderRadius: 8,
+                  }}
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-bold" style={{ color: C.navy }}>MV Share Runbook</h4>
+                      <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ color: C.s3, background: "#E8F7F0" }}>
+                        Experimental
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5" style={{ color: C.slate }}>
+                      Download the Run All notebook that builds compatible cost-obs aggregates and publishes them through Delta Sharing.
+                    </p>
+                  </div>
+                  <a
+                    href="/api/settings/materialized-view-runbook"
+                    download="cost_obs_mv_share_publisher.py"
+                    className="inline-flex w-fit items-center gap-2 px-4 py-2 text-sm font-semibold text-white focus-visible:outline-none focus-visible:shadow-(--focus)"
+                    style={{ background: C.navy, borderRadius: 8 }}
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Download Runbook
+                  </a>
+                </div>
+              )}
               </div>
             </div>
           )}
