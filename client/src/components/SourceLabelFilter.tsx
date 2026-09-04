@@ -8,13 +8,23 @@ import {
 import { C } from "@/theme";
 import { Spinner } from "@/components/Spinner";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
+import awsLogo from "@/assets/aws.png";
+import azureLogo from "@/assets/azure-128.png";
+import gcpLogo from "@/assets/gcp.svg";
 
 interface MvSource {
   label: string;
   catalog: string;
   schema: string;
   tables?: string[];
+  cloud?: "aws" | "azure" | "gcp";
 }
+
+const CLOUD_LOGOS = {
+  aws: awsLogo,
+  azure: azureLogo,
+  gcp: gcpLogo,
+} as const;
 
 interface SourceLabelFilterProps {
   variant?: "header" | "rail";
@@ -46,7 +56,11 @@ function reconcileSourceSelection(
 // local label and nothing to filter). Default is all sources (combined); the
 // selection is pushed to the data layer and queries are invalidated to refetch.
 export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabelFilterProps) {
-  const { data } = useQuery<{ sources: MvSource[]; local_label: string }>({
+  const { data } = useQuery<{
+    sources: MvSource[];
+    local_label: string;
+    local_cloud?: "aws" | "azure" | "gcp";
+  }>({
     queryKey: ["mv-sources"],
     queryFn: () => fetch("/api/settings/mv-sources").then((r) => r.json()).catch(() => ({ sources: [], local_label: "" })),
     staleTime: 60 * 1000,
@@ -217,12 +231,22 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
               const checked = selected.has(lbl);
               const isLocal = lbl === data?.local_label;
               const source = data?.sources?.find((item) => item.label === lbl);
+              const sourceCloud = isLocal ? data?.local_cloud : source?.cloud;
               const summaryOnly = !isLocal
                 && source?.tables?.length === 1
                 && source.tables[0] === "daily_usage_summary";
               return (
                 <label key={lbl} className={`flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 ${checked ? "bg-orange-50 hover:bg-orange-100" : "hover:bg-gray-50"}`}>
                   <input type="checkbox" checked={checked} onChange={() => toggle(lbl)} className="h-3.5 w-3.5 rounded border-gray-300 accent-lava" />
+                  {sourceCloud && (
+                    <img
+                      src={CLOUD_LOGOS[sourceCloud]}
+                      alt=""
+                      aria-hidden="true"
+                      title={sourceCloud === "gcp" ? "Google Cloud" : sourceCloud === "azure" ? "Azure" : "AWS"}
+                      className="h-4 w-4 shrink-0 object-contain"
+                    />
+                  )}
                   <span className="flex-1 truncate text-sm text-gray-700">{lbl}</span>
                   {isLocal && <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">this workspace</span>}
                   {summaryOnly && <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">summary only</span>}

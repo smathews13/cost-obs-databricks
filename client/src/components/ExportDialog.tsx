@@ -496,7 +496,7 @@ export function ExportDialog({
               onClick={handleExport}
               disabled={selectedCount === 0 || dataLoading || architectureBusy || hasSelectedErrors}
               aria-label={dataLoading
-                ? `Preparing report data: ${readyTabCount} of ${requiredTabs.length} tabs ready`
+                ? `Preparing ${selectedCount} report sections: ${readyTabCount} of ${requiredTabs.length} dashboard tabs ready`
                 : hasSelectedErrors
                   ? "Export blocked by failed report data"
                   : !dataPrepared && onPrepare
@@ -510,7 +510,7 @@ export function ExportDialog({
                 </svg>
               )}
               {dataLoading
-                ? `Preparing ${readyTabCount} of ${requiredTabs.length} tabs…`
+                ? `Preparing ${selectedCount} report sections · ${readyTabCount} of ${requiredTabs.length} dashboard tabs ready…`
                 : !dataPrepared && onPrepare
                   ? `Prepare ${selectedCount} section${selectedCount !== 1 ? "s" : ""}`
                   : `Export ${selectedCount} section${selectedCount !== 1 ? "s" : ""} as ${format.toUpperCase()}`}

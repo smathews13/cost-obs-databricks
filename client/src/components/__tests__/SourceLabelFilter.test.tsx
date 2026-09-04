@@ -21,6 +21,43 @@ afterEach(() => {
 });
 
 describe("source label reconciliation", () => {
+  it("shows detected provider logos for local and shared sources", async () => {
+    const current = {
+      local_label: "local-gcp",
+      local_cloud: "gcp" as const,
+      sources: [
+        { label: "shared-aws", catalog: "aws_share", schema: "cost_obs", cloud: "aws" as const },
+        { label: "shared-azure", catalog: "azure_share", schema: "cost_obs", cloud: "azure" as const },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => current,
+    })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["mv-sources"], current);
+
+    render(
+      <QueryClientProvider client={client}>
+        <SourceLabelFilter />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "3 Sources" }));
+
+    expect(screen.getByTitle("Google Cloud")).toHaveAttribute(
+      "src",
+      expect.stringContaining("gcp.svg"),
+    );
+    expect(screen.getByTitle("AWS")).toHaveAttribute(
+      "src",
+      expect.stringContaining("aws"),
+    );
+    expect(screen.getByTitle("Azure")).toHaveAttribute(
+      "src",
+      expect.stringContaining("azure"),
+    );
+  });
+
   it("updates module scope before invoking the App refresh callback", async () => {
     const current = sourceData(["local", "west"]);
     vi.stubGlobal("fetch", vi.fn(async () => ({

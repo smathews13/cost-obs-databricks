@@ -325,7 +325,7 @@ interface User {
   role?: "admin" | "consumer";
 }
 
-const RAIL_STATUS_BADGE_CLASS = "rail-status-badge inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[10px] font-bold leading-[10px] text-green-200";
+const RAIL_STATUS_BADGE_CLASS = "rail-status-badge relative inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[10px] font-bold leading-[10px] text-green-200";
 
 function CopyableRailBadge({
   value,
@@ -350,7 +350,7 @@ function CopyableRailBadge({
       onClick={() => { void copyValue(); }}
       className={`group ${RAIL_STATUS_BADGE_CLASS} appearance-none transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
     >
-      <span className="healthy-status-dot h-[5px] w-[5px] rounded-full bg-green-400" />
+      <span className="rail-status-dot healthy-status-dot h-[5px] w-[5px] rounded-full bg-green-400" />
       <span className="max-w-[128px] truncate">{text}</span>
       {copied ? (
         <Check className="h-2.5 w-2.5" aria-hidden="true" />
@@ -1792,7 +1792,7 @@ function Dashboard() {
                   title={`SQL Warehouse: ${warehouseStatus.state ?? warehouseStatus.status}`}
                 >
                   <span
-                    className={`${warehouseStatus.status === "warm" ? "healthy-status-dot " : ""}h-[5px] w-[5px] rounded-full`}
+                    className={`rail-status-dot ${warehouseStatus.status === "warm" ? "healthy-status-dot " : ""}h-[5px] w-[5px] rounded-full`}
                     style={{ background: warehouseStatus.status === "warm" ? "var(--status-dot)" : warehouseStatus.status === "warming_up" ? "var(--amber)" : "var(--maroon)" }}
                   />
                   <span className="hidden min-[1280px]:inline">

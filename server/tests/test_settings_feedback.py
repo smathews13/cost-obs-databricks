@@ -292,6 +292,7 @@ def test_shared_source_payload_marks_provider_managed_refresh():
         "mode": "provider_managed",
         "check_action": "metadata_and_local_bindings_only",
     }
+    assert payload["local_cloud"] == "aws"
     assert payload["sources"][0]["catalog_explorer_tables"][0]["fqn"] == (
         "west_share.cost_obs.daily_usage_summary"
     )
@@ -303,6 +304,17 @@ def test_shared_source_payload_marks_provider_managed_refresh():
 def test_shared_source_cloud_falls_back_to_gcp_region_name():
     with patch("server.db.get_workspace_client", side_effect=PermissionError("hidden")):
         assert settings._detect_source_cloud("west4_share") == "gcp"
+
+
+def test_current_workspace_cloud_detects_all_provider_hosts():
+    cases = {
+        "https://123.7.gcp.databricks.com": "gcp",
+        "https://adb-123.azuredatabricks.net": "azure",
+        "https://dbc-example.cloud.databricks.com": "aws",
+    }
+    for host, expected in cases.items():
+        with patch("server.db.get_host_url", return_value=host):
+            assert settings._current_workspace_cloud() == expected
 
 
 def test_role_payloads_match_admin_route_policy():

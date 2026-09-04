@@ -73,7 +73,12 @@ describe("DeploymentBadge", () => {
       "font-bold",
     );
     expect(trigger.className).not.toContain("border-");
-    expect(screen.getByTestId("deployment-status-dot")).toBeVisible();
+    const dot = screen.getByTestId("deployment-status-dot");
+    const clock = screen.getByTestId("deployment-clock");
+    expect(dot).toBeVisible();
+    expect(dot).toHaveClass("rail-status-dot");
+    expect(date.compareDocumentPosition(clock) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
     expect(trigger).not.toHaveAttribute("aria-describedby");
     act(() => trigger.focus());
     expect(trigger).toHaveAttribute("aria-describedby", screen.getByRole("tooltip").id);

@@ -254,6 +254,7 @@ WITH usage_with_price AS (
   SELECT
     u.usage_date,
     u.workspace_id,
+    u.cloud,
     u.sku_name,
     u.billing_origin_product,
     u.identity_metadata.run_as AS run_as_user,
@@ -267,6 +268,7 @@ WITH usage_with_price AS (
 workspace_totals AS (
   SELECT
     workspace_id,
+    MAX(cloud) as cloud,
     SUM(usage_quantity) as total_dbus,
     SUM(usage_quantity * price_per_dbu) as total_spend
   FROM usage_with_price
@@ -311,6 +313,7 @@ top_users AS (
 SELECT
   wt.workspace_id,
   ws.workspace_name as workspace_name,
+  wt.cloud,
   wt.total_dbus,
   wt.total_spend,
   tp.products as top_products,

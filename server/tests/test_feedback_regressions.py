@@ -129,6 +129,40 @@ def test_workspace_picker_uses_the_selected_managed_source():
     assert "GROUP BY ws.workspace_id" in captured[0]
 
 
+@pytest.mark.parametrize(
+    ("cloud", "workspace_name", "expected_region"),
+    [
+        ("GCP", "west4-serverless", "west4"),
+        ("AWS", "customer-us-east-1-prod", "us-east-1"),
+        ("AZURE", "customer-eastus2-prod", "eastus2"),
+    ],
+)
+def test_workspace_breakdown_includes_cloud_and_region(
+    cloud,
+    workspace_name,
+    expected_region,
+):
+    with (
+        patch.object(billing, "_account_ws_cloud_metadata", {}),
+        patch.object(settings, "workspace_names_enabled", return_value=True),
+    ):
+        result = billing._format_workspaces(
+            [{
+                "workspace_id": "123",
+                "workspace_name": workspace_name,
+                "cloud": cloud,
+                "total_spend": 10,
+                "total_dbus": 2,
+                "top_products": [],
+                "top_users": [],
+            }],
+            {"start_date": "2026-08-01", "end_date": "2026-08-31"},
+        )
+
+    assert result["workspaces"][0]["cloud"] == cloud.lower()
+    assert result["workspaces"][0]["region"] == expected_region
+
+
 @pytest.fixture(autouse=True)
 def declared_shared_source_tables(monkeypatch):
     tables = list(db.MV_UNIFIED_TABLE_NAMES)

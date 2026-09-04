@@ -1751,6 +1751,17 @@ def _detect_source_cloud(catalog: str) -> str | None:
     return None
 
 
+def _current_workspace_cloud() -> str:
+    from server.db import get_host_url
+
+    host = get_host_url().lower()
+    if "gcp.databricks.com" in host:
+        return "gcp"
+    if "azuredatabricks.net" in host:
+        return "azure"
+    return "aws"
+
+
 def _share_last_updated(catalog: str, schema: str, tables: list[str] | None) -> str | None:
     """Best-effort latest lastModified across the source's shared tables (ISO string)."""
     from datetime import datetime, timezone
@@ -1908,6 +1919,7 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
     return {
         "sources": sources,
         "local_label": get_local_source_label(),
+        "local_cloud": _current_workspace_cloud(),
         "recipient_refresh": {
             "supported": False,
             "mode": "provider_managed",

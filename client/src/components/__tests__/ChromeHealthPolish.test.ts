@@ -64,6 +64,8 @@ describe("account rail health polish", () => {
     expect(styles).toContain("font-weight: 700 !important;");
     expect(styles).toContain("width: 88px !important;");
     expect(styles).toContain("height: 22px !important;");
+    expect(styles).toContain(".rail-status-dot");
+    expect(styles).toContain("left: 7px;");
     expect(appSource).toContain("bg-green-500/20");
     expect(appSource).toContain("text-[10px]");
     expect(appSource).toContain("font-bold");

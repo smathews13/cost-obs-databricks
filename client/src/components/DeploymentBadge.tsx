@@ -47,11 +47,11 @@ export function DeploymentBadge({
           </>
         )}
       >
-        <span data-testid="deployment-status-dot" className="healthy-status-dot h-[5px] w-[5px] shrink-0 rounded-full bg-green-400" />
-        <Clock size={10} strokeWidth={1.8} aria-hidden="true" />
+        <span data-testid="deployment-status-dot" className="rail-status-dot healthy-status-dot h-[5px] w-[5px] shrink-0 rounded-full bg-green-400" />
         <span data-testid="deployment-badge-date" className="hidden whitespace-nowrap lg:inline">
           {triggerText}
         </span>
+        <Clock data-testid="deployment-clock" size={10} strokeWidth={1.8} aria-hidden="true" />
       </InfoPopover>
     </span>
   );

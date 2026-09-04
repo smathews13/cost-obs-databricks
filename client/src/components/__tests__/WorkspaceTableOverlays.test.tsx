@@ -16,6 +16,8 @@ const data = {
       top_products: ["APPS", "SQL"],
       top_users: ["user@example.com", "service-principal"],
       historical: false,
+      cloud: "gcp",
+      region: "west4",
     },
     {
       workspace_id: "workspace-2",
@@ -79,5 +81,15 @@ describe("WorkspaceTable floating controls", () => {
 
     expect(screen.getByText("Recovered workspace")).toBeVisible();
     expect(screen.queryByText("Historical")).not.toBeInTheDocument();
+  });
+
+  it("shows the workspace cloud logo and region", () => {
+    renderTable();
+
+    expect(screen.getByRole("img", { name: "Google Cloud" })).toHaveAttribute(
+      "src",
+      expect.stringContaining("gcp.svg"),
+    );
+    expect(screen.getByText("west4")).toBeVisible();
   });
 });

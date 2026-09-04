@@ -8,6 +8,9 @@ import { C } from "@/theme";
 import { Spinner } from "./Spinner";
 import { FloatingMenu } from "./ui/FloatingMenu";
 import { InfoPopover } from "./ui/InfoPopover";
+import awsLogo from "@/assets/aws.png";
+import azureLogo from "@/assets/azure-128.png";
+import gcpLogo from "@/assets/gcp.svg";
 
 interface WorkspaceTableProps {
   data: WorkspaceBreakdownResponse | undefined;
@@ -19,6 +22,25 @@ interface WorkspaceTableProps {
 function getWorkspaceUrl(host: string | null | undefined, workspaceId: string): string | null {
   if (!host || !workspaceId) return null;
   return workspaceUrl(host, `/browse/folders/workspace?o=${workspaceId}`);
+}
+
+const CLOUD_META = {
+  aws: { logo: awsLogo, name: "AWS" },
+  azure: { logo: azureLogo, name: "Azure" },
+  gcp: { logo: gcpLogo, name: "Google Cloud" },
+} as const;
+
+function resolveWorkspaceCloud(
+  value: string | null | undefined,
+  host: string | null | undefined,
+): keyof typeof CLOUD_META | null {
+  const cloud = (value || "").toLowerCase();
+  if (cloud === "aws" || cloud === "azure" || cloud === "gcp") return cloud;
+  const normalizedHost = (host || "").toLowerCase();
+  if (normalizedHost.includes("gcp.databricks.com")) return "gcp";
+  if (normalizedHost.includes("azuredatabricks.net")) return "azure";
+  if (normalizedHost.includes("cloud.databricks.com")) return "aws";
+  return null;
 }
 
 const PRODUCT_LABELS: Record<string, string> = {
@@ -371,37 +393,51 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
             )}
             {paginatedData.map((ws) => {
               const url = getWorkspaceUrl(host, ws.workspace_id);
+              const cloud = resolveWorkspaceCloud(ws.cloud, host);
+              const cloudMeta = cloud ? CLOUD_META[cloud] : null;
+              const workspaceLabel = workspaceNameMap?.[ws.workspace_id]
+                || ws.workspace_name
+                || `Workspace ${ws.workspace_id}`;
 
               return (
                 <tr key={ws.workspace_id} className="hover:bg-gray-50">
                   <td className="px-3 py-3">
-                    {url ? (
-                      <div className="flex flex-col gap-0.5">
+                    <div className="flex items-start gap-2">
+                      {cloudMeta && (
+                        <img
+                          src={cloudMeta.logo}
+                          alt={cloudMeta.name}
+                          title={cloudMeta.name}
+                          className="mt-0.5 h-4 w-4 shrink-0 object-contain"
+                        />
+                      )}
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        {url ? (
                         <a
                           href={url}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="group flex items-center gap-1 text-sm font-medium text-lava hover:text-lava-hover"
                         >
-                          <span>{workspaceNameMap?.[ws.workspace_id] || ws.workspace_name || `Workspace ${ws.workspace_id}`}</span>
+                          <span>{workspaceLabel}</span>
                           <svg className="h-3 w-3 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                           </svg>
                         </a>
+                        ) : (
+                          <span className="text-sm font-medium text-gray-900">{workspaceLabel}</span>
+                        )}
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-gray-500">{ws.workspace_id}</span>
+                          {ws.region && (
+                            <span className="inline-flex rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                              {ws.region}
+                            </span>
+                          )}
                           {isHistoricalWs(ws) && <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">Historical</span>}
                         </div>
                       </div>
-                    ) : (
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-sm font-medium text-gray-900">{workspaceNameMap?.[ws.workspace_id] || ws.workspace_name || `Workspace ${ws.workspace_id}`}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-gray-500">{ws.workspace_id}</span>
-                          {isHistoricalWs(ws) && <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">Historical</span>}
-                        </div>
-                      </div>
-                    )}
+                    </div>
                   </td>
                 <td className="px-3 py-3">
                   <div className="flex flex-wrap gap-1">

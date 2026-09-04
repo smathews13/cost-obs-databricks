@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import re
 import threading
 import time
 from typing import Any
@@ -2133,6 +2134,7 @@ def _inject_qh_ws_filter(sql: str, clause: str) -> str:
 # Populated by AccountClient.workspaces.list() when DATABRICKS_ACCOUNT_ID is set.
 _account_ws_names: dict[str, str] = {}
 _account_ws_deployment_names: dict[str, str] = {}
+_account_ws_cloud_metadata: dict[str, dict[str, str]] = {}
 _account_ws_names_ts: float = 0.0
 _background_tasks: set = set()  # keeps fire-and-forget tasks alive
 
@@ -2146,7 +2148,8 @@ def _get_account_workspace_names() -> dict[str, str]:
     ~thousands of non-billing account workspaces (names resolve elsewhere via the
     billing.usage ⋈ workspaces_latest join, which only covers spending workspaces).
     """
-    global _account_ws_deployment_names, _account_ws_names, _account_ws_names_ts
+    global _account_ws_cloud_metadata, _account_ws_deployment_names
+    global _account_ws_names, _account_ws_names_ts
     if time.time() - _account_ws_names_ts < 3600:
         return _account_ws_names
 
@@ -2167,6 +2170,24 @@ def _get_account_workspace_names() -> dict[str, str]:
             for w in workspaces
             if getattr(w, "deployment_name", None)
         }
+        metadata: dict[str, dict[str, str]] = {}
+        for workspace in workspaces:
+            workspace_id = str(workspace.workspace_id)
+            raw_cloud = getattr(workspace, "cloud", None)
+            cloud = str(getattr(raw_cloud, "value", raw_cloud) or "").lower()
+            region = str(
+                getattr(workspace, "aws_region", None)
+                or getattr(workspace, "location", None)
+                or ""
+            )
+            details = {
+                key: value
+                for key, value in {"cloud": cloud, "region": region}.items()
+                if value
+            }
+            if details:
+                metadata[workspace_id] = details
+        _account_ws_cloud_metadata = metadata
         _account_ws_names = names
         _account_ws_names_ts = time.time()
         logger.info("AccountClient: fetched %d workspace names", len(names))
@@ -2650,6 +2671,25 @@ def _format_products(results: list[dict[str, Any]] | None, params: dict[str, str
     }
 
 
+def _infer_workspace_region(name: str | None, cloud: str | None) -> str | None:
+    """Best-effort region from a workspace/deployment name when Account API metadata is absent."""
+    value = (name or "").lower()
+    provider = (cloud or "").lower()
+    patterns = {
+        "aws": r"\b((?:us|eu|ap|sa|ca|me|af|il)-(?:central|east|west|north|south)-\d)\b",
+        "gcp": (
+            r"\b((?:(?:us|northamerica|southamerica|europe|asia|australia)-"
+            r"(?:central|east|west|north|south)\d)|(?:central|east|west)\d)\b"
+        ),
+        "azure": (
+            r"\b((?:east|west|north|south|central)(?:us|europe|asia|india|japan|"
+            r"australia|canada|uk|france|germany|norway|switzerland|korea)\d*)\b"
+        ),
+    }
+    match = re.search(patterns.get(provider, r"$^"), value)
+    return match.group(1) if match else None
+
+
 def _format_workspaces(results: list[dict[str, Any]] | None, params: dict[str, str]) -> dict[str, Any]:
     """Format workspaces query results."""
     if not results:
@@ -2674,6 +2714,12 @@ def _format_workspaces(results: list[dict[str, Any]] | None, params: dict[str, s
         wid = str(wid)
         raw_name = row.get("workspace_name")
         resolved = raw_name if (raw_name and str(raw_name).strip()) else None
+        account_metadata = _account_ws_cloud_metadata.get(wid, {})
+        cloud = str(account_metadata.get("cloud") or row.get("cloud") or "").lower()
+        region = (
+            account_metadata.get("region")
+            or _infer_workspace_region(str(resolved or ""), cloud)
+        )
         spend = float(row.get("total_spend") or 0)
         workspaces.append({
             "workspace_id": wid,
@@ -2681,6 +2727,8 @@ def _format_workspaces(results: list[dict[str, Any]] | None, params: dict[str, s
             # No display name in billing history => the workspace no longer exists
             # in the account (deleted); surface it as "historical" in dropdowns.
             "historical": resolved is None,
+            "cloud": cloud or None,
+            "region": region,
             "total_dbus": float(row.get("total_dbus") or 0),
             "total_spend": spend,
             "top_products": _ensure_list(row.get("top_products")),

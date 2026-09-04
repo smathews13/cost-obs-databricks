@@ -31,8 +31,13 @@ describe("ExportDialog report data loading", () => {
       />,
     );
 
-    const button = screen.getByRole("button", { name: "Preparing report data: 0 of 2 tabs ready" });
+    const button = screen.getByRole("button", {
+      name: "Preparing 15 report sections: 0 of 2 dashboard tabs ready",
+    });
     expect(button).toBeDisabled();
+    expect(button).toHaveTextContent(
+      "Preparing 15 report sections · 0 of 2 dashboard tabs ready",
+    );
   });
 
   it("waits for an explicit prepare action and demands only selected section tabs", async () => {

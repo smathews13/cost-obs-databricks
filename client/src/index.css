@@ -260,6 +260,14 @@ textarea {
   vertical-align: middle !important;
 }
 
+.rail-status-dot {
+  position: absolute !important;
+  top: 0;
+  bottom: 0;
+  left: 7px;
+  margin-block: auto;
+}
+
 .rail-user-trigger:hover {
   border-color: #4f7b88;
   background-color: #294a56;
