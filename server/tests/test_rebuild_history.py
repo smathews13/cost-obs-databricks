@@ -470,9 +470,9 @@ def test_detailed_shared_source_payload_exposes_provider_managed_capability():
         payload = asyncio.run(settings.get_mv_sources_endpoint(detail=True))
 
     assert payload["recipient_refresh"] == {
-        "supported": False,
-        "mode": "provider_managed",
-        "check_action": "metadata_and_local_bindings_only",
+        "supported": True,
+        "mode": "recipient_catalog_refresh",
+        "check_action": "refresh_catalog_and_local_bindings",
     }
     assert payload["sources"][0]["catalog_explorer_tables"] == [{
         "fqn": "west_share.cost_obs.daily_usage_summary",

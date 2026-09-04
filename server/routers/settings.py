@@ -1796,6 +1796,28 @@ def _catalog_explorer_table_links(
     return links
 
 
+def _refresh_shared_catalog(catalog: str) -> dict[str, Any]:
+    """Refresh a Delta Sharing recipient catalog before probing its objects."""
+    from server.db import execute_query
+
+    safe_catalog = (catalog or "").replace("`", "``")
+    if not safe_catalog:
+        return {"ok": False, "error": "Catalog is required."}
+    try:
+        execute_query(
+            f"ALTER CATALOG `{safe_catalog}` REFRESH",
+            no_cache=True,
+            timeout=60,
+        )
+        return {"ok": True}
+    except Exception as exc:
+        logger.warning("Could not refresh shared catalog %s: %s", catalog, exc)
+        return {
+            "ok": False,
+            "error": "The app service principal could not refresh this shared catalog.",
+        }
+
+
 @router.get("/mv-sources")
 async def get_mv_sources_endpoint(detail: bool = False) -> dict:
     """Additional MV source locations unioned into every MV read, plus this
@@ -1843,17 +1865,18 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
         "sources": sources,
         "local_label": get_local_source_label(),
         "recipient_refresh": {
-            "supported": False,
-            "mode": "provider_managed",
-            "check_action": "metadata_and_local_bindings_only",
+            "supported": True,
+            "mode": "recipient_catalog_refresh",
+            "check_action": "refresh_catalog_and_local_bindings",
         },
     }
 
 
-@router.get("/mv-sources/preview")
-async def preview_mv_source(catalog: str, schema: str) -> dict:
+@router.post("/mv-sources/preview")
+async def preview_mv_source(request: Request, catalog: str, schema: str) -> dict:
     """Probe a candidate source location: for each MV table, whether it exists
     there and matches the local structure (so the Browse UI can show readiness)."""
+    await _require_admin_async(request)
     from server.db import get_catalog_schema
     from server.materialized_views import _MV_TABLES, _table_columns
 
@@ -1862,7 +1885,8 @@ async def preview_mv_source(catalog: str, schema: str) -> dict:
     if not src_cat or not src_sch:
         raise HTTPException(status_code=400, detail="catalog and schema are required")
 
-    def _probe() -> list[dict]:
+    def _probe() -> tuple[list[dict], dict[str, Any]]:
+        catalog_refresh = _refresh_shared_catalog(src_cat)
         out = []
         for t in _MV_TABLES:
             local_cols = _table_columns(f"`{cat}`.`{sch}`.`{t}`")
@@ -1874,12 +1898,13 @@ async def preview_mv_source(catalog: str, schema: str) -> dict:
             else:
                 status = "mismatch"
             out.append({"table": t, "status": status})
-        return out
+        return out, catalog_refresh
 
-    tables = await asyncio.to_thread(_probe)
+    tables, catalog_refresh = await asyncio.to_thread(_probe)
     matched = sum(1 for x in tables if x["status"] == "match")
     return {"catalog": src_cat, "schema": src_sch, "tables": tables,
-            "matched": matched, "total": len(_MV_TABLES)}
+            "matched": matched, "total": len(_MV_TABLES),
+            "catalog_refresh": catalog_refresh}
 
 
 @router.post("/mv-sources/check")
@@ -1911,6 +1936,7 @@ async def check_mv_source_freshness(request: Request, label: str) -> dict:
                 raise HTTPException(status_code=404, detail="Shared source not found")
             local_catalog, local_schema = get_catalog_schema()
             selected_tables = source.get("tables") or _MV_TABLES
+            catalog_refresh = _refresh_shared_catalog(source["catalog"])
             statuses = []
             for table_name in selected_tables:
                 local_cols = _table_columns(f"`{local_catalog}`.`{local_schema}`.`{table_name}`")
@@ -1929,6 +1955,7 @@ async def check_mv_source_freshness(request: Request, label: str) -> dict:
                 "total": len(statuses),
                 "tables": statuses,
                 "build": build,
+                "catalog_refresh": catalog_refresh,
             }
 
     result = await asyncio.to_thread(_check)

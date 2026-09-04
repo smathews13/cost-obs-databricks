@@ -41,6 +41,10 @@ interface PreviewResult {
   matched: number;
   total: number;
   tables: PreviewTable[];
+  catalog_refresh?: {
+    ok: boolean;
+    error?: string;
+  };
 }
 
 // Settings → Config: register additional materialized-view source locations
@@ -60,8 +64,8 @@ export function MvSourcesSection() {
     local_label: string;
     recipient_refresh?: {
       supported: boolean;
-      mode: "provider_managed";
-      check_action: "metadata_and_local_bindings_only";
+      mode: "recipient_catalog_refresh";
+      check_action: "refresh_catalog_and_local_bindings";
     };
   }>({
     queryKey: ["mv-sources", "detail"],
@@ -108,7 +112,10 @@ export function MvSourcesSection() {
     setSelected(new Set());
     if (!catalog || !schema) return;
     setPreviewing(true);
-    fetch(`/api/settings/mv-sources/preview?catalog=${encodeURIComponent(catalog)}&schema=${encodeURIComponent(schema)}`)
+    fetch(
+      `/api/settings/mv-sources/preview?catalog=${encodeURIComponent(catalog)}&schema=${encodeURIComponent(schema)}`,
+      { method: "POST" },
+    )
       .then((r) => r.json())
       .then((r: PreviewResult) => {
         setPreview(r);
@@ -189,6 +196,9 @@ export function MvSourcesSection() {
       if (body.ok === false) {
         throw new Error(body.detail || body.error || body.build?.error || "Freshness check failed");
       }
+      if (body.catalog_refresh?.ok === false) {
+        throw new Error(body.catalog_refresh.error || "Shared catalog refresh failed.");
+      }
       const configuredTables = sources.find((source) => source.label === lbl)?.tables;
       const statuses = new Map<string, string>(
         (Array.isArray(body.tables) ? body.tables : [])
@@ -228,7 +238,7 @@ export function MvSourcesSection() {
         <div className="min-w-0">
           <h4 className="text-sm font-semibold text-gray-900">Additional data (shared views)</h4>
           <p className="mt-0.5 text-xs text-gray-500">
-            Provider updates appear automatically through OpenSharing. Re-checking only reads current metadata and rebuilds this app&apos;s local view bindings.
+            Refreshing synchronizes the latest provider tables into the recipient catalog, then rebuilds this app&apos;s local view bindings.
           </p>
         </div>
         {!open && (
@@ -292,14 +302,14 @@ export function MvSourcesSection() {
                     onClick={() => checkFreshness(s.label)}
                     disabled={busy || checkingLabel !== null}
                     className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-gray-600 hover:bg-white hover:text-gray-900 disabled:opacity-50"
-                    title="Re-read shared-table metadata and rebuild local view bindings; this does not update provider data"
+                    title="Refresh the recipient catalog from its Delta Share and rebuild local view bindings"
                   >
                     {checkingLabel === s.label ? <Spinner size="xs" /> : (
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.6m15.3 2A8 8 0 004.6 9m0 0H9m11 11v-5h-.6a8 8 0 01-15.3-2" />
                       </svg>
                     )}
-                    {checkingLabel === s.label ? "Checking…" : "Re-check metadata"}
+                    {checkingLabel === s.label ? "Refreshing…" : "Refresh catalog"}
                   </button>
                   <button
                     type="button"
@@ -347,7 +357,9 @@ export function MvSourcesSection() {
               ) : preview ? (
                 presentTables.length === 0 ? (
                   <span className="text-[11px] text-red-600">
-                    No summary views found at this location: check that the shared schema holds this app's views.
+                    {preview.catalog_refresh?.ok === false
+                      ? preview.catalog_refresh.error || "The shared catalog could not be refreshed."
+                      : "No summary views found at this location: check that the shared schema holds this app's views."}
                   </span>
                 ) : (
                   <>

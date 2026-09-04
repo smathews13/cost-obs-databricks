@@ -22,6 +22,7 @@ describe("shared source freshness", () => {
             matched: 1,
             total: 1,
             tables: [{ table: "daily_usage_summary", status: "match" }],
+            catalog_refresh: { ok: true },
           }),
         };
       }
@@ -42,9 +43,9 @@ describe("shared source freshness", () => {
             }],
           }],
           recipient_refresh: {
-            supported: false,
-            mode: "provider_managed",
-            check_action: "metadata_and_local_bindings_only",
+            supported: true,
+            mode: "recipient_catalog_refresh",
+            check_action: "refresh_catalog_and_local_bindings",
           },
         }),
       };
@@ -59,10 +60,10 @@ describe("shared source freshness", () => {
       </QueryClientProvider>,
     );
 
-    const check = await screen.findByRole("button", { name: "Re-check metadata" });
+    const check = await screen.findByRole("button", { name: "Refresh catalog" });
     const remove = screen.getByRole("button", { name: "Remove" });
     expect(check.parentElement).toContainElement(remove);
-    expect(screen.getByText(/Provider updates appear automatically/)).toBeVisible();
+    expect(screen.getByText(/Refreshing synchronizes the latest provider tables/)).toBeVisible();
     expect(screen.getByRole("img", { name: "Azure" })).toHaveAttribute(
       "src",
       expect.stringContaining("azure-128.png"),
@@ -94,6 +95,17 @@ describe("shared source freshness", () => {
       response: { ok: true, matched: 0, total: 1, tables: [{ table: "daily_usage_summary", status: "absent" }] },
       message: "Freshness check failed for: daily_usage_summary",
     },
+    {
+      name: "reports a failed recipient catalog refresh",
+      response: {
+        ok: true,
+        matched: 0,
+        total: 1,
+        tables: [{ table: "daily_usage_summary", status: "absent" }],
+        catalog_refresh: { ok: false, error: "The app service principal could not refresh this shared catalog." },
+      },
+      message: "The app service principal could not refresh this shared catalog.",
+    },
   ])("$name instead of showing a successful check", async ({ response, message }) => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes("/mv-sources/check")) {
@@ -120,7 +132,7 @@ describe("shared source freshness", () => {
         <MvSourcesSection />
       </QueryClientProvider>,
     );
-    await userEvent.click(await screen.findByRole("button", { name: "Re-check metadata" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Refresh catalog" }));
 
     expect(await screen.findByText(message)).toBeInTheDocument();
     expect(screen.queryByText("Checked just now")).not.toBeInTheDocument();
