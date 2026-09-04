@@ -295,6 +295,9 @@ def test_shared_source_payload_marks_provider_managed_refresh():
     assert payload["sources"][0]["catalog_explorer_tables"][0]["fqn"] == (
         "west_share.cost_obs.daily_usage_summary"
     )
+    assert payload["sources"][0]["catalog_explorer_schema_url"] == (
+        "https://dbc.example.com/explore/data/west_share/cost_obs"
+    )
 
 
 def test_role_payloads_match_admin_route_policy():

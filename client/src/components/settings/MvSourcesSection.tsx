@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink } from "lucide-react";
 import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure-128.png";
 import gcpLogo from "@/assets/gcp.svg";
@@ -16,6 +17,7 @@ interface MvSource {
   added_at?: string;
   share_last_updated?: string;
   catalog_explorer_tables?: Array<{ fqn: string; url: string }>;
+  catalog_explorer_schema_url?: string;
 }
 
 // Cloud → { logo, label font color } per spec: Google red, AWS gold, Azure light green.
@@ -70,6 +72,9 @@ export function MvSourcesSection() {
     staleTime: 30 * 1000,
   });
   const sources = data?.sources ?? [];
+  const existingLabels = Array.from(new Set(sources.map((source) => source.label)))
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
 
   const [open, setOpen] = useState(false);
   const [catalog, setCatalog] = useState("");
@@ -273,11 +278,29 @@ export function MvSourcesSection() {
                     <span className="min-w-0 truncate font-mono text-xs text-gray-500">{s.catalog}.{s.schema}</span>
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-gray-500">
-                    <span>{s.tables ? `${s.tables.length} view${s.tables.length === 1 ? "" : "s"}` : "all views"}</span>
+                    <span>
+                      {s.tables
+                        ? `${s.tables.length} shared view${s.tables.length === 1 ? "" : "s"}`
+                        : "All shared views"}
+                    </span>
                     {added && <><span className="text-gray-300">·</span><span>Added {added}</span></>}
                     {shareUpd && <><span className="text-gray-300">·</span><span>Share updated {shareUpd}</span></>}
                     {lastChecked[s.label] && <><span className="text-gray-300">·</span><span className="text-green-700">Checked just now</span></>}
-                    {(s.catalog_explorer_tables ?? []).map((table) => (
+                    {(s.tables?.length ?? 0) > 1 && s.catalog_explorer_schema_url ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-gray-300">·</span>
+                        <a
+                          href={s.catalog_explorer_schema_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 font-medium text-[#2272B4] hover:underline"
+                          aria-label={`Open ${s.catalog}.${s.schema} in Catalog Explorer (opens in a new tab)`}
+                        >
+                          <ExternalLink className="h-2.5 w-2.5" aria-hidden="true" />
+                          Open schema
+                        </a>
+                      </span>
+                    ) : (s.catalog_explorer_tables ?? []).map((table) => (
                       <span key={table.fqn} className="inline-flex items-center gap-1">
                         <span className="text-gray-300">·</span>
                         <a
@@ -338,15 +361,15 @@ export function MvSourcesSection() {
         <div className="mt-2 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <label className="block text-[11px] font-medium text-gray-700">Catalog</label>
-              <select value={catalog} onChange={(e) => setCatalog(e.target.value)} className={selectClass}>
+              <label htmlFor="mv-source-catalog" className="block text-[11px] font-medium text-gray-700">Catalog</label>
+              <select id="mv-source-catalog" value={catalog} onChange={(e) => setCatalog(e.target.value)} className={selectClass}>
                 <option value="">Select…</option>
                 {catalogs.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="space-y-1">
-              <label className="block text-[11px] font-medium text-gray-700">Schema</label>
-              <select value={schema} onChange={(e) => setSchema(e.target.value)} disabled={!catalog} className={selectClass}>
+              <label htmlFor="mv-source-schema" className="block text-[11px] font-medium text-gray-700">Schema</label>
+              <select id="mv-source-schema" value={schema} onChange={(e) => setSchema(e.target.value)} disabled={!catalog} className={selectClass}>
                 <option value="">Select…</option>
                 {schemas.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -356,7 +379,10 @@ export function MvSourcesSection() {
           {catalog && schema && (
             <div className="space-y-1.5">
               {previewing ? (
-                <span className="text-[11px] text-gray-500">Reading views in this schema…</span>
+                <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                  <Spinner size="xs" />
+                  <span>Reading views in this schema…</span>
+                </div>
               ) : preview ? (
                 presentTables.length === 0 ? (
                   <span className="text-[11px] text-red-600">
@@ -428,8 +454,22 @@ export function MvSourcesSection() {
           )}
 
           <div className="space-y-1">
-            <label className="block text-[11px] font-medium text-gray-700">Label</label>
+            <label htmlFor="mv-source-label" className="block text-[11px] font-medium text-gray-700">Label</label>
+            {existingLabels.length > 0 && (
+              <select
+                aria-label="Existing label"
+                value={existingLabels.includes(label) ? label : ""}
+                onChange={(event) => setLabel(event.target.value)}
+                className={selectClass}
+              >
+                <option value="">Select an existing label…</option>
+                {existingLabels.map((existingLabel) => (
+                  <option key={existingLabel} value={existingLabel}>{existingLabel}</option>
+                ))}
+              </select>
+            )}
             <input
+              id="mv-source-label"
               type="text"
               value={label}
               onChange={(e) => setLabel(e.target.value)}

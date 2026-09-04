@@ -9,6 +9,113 @@ afterEach(() => {
 });
 
 describe("shared source freshness", () => {
+  it("offers existing labels while preserving free-form label entry", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/setup/list-catalogs")) {
+        return { ok: true, json: async () => ({ catalogs: [] }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          local_label: "local",
+          sources: [{
+            label: "west4",
+            catalog: "west4_share",
+            schema: "cost_obs_shared",
+            tables: ["daily_usage_summary"],
+          }],
+        }),
+      };
+    }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={client}>
+        <MvSourcesSection />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Browse" }));
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Existing label" }),
+      "west4",
+    );
+    expect(screen.getByPlaceholderText("e.g. EU workspace")).toHaveValue("west4");
+
+    await userEvent.clear(screen.getByPlaceholderText("e.g. EU workspace"));
+    await userEvent.type(screen.getByPlaceholderText("e.g. EU workspace"), "new-region");
+    expect(screen.getByPlaceholderText("e.g. EU workspace")).toHaveValue("new-region");
+  });
+
+  it("summarizes multi-view sources with one linked schema", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        local_label: "local",
+        sources: [{
+          label: "west4",
+          catalog: "west4_share",
+          schema: "cost_obs_shared",
+          tables: ["daily_usage_summary", "daily_apps_summary"],
+          catalog_explorer_schema_url: "https://dbc.example.com/explore/data/west4_share/cost_obs_shared",
+          catalog_explorer_tables: [
+            { fqn: "west4_share.cost_obs_shared.daily_usage_summary", url: "https://dbc.example.com/table-1" },
+            { fqn: "west4_share.cost_obs_shared.daily_apps_summary", url: "https://dbc.example.com/table-2" },
+          ],
+        }],
+      }),
+    })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={client}>
+        <MvSourcesSection />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("2 shared views")).toBeVisible();
+    expect(screen.getByRole("link", {
+      name: "Open west4_share.cost_obs_shared in Catalog Explorer (opens in a new tab)",
+    })).toHaveAttribute(
+      "href",
+      "https://dbc.example.com/explore/data/west4_share/cost_obs_shared",
+    );
+    expect(screen.queryByRole("link", { name: /daily_usage_summary/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the shared app spinner while reading a selected schema", async () => {
+    const pendingPreview = new Promise<never>(() => {});
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/setup/list-catalogs")) {
+        return { ok: true, json: async () => ({ catalogs: ["west4_share"] }) };
+      }
+      if (url.includes("/setup/list-schemas")) {
+        return { ok: true, json: async () => ({ schemas: ["cost_obs_shared"] }) };
+      }
+      if (url.includes("/mv-sources/preview")) return pendingPreview;
+      return { ok: true, json: async () => ({ local_label: "local", sources: [] }) };
+    }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={client}>
+        <MvSourcesSection />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Browse" }));
+    await userEvent.selectOptions(
+      await screen.findByRole("combobox", { name: "Catalog" }),
+      "west4_share",
+    );
+    await userEvent.selectOptions(
+      await screen.findByRole("combobox", { name: "Schema" }),
+      "cost_obs_shared",
+    );
+
+    expect(screen.getByText("Reading views in this schema…")).toBeVisible();
+    expect(screen.getByRole("status", { name: "Loading" })).toBeVisible();
+  });
+
   it("checks freshness and keeps refresh/remove actions aligned", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

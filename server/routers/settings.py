@@ -1796,6 +1796,17 @@ def _catalog_explorer_table_links(
     return links
 
 
+def _catalog_explorer_schema_url(catalog: str, schema: str) -> str:
+    """Build a workspace-local Catalog Explorer link for a shared schema."""
+    from server.db import get_host_url
+
+    host = get_host_url().rstrip("/")
+    if not host or not catalog or not schema:
+        return ""
+    path = "/".join(quote(part, safe="") for part in (catalog, schema))
+    return f"{host}/explore/data/{path}"
+
+
 def _visible_shared_tables(catalog: str, schema: str) -> set[str]:
     """List shared objects separately from SELECT-based column validation."""
     from server.db import get_workspace_client
@@ -1878,6 +1889,9 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
                     )
                     s["catalog_explorer_tables"] = _catalog_explorer_table_links(
                         s.get("catalog"), s.get("schema"), s.get("tables")
+                    )
+                    s["catalog_explorer_schema_url"] = _catalog_explorer_schema_url(
+                        s.get("catalog"), s.get("schema")
                     )
                 return current_sources
         sources = await asyncio.to_thread(_enrich)

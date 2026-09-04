@@ -481,6 +481,9 @@ def test_detailed_shared_source_payload_exposes_provider_managed_capability():
             "west_share/cost_obs/daily_usage_summary"
         ),
     }]
+    assert payload["sources"][0]["catalog_explorer_schema_url"] == (
+        "https://dbc.example.com/explore/data/west_share/cost_obs"
+    )
 
 
 def test_scheduled_refresh_records_truthful_blocked_attempt_once():
