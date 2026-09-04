@@ -80,9 +80,9 @@ and use **Run All**. The notebook:
 1. Preflights the four required system tables and prints exact grant SQL.
 2. Builds each compatible aggregate and marks permission-dependent tables as skipped.
 3. Verifies successful tables and reports their row counts.
-4. Creates or reuses a Delta Share and shares the complete target schema by default,
-   automatically replacing stale table-level entries; an optional table mode remains
-   available for tightly scoped sharing.
+4. Creates or reuses a Delta Share in upgrade-safe table mode by default. Schema mode
+   is available for new shares, but replacing an existing table-level share requires
+   explicit confirmation after recipient app access is verified.
 5. Optionally grants an existing Delta Sharing recipient access.
 6. Prints the receiving-workspace schema grants required by the app service principal
    to discover current and future shared aggregates.

@@ -12,11 +12,13 @@
 # MAGIC and optionally grants an existing recipient access to that share.
 # MAGIC
 # MAGIC **Sharing mode** (`share_mode` widget)
-# MAGIC - `schema` (default, recommended): shares the whole target schema, so every
+# MAGIC - `table` (default, upgrade-safe): shares the individual tables built in
+# MAGIC   this run without replacing an existing table-level share.
+# MAGIC - `schema` (recommended for new shares): shares the whole target schema, so every
 # MAGIC   current **and future** aggregate flows to recipients without re-running the
-# MAGIC   share step. The run also reconciles an existing table-level share up to a
-# MAGIC   schema share automatically.
-# MAGIC - `table`: shares only the individual tables built in this run.
+# MAGIC   share step. Converting an existing table-level share requires an explicit
+# MAGIC   `allow_schema_migration=yes` confirmation because recipient access must be
+# MAGIC   checked first.
 # MAGIC
 # MAGIC **Required privileges**
 # MAGIC - Read the referenced `system.*` tables
@@ -58,7 +60,8 @@ def _dropdown(name: str, default: str, choices: list, label: str) -> None:
 _widget("target_catalog", "main", "Target catalog")
 _widget("target_schema", "cost_obs_shared", "Target schema")
 _widget("share_name", "cost_obs_share", "Delta Share name")
-_dropdown("share_mode", "schema", ["schema", "table"], "Share mode")
+_dropdown("share_mode", "table", ["table", "schema"], "Share mode")
+_dropdown("allow_schema_migration", "no", ["no", "yes"], "Replace existing table share")
 _widget("recipient_name", "", "Existing recipient name (optional)")
 _widget("lookback_days", "180", "Billing/query lookback days")
 
@@ -66,6 +69,7 @@ CATALOG = dbutils.widgets.get("target_catalog").strip()  # noqa: F821
 SCHEMA = dbutils.widgets.get("target_schema").strip()  # noqa: F821
 SHARE = dbutils.widgets.get("share_name").strip()  # noqa: F821
 SHARE_MODE = dbutils.widgets.get("share_mode").strip().lower()  # noqa: F821
+ALLOW_SCHEMA_MIGRATION = dbutils.widgets.get("allow_schema_migration").strip().lower()  # noqa: F821
 RECIPIENT = dbutils.widgets.get("recipient_name").strip()  # noqa: F821
 LOOKBACK_DAYS = int(dbutils.widgets.get("lookback_days"))  # noqa: F821
 
@@ -81,6 +85,8 @@ if RECIPIENT and not _IDENTIFIER.fullmatch(RECIPIENT):
     raise ValueError("recipient_name must be a single recipient identifier")
 if SHARE_MODE not in ("schema", "table"):
     raise ValueError("share_mode must be 'schema' or 'table'")
+if ALLOW_SCHEMA_MIGRATION not in ("yes", "no"):
+    raise ValueError("allow_schema_migration must be 'yes' or 'no'")
 if not 30 <= LOOKBACK_DAYS <= 1095:
     raise ValueError("lookback_days must be between 30 and 1095")
 
@@ -218,6 +224,14 @@ if SHARE_MODE == "schema":
         obj for obj, typ in current_objects
         if typ == "TABLE" and obj.lower().startswith(schema_fqn.lower() + ".")
     ]
+    if stale_tables and not schema_shared and ALLOW_SCHEMA_MIGRATION != "yes":
+        raise RuntimeError(
+            "This share already contains table-level objects. To avoid disrupting "
+            "recipient access, the runbook will not replace them automatically. "
+            "Keep share_mode=table, or first grant the recipient app service principal "
+            "USE CATALOG, USE SCHEMA, and SELECT ON SCHEMA; then rerun with "
+            "allow_schema_migration=yes."
+        )
     for obj in stale_tables:
         cat, sch, tbl = obj.split(".", 2)
         spark.sql(f"ALTER SHARE `{SHARE}` REMOVE TABLE `{cat}`.`{sch}`.`{tbl}`")

@@ -38,7 +38,9 @@ def test_runbook_is_generated_from_the_exact_runtime_table_contract():
     assert "SHOW ALL IN SHARE" in rendered
     assert "ADD TABLE" in rendered
     assert "# environment_version = \"5\"" in rendered
-    assert '_dropdown("share_mode", "schema", ["schema", "table"], "Share mode")' in rendered
+    assert '_dropdown("share_mode", "table", ["table", "schema"], "Share mode")' in rendered
+    assert '_dropdown("allow_schema_migration", "no", ["no", "yes"],' in rendered
+    assert "will not replace them automatically" in rendered
     assert 'ALTER SHARE `{SHARE}` ADD SCHEMA `{CATALOG}`.`{SCHEMA}`' in rendered
     assert 'ALTER SHARE `{SHARE}` REMOVE TABLE `{cat}`.`{sch}`.`{tbl}`' in rendered
     assert "SCHEMA ALREADY SHARED" in rendered
