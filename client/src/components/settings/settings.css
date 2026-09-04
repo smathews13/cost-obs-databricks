@@ -131,6 +131,87 @@
   box-shadow: 0 0 0 2px var(--dob-focus-ring, rgba(34, 114, 180, 0.2));
 }
 
+.settings-icon-button {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dob-text-secondary, #526D82);
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.settings-icon-button:hover {
+  border-color: var(--dob-border-control, #C4CFD8);
+  background: var(--dob-code-bg, #F2F5F7);
+  color: var(--dob-text, #111827);
+}
+
+.settings-reset-button,
+.settings-secondary-action,
+.settings-primary-action {
+  height: 32px;
+  border-radius: 4px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.settings-reset-button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--dob-text-secondary, #526D82);
+}
+
+.settings-reset-button:hover:not(:disabled) {
+  border-color: var(--dob-border-control, #C4CFD8);
+  background: var(--dob-code-bg, #F2F5F7);
+  color: var(--dob-text, #111827);
+}
+
+.settings-secondary-action {
+  border: 1px solid var(--dob-border-control, #C4CFD8);
+  background: var(--dob-surface, #FFFFFF);
+  color: var(--dob-text, #111827);
+}
+
+.settings-secondary-action:hover {
+  border-color: var(--dob-primary-fill, #2272B4);
+  background: var(--dob-code-bg, #F2F5F7);
+}
+
+.settings-primary-action {
+  border: 1px solid var(--dob-primary-fill, #2272B4);
+  background: var(--dob-primary-fill, #2272B4);
+  color: #FFFFFF;
+}
+
+.settings-primary-action:hover:not(:disabled) {
+  border-color: var(--dob-primary-fill-hover, #0E538B);
+  background: var(--dob-primary-fill-hover, #0E538B);
+}
+
+.settings-icon-button:focus-visible,
+.settings-reset-button:focus-visible,
+.settings-secondary-action:focus-visible,
+.settings-primary-action:focus-visible {
+  outline: 2px solid var(--dob-primary-fill, #2272B4);
+  outline-offset: 2px;
+}
+
+.settings-reset-button:disabled,
+.settings-primary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .settings-grant-row {
   display: flex;
   min-height: 38px;

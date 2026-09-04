@@ -596,6 +596,14 @@ it("implements modal semantics, focus trapping, Escape, outside close, and focus
   const dialog = screen.getByRole("dialog", { name: "Settings" });
   expect(dialog).toHaveAttribute("aria-modal", "true");
   const close = screen.getByRole("button", { name: "Close settings" });
+  expect(close).toHaveClass("settings-icon-button");
+  expect(screen.getByRole("button", { name: "Cancel" })).toHaveClass("settings-secondary-action");
+  expect(screen.getByRole("button", { name: "Save changes" })).toHaveClass("settings-primary-action");
+  expect(screen.getByRole("button", { name: "Reset to defaults" })).toHaveClass("settings-reset-button");
+  const settingsCss = readFileSync("src/components/settings/settings.css", "utf8");
+  expect(settingsCss).toMatch(/\.settings-icon-button:hover/);
+  expect(settingsCss).toMatch(/\.settings-primary-action:hover:not\(:disabled\)/);
+  expect(settingsCss).toMatch(/\.settings-icon-button:focus-visible[\s\S]*outline:\s*2px solid/);
   await waitFor(() => expect(close).toHaveFocus());
 
   await userEvent.tab({ shift: true });

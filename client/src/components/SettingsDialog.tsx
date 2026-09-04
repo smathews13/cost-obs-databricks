@@ -387,7 +387,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
             <h2 id="settings-dialog-title" style={{ margin: 0, fontSize: 16, fontWeight: 600, color: T.text }}>Settings</h2>
             <div style={{ fontSize: 12, color: T.textSecondary, fontFamily: undefined }}>{appName} · Databricks App</div>
           </div>
-          <button ref={closeButtonRef} onClick={requestClose} style={{ padding: 4, borderRadius: 6, color: T.textSecondary, background: "none", border: "none", cursor: "pointer" }} aria-label="Close settings">
+          <button ref={closeButtonRef} onClick={requestClose} className="settings-icon-button" aria-label="Close settings">
             <svg style={{ width: 20, height: 20 }} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -437,7 +437,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
         {/* Footer */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 20px", borderTop: `1px solid ${T.borderGroup}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={handleReset} disabled={isSaving} style={{ fontSize: 13, color: T.textSecondary, background: "none", border: "none", cursor: isSaving ? "not-allowed" : "pointer", opacity: isSaving ? 0.5 : 1 }}>Reset to defaults</button>
+            <button onClick={handleReset} disabled={isSaving} className="settings-reset-button">Reset to defaults</button>
             {saveStatus.kind === "saving" ? (
               <span role="status" aria-live="polite" style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, color: T.primary }}>
                 <span aria-hidden="true" className="settings-save-spinner" style={{ width: 11, height: 11, borderRadius: 999, border: `2px solid ${T.borderControl}`, borderTopColor: T.primary }} />
@@ -461,9 +461,9 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
             ) : null}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button onClick={requestClose} style={{ height: 32, borderRadius: 4, padding: "0 14px", fontSize: 13, fontWeight: 500, color: T.text, backgroundColor: T.surface, border: `1px solid ${T.borderControl}`, cursor: "pointer" }}>Cancel</button>
+            <button onClick={requestClose} className="settings-secondary-action">Cancel</button>
             <button onClick={handleSave} disabled={dirtyCount === 0 || isSaving}
-              style={{ height: 32, borderRadius: 4, padding: "0 14px", fontSize: 13, fontWeight: 500, color: "#FFFFFF", backgroundColor: dirtyCount > 0 && !isSaving ? T.primaryFill : "#A9C6DC", cursor: dirtyCount > 0 && !isSaving ? "pointer" : "not-allowed", border: "none" }}>
+              className="settings-primary-action">
               {isSaving ? "Saving…" : "Save changes"}
             </button>
           </div>
