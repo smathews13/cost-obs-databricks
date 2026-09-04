@@ -22,7 +22,7 @@ describe("shared source freshness", () => {
             matched: 1,
             total: 1,
             tables: [{ table: "daily_usage_summary", status: "match" }],
-            catalog_refresh: { ok: true },
+            required_grants: [],
           }),
         };
       }
@@ -43,9 +43,9 @@ describe("shared source freshness", () => {
             }],
           }],
           recipient_refresh: {
-            supported: true,
-            mode: "recipient_catalog_refresh",
-            check_action: "refresh_catalog_and_local_bindings",
+            supported: false,
+            mode: "provider_managed",
+            check_action: "metadata_and_local_bindings_only",
           },
         }),
       };
@@ -60,10 +60,10 @@ describe("shared source freshness", () => {
       </QueryClientProvider>,
     );
 
-    const check = await screen.findByRole("button", { name: "Refresh catalog" });
+    const check = await screen.findByRole("button", { name: "Re-check metadata" });
     const remove = screen.getByRole("button", { name: "Remove" });
     expect(check.parentElement).toContainElement(remove);
-    expect(screen.getByText(/Refreshing synchronizes the latest provider tables/)).toBeVisible();
+    expect(screen.getByText(/Provider updates appear automatically/)).toBeVisible();
     expect(screen.getByRole("img", { name: "Azure" })).toHaveAttribute(
       "src",
       expect.stringContaining("azure-128.png"),
@@ -96,15 +96,19 @@ describe("shared source freshness", () => {
       message: "Freshness check failed for: daily_usage_summary",
     },
     {
-      name: "reports a failed recipient catalog refresh",
+      name: "reports unreadable tables with schema grants",
       response: {
         ok: true,
         matched: 0,
         total: 1,
-        tables: [{ table: "daily_usage_summary", status: "absent" }],
-        catalog_refresh: { ok: false, error: "The app service principal could not refresh this shared catalog." },
+        tables: [{ table: "daily_usage_summary", status: "unreadable" }],
+        required_grants: [
+          "GRANT USE CATALOG ON CATALOG `shared` TO `app-id`;",
+          "GRANT USE SCHEMA ON SCHEMA `shared`.`cost_obs` TO `app-id`;",
+          "GRANT SELECT ON SCHEMA `shared`.`cost_obs` TO `app-id`;",
+        ],
       },
-      message: "The app service principal could not refresh this shared catalog.",
+      message: "The shared tables exist, but the app service principal cannot read them. Apply the schema grants shown below.",
     },
   ])("$name instead of showing a successful check", async ({ response, message }) => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -132,9 +136,12 @@ describe("shared source freshness", () => {
         <MvSourcesSection />
       </QueryClientProvider>,
     );
-    await userEvent.click(await screen.findByRole("button", { name: "Refresh catalog" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Re-check metadata" }));
 
     expect(await screen.findByText(message)).toBeInTheDocument();
+    if (response.required_grants) {
+      expect(screen.getByText(/GRANT SELECT ON SCHEMA/)).toBeInTheDocument();
+    }
     expect(screen.queryByText("Checked just now")).not.toBeInTheDocument();
   });
 });

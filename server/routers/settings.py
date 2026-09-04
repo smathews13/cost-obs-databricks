@@ -1796,26 +1796,46 @@ def _catalog_explorer_table_links(
     return links
 
 
-def _refresh_shared_catalog(catalog: str) -> dict[str, Any]:
-    """Refresh a Delta Sharing recipient catalog before probing its objects."""
-    from server.db import execute_query
+def _visible_shared_tables(catalog: str, schema: str) -> set[str]:
+    """List shared objects separately from SELECT-based column validation."""
+    from server.db import get_workspace_client
 
-    safe_catalog = (catalog or "").replace("`", "``")
-    if not safe_catalog:
-        return {"ok": False, "error": "Catalog is required."}
     try:
-        execute_query(
-            f"ALTER CATALOG `{safe_catalog}` REFRESH",
-            no_cache=True,
-            timeout=60,
-        )
-        return {"ok": True}
-    except Exception as exc:
-        logger.warning("Could not refresh shared catalog %s: %s", catalog, exc)
         return {
-            "ok": False,
-            "error": "The app service principal could not refresh this shared catalog.",
+            str(table.name).lower()
+            for table in get_workspace_client().tables.list(
+                catalog_name=catalog,
+                schema_name=schema,
+            )
+            if getattr(table, "name", None)
         }
+    except Exception as exc:
+        logger.info(
+            "Could not list shared objects in %s.%s: %s",
+            catalog,
+            schema,
+            exc,
+        )
+        return set()
+
+
+def _shared_source_grants(catalog: str, schema: str) -> list[str]:
+    principal = os.getenv("DATABRICKS_CLIENT_ID", "").strip()
+    if not principal:
+        return []
+    escaped = {
+        key: value.replace("`", "``")
+        for key, value in {
+            "catalog": catalog,
+            "schema": schema,
+            "principal": principal,
+        }.items()
+    }
+    return [
+        f"GRANT USE CATALOG ON CATALOG `{escaped['catalog']}` TO `{escaped['principal']}`;",
+        f"GRANT USE SCHEMA ON SCHEMA `{escaped['catalog']}`.`{escaped['schema']}` TO `{escaped['principal']}`;",
+        f"GRANT SELECT ON SCHEMA `{escaped['catalog']}`.`{escaped['schema']}` TO `{escaped['principal']}`;",
+    ]
 
 
 @router.get("/mv-sources")
@@ -1865,18 +1885,17 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
         "sources": sources,
         "local_label": get_local_source_label(),
         "recipient_refresh": {
-            "supported": True,
-            "mode": "recipient_catalog_refresh",
-            "check_action": "refresh_catalog_and_local_bindings",
+            "supported": False,
+            "mode": "provider_managed",
+            "check_action": "metadata_and_local_bindings_only",
         },
     }
 
 
-@router.post("/mv-sources/preview")
-async def preview_mv_source(request: Request, catalog: str, schema: str) -> dict:
+@router.get("/mv-sources/preview")
+async def preview_mv_source(catalog: str, schema: str) -> dict:
     """Probe a candidate source location: for each MV table, whether it exists
     there and matches the local structure (so the Browse UI can show readiness)."""
-    await _require_admin_async(request)
     from server.db import get_catalog_schema
     from server.materialized_views import _MV_TABLES, _table_columns
 
@@ -1885,26 +1904,27 @@ async def preview_mv_source(request: Request, catalog: str, schema: str) -> dict
     if not src_cat or not src_sch:
         raise HTTPException(status_code=400, detail="catalog and schema are required")
 
-    def _probe() -> tuple[list[dict], dict[str, Any]]:
-        catalog_refresh = _refresh_shared_catalog(src_cat)
+    def _probe() -> list[dict]:
+        visible_tables = _visible_shared_tables(src_cat, src_sch)
         out = []
         for t in _MV_TABLES:
             local_cols = _table_columns(f"`{cat}`.`{sch}`.`{t}`")
             src_cols = _table_columns(f"`{src_cat}`.`{src_sch}`.`{t}`")
             if src_cols is None:
-                status = "absent"
+                status = "unreadable" if t.lower() in visible_tables else "absent"
             elif local_cols and src_cols == local_cols:
                 status = "match"
             else:
                 status = "mismatch"
             out.append({"table": t, "status": status})
-        return out, catalog_refresh
+        return out
 
-    tables, catalog_refresh = await asyncio.to_thread(_probe)
+    tables = await asyncio.to_thread(_probe)
     matched = sum(1 for x in tables if x["status"] == "match")
+    unreadable = sum(1 for x in tables if x["status"] == "unreadable")
     return {"catalog": src_cat, "schema": src_sch, "tables": tables,
             "matched": matched, "total": len(_MV_TABLES),
-            "catalog_refresh": catalog_refresh}
+            "required_grants": _shared_source_grants(src_cat, src_sch) if unreadable else []}
 
 
 @router.post("/mv-sources/check")
@@ -1936,12 +1956,20 @@ async def check_mv_source_freshness(request: Request, label: str) -> dict:
                 raise HTTPException(status_code=404, detail="Shared source not found")
             local_catalog, local_schema = get_catalog_schema()
             selected_tables = source.get("tables") or _MV_TABLES
-            catalog_refresh = _refresh_shared_catalog(source["catalog"])
+            visible_tables = _visible_shared_tables(source["catalog"], source["schema"])
             statuses = []
             for table_name in selected_tables:
                 local_cols = _table_columns(f"`{local_catalog}`.`{local_schema}`.`{table_name}`")
                 source_cols = _table_columns(f"`{source['catalog']}`.`{source['schema']}`.`{table_name}`")
-                status = "absent" if source_cols is None else "match" if local_cols and source_cols == local_cols else "mismatch"
+                status = (
+                    "unreadable"
+                    if source_cols is None and table_name.lower() in visible_tables
+                    else "absent"
+                    if source_cols is None
+                    else "match"
+                    if local_cols and source_cols == local_cols
+                    else "mismatch"
+                )
                 statuses.append({"table": table_name, "status": status})
             build = _rebuild_unified_views_locked(local_catalog, local_schema)
             return {
@@ -1955,7 +1983,11 @@ async def check_mv_source_freshness(request: Request, label: str) -> dict:
                 "total": len(statuses),
                 "tables": statuses,
                 "build": build,
-                "catalog_refresh": catalog_refresh,
+                "required_grants": (
+                    _shared_source_grants(source["catalog"], source["schema"])
+                    if any(item["status"] == "unreadable" for item in statuses)
+                    else []
+                ),
             }
 
     result = await asyncio.to_thread(_check)

@@ -22,7 +22,7 @@ def test_shared_source_freshness_check_reprobes_and_rebuilds_views():
         patch("server.materialized_views._table_columns", return_value=["usage_date", "total_spend"]),
         patch("server.materialized_views._rebuild_unified_views_locked", return_value={"ok": True, "views": {}}) as rebuild,
         patch("server.materialized_views.unified_views_rebuild_lock"),
-        patch.object(settings, "_refresh_shared_catalog", return_value={"ok": True}) as refresh,
+        patch.object(settings, "_visible_shared_tables", return_value={"daily_usage_summary"}),
         patch.object(settings, "_share_last_updated", return_value="2026-08-28T12:00:00Z"),
         patch.object(settings, "_invalidate_mv_caches") as invalidate,
     ):
@@ -32,8 +32,7 @@ def test_shared_source_freshness_check_reprobes_and_rebuilds_views():
     assert result["matched"] == 1
     assert result["total"] == 1
     assert result["share_last_updated"] == "2026-08-28T12:00:00Z"
-    assert result["catalog_refresh"] == {"ok": True}
-    refresh.assert_called_once_with("shared_catalog")
+    assert result["required_grants"] == []
     rebuild.assert_called_once()
     invalidate.assert_called_once()
 
@@ -50,37 +49,58 @@ def test_shared_source_freshness_check_rejects_unknown_label():
     assert exc.value.status_code == 404
 
 
-def test_shared_source_preview_refreshes_recipient_catalog_before_probing():
+def test_shared_source_preview_lists_recipient_objects_before_probing():
     columns = {
         "`local_catalog`.`cost_obs`.`daily_usage_summary`": ["usage_date", "total_spend"],
         "`shared_catalog`.`cost_obs`.`daily_usage_summary`": ["usage_date", "total_spend"],
     }
     with (
-        patch.object(settings, "_require_admin_async"),
         patch("server.db.get_catalog_schema", return_value=("local_catalog", "cost_obs")),
         patch("server.materialized_views._MV_TABLES", ["daily_usage_summary"]),
         patch(
             "server.materialized_views._table_columns",
             side_effect=lambda table: columns.get(table),
         ),
-        patch.object(settings, "_refresh_shared_catalog", return_value={"ok": True}) as refresh,
+        patch.object(
+            settings,
+            "_visible_shared_tables",
+            return_value={"daily_usage_summary"},
+        ) as visible,
     ):
         result = asyncio.run(
-            settings.preview_mv_source(None, "shared_catalog", "cost_obs")
+            settings.preview_mv_source("shared_catalog", "cost_obs")
         )
 
     assert result["matched"] == 1
-    assert result["catalog_refresh"] == {"ok": True}
-    refresh.assert_called_once_with("shared_catalog")
+    assert result["required_grants"] == []
+    visible.assert_called_once_with("shared_catalog", "cost_obs")
 
 
-def test_refresh_shared_catalog_uses_recipient_refresh_ddl():
-    with patch("server.db.execute_query") as execute:
-        result = settings._refresh_shared_catalog("west4_share")
+def test_shared_source_preview_distinguishes_unreadable_tables_from_absent_tables():
+    with (
+        patch("server.db.get_catalog_schema", return_value=("local_catalog", "cost_obs")),
+        patch("server.materialized_views._MV_TABLES", ["daily_usage_summary"]),
+        patch(
+            "server.materialized_views._table_columns",
+            side_effect=[["usage_date", "total_spend"], None],
+        ),
+        patch.object(
+            settings,
+            "_visible_shared_tables",
+            return_value={"daily_usage_summary"},
+        ),
+        patch.dict("os.environ", {"DATABRICKS_CLIENT_ID": "app-client-id"}),
+    ):
+        result = asyncio.run(
+            settings.preview_mv_source("shared_catalog", "cost_obs")
+        )
 
-    assert result == {"ok": True}
-    execute.assert_called_once_with(
-        "ALTER CATALOG `west4_share` REFRESH",
-        no_cache=True,
-        timeout=60,
-    )
+    assert result["tables"] == [{
+        "table": "daily_usage_summary",
+        "status": "unreadable",
+    }]
+    assert result["required_grants"] == [
+        "GRANT USE CATALOG ON CATALOG `shared_catalog` TO `app-client-id`;",
+        "GRANT USE SCHEMA ON SCHEMA `shared_catalog`.`cost_obs` TO `app-client-id`;",
+        "GRANT SELECT ON SCHEMA `shared_catalog`.`cost_obs` TO `app-client-id`;",
+    ]

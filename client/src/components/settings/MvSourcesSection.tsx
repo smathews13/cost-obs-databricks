@@ -34,17 +34,14 @@ function fmtTs(ts?: string): string | null {
 
 interface PreviewTable {
   table: string;
-  status: "match" | "mismatch" | "absent";
+  status: "match" | "mismatch" | "unreadable" | "absent";
 }
 
 interface PreviewResult {
   matched: number;
   total: number;
   tables: PreviewTable[];
-  catalog_refresh?: {
-    ok: boolean;
-    error?: string;
-  };
+  required_grants?: string[];
 }
 
 // Settings → Config: register additional materialized-view source locations
@@ -64,8 +61,8 @@ export function MvSourcesSection() {
     local_label: string;
     recipient_refresh?: {
       supported: boolean;
-      mode: "recipient_catalog_refresh";
-      check_action: "refresh_catalog_and_local_bindings";
+      mode: "provider_managed";
+      check_action: "metadata_and_local_bindings_only";
     };
   }>({
     queryKey: ["mv-sources", "detail"],
@@ -87,6 +84,7 @@ export function MvSourcesSection() {
   const [checkingLabel, setCheckingLabel] = useState<string | null>(null);
   const [lastChecked, setLastChecked] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [requiredGrants, setRequiredGrants] = useState<string[]>([]);
 
   // Load catalogs when the add form opens.
   useEffect(() => {
@@ -112,10 +110,7 @@ export function MvSourcesSection() {
     setSelected(new Set());
     if (!catalog || !schema) return;
     setPreviewing(true);
-    fetch(
-      `/api/settings/mv-sources/preview?catalog=${encodeURIComponent(catalog)}&schema=${encodeURIComponent(schema)}`,
-      { method: "POST" },
-    )
+    fetch(`/api/settings/mv-sources/preview?catalog=${encodeURIComponent(catalog)}&schema=${encodeURIComponent(schema)}`)
       .then((r) => r.json())
       .then((r: PreviewResult) => {
         setPreview(r);
@@ -189,6 +184,7 @@ export function MvSourcesSection() {
   const checkFreshness = async (lbl: string) => {
     setCheckingLabel(lbl);
     setError(null);
+    setRequiredGrants([]);
     try {
       const res = await fetch(`/api/settings/mv-sources/check?label=${encodeURIComponent(lbl)}`, { method: "POST" });
       const body = await res.json().catch(() => ({}));
@@ -196,8 +192,9 @@ export function MvSourcesSection() {
       if (body.ok === false) {
         throw new Error(body.detail || body.error || body.build?.error || "Freshness check failed");
       }
-      if (body.catalog_refresh?.ok === false) {
-        throw new Error(body.catalog_refresh.error || "Shared catalog refresh failed.");
+      if (Array.isArray(body.required_grants) && body.required_grants.length > 0) {
+        setRequiredGrants(body.required_grants);
+        throw new Error("The shared tables exist, but the app service principal cannot read them. Apply the schema grants shown below.");
       }
       const configuredTables = sources.find((source) => source.label === lbl)?.tables;
       const statuses = new Map<string, string>(
@@ -217,6 +214,7 @@ export function MvSourcesSection() {
         throw new Error(`Freshness check failed for: ${failedTables.join(", ") || "configured views"}`);
       }
       setLastChecked((current) => ({ ...current, [lbl]: body.checked_at || new Date().toISOString() }));
+      setRequiredGrants([]);
       await queryClient.invalidateQueries({ queryKey: ["mv-sources"] });
       await queryClient.invalidateQueries({ predicate: (query) => (
         ["billing", "aiml", "apps", "tagging", "dbsql", "users-groups"].includes(String(query.queryKey[0]))
@@ -238,7 +236,7 @@ export function MvSourcesSection() {
         <div className="min-w-0">
           <h4 className="text-sm font-semibold text-gray-900">Additional data (shared views)</h4>
           <p className="mt-0.5 text-xs text-gray-500">
-            Refreshing synchronizes the latest provider tables into the recipient catalog, then rebuilds this app&apos;s local view bindings.
+            Provider updates appear automatically through OpenSharing. Re-checking reads current metadata and rebuilds this app&apos;s local view bindings.
           </p>
         </div>
         {!open && (
@@ -302,14 +300,14 @@ export function MvSourcesSection() {
                     onClick={() => checkFreshness(s.label)}
                     disabled={busy || checkingLabel !== null}
                     className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-gray-600 hover:bg-white hover:text-gray-900 disabled:opacity-50"
-                    title="Refresh the recipient catalog from its Delta Share and rebuild local view bindings"
+                    title="Re-read shared-table metadata and rebuild local view bindings"
                   >
                     {checkingLabel === s.label ? <Spinner size="xs" /> : (
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.6m15.3 2A8 8 0 004.6 9m0 0H9m11 11v-5h-.6a8 8 0 01-15.3-2" />
                       </svg>
                     )}
-                    {checkingLabel === s.label ? "Refreshing…" : "Refresh catalog"}
+                    {checkingLabel === s.label ? "Checking…" : "Re-check metadata"}
                   </button>
                   <button
                     type="button"
@@ -330,6 +328,11 @@ export function MvSourcesSection() {
       ) : null}
 
       {error && !open && <div className="mt-2 rounded bg-red-50 px-2 py-1 text-[11px] text-red-700">{error}</div>}
+      {requiredGrants.length > 0 && !open && (
+        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded border border-red-200 bg-red-50 p-2 font-mono text-[10px] leading-4 text-red-800">
+          {requiredGrants.join("\n")}
+        </pre>
+      )}
 
       {open && (
         <div className="mt-2 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
@@ -357,9 +360,7 @@ export function MvSourcesSection() {
               ) : preview ? (
                 presentTables.length === 0 ? (
                   <span className="text-[11px] text-red-600">
-                    {preview.catalog_refresh?.ok === false
-                      ? preview.catalog_refresh.error || "The shared catalog could not be refreshed."
-                      : "No summary views found at this location: check that the shared schema holds this app's views."}
+                    No summary views found at this location: check that the shared schema holds this app's views.
                   </span>
                 ) : (
                   <>
@@ -401,6 +402,8 @@ export function MvSourcesSection() {
                             <span className="min-w-0 flex-1 truncate font-mono text-gray-700">{t.table}</span>
                             {isMatch ? (
                               <span className="shrink-0 rounded-full bg-green-50 px-1.5 py-0.5 text-[10px] font-medium text-green-700">matches</span>
+                            ) : t.status === "unreadable" ? (
+                              <span className="shrink-0 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700">access required</span>
                             ) : (
                               <span className="shrink-0 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500" title="Column structure differs from this app's view: cannot be unioned.">structure differs</span>
                             )}
@@ -408,6 +411,16 @@ export function MvSourcesSection() {
                         );
                       })}
                     </div>
+                    {preview.required_grants && preview.required_grants.length > 0 && (
+                      <div className="rounded-md border border-red-200 bg-red-50 p-2">
+                        <p className="text-[11px] font-semibold text-red-800">
+                          These tables exist, but the app service principal needs schema access.
+                        </p>
+                        <pre className="mt-1 overflow-x-auto whitespace-pre-wrap font-mono text-[10px] leading-4 text-red-800">
+                          {preview.required_grants.join("\n")}
+                        </pre>
+                      </div>
+                    )}
                   </>
                 )
               ) : null}

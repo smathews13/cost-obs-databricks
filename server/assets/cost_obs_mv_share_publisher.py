@@ -268,6 +268,14 @@ display(
 # MAGIC and builds its source-routing views automatically. With `share_mode=schema`,
 # MAGIC new aggregates added on a later run appear in the recipient catalog with no
 # MAGIC change on the receiving side.
+# MAGIC
+# MAGIC Grant the receiving app's service principal durable schema-level access so
+# MAGIC it can discover current and future aggregates:
+# MAGIC ```sql
+# MAGIC GRANT USE CATALOG ON CATALOG `<recipient_catalog>` TO `<app_client_id>`;
+# MAGIC GRANT USE SCHEMA ON SCHEMA `<recipient_catalog>`.`<shared_schema>` TO `<app_client_id>`;
+# MAGIC GRANT SELECT ON SCHEMA `<recipient_catalog>`.`<shared_schema>` TO `<app_client_id>`;
+# MAGIC ```
 
 # COMMAND ----------
 

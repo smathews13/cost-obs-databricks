@@ -84,6 +84,8 @@ and use **Run All**. The notebook:
    automatically replacing stale table-level entries; an optional table mode remains
    available for tightly scoped sharing.
 5. Optionally grants an existing Delta Sharing recipient access.
+6. Prints the receiving-workspace schema grants required by the app service principal
+   to discover current and future shared aggregates.
 
 The notebook is generated from the same SQL constants used by the app. The
 release gate fails if the checked-in runbook drifts from the runtime table

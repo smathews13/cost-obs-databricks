@@ -257,7 +257,7 @@ def test_catalog_explorer_link_uses_workspace_host_and_exact_fqn():
     }]
 
 
-def test_shared_source_payload_marks_recipient_catalog_refresh():
+def test_shared_source_payload_marks_provider_managed_refresh():
     sources = [{
         "label": "west",
         "catalog": "west_share",
@@ -288,9 +288,9 @@ def test_shared_source_payload_marks_recipient_catalog_refresh():
         payload = asyncio.run(settings.get_mv_sources_endpoint(detail=True))
 
     assert payload["recipient_refresh"] == {
-        "supported": True,
-        "mode": "recipient_catalog_refresh",
-        "check_action": "refresh_catalog_and_local_bindings",
+        "supported": False,
+        "mode": "provider_managed",
+        "check_action": "metadata_and_local_bindings_only",
     }
     assert payload["sources"][0]["catalog_explorer_tables"][0]["fqn"] == (
         "west_share.cost_obs.daily_usage_summary"

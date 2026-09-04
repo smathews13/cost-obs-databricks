@@ -54,6 +54,7 @@ def test_runbook_is_generated_from_the_exact_runtime_table_contract():
     assert "Continuing with partial capability" in rendered
     assert "Source-table permission preflight failed" not in rendered
     assert "GRANT SELECT ON TABLE" in rendered
+    assert "GRANT SELECT ON SCHEMA `<recipient_catalog>`.`<shared_schema>`" in rendered
     assert REPOSITORY_RUNBOOK.read_text() == rendered
     compile(rendered, str(RUNBOOK), "exec")
 
