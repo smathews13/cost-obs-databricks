@@ -380,6 +380,88 @@ def test_gcp_status_does_not_cache_capacity_as_integration_absence():
     assert gcp_actual._gcp_status_cache["checked_at"] == 0
 
 
+def test_gcp_config_does_not_reuse_the_app_storage_catalog(monkeypatch):
+    monkeypatch.setenv("COST_OBS_CATALOG", "customer_app_storage")
+    monkeypatch.delenv("GCP_COST_CATALOG", raising=False)
+    monkeypatch.delenv("GCP_COST_SCHEMA", raising=False)
+    monkeypatch.delenv("GCP_COST_TABLE", raising=False)
+
+    assert gcp_actual.get_catalog_schema_table() == ("billing", "gcp", "")
+
+
+def test_gcp_status_discovers_one_suffixed_standard_export(monkeypatch):
+    monkeypatch.setenv("GCP_COST_CATALOG", "gcp_billing")
+    monkeypatch.setenv("GCP_COST_SCHEMA", "billing_export")
+    monkeypatch.delenv("GCP_COST_TABLE", raising=False)
+    gcp_actual._gcp_status_cache.update({
+        "available": None,
+        "checked_at": 0,
+        "table": None,
+        "reason": None,
+        "message": None,
+    })
+    rows = [{"table_name": "gcp_billing_export_v1_000000_000000_000000"}]
+
+    with patch.object(gcp_actual, "execute_query", return_value=rows) as query:
+        status = asyncio.run(gcp_actual.get_gcp_status())
+
+    assert status["gcp_available"] is True
+    assert status["table"] == "gcp_billing_export_v1_000000_000000_000000"
+    assert "`gcp_billing`.information_schema.tables" in query.call_args.args[0]
+    assert query.call_args.args[1] == {"schema": "billing_export"}
+
+
+def test_gcp_status_requires_explicit_choice_when_multiple_exports_exist(monkeypatch):
+    monkeypatch.delenv("GCP_COST_TABLE", raising=False)
+    gcp_actual._gcp_status_cache.update({
+        "available": None,
+        "checked_at": 0,
+        "table": None,
+        "reason": None,
+        "message": None,
+    })
+    with patch.object(gcp_actual, "execute_query", return_value=[
+        {"table_name": "gcp_billing_export_v1_first"},
+        {"table_name": "gcp_billing_export_v1_second"},
+    ]):
+        status = asyncio.run(gcp_actual.get_gcp_status())
+
+    assert status["gcp_available"] is False
+    assert status["reason"] == "multiple_export_tables"
+    assert "Set GCP_COST_TABLE" in status["message"]
+
+
+def test_gcp_actual_queries_use_net_cost_including_credits():
+    queries = (
+        gcp_actual.GCP_ACTUAL_SUMMARY,
+        gcp_actual.GCP_COSTS_BY_SERVICE,
+        gcp_actual.GCP_COSTS_BY_PROJECT,
+        gcp_actual.GCP_COSTS_BY_SKU,
+        gcp_actual.GCP_COSTS_TIMESERIES,
+    )
+    for query in queries:
+        assert "AGGREGATE(" in query
+        assert "credit.amount" in query
+        assert "cost > 0" not in query
+
+
+def test_gcp_actual_rejects_flat_gold_contract(monkeypatch):
+    monkeypatch.setenv("GCP_COST_TABLE", "actuals_gold")
+    gcp_actual._gcp_status_cache.update({
+        "available": None,
+        "checked_at": 0,
+        "table": None,
+        "reason": None,
+        "message": None,
+    })
+
+    status = asyncio.run(gcp_actual.get_gcp_status())
+
+    assert status["gcp_available"] is False
+    assert status["reason"] == "unsupported_table_contract"
+    assert "raw standard BigQuery billing export" in status["message"]
+
+
 @pytest.mark.parametrize(
     ("module", "endpoint_name", "cache_name", "availability_key"),
     (
@@ -404,13 +486,20 @@ def test_provider_status_transient_errors_are_not_cached_and_retry_recovers(
     secret_error = RuntimeError(
         "permission denied host=https://private.example SQL=SELECT secret_value"
     )
+    gcp_env = (
+        {"GCP_COST_TABLE": "gcp_billing_export_v1_000000_000000_000000"}
+        if module is gcp_actual
+        else {}
+    )
     with (
+        patch.dict("os.environ", gcp_env, clear=False),
         patch.object(module, "execute_query", side_effect=[secret_error, [{}]]) as query,
     ):
         with pytest.raises(RuntimeError):
             asyncio.run(getattr(module, endpoint_name)())
 
-        assert status_cache == {"available": None, "checked_at": 0}
+        assert status_cache["available"] is None
+        assert status_cache["checked_at"] == 0
         recovered = asyncio.run(getattr(module, endpoint_name)())
 
     assert recovered[availability_key] is True

@@ -254,4 +254,53 @@ describe("shared source freshness", () => {
     }
     expect(screen.queryByText("Checked just now")).not.toBeInTheDocument();
   });
+
+  it("unwraps structured 503 details and preserves nested grant remediation", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/mv-sources/check")) {
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({
+            detail: {
+              message: "Shared source check failed; existing routing remains active.",
+              result: {
+                required_grants: [
+                  "GRANT SELECT ON SCHEMA `shared`.`cost_obs` TO `app-id`;",
+                ],
+                build: { error: "view rebuild failed" },
+              },
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          local_label: "local",
+          sources: [{
+            label: "west",
+            catalog: "shared",
+            schema: "cost_obs",
+            tables: ["daily_usage_summary"],
+          }],
+        }),
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={client}>
+        <MvSourcesSection />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Re-check metadata" }));
+
+    expect(await screen.findByText(
+      "Shared source check failed; existing routing remains active.",
+    )).toBeVisible();
+    expect(screen.getByText(/GRANT SELECT ON SCHEMA/)).toBeVisible();
+    expect(screen.queryByText("[object Object]")).not.toBeInTheDocument();
+  });
 });

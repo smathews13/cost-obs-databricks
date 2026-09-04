@@ -232,6 +232,7 @@ Keep the first deployment minimal. Add optional cloud-cost or advanced integrati
 | `SMTP_HOST` / `SMTP_*` | — | Email alert configuration |
 | `AWS_COST_CATALOG` / `AWS_COST_SCHEMA` | `billing` / `aws` | AWS CUR actual cost tables |
 | `AZURE_COST_CATALOG` / `AZURE_COST_SCHEMA` | `billing` / `azure` | Azure cost export tables |
+| `GCP_COST_CATALOG` / `GCP_COST_SCHEMA` / `GCP_COST_TABLE` | `billing` / `gcp` / auto-discovered | Raw Google Cloud Billing standard export in a Unity Catalog BigQuery foreign catalog. Set the exact suffixed table when more than one export exists |
 | `DATABRICKS_TOKEN` | — | Service principal token override; not needed when deployed as a Databricks App |
 | `COST_OBS_FEEDBACK_GITHUB_URL` | Public issue form | Optional HTTPS `github.com` issue-form override |
 | `COST_OBS_FEEDBACK_EMAIL` / `COST_OBS_FEEDBACK_SLACK_URL` | — | Optional public feedback routes. Slack accepts a `slack://user?...` deep link or an HTTPS workspace member profile; unsafe or incomplete values are omitted |
@@ -521,15 +522,20 @@ The app reads from `billing.azure.actuals_gold`. Setup steps are available in th
 
 ### GCP (BigQuery Billing Export)
 
-The app reads directly from your GCP billing export synced into a Databricks catalog via [BigQuery data sharing](https://docs.databricks.com/aws/en/delta-sharing/share-data-databricks). The default table is `billing.gcp.gcp_billing_export_v1` — override via environment variables:
+The app reads the raw Google Cloud Billing standard export through a Unity Catalog
+[BigQuery foreign catalog](https://docs.databricks.com/gcp/en/query-federation/bigquery).
+It reports net cost after the export&apos;s credits array. Configure the app with:
 
 | Variable | Default | Description |
 |---|---|---|
 | `GCP_COST_CATALOG` | `billing` (or `COST_OBS_CATALOG`) | Catalog containing the GCP billing table |
 | `GCP_COST_SCHEMA` | `gcp` | Schema containing the GCP billing table |
-| `GCP_COST_TABLE` | `gcp_billing_export_v1` | Table name — use `gcp_billing_export_resource_v1` for resource-level detail, or `actuals_gold` if you have a pre-aggregated gold table |
+| `GCP_COST_TABLE` | Auto-discover one `gcp_billing_export_v1_*` table | Exact suffixed standard export table. Required when the dataset contains multiple matching exports |
 
-Setup steps are available in the in-app wizard under Cloud Costs → Set Up Actual Costs → GCP.
+Flat `actuals_gold` tables are not accepted by this raw-export adapter. Setup steps
+are available under **Cloud Costs → Integrate cloud costs → Google Cloud**. Saving
+the checklist does not configure the backend; actual costs unlock only after these
+variables are set, the app is redeployed, and its service principal can read the table.
 
 ---
 

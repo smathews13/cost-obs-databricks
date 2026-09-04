@@ -251,8 +251,16 @@ export function CloudCostsView({
   const gcpActualAvailable = gcpActualData?.available === true;
   const multipleActualAvailable = [awsActualAvailable, azureActualAvailable, gcpActualAvailable].filter(Boolean).length > 1;
   const actualAvailable = awsActualAvailable || azureActualAvailable || gcpActualAvailable;
+  const detectedActualCloud = (detectedCloud || "").toUpperCase() as "AWS" | "AZURE" | "GCP";
+  const detectedActualAvailable =
+    detectedActualCloud === "AWS" ? awsActualAvailable :
+    detectedActualCloud === "AZURE" ? azureActualAvailable :
+    detectedActualCloud === "GCP" ? gcpActualAvailable :
+    false;
   const preferredActualCloud: "AWS" | "AZURE" | "GCP" =
-    awsActualAvailable ? "AWS" : azureActualAvailable ? "AZURE" : "GCP";
+    detectedActualAvailable
+      ? detectedActualCloud
+      : awsActualAvailable ? "AWS" : azureActualAvailable ? "AZURE" : "GCP";
   const activeActualCloudAvailable =
     activeActualCloud === "AWS" ? awsActualAvailable :
     activeActualCloud === "AZURE" ? azureActualAvailable :
@@ -269,6 +277,8 @@ export function CloudCostsView({
         <button
           key={t.key}
           onClick={() => setActiveActualCloud(t.key)}
+          aria-label={`${t.label} actual costs`}
+          aria-pressed={activeActualCloud === t.key}
           className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
             activeActualCloud === t.key ? `bg-white shadow ${t.activeClass}` : "text-gray-600 hover:text-gray-900"
           }`}
@@ -315,6 +325,7 @@ export function CloudCostsView({
               if (!activeActualCloudAvailable) setActiveActualCloud(preferredActualCloud);
               setCostMode("actual");
             }}
+            aria-pressed={costMode === "actual"}
             className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
               costMode === "actual"
                 ? "bg-white text-orange-600 shadow"
@@ -325,6 +336,7 @@ export function CloudCostsView({
           </button>
           <button
             onClick={() => setCostMode("estimated")}
+            aria-pressed={costMode === "estimated"}
             className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
               costMode === "estimated"
                 ? "bg-white text-orange-600 shadow"
@@ -390,6 +402,7 @@ export function CloudCostsView({
           <div className="flex rounded-lg bg-gray-100 p-1">
             <button
               onClick={() => setCostMode("actual")}
+              aria-pressed={costMode === "actual"}
               className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
                 costMode === "actual" ? "bg-white text-orange-600 shadow" : "text-gray-500 hover:text-gray-900"
               }`}
@@ -399,6 +412,7 @@ export function CloudCostsView({
             </button>
             <button
               onClick={() => setCostMode("estimated")}
+              aria-pressed={costMode === "estimated"}
               className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
                 costMode === "estimated" ? "bg-white text-orange-600 shadow" : "text-gray-500 hover:text-gray-900"
               }`}
@@ -438,7 +452,9 @@ export function CloudCostsView({
                   className="h-5 w-5 object-contain"
                 />
                 <span className="text-sm text-gray-700">{integration.cloud === "azure" ? "Azure Cost Management Export" : integration.cloud === "gcp" ? "GCP Billing Export (BigQuery)" : "AWS CUR 2.0"}</span>
-                <span className="rounded px-2 py-0.5 text-xs font-medium" style={{ background: C.amberTint, color: C.amberInk }}>Setup in progress</span>
+                <span className="rounded px-2 py-0.5 text-xs font-medium" style={{ background: C.amberTint, color: C.amberInk }}>
+                  {integration.cloud === "gcp" ? "Checklist saved" : "Setup in progress"}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => openWizardForExisting(integration)} className="rounded px-2 py-1 text-xs font-medium focus-visible:outline-none focus-visible:shadow-(--focus)" style={{ color: C.lava }}>
@@ -446,6 +462,7 @@ export function CloudCostsView({
                 </button>
                 <button
                   onClick={() => removeIntegration(integration.id)}
+                  aria-label={`Remove ${integration.label} integration`}
                   className="rounded p-1 text-gray-500 hover:bg-red-50 hover:text-red-500"
                   title="Remove integration"
                 >
@@ -475,6 +492,7 @@ export function CloudCostsView({
       addIntegration={addIntegration}
       isAzure={isAzure}
       isGCP={isGCP}
+      gcpActualAvailable={gcpActualAvailable}
     />
   );
   const clusters = data?.clusters ?? EMPTY_CLUSTERS;

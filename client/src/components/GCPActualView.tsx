@@ -43,8 +43,8 @@ export function GCPActualView({ gcpActualData, cloudTabSwitcher, onSwitchToEstim
           {cloudTabSwitcher}
         </div>
         <div className="flex rounded-lg bg-gray-100 p-1">
-          <button className="rounded-md px-4 py-1.5 text-sm font-medium bg-white text-blue-500 shadow">Actual Costs</button>
-          <button onClick={onSwitchToEstimated} className="rounded-md px-4 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Estimated</button>
+          <button aria-pressed="true" className="rounded-md px-4 py-1.5 text-sm font-medium bg-white text-blue-500 shadow">Actual Costs</button>
+          <button aria-pressed="false" onClick={onSwitchToEstimated} className="rounded-md px-4 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">Usage &amp; Metadata</button>
         </div>
       </div>
 
@@ -52,8 +52,8 @@ export function GCPActualView({ gcpActualData, cloudTabSwitcher, onSwitchToEstim
         <div className="flex items-center justify-between">
           <div className="flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-medium" style={{ color: 'rgba(255,255,255,0.85)' }}>Actual GCP Infrastructure Cost</p>
-              <span className="rounded-full px-2 py-0.5 text-xs" style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>From BigQuery Billing Export</span>
+              <p className="text-sm font-medium" style={{ color: 'rgba(255,255,255,0.85)' }}>Net Google Cloud Infrastructure Cost</p>
+              <span className="rounded-full px-2 py-0.5 text-xs" style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>BigQuery export · net of credits</span>
               <span className="rounded-full px-2 py-0.5 text-xs" style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>Account-wide · workspace filter not applied</span>
             </div>
             <p className="mt-1 whitespace-nowrap text-3xl font-bold">

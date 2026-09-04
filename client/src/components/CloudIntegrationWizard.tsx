@@ -20,6 +20,7 @@ interface CloudIntegrationWizardProps {
   addIntegration: (cloud: "azure" | "aws" | "gcp") => void;
   isAzure: boolean;
   isGCP: boolean;
+  gcpActualAvailable: boolean;
 }
 
 const WIZARD_STEPS_KEY = "cost-obs-wizard-checked-steps";
@@ -30,7 +31,7 @@ export function CloudIntegrationWizard({
   wizardExpandedStep, setWizardExpandedStep,
   viewingIntegration,
   cloudIntegrations, addIntegration,
-  isAzure, isGCP,
+  isAzure, isGCP, gcpActualAvailable,
 }: CloudIntegrationWizardProps) {
   const titleId = useId();
   const descriptionId = useId();
@@ -173,7 +174,7 @@ export function CloudIntegrationWizard({
                       {isGCP && <div className="mt-2 flex justify-center"><span className="rounded px-2 py-0.5 text-xs font-medium" style={{ background: C.coralTint, color: C.lava }}>Current workspace cloud</span></div>}
                     </div>
                     {cloudIntegrations.some(i => i.cloud === "gcp") && (
-                      <span className="rounded px-2 py-0.5 text-xs font-medium" style={{ background: C.greenTint, color: C.greenInk }}>Already added</span>
+                      <span className="rounded px-2 py-0.5 text-xs font-medium" style={{ background: C.greenTint, color: C.greenInk }}>Checklist saved</span>
                     )}
                   </button>
                 </div>
@@ -184,9 +185,24 @@ export function CloudIntegrationWizard({
                   {wizardCloud === "azure"
                     ? "Export Azure billing data via Cost Management, then ingest into Databricks using an SDP pipeline. Follow the steps below:"
                     : wizardCloud === "gcp"
-                    ? "Export GCP billing data to BigQuery, then bring it into Databricks via the BigQuery connector or GCS transfer. Follow the steps below:"
+                    ? "Connect the raw Google Cloud Billing standard export through a Unity Catalog BigQuery foreign catalog, then configure the app with the exact catalog, schema, and suffixed table name."
                     : "Export AWS cost data using CUR 2.0 Standard Data Export, then ingest into Databricks from S3. Follow the steps below:"}
                 </p>
+                {wizardCloud === "gcp" && (
+                  <div
+                    role="status"
+                    className="rounded-lg border p-3 text-sm"
+                    style={{
+                      borderColor: gcpActualAvailable ? C.green : C.amber,
+                      background: gcpActualAvailable ? C.greenTint : C.amberTint,
+                      color: gcpActualAvailable ? C.greenInk : C.amberInk,
+                    }}
+                  >
+                    <strong>{gcpActualAvailable ? "Backend connected." : "Backend not connected yet."}</strong>{" "}
+                    Saving this checklist does not configure credentials or environment variables.
+                    Actual costs unlock only after the app can read the configured raw billing-export table.
+                  </div>
+                )}
 
                 {(wizardCloud === "azure" ? [
                   "Open Azure Portal → Cost Management + Billing → Exports",
@@ -197,9 +213,9 @@ export function CloudIntegrationWizard({
                 ] : wizardCloud === "gcp" ? [
                   "Open GCP Console → Billing → Billing Export",
                   "Enable Standard usage cost export to a BigQuery dataset",
-                  "Note the GCP project ID and BigQuery dataset name",
-                  "Create an Omni connection or use BigQuery connector in Databricks",
-                  "Validate data in Databricks: confirm billing rows in Delta (Final Step)",
+                  "Record the project, dataset, and exact suffixed export table",
+                  "Create a Unity Catalog BigQuery connection and foreign catalog",
+                  "Set GCP_COST_* on the Databricks App, redeploy, and verify (Final Step)",
                 ] : [
                   "Sign in to AWS Console → Billing & Cost Management → Data Exports",
                   "Create a Standard Data Export (CUR 2.0) with resource IDs and daily frequency",
@@ -366,32 +382,33 @@ export function CloudIntegrationWizard({
                               </>
                             ) : step === 3 ? (
                               <>
-                                <p className="mb-3">Note the GCP project ID and BigQuery dataset name: you'll need these to configure the Databricks connector.</p>
+                                <p className="mb-3">Record the exact raw-export location. Google Cloud appends the billing account ID to the standard export table name.</p>
                                 <ol className="space-y-2">
                                   <li className="flex gap-2"><span className="font-medium text-gray-700">a.</span><span>Note the <strong>GCP project ID</strong> (visible in the GCP Console project selector)</span></li>
                                   <li className="flex gap-2"><span className="font-medium text-gray-700">b.</span><span>Note the <strong>BigQuery dataset name</strong> you chose (e.g., <code className="rounded bg-gray-200 px-1">billing_export</code>)</span></li>
-                                  <li className="flex gap-2"><span className="font-medium text-gray-700">c.</span><span>In BigQuery, verify the export table exists (e.g., <code className="rounded bg-gray-200 px-1">gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX</code>)</span></li>
+                                  <li className="flex gap-2"><span className="font-medium text-gray-700">c.</span><span>Copy the exact table name (for example, <code className="rounded bg-gray-200 px-1">gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX</code>)</span></li>
                                 </ol>
                               </>
                             ) : step === 4 ? (
                               <>
-                                <p className="mb-3">In Databricks, use the BigQuery connector or Lakehouse Federation to query the billing data, or use GCS transfer to bring it into Delta.</p>
+                                <p className="mb-3">Create a read-only Unity Catalog connection and foreign catalog over the BigQuery billing project.</p>
                                 <ol className="space-y-2">
-                                  <li className="flex gap-2"><span className="font-medium text-gray-700">a.</span><span><strong>Option A (Omni/Federation):</strong> Create a Lakehouse Federation connection to BigQuery in Databricks (Catalog → External Data → Connections)</span></li>
-                                  <li className="flex gap-2"><span className="font-medium text-gray-700">b.</span><span><strong>Option B (GCS transfer):</strong> Export BigQuery data to GCS using a scheduled query, then create a GCS External Location in Databricks Unity Catalog</span></li>
-                                  <li className="flex gap-2"><span className="font-medium text-gray-700">c.</span><span>Create a Databricks workflow or notebook to load the billing data into a Delta table on your chosen schedule</span></li>
+                                  <li className="flex gap-2"><span className="font-medium text-gray-700">a.</span><span>Go to <strong>Catalog → External Data → Connections</strong> and create a <strong>BigQuery</strong> connection</span></li>
+                                  <li className="flex gap-2"><span className="font-medium text-gray-700">b.</span><span>Create a foreign catalog using that connection and the billing export project</span></li>
+                                  <li className="flex gap-2"><span className="font-medium text-gray-700">c.</span><span>Grant the app service principal <strong>USE CATALOG</strong>, <strong>USE SCHEMA</strong>, and <strong>SELECT</strong> on the raw export table</span></li>
                                 </ol>
                               </>
                             ) : (
                               <>
-                                <p className="mb-3">Run the ingestion workflow and verify billing rows appear in Databricks.</p>
+                                <p className="mb-3">Set the app environment variables to the foreign catalog and redeploy from Git.</p>
                                 <ul className="space-y-1 mb-4">
-                                  <li>• Run your notebook or workflow and verify billing data rows appear in the target Delta table</li>
-                                  <li>• Check that cost data covers the expected date range (GCP billing has a 1-day lag)</li>
-                                  <li>• Once data is available, return here and click <strong>Add this integration</strong></li>
+                                  <li>• <code className="rounded bg-gray-200 px-1">GCP_COST_CATALOG</code>: foreign catalog name</li>
+                                  <li>• <code className="rounded bg-gray-200 px-1">GCP_COST_SCHEMA</code>: BigQuery dataset name</li>
+                                  <li>• <code className="rounded bg-gray-200 px-1">GCP_COST_TABLE</code>: exact suffixed standard export table</li>
+                                  <li>• Redeploy, return to Cloud Costs, and confirm this guide says <strong>Backend connected</strong></li>
                                 </ul>
                                 <div className="guide-note rounded-lg p-3 text-sm">
-                                  <strong>ℹ️ Note:</strong> GCP billing export includes Compute Engine, Cloud Storage, networking, and all GCP services. BigQuery export data typically reflects costs with a 1-day lag.
+                                  <strong>Note:</strong> Totals are net of the export&apos;s credits array. Initial export delivery can take up to 48 hours; ongoing data commonly has a one-day lag.
                                 </div>
                               </>
                             )
@@ -525,7 +542,7 @@ export function CloudIntegrationWizard({
                   }}
                   className="btn-brand px-4 py-2 text-sm focus-visible:outline-none"
                 >
-                  Mark as configured
+                  {wizardCloud === "gcp" ? "Save setup checklist" : "Mark as configured"}
                 </button>
               )}
             </div>

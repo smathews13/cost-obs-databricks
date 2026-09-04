@@ -77,6 +77,37 @@ describe("CloudCostsView empty-data controls", () => {
     }
   });
 
+  it("prefers the detected GCP provider when multiple actual integrations exist", async () => {
+    renderView({
+      detectedCloud: "GCP",
+      actualData: { available: true, start_date: "2026-08-01", end_date: "2026-08-28" },
+      azureActualData: { available: true, start_date: "2026-08-01", end_date: "2026-08-28" },
+      gcpActualData: {
+        available: true,
+        summary: {
+          available: true,
+          total_cost: 100,
+          start_date: "2026-08-01",
+          end_date: "2026-08-28",
+        },
+        start_date: "2026-08-01",
+        end_date: "2026-08-28",
+      },
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Actual Costs" }));
+
+    expect(screen.getByText("Net Google Cloud Infrastructure Cost")).toBeVisible();
+    expect(screen.getByRole("button", { name: "GCP actual costs" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Actual Costs" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("keeps an actual-cost total visible when optional detail is partial", async () => {
     renderView({
       gcpActualData: {

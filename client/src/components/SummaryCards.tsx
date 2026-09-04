@@ -58,9 +58,10 @@ export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds
       setSelectedKPI({ kpi, label });
     }
   };
+  const workspaceScopeKnown = Boolean(workspaceIds?.length) || workspaceScopeCount != null;
   const displayedWorkspaceCount = workspaceIds?.length
     ? workspaceIds.length
-    : workspaceScopeCount ?? data?.workspace_count ?? 0;
+    : workspaceScopeCount;
 
   return (
     <>
@@ -92,7 +93,7 @@ export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds
         <Card
           title="Average Daily Spend"
           value={formatKpiCurrency(data?.avg_daily_spend ?? 0)}
-          subtitle={data?.workspace_count != null || workspaceScopeCount != null || workspaceIds?.length
+          subtitle={workspaceScopeKnown && displayedWorkspaceCount != null
             ? `across ${displayedWorkspaceCount} ${displayedWorkspaceCount === 1 ? "workspace" : "workspaces"}`
             : "daily average"}
           isLoading={isLoading}
@@ -105,11 +106,15 @@ export function SummaryCards({ data, isLoading, startDate, endDate, workspaceIds
         />
         <Card
           title="Workspaces"
-          value={formatNumber(displayedWorkspaceCount)}
-          subtitle={workspaceIds?.length ? "selected workspaces" : "workspaces in scope"}
-          infoTooltip={workspaceIds?.length || workspaceScopeCount != null
+          value={displayedWorkspaceCount == null ? "N/A" : formatNumber(displayedWorkspaceCount)}
+          subtitle={workspaceIds?.length
+            ? "selected workspaces"
+            : workspaceScopeCount != null
+              ? "workspaces in scope"
+              : "workspace scope unavailable"}
+          infoTooltip={workspaceScopeKnown
             ? "Number of workspaces in the active filter. The trend drilldown shows how many of those selected workspaces had billable usage each day."
-            : "Number of distinct workspaces with billable usage on the latest day. The trend drilldown shows daily active workspaces."}
+            : "The workspace picker population is unavailable. The app does not substitute latest-day activity because that is a different metric."}
           isLoading={isLoading}
           onClick={!isLoading && data && startDate && endDate ? () => handleCardClick("workspace_count", "Daily Active Workspaces") : undefined}
           icon={

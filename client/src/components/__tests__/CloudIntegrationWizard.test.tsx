@@ -4,7 +4,13 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { CloudIntegrationWizard } from "../CloudIntegrationWizard";
 
-function WizardHarness({ onClose = vi.fn() }: { onClose?: () => void }) {
+function WizardHarness({
+  onClose = vi.fn(),
+  gcpActualAvailable = false,
+}: {
+  onClose?: () => void;
+  gcpActualAvailable?: boolean;
+}) {
   const [cloud, setCloud] = useState<"azure" | "aws" | "gcp" | null>(null);
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
   return (
@@ -20,6 +26,7 @@ function WizardHarness({ onClose = vi.fn() }: { onClose?: () => void }) {
       addIntegration={vi.fn()}
       isAzure={false}
       isGCP
+      gcpActualAvailable={gcpActualAvailable}
     />
   );
 }
@@ -33,6 +40,8 @@ describe("CloudIntegrationWizard", () => {
     expect(dialog).toHaveAttribute("aria-modal", "true");
 
     await user.click(screen.getByRole("button", { name: /configure google cloud cost integration/i }));
+    expect(screen.getByRole("status")).toHaveTextContent("Backend not connected yet");
+    expect(screen.getByRole("button", { name: "Save setup checklist" })).toBeVisible();
 
     const step = screen.getByRole("button", { name: /open gcp console/i });
     expect(step).toHaveAttribute("aria-expanded", "false");
@@ -44,6 +53,16 @@ describe("CloudIntegrationWizard", () => {
     expect(checkbox).toHaveAttribute("aria-checked", "false");
     await user.click(checkbox);
     expect(screen.getByRole("checkbox", { name: /mark incomplete: open gcp console/i })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("reports backend GCP readiness without claiming the checklist configured it", async () => {
+    render(<WizardHarness gcpActualAvailable />);
+    await userEvent.click(screen.getByRole("button", { name: /configure google cloud cost integration/i }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Backend connected");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Saving this checklist does not configure credentials",
+    );
   });
 
   it("dismisses on Escape and outside interaction", async () => {

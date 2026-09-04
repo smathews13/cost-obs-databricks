@@ -9,7 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from fastapi import FastAPI
+import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
@@ -140,7 +141,7 @@ def test_settings_timestamps_are_timezone_aware_utc():
         created = asyncio.run(
             settings.create_cloud_connection(
                 object(),
-                settings.CloudConnectionCreate(name="test", provider="gcp"),
+                settings.CloudConnectionCreate(name="test", provider="azure"),
             )
         )
 
@@ -148,6 +149,24 @@ def test_settings_timestamps_are_timezone_aware_utc():
     assert timestamp.utcoffset() is not None
     assert timestamp.utcoffset().total_seconds() == 0
     assert "datetime.utcnow" not in (ROOT / "server/routers/settings.py").read_text()
+
+
+def test_gcp_connection_api_does_not_store_unused_service_account_json():
+    with patch.object(settings, "_require_admin_async", new=AsyncMock()):
+        with pytest.raises(HTTPException) as exc:
+            asyncio.run(
+                settings.create_cloud_connection(
+                    object(),
+                    settings.CloudConnectionCreate(
+                        name="gcp",
+                        provider="gcp",
+                        service_account_key='{"private_key":"secret"}',
+                    ),
+                )
+            )
+
+    assert exc.value.status_code == 422
+    assert "service-account JSON is not stored" in str(exc.value.detail)
 
 
 def test_runtime_dependencies_match_import_scan_and_keep_transitive_needs():

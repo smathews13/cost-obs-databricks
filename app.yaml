@@ -74,7 +74,8 @@ env:
   # - name: COST_OBS_COMMIT_SHA
   #   value: <source-commit-sha>
 
-  # AWS / Azure actual cost tables (defaults: billing.aws / billing.azure)
+  # Optional actual cloud-cost tables. Only the matching cloud adapter reads
+  # its variables; setting GCP values does not change AWS or Azure behavior.
   # - name: AWS_COST_CATALOG
   #   value: billing
   # - name: AWS_COST_SCHEMA
@@ -83,3 +84,9 @@ env:
   #   value: billing
   # - name: AZURE_COST_SCHEMA
   #   value: azure
+  # - name: GCP_COST_CATALOG
+  #   value: <bigquery-foreign-catalog>
+  # - name: GCP_COST_SCHEMA
+  #   value: <bigquery-billing-dataset>
+  # - name: GCP_COST_TABLE
+  #   value: <gcp_billing_export_v1_billing_account_id>

@@ -193,7 +193,39 @@ export function MvSourcesSection() {
     try {
       const res = await fetch(`/api/settings/mv-sources/check?label=${encodeURIComponent(lbl)}`, { method: "POST" });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+      if (!res.ok) {
+        const detail = body.detail;
+        const nestedResult = (
+          detail
+          && typeof detail === "object"
+          && "result" in detail
+          && detail.result
+          && typeof detail.result === "object"
+        ) ? detail.result : null;
+        const nestedGrants = nestedResult && "required_grants" in nestedResult
+          ? nestedResult.required_grants
+          : null;
+        const nestedBuild = (
+          nestedResult
+          && "build" in nestedResult
+          && nestedResult.build
+          && typeof nestedResult.build === "object"
+        ) ? nestedResult.build : null;
+        const nestedBuildError = nestedBuild && "error" in nestedBuild
+          ? nestedBuild.error
+          : null;
+        const nestedError = nestedResult && "error" in nestedResult
+          ? nestedResult.error
+          : null;
+        if (Array.isArray(nestedGrants)) setRequiredGrants(nestedGrants);
+        const message = typeof detail === "string"
+          ? detail
+          : detail?.message
+            || nestedBuildError
+            || nestedError
+            || `HTTP ${res.status}`;
+        throw new Error(String(message));
+      }
       if (body.ok === false) {
         throw new Error(body.detail || body.error || body.build?.error || "Freshness check failed");
       }

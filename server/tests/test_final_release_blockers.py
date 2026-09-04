@@ -121,10 +121,15 @@ def test_local_cloud_exports_operate_when_local_source_is_selected(
 ):
     getattr(router_module, cache_name).update({"available": None, "checked_at": 0})
     token = db.set_source_labels(["local-workspace"])
+    rows = (
+        [{"table_name": "gcp_billing_export_v1_000000_000000_000000"}]
+        if router_module is gcp_actual
+        else [{"ok": 1}]
+    )
     try:
         with (
             patch.object(db, "get_local_source_label", return_value="local-workspace"),
-            patch.object(router_module, "execute_query", return_value=[{"ok": 1}]),
+            patch.object(router_module, "execute_query", return_value=rows),
         ):
             result = asyncio.run(getattr(router_module, status_name)())
     finally:

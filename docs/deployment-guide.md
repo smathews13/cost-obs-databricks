@@ -30,6 +30,7 @@ A Pro or Classic warehouse also works, but cold-start times will be longer durin
 | `system.query.history` access | SQL Warehousing tab — per-query cost attribution |
 | `system.compute.clusters` access | Job & cluster cost breakdown |
 | AWS Cost and Usage Reports (CUR 2.0) | Actual AWS infrastructure costs alongside DBU spend |
+| Google Cloud Billing standard export + BigQuery federation | Net Google Cloud infrastructure costs alongside DBU spend |
 
 ---
 
@@ -72,6 +73,9 @@ The bound warehouse is the only required deployment-time resource. Leave the app
 | `COST_OBS_CATALOG` | No | Optional preconfigured Unity Catalog catalog for managed tables — must be dedicated, not `main` |
 | `COST_OBS_SCHEMA` | No | Optional preconfigured schema for managed tables (for example, `cost_obs_app`) |
 | `COST_OBS_WORKSPACES` | No | Comma-separated workspace IDs to restrict the dashboard |
+| `GCP_COST_CATALOG` | GCP actual costs only | Unity Catalog BigQuery foreign catalog containing the raw billing export |
+| `GCP_COST_SCHEMA` | GCP actual costs only | BigQuery billing-export dataset exposed as a foreign schema |
+| `GCP_COST_TABLE` | When multiple exports exist | Exact suffixed `gcp_billing_export_v1_*` standard export table |
 
 > **Important:** Do not use `main` as the catalog or `cost_obs` as the schema with the `main` catalog. These are reserved defaults. The app will refuse to create tables there. Use a dedicated catalog (e.g. `my_company_catalog`) and a descriptive schema name.
 

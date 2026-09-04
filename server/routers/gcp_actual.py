@@ -12,19 +12,20 @@ Setup:
        CREATE FOREIGN CATALOG gcp_billing_catalog
        USING CONNECTION gcp_billing
        OPTIONS (dataProjectId '<project_id>');
-  3. Set env vars:
+  3. Set env vars on the Databricks App and redeploy:
        GCP_COST_CATALOG=gcp_billing_catalog
        GCP_COST_SCHEMA=<bigquery_billing_dataset>   (e.g. all_billing_data)
-       GCP_COST_TABLE=gcp_billing_export_v1         (or gcp_billing_export_resource_v1)
+       GCP_COST_TABLE=gcp_billing_export_v1_<billing_account_id>
 
-The router also supports a local `actuals_gold` Delta table (same schema as
-aws_actual / azure_actual) if you prefer an ETL-curated table over live federation.
-Set GCP_COST_TABLE=actuals_gold in that case.
+If GCP_COST_TABLE is omitted, the router discovers a single standard export
+table whose name starts with `gcp_billing_export_v1_`. Curated flat gold tables
+are not accepted by this raw-export adapter.
 """
 
 import asyncio
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -36,7 +37,13 @@ from server.request_limits import default_date_range, validate_date_range
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_gcp_status_cache: dict[str, Any] = {"available": None, "checked_at": 0}
+_gcp_status_cache: dict[str, Any] = {
+    "available": None,
+    "checked_at": 0,
+    "table": None,
+    "reason": None,
+    "message": None,
+}
 _GCP_STATUS_TTL = 300  # 5 minutes
 
 
@@ -46,9 +53,9 @@ def get_catalog_schema_table() -> tuple[str, str, str]:
     Defaults assume a Lakehouse Federation foreign catalog over the BigQuery
     billing export dataset. Override via env vars for a curated Delta table.
     """
-    catalog = os.environ.get("GCP_COST_CATALOG", os.environ.get("COST_OBS_CATALOG", "billing"))
+    catalog = os.environ.get("GCP_COST_CATALOG", "billing")
     schema = os.environ.get("GCP_COST_SCHEMA", "gcp")
-    table = os.environ.get("GCP_COST_TABLE", "gcp_billing_export_v1")
+    table = os.environ.get("GCP_COST_TABLE", "")
     return catalog, schema, table
 
 
@@ -69,17 +76,38 @@ def get_catalog_schema_table() -> tuple[str, str, str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 CHECK_GCP_TABLE = """
-SELECT 1
-FROM information_schema.tables
-WHERE table_catalog = '{catalog}'
-  AND table_schema  = '{schema}'
-  AND table_name    = '{table}'
+SELECT table_name
+FROM {catalog}.information_schema.tables
+WHERE table_schema = :schema
+  AND table_name = :table
 LIMIT 1
 """
 
+DISCOVER_GCP_TABLE = """
+SELECT table_name
+FROM {catalog}.information_schema.tables
+WHERE table_schema = :schema
+  AND table_name LIKE 'gcp_billing_export_v1_%'
+ORDER BY table_name
+LIMIT 2
+"""
+
+GCP_NET_COST_SQL = """(
+  COALESCE(cost, 0)
+  + COALESCE(
+      AGGREGATE(
+        credits,
+        CAST(0.0 AS DOUBLE),
+        (credit_total, credit) ->
+          credit_total + COALESCE(CAST(credit.amount AS DOUBLE), 0.0)
+      ),
+      0.0
+    )
+)"""
+
 GCP_ACTUAL_SUMMARY = """
 SELECT
-  SUM(cost)                              AS total_cost,
+  SUM(/* GCP_NET_COST */)                AS total_cost,
   currency                               AS currency,
   COUNT(DISTINCT project.id)             AS project_count,
   COUNT(DISTINCT service.description)    AS service_count,
@@ -87,67 +115,62 @@ SELECT
 FROM `{catalog}`.`{schema}`.`{table}`
 WHERE DATE(usage_start_time) >= :start_date
   AND DATE(usage_start_time) <= :end_date
-  AND cost > 0
 GROUP BY currency
 ORDER BY total_cost DESC
 LIMIT 1
-"""
+""".replace("/* GCP_NET_COST */", GCP_NET_COST_SQL)
 
 GCP_COSTS_BY_SERVICE = """
 SELECT
   service.description                     AS service,
-  SUM(cost)                               AS total_cost,
+  SUM(/* GCP_NET_COST */)                 AS total_cost,
   COUNT(DISTINCT DATE(usage_start_time))  AS days_active
 FROM `{catalog}`.`{schema}`.`{table}`
 WHERE DATE(usage_start_time) >= :start_date
   AND DATE(usage_start_time) <= :end_date
-  AND cost > 0
 GROUP BY service.description
 ORDER BY total_cost DESC
 LIMIT 50
-"""
+""".replace("/* GCP_NET_COST */", GCP_NET_COST_SQL)
 
 GCP_COSTS_BY_PROJECT = """
 SELECT
   project.id                              AS project_id,
   project.name                            AS project_name,
-  SUM(cost)                               AS total_cost,
+  SUM(/* GCP_NET_COST */)                 AS total_cost,
   COUNT(DISTINCT service.description)     AS service_count
 FROM `{catalog}`.`{schema}`.`{table}`
 WHERE DATE(usage_start_time) >= :start_date
   AND DATE(usage_start_time) <= :end_date
-  AND cost > 0
 GROUP BY project.id, project.name
 ORDER BY total_cost DESC
 LIMIT 50
-"""
+""".replace("/* GCP_NET_COST */", GCP_NET_COST_SQL)
 
 GCP_COSTS_BY_SKU = """
 SELECT
   service.description  AS service,
   sku.description      AS sku,
-  SUM(cost)            AS total_cost
+  SUM(/* GCP_NET_COST */) AS total_cost
 FROM `{catalog}`.`{schema}`.`{table}`
 WHERE DATE(usage_start_time) >= :start_date
   AND DATE(usage_start_time) <= :end_date
-  AND cost > 0
 GROUP BY service.description, sku.description
 ORDER BY total_cost DESC
 LIMIT 100
-"""
+""".replace("/* GCP_NET_COST */", GCP_NET_COST_SQL)
 
 GCP_COSTS_TIMESERIES = """
 SELECT
   DATE(usage_start_time) AS date,
   service.description    AS service,
-  SUM(cost)              AS daily_cost
+  SUM(/* GCP_NET_COST */) AS daily_cost
 FROM `{catalog}`.`{schema}`.`{table}`
 WHERE DATE(usage_start_time) >= :start_date
   AND DATE(usage_start_time) <= :end_date
-  AND cost > 0
 GROUP BY DATE(usage_start_time), service.description
 ORDER BY date
-"""
+""".replace("/* GCP_NET_COST */", GCP_NET_COST_SQL)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -162,25 +185,77 @@ def _defaults(start_date, end_date):
     )
 
 
+def _quoted_identifier(value: str, field: str) -> str:
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", value or ""):
+        raise ValueError(f"{field} must be a single Unity Catalog identifier")
+    return f"`{value}`"
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/status")
 async def get_gcp_status() -> dict[str, Any]:
     """Check if GCP billing tables are available (cached 5 min)."""
-    catalog, schema, table = get_catalog_schema_table()
+    catalog, schema, configured_table = get_catalog_schema_table()
     if (
         _gcp_status_cache["available"] is not None
         and (time.time() - _gcp_status_cache["checked_at"]) < _GCP_STATUS_TTL
     ):
         available = _gcp_status_cache["available"]
+        table = _gcp_status_cache["table"]
+        reason = _gcp_status_cache["reason"]
+        message = _gcp_status_cache["message"]
     else:
+        table = configured_table
+        reason = None
+        message = None
         try:
-            results = await asyncio.to_thread(
-                execute_query,
-                CHECK_GCP_TABLE.format(catalog=catalog, schema=schema, table=table),
-                cache_tag="gcp-actual",
-            )
-            available = len(results) > 0
+            quoted_catalog = _quoted_identifier(catalog, "GCP_COST_CATALOG")
+            _quoted_identifier(schema, "GCP_COST_SCHEMA")
+            if table:
+                _quoted_identifier(table, "GCP_COST_TABLE")
+            if table == "actuals_gold":
+                available = False
+                reason = "unsupported_table_contract"
+                message = (
+                    "GCP actual costs require the raw standard BigQuery billing "
+                    "export. Flat actuals_gold tables are not supported."
+                )
+                table = None
+            elif table:
+                results = await asyncio.to_thread(
+                    execute_query,
+                    CHECK_GCP_TABLE.format(catalog=quoted_catalog),
+                    {"schema": schema, "table": table},
+                    cache_tag="gcp-actual",
+                )
+                available = len(results) > 0
+            else:
+                results = await asyncio.to_thread(
+                    execute_query,
+                    DISCOVER_GCP_TABLE.format(catalog=quoted_catalog),
+                    {"schema": schema},
+                    cache_tag="gcp-actual",
+                )
+                candidates = [
+                    str(row.get("table_name") or "")
+                    for row in results
+                    if row.get("table_name")
+                ]
+                if len(candidates) == 1:
+                    table = candidates[0]
+                    available = True
+                elif len(candidates) > 1:
+                    table = None
+                    available = False
+                    reason = "multiple_export_tables"
+                    message = (
+                        "Multiple standard GCP billing export tables were found. "
+                        "Set GCP_COST_TABLE to the intended suffixed table name."
+                    )
+                else:
+                    table = None
+                    available = False
         except Exception as exc:
             # Permission, network, timeout, and capacity failures are transient;
             # only a successful empty existence query establishes absence.
@@ -191,12 +266,17 @@ async def get_gcp_status() -> dict[str, Any]:
             raise
         _gcp_status_cache["available"] = available
         _gcp_status_cache["checked_at"] = time.time()
+        _gcp_status_cache["table"] = table
+        _gcp_status_cache["reason"] = reason
+        _gcp_status_cache["message"] = message
 
     return {
         "gcp_available": available,
         "catalog": catalog,
         "schema": schema,
         "table": table if available else None,
+        "reason": reason,
+        "message": message,
     }
 
 
@@ -206,7 +286,6 @@ async def get_gcp_actual_summary(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     """Get summary of actual GCP costs."""
-    catalog, schema, table = get_catalog_schema_table()
     start_date, end_date = _defaults(start_date, end_date)
 
     status = await get_gcp_status()
@@ -219,6 +298,7 @@ async def get_gcp_actual_summary(
             "start_date": start_date,
             "end_date": end_date,
         }
+    catalog, schema, table = status["catalog"], status["schema"], status["table"]
 
     results = await asyncio.to_thread(execute_query,
         GCP_ACTUAL_SUMMARY.format(catalog=catalog, schema=schema, table=table),
@@ -257,12 +337,12 @@ async def get_gcp_costs_by_service(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     """Get actual GCP costs broken down by GCP service (Compute Engine, GCS, BigQuery, etc.)."""
-    catalog, schema, table = get_catalog_schema_table()
     start_date, end_date = _defaults(start_date, end_date)
 
     status = await get_gcp_status()
     if not status["gcp_available"]:
         return {"available": False, "services": [], "start_date": start_date, "end_date": end_date}
+    catalog, schema, table = status["catalog"], status["schema"], status["table"]
 
     results = await asyncio.to_thread(execute_query,
         GCP_COSTS_BY_SERVICE.format(catalog=catalog, schema=schema, table=table),
@@ -296,12 +376,12 @@ async def get_gcp_costs_by_project(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     """Get actual GCP costs broken down by GCP project."""
-    catalog, schema, table = get_catalog_schema_table()
     start_date, end_date = _defaults(start_date, end_date)
 
     status = await get_gcp_status()
     if not status["gcp_available"]:
         return {"available": False, "projects": [], "start_date": start_date, "end_date": end_date}
+    catalog, schema, table = status["catalog"], status["schema"], status["table"]
 
     results = await asyncio.to_thread(execute_query,
         GCP_COSTS_BY_PROJECT.format(catalog=catalog, schema=schema, table=table),
@@ -336,12 +416,12 @@ async def get_gcp_costs_by_sku(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     """Get actual GCP costs broken down by SKU."""
-    catalog, schema, table = get_catalog_schema_table()
     start_date, end_date = _defaults(start_date, end_date)
 
     status = await get_gcp_status()
     if not status["gcp_available"]:
         return {"available": False, "skus": [], "start_date": start_date, "end_date": end_date}
+    catalog, schema, table = status["catalog"], status["schema"], status["table"]
 
     results = await asyncio.to_thread(execute_query,
         GCP_COSTS_BY_SKU.format(catalog=catalog, schema=schema, table=table),
@@ -375,12 +455,12 @@ async def get_gcp_costs_timeseries(
     end_date: str = Query(default=None),
 ) -> dict[str, Any]:
     """Get daily GCP costs timeseries by service."""
-    catalog, schema, table = get_catalog_schema_table()
     start_date, end_date = _defaults(start_date, end_date)
 
     status = await get_gcp_status()
     if not status["gcp_available"]:
         return {"available": False, "timeseries": [], "services": [], "start_date": start_date, "end_date": end_date}
+    catalog, schema, table = status["catalog"], status["schema"], status["table"]
 
     results = await asyncio.to_thread(execute_query,
         GCP_COSTS_TIMESERIES.format(catalog=catalog, schema=schema, table=table),

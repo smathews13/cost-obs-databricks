@@ -2544,6 +2544,16 @@ async def create_cloud_connection(request: Request, conn: CloudConnectionCreate)
     await _require_admin_async(request)
     if conn.provider not in ("azure", "aws", "gcp"):
         raise HTTPException(status_code=400, detail="Invalid provider. Must be azure, aws, or gcp.")
+    if conn.provider == "gcp":
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Google Cloud actual costs use a Unity Catalog BigQuery foreign "
+                "catalog. Configure GCP_COST_CATALOG, GCP_COST_SCHEMA, and "
+                "GCP_COST_TABLE on the Databricks App; service-account JSON is "
+                "not stored by cost-obs."
+            ),
+        )
 
     connections = _load_connections()
 
@@ -2568,12 +2578,6 @@ async def create_cloud_connection(request: Request, conn: CloudConnectionCreate)
             "secret_access_key": conn.secret_access_key,
             "region": conn.region,
         })
-    elif conn.provider == "gcp":
-        new_conn.update({
-            "project_id": conn.project_id,
-            "service_account_key": conn.service_account_key,
-        })
-
     connections.append(new_conn)
     try:
         _upsert_connection_to_table(new_conn)
