@@ -44,7 +44,9 @@ def test_runbook_is_generated_from_the_exact_runtime_table_contract():
         "system.query.history",
     ):
         assert source_table in rendered
-    assert "Source-table permission preflight failed" in rendered
+    assert "SKIPPED_PERMISSION" in rendered
+    assert "Continuing with partial capability" in rendered
+    assert "Source-table permission preflight failed" not in rendered
     assert "GRANT SELECT ON TABLE" in rendered
     compile(rendered, str(RUNBOOK), "exec")
 

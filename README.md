@@ -77,10 +77,11 @@ and download a standalone Databricks notebook. Import it into the workspace
 that owns the source system tables, review the catalog/schema/share widgets,
 and use **Run All**. The notebook:
 
-1. Builds the exact nine managed aggregate tables used by this app.
-2. Verifies each table and reports its row count.
-3. Creates or reuses a Delta Share and idempotently adds all nine tables.
-4. Optionally grants an existing Delta Sharing recipient access.
+1. Preflights the four required system tables and prints exact grant SQL.
+2. Builds each compatible aggregate and marks permission-dependent tables as skipped.
+3. Verifies successful tables and reports their row counts.
+4. Creates or reuses a Delta Share and idempotently adds successful tables.
+5. Optionally grants an existing Delta Sharing recipient access.
 
 The notebook is generated from the same SQL constants used by the app. The
 release gate fails if the checked-in runbook drifts from the runtime table
