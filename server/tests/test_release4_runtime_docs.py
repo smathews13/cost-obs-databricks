@@ -5,7 +5,7 @@ import asyncio
 import logging
 import re
 import tomllib
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -18,6 +18,7 @@ from server import db
 from server.app import (
     RequestContextMiddleware,
     RequestLoggingMiddleware,
+    _core_refresh_age_hours,
     current_request_id,
 )
 from server.routers import health, settings
@@ -43,6 +44,22 @@ def _test_app() -> FastAPI:
         raise RuntimeError("upstream failed token=do-not-log https://private.example/path")
 
     return app
+
+
+def test_startup_freshness_uses_last_successful_core_refresh():
+    now = datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)
+    refreshed_at = now - timedelta(hours=3)
+    with patch(
+        "server.db.execute_query",
+        return_value=[{"last_refresh_at": refreshed_at}],
+    ) as execute:
+        age = _core_refresh_age_hours("catalog", "schema", now=now)
+
+    assert age == 3
+    sql = execute.call_args.args[0]
+    assert "app_mv_refresh_state" in sql
+    assert "daily_usage_summary" in sql
+    assert "MAX(usage_date)" not in sql
 
 
 def test_request_middleware_returns_and_propagates_correlation_id(caplog):

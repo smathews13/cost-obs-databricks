@@ -35,8 +35,20 @@ def _run_bundle(query_results, workspace_ids=None):
     return result, cache_put
 
 
-def test_gcp_instance_family_matches_backend_contract():
-    assert get_instance_family("n2-standard-4", "GCP") == "n2"
+@pytest.mark.parametrize(
+    ("instance_type", "cloud", "expected"),
+    [
+        ("m6i.xlarge", "AWS", "m6i"),
+        ("Standard_D8s_v5", "AZURE", "Standard_D"),
+        ("n2-standard-4", "GCP", "n2"),
+    ],
+)
+def test_instance_family_matches_three_cloud_contract(
+    instance_type,
+    cloud,
+    expected,
+):
+    assert get_instance_family(instance_type, cloud) == expected
 
 
 def test_infra_bundle_does_not_treat_silent_cluster_failure_as_zero():

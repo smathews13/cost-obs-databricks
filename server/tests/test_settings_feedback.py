@@ -317,6 +317,21 @@ def test_current_workspace_cloud_detects_all_provider_hosts():
             assert settings._current_workspace_cloud() == expected
 
 
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("https://dbc-example.cloud.databricks.com", "aws"),
+        ("https://adb-123.azuredatabricks.net", "azure"),
+        ("https://123.7.gcp.databricks.com", "gcp"),
+    ],
+)
+def test_cloud_provider_endpoint_detects_all_clouds(monkeypatch, host, expected):
+    monkeypatch.setenv("DATABRICKS_HOST", host)
+    result = asyncio.run(settings.get_cloud_provider())
+
+    assert result["provider"] == expected
+
+
 def test_role_payloads_match_admin_route_policy():
     consumer_request = SimpleNamespace(
         headers={"X-Forwarded-Email": "viewer@example.com"}

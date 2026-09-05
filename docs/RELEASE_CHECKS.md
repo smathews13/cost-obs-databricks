@@ -30,6 +30,9 @@ frozen install. It then runs the complete client lint, typecheck, and unit-test
 suites; Python lint and all deterministic backend tests; Python and Bun lock consistency;
 syntax checks for every tracked shell script; the public-tree validator; and an
 isolated production build that must match committed `static/` byte-for-byte.
+The deterministic backend and frontend suites include an explicit AWS, Azure,
+and GCP matrix for host/account routing, deployment metadata, cloud-cost status,
+instance-family parsing, source logos, and workspace region presentation.
 
 Tests that need live credentials or infrastructure must carry the `external`
 and `integration` pytest markers. Unmarked tests cannot open internet sockets,

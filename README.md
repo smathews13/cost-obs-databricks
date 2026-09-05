@@ -468,7 +468,7 @@ Tables are built automatically when the setup wizard completes. The dashboard wo
 
 ### Keeping Tables Fresh
 
-Tables are automatically refreshed on a nightly schedule (default: 05:00 UTC). The scheduler runs incremental updates using MERGE INTO, so only new data is processed after the initial full build — refresh times after the first run are typically under a minute for most deployments.
+Tables are automatically refreshed on a nightly schedule (default: 05:00 UTC). The scheduler runs incremental updates using MERGE INTO, so only new data is processed after the initial full build — refresh times after the first run are typically under a minute for most deployments. Refresh state records the newest source date actually observed. If the source advances beyond a table's safe reprocessing window, the app automatically promotes that table to a full rebuild rather than leaving a permanent gap. Startup freshness uses the last successful core refresh timestamp, not merely the newest billing date.
 
 The refresh frequency and scheduled time are configurable under **Settings → General**. Options include nightly (default), weekly, and monthly.
 

@@ -153,10 +153,11 @@ def test_gcp_app_detail_fallback_uses_observed_cli_shape_without_active_deployme
     "workspace_host",
     (
         "https://dbc-example.cloud.databricks.com",
+        "https://adb-1234567890123456.7.azuredatabricks.net",
         "https://1234567890123456.7.gcp.databricks.com",
     ),
 )
-def test_endpoint_uses_active_deployment_api_on_aws_and_gcp(
+def test_endpoint_uses_active_deployment_api_on_all_clouds(
     monkeypatch,
     workspace_host,
 ):
@@ -199,6 +200,34 @@ def test_endpoint_uses_active_deployment_api_on_aws_and_gcp(
         ("get", "cost-obs"),
         ("get_deployment", "cost-obs", "deployment-active"),
     ]
+
+
+@pytest.mark.parametrize(
+    ("workspace_host", "expected_account_host"),
+    [
+        (
+            "https://dbc-example.cloud.databricks.com",
+            "https://accounts.cloud.databricks.com",
+        ),
+        (
+            "https://adb-1234567890123456.7.azuredatabricks.net",
+            "https://accounts.azuredatabricks.net",
+        ),
+        (
+            "https://1234567890123456.7.gcp.databricks.com",
+            "https://accounts.gcp.databricks.com",
+        ),
+    ],
+)
+def test_account_console_host_routes_all_clouds(
+    monkeypatch,
+    workspace_host,
+    expected_account_host,
+):
+    monkeypatch.delenv("DATABRICKS_ACCOUNT_HOST", raising=False)
+    monkeypatch.setattr(db, "get_host_url", lambda: workspace_host)
+
+    assert db._account_console_host() == expected_account_host
 
 
 def test_gcp_legacy_runtime_resolves_app_name_from_service_principal(monkeypatch):

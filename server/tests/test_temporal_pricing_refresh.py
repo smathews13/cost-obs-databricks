@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from server import materialized_views, queries
 from server.queries.pricing import (
@@ -253,6 +254,75 @@ def test_runtime_refresh_maps_capture_materialized_temporal_price_joins():
             assert "/* TEMPORAL_LIST_PRICE_JOIN */" not in sql, table_name
             if "p.pricing.default" in sql:
                 assert "LEFT JOIN LATERAL" in sql, table_name
+
+
+def test_source_watermark_gap_promotes_beyond_incremental_window():
+    state = {"watermark": "2026-08-01"}
+
+    assert materialized_views._refresh_gap_exceeds_window(
+        state,
+        date(2026, 8, 16),
+        reprocess_days=14,
+        overlap_days=0,
+    )
+    assert not materialized_views._refresh_gap_exceeds_window(
+        state,
+        date(2026, 8, 15),
+        reprocess_days=14,
+        overlap_days=0,
+    )
+
+
+def test_refresh_state_persists_observed_source_watermark():
+    with patch.object(materialized_views, "execute_query") as execute:
+        materialized_views._update_refresh_state(
+            "catalog",
+            "schema",
+            "daily_usage_summary",
+            3,
+            date(2026, 8, 30),
+        )
+
+    sql, params = execute.call_args.args[:2]
+    assert "CAST(:source_watermark AS DATE)" in sql
+    assert "CURRENT_DATE() AS last_source_watermark" not in sql
+    assert params["source_watermark"] == "2026-08-30"
+
+
+def test_source_watermarks_are_read_from_each_source_family_once():
+    with patch.object(
+        materialized_views,
+        "execute_query",
+        side_effect=[
+            [{"watermark": "2026-08-30"}],
+            [{"watermark": "2026-08-29"}],
+        ],
+    ) as execute:
+        watermarks = materialized_views._load_source_watermarks()
+
+    assert watermarks == {
+        "billing": date(2026, 8, 30),
+        "query": date(2026, 8, 29),
+    }
+    assert execute.call_count == 2
+    assert all(call.kwargs["no_cache"] is True for call in execute.call_args_list)
+
+
+def test_refresh_watermark_falls_back_to_target_max_when_source_probe_misses():
+    with patch.object(
+        materialized_views,
+        "execute_query",
+        return_value=[{"watermark": "2026-08-28"}],
+    ):
+        watermark = materialized_views._resolved_refresh_watermark(
+            "catalog",
+            "schema",
+            "daily_usage_summary",
+            state=None,
+            source_watermark=None,
+        )
+
+    assert watermark == date(2026, 8, 28)
 
 
 def test_refresh_ddl_is_bounded_without_using_request_timeouts():

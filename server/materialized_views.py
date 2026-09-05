@@ -1079,6 +1079,16 @@ _TABLE_REFRESH_CONFIG: dict[str, dict] = {
     },
 }
 
+_QUERY_WATERMARK_TABLES = {
+    "sql_tool_attribution",
+    "daily_query_stats",
+    "dbsql_cost_per_query",
+}
+_SOURCE_WATERMARK_SQL = {
+    "billing": "SELECT MAX(usage_date) AS watermark FROM system.billing.usage",
+    "query": "SELECT MAX(DATE(start_time)) AS watermark FROM system.query.history",
+}
+
 _OPTIMIZE_EVERY_N_REFRESHES = 12
 _MV_DDL_TIMEOUT_SECONDS = 300
 _MV_REFRESH_MAX_WORKERS = 3
@@ -1479,7 +1489,7 @@ def _get_refresh_state(catalog: str, schema: str, table_name: str) -> dict | Non
     """Return current refresh state for a table, or None if no state exists."""
     try:
         rows = execute_query(
-            f"SELECT last_source_watermark, refresh_count "
+            f"SELECT last_refresh_at, last_source_watermark, refresh_count "
             f"FROM `{catalog}`.`{schema}`.`app_mv_refresh_state` "
             f"WHERE table_name = :table_name LIMIT 1",
             {"table_name": table_name},
@@ -1487,12 +1497,87 @@ def _get_refresh_state(catalog: str, schema: str, table_name: str) -> dict | Non
         )
         if rows:
             return {
+                "last_refresh_at": rows[0].get("last_refresh_at"),
                 "watermark": rows[0].get("last_source_watermark"),
                 "refresh_count": int(rows[0].get("refresh_count") or 0),
             }
     except Exception:
         pass
     return None
+
+
+def _watermark_date(value) -> date | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _source_kind(table_name: str) -> str:
+    return "query" if table_name in _QUERY_WATERMARK_TABLES else "billing"
+
+
+def _load_source_watermarks() -> dict[str, date | None]:
+    """Read each source family watermark once per refresh operation."""
+    watermarks: dict[str, date | None] = {}
+    for source_kind, query in _SOURCE_WATERMARK_SQL.items():
+        try:
+            rows = execute_query(query, no_cache=True, timeout=30)
+            watermarks[source_kind] = _watermark_date(
+                rows[0].get("watermark") if rows else None
+            )
+        except Exception as exc:
+            logger.warning(
+                "Could not read %s source watermark (non-fatal): %s",
+                source_kind,
+                exc,
+            )
+            watermarks[source_kind] = None
+    return watermarks
+
+
+def _refresh_gap_exceeds_window(
+    state: dict | None,
+    source_watermark: date | None,
+    reprocess_days: int,
+    overlap_days: int,
+) -> bool:
+    prior_watermark = _watermark_date((state or {}).get("watermark"))
+    if prior_watermark is None or source_watermark is None:
+        return False
+    return (source_watermark - prior_watermark).days > (
+        int(reprocess_days) + int(overlap_days)
+    )
+
+
+def _resolved_refresh_watermark(
+    catalog: str,
+    schema: str,
+    table_name: str,
+    state: dict | None,
+    source_watermark: date | None,
+) -> date | None:
+    """Prefer the source watermark, preserving or deriving a safe fallback."""
+    if source_watermark is not None:
+        return source_watermark
+    prior = _watermark_date((state or {}).get("watermark"))
+    if prior is not None:
+        return prior
+    source_date_col = _TABLE_REFRESH_CONFIG.get(table_name, {}).get(
+        "source_date_col",
+        "usage_date",
+    )
+    try:
+        rows = execute_query(
+            f"SELECT MAX(`{source_date_col}`) AS watermark "
+            f"FROM `{catalog}`.`{schema}`.`{table_name}`",
+            no_cache=True,
+        )
+        return _watermark_date(rows[0].get("watermark") if rows else None)
+    except Exception:
+        return None
 
 
 _DEDUP_SKIP: frozenset = frozenset({"dbsql_cost_per_query"})
@@ -1534,7 +1619,13 @@ def _dedup_delta_table(catalog: str, schema: str, table_name: str, pk_cols: list
         return 0
 
 
-def _update_refresh_state(catalog: str, schema: str, table_name: str, refresh_count: int) -> None:
+def _update_refresh_state(
+    catalog: str,
+    schema: str,
+    table_name: str,
+    refresh_count: int,
+    source_watermark: date | None,
+) -> None:
     """Upsert refresh state after a successful table refresh."""
     try:
         cfg = _TABLE_REFRESH_CONFIG.get(table_name, {})
@@ -1544,14 +1635,21 @@ def _update_refresh_state(catalog: str, schema: str, table_name: str, refresh_co
             USING (SELECT
                 :table_name AS table_name,
                 CURRENT_TIMESTAMP() AS last_refresh_at,
-                CURRENT_DATE() AS last_source_watermark,
+                CAST(:source_watermark AS DATE) AS last_source_watermark,
                 :reprocess_days AS reprocess_window_days,
                 :refresh_count AS refresh_count
             ) AS src
             ON tgt.table_name = src.table_name
             WHEN MATCHED THEN UPDATE SET *
             WHEN NOT MATCHED BY TARGET THEN INSERT *""",
-            {"table_name": table_name, "reprocess_days": reprocess_days, "refresh_count": refresh_count},
+            {
+                "table_name": table_name,
+                "source_watermark": (
+                    source_watermark.isoformat() if source_watermark else None
+                ),
+                "reprocess_days": reprocess_days,
+                "refresh_count": refresh_count,
+            },
             no_cache=True,
         )
     except Exception as e:
@@ -1706,6 +1804,7 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
 
     # List of tables to create
     tables = list(CREATE_MV_TABLES.items())
+    source_watermarks = _load_source_watermarks()
 
     # Create all tables in parallel — none depend on each other
     import time as _time
@@ -1720,6 +1819,7 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
             logger.info(f"Refreshing table {catalog}.{schema}.{table_name}...")
             cfg = _TABLE_REFRESH_CONFIG.get(table_name, {})
             state = _get_refresh_state(catalog, schema, table_name)
+            source_watermark = source_watermarks.get(_source_kind(table_name))
 
             # If no state record exists but the table already has rows, recover
             # gracefully by using the incremental MERGE path. This prevents an
@@ -1729,20 +1829,47 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
             # presumably backfilled manually or by a prior catch-up run.
             if not force_full_rebuild and not state:
                 try:
+                    source_date_col = cfg.get("source_date_col", "usage_date")
                     _cnt = execute_query(
-                        f"SELECT COUNT(*) AS cnt FROM `{catalog}`.`{schema}`.`{table_name}` LIMIT 1",
+                        f"SELECT COUNT(*) AS cnt, MAX(`{source_date_col}`) AS watermark "
+                        f"FROM `{catalog}`.`{schema}`.`{table_name}`",
                         no_cache=True,
                     )
                     if _cnt and int(_cnt[0].get("cnt", 0) or 0) > 0:
-                        state = {"watermark": str(date.today()), "refresh_count": 0}
-                        logger.info(f"{table_name}: no state record but table has rows — using incremental MERGE")
+                        state = {
+                            "watermark": _cnt[0].get("watermark"),
+                            "refresh_count": 0,
+                        }
+                        logger.info(
+                            "%s: recovered missing refresh state from target watermark",
+                            table_name,
+                        )
                 except Exception:
                     pass  # no table yet — fall through to full CREATE
 
-            if not force_full_rebuild and state and state.get("watermark"):
+            reprocess_days = int(cfg.get("reprocess_days", 14))
+            overlap_days = int(cfg.get("overlap_days", 0))
+            gap_requires_full = _refresh_gap_exceeds_window(
+                state,
+                source_watermark,
+                reprocess_days,
+                overlap_days,
+            )
+            if gap_requires_full:
+                logger.warning(
+                    "%s: source advanced beyond the %d-day incremental window; "
+                    "promoting to a full rebuild",
+                    table_name,
+                    reprocess_days + overlap_days,
+                )
+
+            if (
+                not force_full_rebuild
+                and not gap_requires_full
+                and state
+                and state.get("watermark")
+            ):
                 # Incremental path: MERGE reprocess window
-                reprocess_days = cfg.get("reprocess_days", 14)
-                overlap_days = cfg.get("overlap_days", 0)
                 reprocess_start = date.today() - _td(days=reprocess_days + overlap_days)
 
                 merge_sql = MERGE_MV_TABLES.get(table_name)
@@ -1759,7 +1886,19 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
                         _dedup_delta_table(catalog, schema, table_name,
                                            _TABLE_REFRESH_CONFIG.get(table_name, {}).get("pk") or [])
                         new_count = state["refresh_count"] + 1
-                        _update_refresh_state(catalog, schema, table_name, new_count)
+                        _update_refresh_state(
+                            catalog,
+                            schema,
+                            table_name,
+                            new_count,
+                            _resolved_refresh_watermark(
+                                catalog,
+                                schema,
+                                table_name,
+                                state,
+                                source_watermark,
+                            ),
+                        )
 
                         # Periodic OPTIMIZE
                         if new_count % _OPTIMIZE_EVERY_N_REFRESHES == 0:
@@ -1788,7 +1927,19 @@ def _create_materialized_views_locked(catalog: str | None = None, schema: str | 
                 no_cache=True,
                 timeout=_MV_DDL_TIMEOUT_SECONDS,
             )
-            _update_refresh_state(catalog, schema, table_name, 1)
+            _update_refresh_state(
+                catalog,
+                schema,
+                table_name,
+                1,
+                _resolved_refresh_watermark(
+                    catalog,
+                    schema,
+                    table_name,
+                    state,
+                    source_watermark,
+                ),
+            )
             elapsed = _time.monotonic() - t0
             logger.info(f"✓ {table_name} full rebuild done in {elapsed:.1f}s")
             if on_table_event:

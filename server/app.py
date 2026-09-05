@@ -555,6 +555,47 @@ def _claim_startup_unified_views_worker(
     return True
 
 
+def _core_refresh_age_hours(
+    catalog: str,
+    schema: str,
+    *,
+    now=None,
+) -> float:
+    """Hours since the last successful core-table refresh, or infinity."""
+    from datetime import datetime, timezone
+
+    from server.db import execute_query
+
+    current_time = now or datetime.now(timezone.utc)
+    try:
+        rows = execute_query(
+            f"SELECT last_refresh_at "
+            f"FROM `{catalog}`.`{schema}`.`app_mv_refresh_state` "
+            "WHERE table_name = 'daily_usage_summary' LIMIT 1",
+            no_cache=True,
+        )
+        raw = rows[0].get("last_refresh_at") if rows else None
+        if raw is None:
+            return float("inf")
+        refreshed_at = (
+            raw
+            if isinstance(raw, datetime)
+            else datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        )
+        if refreshed_at.tzinfo is None:
+            refreshed_at = refreshed_at.replace(tzinfo=timezone.utc)
+        return max(
+            0.0,
+            (
+                current_time.astimezone(timezone.utc)
+                - refreshed_at.astimezone(timezone.utc)
+            ).total_seconds()
+            / 3600,
+        )
+    except Exception:
+        return float("inf")
+
+
 def setup_materialized_views():
     """Refresh materialized views post-deploy — only if setup is durably complete.
 
@@ -569,7 +610,6 @@ def setup_materialized_views():
     try:
         from server.db import (
             StorageConfigurationError,
-            execute_query,
             get_catalog_schema,
             validate_app_storage_target,
         )
@@ -638,27 +678,19 @@ def setup_materialized_views():
         # Tables durably exist — background refresh is safe, but skip if recently refreshed.
         # Refreshing on every restart hammers the warehouse during cold start. The nightly
         # scheduler handles regular refreshes; startup only refreshes if data is stale (>26h).
-        # Read freshness from the MV table itself (persists across deploys) rather than from
-        # a local log file that gets wiped on every redeploy, which caused spurious concurrent
-        # rebuilds conflicting with the nightly scheduled run (DELTA_METADATA_CHANGED errors).
+        # Read the last successful core refresh from durable refresh state. A
+        # recent source usage_date is not evidence that the refresh itself ran.
         import threading
-        from datetime import datetime, timezone
-        _hours_since = float("inf")
-        try:
-            _fresh_result = execute_query(
-                f"SELECT CAST(MAX(usage_date) AS DATE) as latest FROM `{catalog}`.`{schema}`.`daily_usage_summary`",
-                no_cache=True,
-            )
-            if _fresh_result and _fresh_result[0].get("latest"):
-                _latest_dt = datetime.fromisoformat(str(_fresh_result[0]["latest"])).replace(tzinfo=timezone.utc)
-                _hours_since = (datetime.now(timezone.utc) - _latest_dt).total_seconds() / 3600
-        except Exception:
-            pass  # table missing or warehouse unavailable → treat as stale
+        _hours_since = _core_refresh_age_hours(catalog, schema)
 
         if _hours_since < 26:
-            logger.info(f"Startup MV refresh SKIPPED — data is {_hours_since:.1f}h old (< 26h, fresh enough)")
+            logger.info(
+                "Startup MV refresh SKIPPED — last successful core refresh "
+                "%.1fh ago (< 26h)",
+                _hours_since,
+            )
             _record_startup_skip_once(
-                f"Managed data is {_hours_since:.1f}h old and does not need a startup rebuild."
+                f"Core managed tables refreshed {_hours_since:.1f}h ago and do not need a startup rebuild."
             )
             # No base-table replacement is needed, so it is now safe to refresh
             # the persisted shared-source view definitions. The rebuild function
