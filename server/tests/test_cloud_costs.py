@@ -378,6 +378,48 @@ def test_cloud_bundle_keeps_core_when_actual_provider_is_overloaded():
     assert result["aws_actual"]["transient_error"] is True
 
 
+def test_cloud_bundle_keeps_core_when_azure_actual_is_overloaded():
+    infra = {
+        "availability": "available",
+        "infra_costs": {"available": True},
+        "infra_timeseries": {"available": True},
+    }
+    unavailable = {
+        "available": False,
+        "start_date": "2026-08-01",
+        "end_date": "2026-08-28",
+    }
+    with (
+        patch.object(billing, "get_infra_bundle", new=AsyncMock(return_value=infra)),
+        patch.object(
+            aws_actual,
+            "get_aws_actual_dashboard_bundle",
+            new=AsyncMock(return_value=unavailable),
+        ),
+        patch.object(
+            azure_actual,
+            "get_azure_actual_dashboard_bundle",
+            new=AsyncMock(side_effect=billing.SQLExecutionError("capacity")),
+        ),
+        patch.object(
+            gcp_actual,
+            "get_gcp_actual_dashboard_bundle",
+            new=AsyncMock(return_value=unavailable),
+        ),
+    ):
+        result = asyncio.run(
+            billing._compute_cloud_costs_bundle(
+                {"start_date": "2026-08-01", "end_date": "2026-08-28"},
+                None,
+            )
+        )
+
+    assert result["availability"] == "partial"
+    assert result["infra_bundle"] is infra
+    assert result["partial_reasons"]["azure_actual"] == "SQL_EXECUTION_ERROR"
+    assert result["azure_actual"]["transient_error"] is True
+
+
 def test_gcp_status_does_not_cache_capacity_as_integration_absence():
     gcp_actual._gcp_status_cache.update({"available": None, "checked_at": 0})
     with patch.object(
@@ -629,6 +671,59 @@ def test_gcp_actual_optional_detail_failure_is_partial():
     assert result["summary"] is summary
     assert result["by_service"] is None
     assert result["partial_reasons"] == {"by_service": "SQL_EXECUTION_ERROR"}
+
+
+def test_azure_actual_optional_detail_failure_is_partial():
+    summary = {
+        "available": True,
+        "total_cost": 100,
+        "start_date": "2026-08-01",
+        "end_date": "2026-08-28",
+    }
+    empty = {
+        "available": True,
+        "start_date": "2026-08-01",
+        "end_date": "2026-08-28",
+    }
+    with (
+        patch.object(
+            azure_actual,
+            "get_azure_status",
+            new=AsyncMock(return_value={"azure_available": True}),
+        ),
+        patch.object(
+            azure_actual,
+            "get_azure_actual_summary",
+            new=AsyncMock(return_value=summary),
+        ),
+        patch.object(
+            azure_actual,
+            "get_azure_costs_by_cluster",
+            new=AsyncMock(side_effect=billing.SQLExecutionError("capacity")),
+        ),
+        patch.object(
+            azure_actual,
+            "get_azure_costs_by_charge_type",
+            new=AsyncMock(return_value=empty),
+        ),
+        patch.object(
+            azure_actual,
+            "get_azure_costs_timeseries",
+            new=AsyncMock(return_value=empty),
+        ),
+    ):
+        result = asyncio.run(
+            azure_actual.get_azure_actual_dashboard_bundle(
+                start_date="2026-08-01",
+                end_date="2026-08-28",
+            )
+        )
+
+    assert result["available"] is True
+    assert result["availability"] == "partial"
+    assert result["summary"] is summary
+    assert result["by_cluster"] is None
+    assert result["partial_reasons"] == {"by_cluster": "SQL_EXECUTION_ERROR"}
 
 
 def test_cloud_poll_does_not_query_cache_while_producer_is_pending():

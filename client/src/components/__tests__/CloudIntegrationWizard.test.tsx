@@ -6,9 +6,13 @@ import { CloudIntegrationWizard } from "../CloudIntegrationWizard";
 
 function WizardHarness({
   onClose = vi.fn(),
+  awsActualAvailable = false,
+  azureActualAvailable = false,
   gcpActualAvailable = false,
 }: {
   onClose?: () => void;
+  awsActualAvailable?: boolean;
+  azureActualAvailable?: boolean;
   gcpActualAvailable?: boolean;
 }) {
   const [cloud, setCloud] = useState<"azure" | "aws" | "gcp" | null>(null);
@@ -26,6 +30,8 @@ function WizardHarness({
       addIntegration={vi.fn()}
       isAzure={false}
       isGCP
+      awsActualAvailable={awsActualAvailable}
+      azureActualAvailable={azureActualAvailable}
       gcpActualAvailable={gcpActualAvailable}
     />
   );
@@ -61,8 +67,21 @@ describe("CloudIntegrationWizard", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("Backend connected");
     expect(screen.getByRole("status")).toHaveTextContent(
-      "Saving this checklist does not configure credentials",
+      "it does not configure credentials",
     );
+  });
+
+  it("reports Azure backend readiness with the same truthful checklist contract", async () => {
+    render(<WizardHarness azureActualAvailable />);
+    await userEvent.click(screen.getByRole("button", {
+      name: /configure microsoft azure cost integration/i,
+    }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Backend connected");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Saving this checklist records progress only",
+    );
+    expect(screen.getByRole("button", { name: "Save setup checklist" })).toBeVisible();
   });
 
   it("dismisses on Escape and outside interaction", async () => {

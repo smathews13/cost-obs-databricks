@@ -1543,12 +1543,24 @@ def _refresh_gap_exceeds_window(
     source_watermark: date | None,
     reprocess_days: int,
     overlap_days: int,
+    *,
+    as_of: date | None = None,
 ) -> bool:
     prior_watermark = _watermark_date((state or {}).get("watermark"))
-    if prior_watermark is None or source_watermark is None:
+    if prior_watermark is None:
         return False
-    return (source_watermark - prior_watermark).days > (
-        int(reprocess_days) + int(overlap_days)
+    window_days = int(reprocess_days) + int(overlap_days)
+    elapsed_days = ((as_of or date.today()) - prior_watermark).days
+    if source_watermark is None:
+        # After a long outage, an unavailable source probe cannot prove the
+        # rolling window covers every date. Prefer a safe full rebuild.
+        return elapsed_days > window_days
+    if source_watermark <= prior_watermark:
+        # The source has not advanced, so there are no new rows to recover.
+        return False
+    return (
+        elapsed_days > window_days
+        or (source_watermark - prior_watermark).days > window_days
     )
 
 

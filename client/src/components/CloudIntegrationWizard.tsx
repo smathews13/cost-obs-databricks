@@ -20,6 +20,8 @@ interface CloudIntegrationWizardProps {
   addIntegration: (cloud: "azure" | "aws" | "gcp") => void;
   isAzure: boolean;
   isGCP: boolean;
+  awsActualAvailable: boolean;
+  azureActualAvailable: boolean;
   gcpActualAvailable: boolean;
 }
 
@@ -31,7 +33,8 @@ export function CloudIntegrationWizard({
   wizardExpandedStep, setWizardExpandedStep,
   viewingIntegration,
   cloudIntegrations, addIntegration,
-  isAzure, isGCP, gcpActualAvailable,
+  isAzure, isGCP,
+  awsActualAvailable, azureActualAvailable, gcpActualAvailable,
 }: CloudIntegrationWizardProps) {
   const titleId = useId();
   const descriptionId = useId();
@@ -40,6 +43,11 @@ export function CloudIntegrationWizard({
   const [checkedSteps, setCheckedSteps] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(localStorage.getItem(WIZARD_STEPS_KEY) || "{}"); } catch { return {}; }
   });
+  const selectedBackendAvailable =
+    wizardCloud === "aws" ? awsActualAvailable
+    : wizardCloud === "azure" ? azureActualAvailable
+    : wizardCloud === "gcp" ? gcpActualAvailable
+    : false;
 
   const toggleStep = (key: string) => {
     setCheckedSteps(prev => {
@@ -188,19 +196,19 @@ export function CloudIntegrationWizard({
                     ? "Connect the raw Google Cloud Billing standard export through a Unity Catalog BigQuery foreign catalog, then configure the app with the exact catalog, schema, and suffixed table name."
                     : "Export AWS cost data using CUR 2.0 Standard Data Export, then ingest into Databricks from S3. Follow the steps below:"}
                 </p>
-                {wizardCloud === "gcp" && (
+                {wizardCloud !== null && (
                   <div
                     role="status"
                     className="rounded-lg border p-3 text-sm"
                     style={{
-                      borderColor: gcpActualAvailable ? C.green : C.amber,
-                      background: gcpActualAvailable ? C.greenTint : C.amberTint,
-                      color: gcpActualAvailable ? C.greenInk : C.amberInk,
+                      borderColor: selectedBackendAvailable ? C.green : C.amber,
+                      background: selectedBackendAvailable ? C.greenTint : C.amberTint,
+                      color: selectedBackendAvailable ? C.greenInk : C.amberInk,
                     }}
                   >
-                    <strong>{gcpActualAvailable ? "Backend connected." : "Backend not connected yet."}</strong>{" "}
-                    Saving this checklist does not configure credentials or environment variables.
-                    Actual costs unlock only after the app can read the configured raw billing-export table.
+                    <strong>{selectedBackendAvailable ? "Backend connected." : "Backend not connected yet."}</strong>{" "}
+                    Saving this checklist records progress only; it does not configure credentials or app settings.
+                    Actual costs unlock only after the app can read the configured billing-export table.
                   </div>
                 )}
 
@@ -542,7 +550,7 @@ export function CloudIntegrationWizard({
                   }}
                   className="btn-brand px-4 py-2 text-sm focus-visible:outline-none"
                 >
-                  {wizardCloud === "gcp" ? "Save setup checklist" : "Mark as configured"}
+                  Save setup checklist
                 </button>
               )}
             </div>

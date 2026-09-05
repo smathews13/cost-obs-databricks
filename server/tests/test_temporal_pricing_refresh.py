@@ -264,12 +264,40 @@ def test_source_watermark_gap_promotes_beyond_incremental_window():
         date(2026, 8, 16),
         reprocess_days=14,
         overlap_days=0,
+        as_of=date(2026, 8, 16),
     )
     assert not materialized_views._refresh_gap_exceeds_window(
         state,
         date(2026, 8, 15),
         reprocess_days=14,
         overlap_days=0,
+        as_of=date(2026, 8, 15),
+    )
+
+
+def test_elapsed_calendar_gap_promotes_when_source_advanced_inside_old_window():
+    state = {"watermark": "2026-08-01"}
+
+    assert materialized_views._refresh_gap_exceeds_window(
+        state,
+        date(2026, 8, 10),
+        reprocess_days=14,
+        overlap_days=0,
+        as_of=date(2026, 8, 20),
+    )
+    assert materialized_views._refresh_gap_exceeds_window(
+        state,
+        None,
+        reprocess_days=14,
+        overlap_days=0,
+        as_of=date(2026, 8, 20),
+    )
+    assert not materialized_views._refresh_gap_exceeds_window(
+        state,
+        date(2026, 8, 1),
+        reprocess_days=14,
+        overlap_days=0,
+        as_of=date(2026, 8, 20),
     )
 
 

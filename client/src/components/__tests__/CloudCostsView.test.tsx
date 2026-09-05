@@ -108,6 +108,37 @@ describe("CloudCostsView empty-data controls", () => {
     );
   });
 
+  it("prefers the detected Azure provider when multiple actual integrations exist", async () => {
+    renderView({
+      detectedCloud: "AZURE",
+      actualData: { available: true, start_date: "2026-08-01", end_date: "2026-08-28" },
+      azureActualData: {
+        available: true,
+        summary: {
+          available: true,
+          total_cost: 100,
+          start_date: "2026-08-01",
+          end_date: "2026-08-28",
+        },
+        start_date: "2026-08-01",
+        end_date: "2026-08-28",
+      },
+      gcpActualData: {
+        available: true,
+        start_date: "2026-08-01",
+        end_date: "2026-08-28",
+      },
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Actual Costs" }));
+
+    expect(screen.getByText("Actual Azure Infrastructure Cost")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Azure actual costs" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("keeps an actual-cost total visible when optional detail is partial", async () => {
     renderView({
       gcpActualData: {

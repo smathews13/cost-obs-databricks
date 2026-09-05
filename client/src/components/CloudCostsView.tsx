@@ -453,7 +453,7 @@ export function CloudCostsView({
                 />
                 <span className="text-sm text-gray-700">{integration.cloud === "azure" ? "Azure Cost Management Export" : integration.cloud === "gcp" ? "GCP Billing Export (BigQuery)" : "AWS CUR 2.0"}</span>
                 <span className="rounded px-2 py-0.5 text-xs font-medium" style={{ background: C.amberTint, color: C.amberInk }}>
-                  {integration.cloud === "gcp" ? "Checklist saved" : "Setup in progress"}
+                  Checklist saved
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -492,6 +492,8 @@ export function CloudCostsView({
       addIntegration={addIntegration}
       isAzure={isAzure}
       isGCP={isGCP}
+      awsActualAvailable={awsActualAvailable}
+      azureActualAvailable={azureActualAvailable}
       gcpActualAvailable={gcpActualAvailable}
     />
   );

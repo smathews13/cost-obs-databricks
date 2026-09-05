@@ -30,6 +30,7 @@ A Pro or Classic warehouse also works, but cold-start times will be longer durin
 | `system.query.history` access | SQL Warehousing tab — per-query cost attribution |
 | `system.compute.clusters` access | Job & cluster cost breakdown |
 | AWS Cost and Usage Reports (CUR 2.0) | Actual AWS infrastructure costs alongside DBU spend |
+| Azure Cost Management usage export | Actual Azure infrastructure costs alongside DBU spend |
 | Google Cloud Billing standard export + BigQuery federation | Net Google Cloud infrastructure costs alongside DBU spend |
 
 ---
@@ -73,6 +74,9 @@ The bound warehouse is the only required deployment-time resource. Leave the app
 | `COST_OBS_CATALOG` | No | Optional preconfigured Unity Catalog catalog for managed tables — must be dedicated, not `main` |
 | `COST_OBS_SCHEMA` | No | Optional preconfigured schema for managed tables (for example, `cost_obs_app`) |
 | `COST_OBS_WORKSPACES` | No | Comma-separated workspace IDs to restrict the dashboard |
+| `AZURE_COST_CATALOG` | Azure actual costs only | Unity Catalog catalog containing the curated Azure usage export |
+| `AZURE_COST_SCHEMA` | Azure actual costs only | Schema containing the Azure `actuals_gold` table |
+| `AZURE_SUBSCRIPTION_ID` | No | Optional subscription ID shown in the Azure account banner |
 | `GCP_COST_CATALOG` | GCP actual costs only | Unity Catalog BigQuery foreign catalog containing the raw billing export |
 | `GCP_COST_SCHEMA` | GCP actual costs only | BigQuery billing-export dataset exposed as a foreign schema |
 | `GCP_COST_TABLE` | When multiple exports exist | Exact suffixed `gcp_billing_export_v1_*` standard export table |

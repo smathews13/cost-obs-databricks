@@ -28,6 +28,8 @@ const data = {
       top_products: ["APPS"],
       top_users: ["service-principal"],
       historical: true,
+      cloud: "azure",
+      region: "eastus2",
     },
   ],
   total_spend: 44,
@@ -84,12 +86,17 @@ describe("WorkspaceTable floating controls", () => {
   });
 
   it("shows the workspace cloud logo and region", () => {
-    renderTable();
+    renderTable({ "workspace-2": "Recovered workspace" });
 
     expect(screen.getByRole("img", { name: "Google Cloud" })).toHaveAttribute(
       "src",
       expect.stringContaining("gcp.svg"),
     );
+    expect(screen.getByRole("img", { name: "Azure" })).toHaveAttribute(
+      "src",
+      expect.stringContaining("azure"),
+    );
     expect(screen.getByText("west4")).toBeVisible();
+    expect(screen.getByText("eastus2")).toBeVisible();
   });
 });
