@@ -89,6 +89,25 @@ describe("DeploymentBadge", () => {
     expect(trigger).toHaveAttribute("aria-describedby", screen.getByRole("tooltip").id);
   });
 
+  it("restores the teal rail-control appearance beside Built on Databricks", () => {
+    render(<DeploymentBadge metadata={metadata} variant="control" />);
+
+    const trigger = screen.getByRole("button", { name: /deployment information: aug 30/i });
+    const clock = screen.getByTestId("deployment-clock");
+    const date = screen.getByTestId("deployment-badge-date");
+    expect(trigger).toHaveClass(
+      "rail-control-border",
+      "h-[32px]",
+      "rounded-[8px]",
+      "bg-white/[.07]",
+      "text-[12px]",
+    );
+    expect(trigger).not.toHaveClass("rail-status-badge", "bg-green-500/20");
+    expect(screen.queryByTestId("deployment-status-dot")).not.toBeInTheDocument();
+    expect(clock.compareDocumentPosition(date) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+  });
+
   it("labels a missing deployment timestamp without fabricating other fields", () => {
     render(<DeploymentBadge metadata={{
       deployed_at: null,

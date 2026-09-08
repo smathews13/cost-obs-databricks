@@ -1767,9 +1767,7 @@ function Dashboard() {
             </span>
           </a>
 
-          <DeploymentBadgeFromApi
-            triggerClassName={`${RAIL_STATUS_BADGE_CLASS} transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
-          />
+          <DeploymentBadgeFromApi variant="control" />
 
           <span className="hidden h-[22px] w-px shrink-0 bg-white/[.16] min-[1180px]:block" aria-hidden="true" />
 
