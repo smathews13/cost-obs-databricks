@@ -1173,6 +1173,37 @@ function Dashboard() {
     // Deferred: only fire when the Optimize tab is actually opened.
     enabled: optimizerRequested,
   });
+  const optimizeChecksSettled = Boolean(optimizeRightsizingData && optimizeIdleData)
+    && !optimizeRightsizingLoading
+    && !optimizeIdleLoading
+    && !optimizeRightsizingError
+    && !optimizeIdleError;
+  const optimizeHasData = Boolean(
+    (
+      optimizeRightsizingData?.available
+      && (
+        optimizeRightsizingData.warehouses_analyzed > 0
+        || optimizeRightsizingData.recommendations.length > 0
+      )
+    )
+    || (
+      optimizeIdleData?.available
+      && optimizeIdleData.warehouses.length > 0
+    )
+  );
+  const runtimeTabVisibility = useMemo(
+    () => ({
+      ...tabVisibility,
+      optimizer: tabVisibility.optimizer
+        && !(optimizeChecksSettled && !optimizeHasData),
+    }),
+    [optimizeChecksSettled, optimizeHasData, tabVisibility],
+  );
+  useEffect(() => {
+    if (activeTab === "optimizer" && !runtimeTabVisibility.optimizer) {
+      setActiveTab("dbu");
+    }
+  }, [activeTab, runtimeTabVisibility.optimizer]);
   const retryScheduledTab = useCallback(
     async (tab: ViewTab, refetch: () => Promise<unknown>) => {
       await requeueDemandTabs([tab]);
@@ -1946,7 +1977,7 @@ function Dashboard() {
           {/* Tab Navigation */}
           <DashboardTabNavigation
             activeTab={activeTab}
-            visibility={tabVisibility}
+            visibility={runtimeTabVisibility}
             loading={{
               ...tabFetching,
               ...unresolvedTabDemand,

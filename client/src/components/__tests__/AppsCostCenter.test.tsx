@@ -233,7 +233,7 @@ describe("AppsCostCenter metadata detail", () => {
     expect(screen.getByText(/No connected resources were reported/i)).toBeVisible();
   });
 
-  it("settles Connected Resources when remote scope cannot use the local Apps API", () => {
+  it("hides Connected Resources when remote scope cannot use the local Apps API", () => {
     const data = bundle([]);
     data.connected_resources_available = false;
     data.connected_resources_reason = "Connected resources are unavailable for west4.";
@@ -244,7 +244,8 @@ describe("AppsCostCenter metadata detail", () => {
       </QueryClientProvider>,
     );
 
-    expect(screen.getByText("Connected resources are unavailable for west4.")).toBeVisible();
+    expect(screen.queryByText("Connected Resources")).not.toBeInTheDocument();
+    expect(screen.queryByText("Connected resources are unavailable for west4.")).not.toBeInTheDocument();
     expect(screen.queryByText(/still loading/i)).not.toBeInTheDocument();
   });
 

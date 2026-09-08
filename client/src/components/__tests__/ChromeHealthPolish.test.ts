@@ -18,6 +18,15 @@ describe("account rail health polish", () => {
     );
   });
 
+  it("removes Optimize after successful checks find no warehouse data", () => {
+    expect(appSource).toContain("const optimizeChecksSettled");
+    expect(appSource).toContain("const optimizeHasData");
+    expect(appSource).toContain("visibility={runtimeTabVisibility}");
+    expect(appSource).toContain(
+      'if (activeTab === "optimizer" && !runtimeTabVisibility.optimizer)',
+    );
+  });
+
   it("uses one dark slate border token for rail controls and Export", () => {
     expect(styles).toContain("--rail-control-border: #315F70;");
     expect(styles).toContain(".rail-control-border");
