@@ -1997,13 +1997,19 @@ def refresh_materialized_views(catalog: str | None = None, schema: str | None = 
 
 
 _APP_CONFIG_TABLES = [
+    "app_alert_thresholds",
+    "app_cloud_connections",
     "app_mv_refresh_state",
+    "app_mv_sources",
+    "app_pricing_settings",
     "app_refresh_log",
+    "app_response_cache",
     "app_schedule_settings",
     "app_settings",
+    "app_unified_views",
     "app_user_permissions",
+    "app_webhook_settings",
     "app_workspace_filter",
-    "app_response_cache",
 ]
 
 
@@ -2017,7 +2023,25 @@ def drop_materialized_views(catalog: str | None = None, schema: str | None = Non
         catalog = catalog or cat
         schema = schema or sch
 
+    from server.db import (
+        MV_SOURCE_ROWS_SUFFIX,
+        MV_UNIFIED_SUFFIX,
+        validate_app_storage_target,
+    )
+
+    validate_app_storage_target(catalog, schema)
     results: dict[str, str] = {}
+    for name in _MV_TABLES:
+        for suffix in (MV_UNIFIED_SUFFIX, MV_SOURCE_ROWS_SUFFIX):
+            view_name = f"{name}{suffix}"
+            try:
+                execute_query(
+                    f"DROP VIEW IF EXISTS `{catalog}`.`{schema}`.`{view_name}`",
+                    no_cache=True,
+                )
+                results[view_name] = "dropped"
+            except Exception as e:
+                results[view_name] = f"error: {e}"
     for name in _MV_TABLES + _APP_CONFIG_TABLES:
         try:
             execute_query(f"DROP TABLE IF EXISTS `{catalog}`.`{schema}`.`{name}`", no_cache=True)

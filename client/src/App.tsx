@@ -1520,10 +1520,13 @@ function Dashboard() {
     }),
     [wsListData?.workspaces, workspaceNameMap],
   );
-  const wsFilterIds = useMemo(
+  const sourceRoutingWorkspaces = useMemo(
     () => wsFilterList
-      .map((workspace) => workspace.workspace_id)
-      .filter((id): id is string => Boolean(id)),
+      .filter((workspace) => Boolean(workspace.workspace_id))
+      .map((workspace) => ({
+        id: workspace.workspace_id as string,
+        name: workspace.workspace_name,
+      })),
     [wsFilterList],
   );
   const workspaceScopeCount = wsListData && !wsListData.error
@@ -1819,7 +1822,7 @@ function Dashboard() {
             />
             <SourceLabelFilter
               variant="rail"
-              localWorkspaceIds={wsFilterIds}
+              localWorkspaces={sourceRoutingWorkspaces}
               onApplied={handleSourceApplied}
             />
           </div>

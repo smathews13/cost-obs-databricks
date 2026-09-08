@@ -2390,18 +2390,21 @@ async def get_workspace_filter() -> dict:
     # Locked = Delta table has a row (written on first save, survives redeploys)
     locked = False
     try:
-        from server.db import execute_query, get_catalog_schema
-        catalog, schema = get_catalog_schema()
+        from server.db import execute_query
+        from server.routers.settings import _config_table
+
+        table = _config_table("app_workspace_filter")
         rows = await asyncio.to_thread(execute_query,
-            f"SELECT workspace_ids FROM `{catalog}`.`{schema}`.app_workspace_filter LIMIT 1",
+            f"SELECT workspace_ids_json FROM {table} LIMIT 1",
             no_cache=True,
         )
         if rows:
             locked = True
-            if not workspace_ids and rows[0].get("workspace_ids"):
+            if not workspace_ids and rows[0].get("workspace_ids_json"):
+                parsed = json.loads(str(rows[0]["workspace_ids_json"]))
                 workspace_ids = [
-                    i.strip() for i in str(rows[0]["workspace_ids"]).split(",")
-                    if i.strip() and _re.match(r'^[a-zA-Z0-9_\-\.]+$', i.strip())
+                    str(i) for i in parsed
+                    if _re.match(r'^[a-zA-Z0-9_\-\.]+$', str(i))
                 ]
     except Exception:
         pass
@@ -2421,20 +2424,9 @@ def restore_workspace_filter_from_delta() -> None:
     if os.path.exists(settings_path):
         return
     try:
-        from server.db import execute_query, get_catalog_schema
-        catalog, schema = get_catalog_schema()
-        rows = execute_query(
-            f"SELECT workspace_ids FROM `{catalog}`.`{schema}`.app_workspace_filter LIMIT 1",
-            no_cache=True,
-        )
-        if rows and rows[0].get("workspace_ids"):
-            ids = [i.strip() for i in str(rows[0]["workspace_ids"]).split(",") if i.strip()]
-            os.makedirs(SETTINGS_DIR, exist_ok=True)
-            with open(settings_path, "w") as f:
-                json.dump({"workspace_ids": ids}, f)
-            logger.info("Workspace filter restored from Delta: %d workspace(s)", len(ids))
-        else:
-            logger.info("No workspace filter saved in Delta — showing all workspaces")
+        from server.routers.settings import restore_workspace_filter_from_delta as restore
+
+        restore()
     except Exception as e:
         logger.warning("Workspace filter restore from Delta failed (non-fatal): %s", e)
 
@@ -2456,10 +2448,12 @@ async def save_workspace_filter(request: Request) -> dict:
 
     # Lock check — workspace filter is one-time, set during initial setup only
     try:
-        from server.db import execute_query, get_catalog_schema
-        _catalog, _schema = get_catalog_schema()
+        from server.db import execute_query
+        from server.routers.settings import _config_table
+
+        table = _config_table("app_workspace_filter")
         _rows = await asyncio.to_thread(execute_query,
-            f"SELECT COUNT(*) as cnt FROM `{_catalog}`.`{_schema}`.app_workspace_filter",
+            f"SELECT COUNT(*) as cnt FROM {table}",
             no_cache=True,
         )
         if _rows and int(_rows[0].get("cnt", 0)) > 0:
@@ -2487,23 +2481,9 @@ async def save_workspace_filter(request: Request) -> dict:
 
     # Write to Delta (survives redeploys — restored to file on next startup)
     try:
-        from server.db import execute_query, get_catalog_schema
-        catalog, schema = get_catalog_schema()
-        ids_csv = ",".join(valid_ids)
-        await asyncio.to_thread(
-            execute_query,
-            f"CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema}`.app_workspace_filter "
-            f"(workspace_ids STRING) USING DELTA",
-            no_cache=True,
-        )
-        await asyncio.to_thread(
-            execute_query,
-            f"MERGE INTO `{catalog}`.`{schema}`.app_workspace_filter AS t "
-            f"USING (SELECT '{ids_csv}' AS workspace_ids) AS s ON TRUE "
-            f"WHEN MATCHED THEN UPDATE SET t.workspace_ids = s.workspace_ids "
-            f"WHEN NOT MATCHED THEN INSERT (workspace_ids) VALUES (s.workspace_ids)",
-            no_cache=True,
-        )
+        from server.routers.settings import save_workspace_filter_to_table
+
+        await asyncio.to_thread(save_workspace_filter_to_table, valid_ids)
         logger.info("save-workspace-filter: persisted to Delta in %.1fms", (_time.monotonic() - t0) * 1000)
     except Exception as e:
         logger.warning("save-workspace-filter: Delta write failed (non-fatal — file is primary): %s", e)

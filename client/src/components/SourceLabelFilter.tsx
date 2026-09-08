@@ -32,8 +32,44 @@ const CLOUD_LOGOS = {
 
 interface SourceLabelFilterProps {
   variant?: "header" | "rail";
-  localWorkspaceIds?: string[];
+  localWorkspaces?: Array<{ id: string; name?: string | null }>;
   onApplied?: () => void | Promise<void>;
+}
+
+function normalizedWorkspaceToken(value: unknown): string {
+  return String(value ?? "").toLowerCase().replaceAll(/[^a-z0-9]/g, "");
+}
+
+function resolveSameAccountWorkspaceIds(
+  labels: string[],
+  sources: MvSource[],
+  localWorkspaces: Array<{ id: string; name?: string | null }>,
+): string[] | null {
+  if (labels.length === 0) return null;
+  const localWorkspaceIds = new Set(
+    localWorkspaces.map((workspace) => String(workspace.id)),
+  );
+  const groups = labels.map((label) => {
+    const source = sources.find((candidate) => candidate.label === label);
+    if (!source) return [];
+    const persistedIds = (source.workspace_ids ?? []).map(String);
+    if (
+      persistedIds.length > 0
+      && persistedIds.every((id) => localWorkspaceIds.has(id))
+    ) {
+      return persistedIds;
+    }
+    const normalizedLabel = normalizedWorkspaceToken(label);
+    const matches = localWorkspaces.filter((workspace) => (
+      normalizedLabel
+      && (
+        normalizedWorkspaceToken(workspace.id) === normalizedLabel
+        || normalizedWorkspaceToken(workspace.name).includes(normalizedLabel)
+      )
+    ));
+    return matches.length === 1 ? [String(matches[0].id)] : [];
+  });
+  return groups.every((ids) => ids.length > 0) ? groups.flat() : null;
 }
 
 function sameSet(left: Set<string>, right: Set<string>): boolean {
@@ -62,7 +98,7 @@ function reconcileSourceSelection(
 // selection is pushed to the data layer and queries are invalidated to refetch.
 export function SourceLabelFilter({
   variant = "header",
-  localWorkspaceIds = [],
+  localWorkspaces = [],
   onApplied,
 }: SourceLabelFilterProps) {
   const { data } = useQuery<{
@@ -118,18 +154,17 @@ export function SourceLabelFilter({
     const selectedSources = effective.map((label) =>
       data?.sources?.find((source) => source.label === label)
     );
-    const sourceWorkspaceIds = selectedSources.flatMap(
-      (source) => source?.workspace_ids ?? [],
+    const sourceWorkspaceIds = resolveSameAccountWorkspaceIds(
+      effective,
+      data?.sources ?? [],
+      localWorkspaces,
     );
     const sourceTables = selectedSources.flatMap((source) => source?.tables ?? []);
     const sourcePublishesAll = selectedSources.some((source) => source?.tables == null);
-    const localWorkspaceSet = new Set(localWorkspaceIds);
-    const useWorkspaceRouting = effective.length > 0
-      && selectedSources.every((source) => (source?.workspace_ids?.length ?? 0) > 0)
-      && sourceWorkspaceIds.every((id) => localWorkspaceSet.has(id));
+    const useWorkspaceRouting = sourceWorkspaceIds !== null;
     setActiveSourceRouting(
       useWorkspaceRouting && data?.local_label ? [data.local_label] : effective,
-      useWorkspaceRouting ? sourceWorkspaceIds : [],
+      sourceWorkspaceIds ?? [],
     );
     setActiveSourceTables(
       effective.length > 0 && !sourcePublishesAll ? sourceTables : null,
@@ -164,7 +199,30 @@ export function SourceLabelFilter({
     } finally {
       setApplying(false);
     }
-  }, [allLabels, data?.sources, err, localWorkspaceIds, onApplied]);
+  }, [allLabels, data?.sources, err, localWorkspaces, onApplied]);
+
+  // Source options can arrive before the account workspace list. If an already
+  // applied source becomes resolvable after workspace metadata hydrates, switch
+  // it from publisher routing to the matching local workspace and refetch.
+  useEffect(() => {
+    const activeLabels = getActiveSourceLabels();
+    const workspaceIds = resolveSameAccountWorkspaceIds(
+      activeLabels,
+      data?.sources ?? [],
+      localWorkspaces,
+    );
+    if (!workspaceIds || !data?.local_label) return;
+    const current = getActiveSourceRouting();
+    if (
+      current.requestLabels.length === 1
+      && current.requestLabels[0] === data.local_label
+      && sameSet(new Set(current.workspaceIds), new Set(workspaceIds))
+    ) return;
+    setActiveSourceRouting([data.local_label], workspaceIds);
+    void Promise.resolve(onApplied?.()).catch(() => {
+      setErr("Source workspace routing could not be refreshed. Retry the source filter.");
+    });
+  }, [data?.local_label, data?.sources, localWorkspaces, onApplied]);
 
   // Keep the visible selection and the module-level applied scope synchronized
   // when shared sources are added or removed while the dashboard is open.

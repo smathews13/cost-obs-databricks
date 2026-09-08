@@ -2901,9 +2901,7 @@ class UserPermissionsModel(BaseModel):
 
 def _permissions_table() -> str:
     """Return the fully-qualified Delta table name for user permissions."""
-    from server.db import get_catalog_schema
-    catalog, schema = get_catalog_schema()
-    return f"`{catalog}`.`{schema}`.`app_user_permissions`"
+    return _config_table("app_user_permissions")
 
 
 def _ensure_permissions_table() -> None:

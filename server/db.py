@@ -1634,6 +1634,7 @@ def _unified_views_table() -> str:
     catalog, schema = get_catalog_schema()
     if not catalog or not schema:
         return ""
+    validate_app_storage_target(catalog, schema)
     return f"`{catalog}`.`{schema}`.`app_unified_views`"
 
 
@@ -1785,6 +1786,7 @@ def _mv_sources_table() -> str:
     catalog, schema = get_catalog_schema()
     if not catalog or not schema:
         return ""
+    validate_app_storage_target(catalog, schema)
     return f"`{catalog}`.`{schema}`.`app_mv_sources`"
 
 
@@ -2242,6 +2244,7 @@ def _ensure_response_cache_table() -> bool:
         if not cat or not sch:
             logger.debug("Delta cache table skipped — catalog not configured yet")
             return False
+        validate_app_storage_target(cat, sch)
         tok = _user_token.set("")  # always as SP — app-owned table
         try:
             execute_query(
