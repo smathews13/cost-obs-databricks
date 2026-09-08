@@ -2329,14 +2329,37 @@ async def get_workspace_list(
 
     try:
         rows = await asyncio.wait_for(asyncio.to_thread(_fetch_rows), timeout=30.0)
+        host = get_host_url().lower()
+        default_cloud = (
+            "gcp"
+            if "gcp.databricks.com" in host
+            else "azure"
+            if "azuredatabricks.net" in host
+            else "aws"
+            if "cloud.databricks.com" in host
+            else ""
+        )
+        def _workspace_option(row: dict[str, Any]) -> dict[str, Any]:
+            workspace_id = str(row["workspace_id"])
+            workspace_name = row.get("workspace_name")
+            metadata = _account_ws_cloud_metadata.get(workspace_id, {})
+            cloud = str(metadata.get("cloud") or default_cloud).lower()
+            region = metadata.get("region") or _infer_workspace_region(
+                str(workspace_name or ""),
+                cloud,
+            )
+            return {
+                "id": workspace_id,
+                "name": workspace_name if show_names else None,
+                "historical": not (
+                    workspace_name and str(workspace_name).strip()
+                ),
+                "cloud": cloud or None,
+                "region": region,
+            }
         return {
             "workspaces": [
-                {
-                    "id": r["workspace_id"],
-                    "name": (r["workspace_name"] if show_names else None),
-                    # No name resolvable from any source => workspace no longer exists.
-                    "historical": not (r.get("workspace_name") and str(r["workspace_name"]).strip()),
-                }
+                _workspace_option(r)
                 for r in rows
                 if r.get("workspace_id") is not None
                 and str(r["workspace_id"]).strip().lower() not in ("", "none", "null")

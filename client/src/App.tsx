@@ -340,12 +340,37 @@ function RailBadgeTooltip({
   text: string;
   children: React.ReactNode;
 }) {
+  const tooltipId = React.useId();
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const handleOpen = (event: Event) => {
+      setVisible((event as CustomEvent<string>).detail === tooltipId);
+    };
+    window.addEventListener("cost-obs:rail-tooltip-open", handleOpen);
+    return () => window.removeEventListener("cost-obs:rail-tooltip-open", handleOpen);
+  }, [tooltipId]);
+  const open = () => {
+    window.dispatchEvent(new CustomEvent("cost-obs:rail-tooltip-open", {
+      detail: tooltipId,
+    }));
+  };
   return (
-    <span className="group relative inline-flex shrink-0">
+    <span
+      className="relative inline-flex shrink-0"
+      onMouseEnter={open}
+      onMouseLeave={() => setVisible(false)}
+      onFocusCapture={open}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setVisible(false);
+        }
+      }}
+    >
       {children}
       <span
         role="tooltip"
-        className="pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-50 w-max max-w-[min(360px,calc(100vw-24px))] -translate-x-1/2 rounded-[5px] bg-[#263238] px-2.5 py-1.5 text-left text-[11px] font-medium leading-4 text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+        aria-hidden={!visible}
+        className={`pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-50 w-max max-w-[min(360px,calc(100vw-24px))] -translate-x-1/2 rounded-[5px] bg-[#263238] px-2.5 py-1.5 text-left text-[11px] font-medium leading-4 text-white shadow-lg transition-opacity ${visible ? "opacity-100" : "opacity-0"}`}
       >
         {text}
       </span>
@@ -357,10 +382,12 @@ function CopyableRailBadge({
   value,
   text,
   label,
+  tooltip,
 }: {
   value: string;
   text: string;
   label: string;
+  tooltip?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const copyValue = async () => {
@@ -369,7 +396,7 @@ function CopyableRailBadge({
     window.setTimeout(() => setCopied(false), 1600);
   };
   return (
-    <RailBadgeTooltip text={copied ? `${label} copied` : `${label}: ${value}. Click to copy.`}>
+    <RailBadgeTooltip text={copied ? `${label} copied` : tooltip || `${label}: ${value}. Click to copy.`}>
       <button
         type="button"
         aria-label={copied ? `${label} copied` : `Copy ${label}`}
@@ -1430,7 +1457,13 @@ function Dashboard() {
   // Workspace list for the filter dropdown: SQL-backed, only fire when warehouse is ready.
   const workspaceSourceKey = getActiveSourceScopeKey();
   const { data: wsListData, isLoading: wsListLoading } = useQuery<{
-    workspaces: { id: string; name: string; historical?: boolean }[];
+    workspaces: {
+      id: string;
+      name: string;
+      historical?: boolean;
+      cloud?: string | null;
+      region?: string | null;
+    }[];
     error?: string;
   }>({
     queryKey: [
@@ -1476,6 +1509,8 @@ function Dashboard() {
         // A resolved account-level name is stronger evidence than a stale historical
         // flag from billing metadata.
         historical: hasResolvedName ? false : (w.historical ?? true),
+        cloud: w.cloud,
+        region: w.region,
         total_dbus: 0,
         total_spend: 0,
         percentage: 0,
@@ -1817,20 +1852,21 @@ function Dashboard() {
                 </>
               )}
               {warehouseStatus && (
-                <RailBadgeTooltip text={`SQL warehouse status: ${warehouseStatus.state ?? warehouseStatus.status}.`}>
-                  <span
-                    className={RAIL_STATUS_BADGE_CLASS}
-                  >
-                    <span
-                      className={`rail-status-dot ${warehouseStatus.status === "warm" ? "healthy-status-dot " : ""}h-[5px] w-[5px] rounded-full`}
-                      style={{ background: warehouseStatus.status === "warm" ? "var(--status-dot)" : warehouseStatus.status === "warming_up" ? "var(--amber)" : "var(--maroon)" }}
-                    />
-                    <span className="hidden min-[1280px]:inline">
+                warehouseStatus.warehouse_id ? (
+                  <CopyableRailBadge
+                    value={warehouseStatus.warehouse_id}
+                    text={warehouseStatus.warehouse_name?.trim().split(/\s+/)[0]
+                      || (warehouseStatus.status === "warm" ? "Active" : warehouseStatus.status === "warming_up" ? "Starting" : "Offline")}
+                    label="SQL warehouse ID"
+                    tooltip={`SQL warehouse: ${warehouseStatus.warehouse_name || warehouseStatus.warehouse_id}. Status: ${warehouseStatus.state ?? warehouseStatus.status}. Click to copy warehouse ID.`}
+                  />
+                ) : (
+                  <RailBadgeTooltip text={`SQL warehouse status: ${warehouseStatus.state ?? warehouseStatus.status}.`}>
+                    <span className={RAIL_STATUS_BADGE_CLASS}>
                       {warehouseStatus.status === "warm" ? "Active" : warehouseStatus.status === "warming_up" ? "Starting" : "Offline"}
                     </span>
-                    <span className="hidden opacity-60 min-[1536px]:inline">SQL</span>
-                  </span>
-                </RailBadgeTooltip>
+                  </RailBadgeTooltip>
+                )
               )}
               <UserMenu
                 name={user.name}

@@ -11,8 +11,8 @@ afterEach(() => {
 
 describe("chrome filter variants", () => {
   const workspaces = [
-    { workspace_id: "1", workspace_name: "Workspace one" },
-    { workspace_id: "2", workspace_name: "Workspace two" },
+    { workspace_id: "1", workspace_name: "Workspace one", cloud: "gcp", region: "west4" },
+    { workspace_id: "2", workspace_name: "Workspace two", cloud: "aws", region: "us-east-1" },
   ];
   const renderWithQueryClient = (component: React.ReactNode) => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -68,6 +68,8 @@ describe("chrome filter variants", () => {
     await userEvent.click(screen.getByRole("button", { name: "2 Workspaces" }));
     expect(screen.getByText("this app")).toBeVisible();
     expect(screen.getByText("this app").closest("label")).toHaveTextContent("Workspace one");
+    expect(screen.getByTitle("Google Cloud")).toHaveAttribute("src", expect.stringContaining("gcp.svg"));
+    expect(screen.getByTitle("AWS")).toHaveAttribute("src", expect.stringContaining("aws"));
   });
 
   it("keeps the applied Clear action outside the trigger", async () => {

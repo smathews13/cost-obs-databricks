@@ -3,12 +3,24 @@ import { useUpdatingIndicator } from "@/hooks/useUpdatingIndicator";
 import { C } from "@/theme";
 import { Spinner } from "./Spinner";
 import { FloatingMenu } from "./ui/FloatingMenu";
+import awsLogo from "@/assets/aws.png";
+import azureLogo from "@/assets/azure-128.png";
+import gcpLogo from "@/assets/gcp.svg";
+import { resolveSourceCloud } from "@/utils/sourceCloud";
 
 interface Workspace {
   workspace_id: string | null;
   workspace_name?: string | null;
   historical?: boolean;
+  cloud?: string | null;
+  region?: string | null;
 }
+
+const CLOUD_META = {
+  aws: { logo: awsLogo, name: "AWS" },
+  azure: { logo: azureLogo, name: "Azure" },
+  gcp: { logo: gcpLogo, name: "Google Cloud" },
+} as const;
 
 // Guards against ids that would render a bogus option: null, or the strings
 // "None"/"null"/"" that leak in when a null workspace id is stringified upstream.
@@ -308,6 +320,12 @@ export function WorkspaceFilter({
               const renderRow = (ws: Workspace) => {
                 const id = ws.workspace_id!;
                 const checked = draftAll ? (showHistorical || !ws.historical) : draftIds.includes(id);
+                const cloud = resolveSourceCloud(
+                  ws.cloud,
+                  ws.workspace_name || "",
+                  ws.region || "",
+                );
+                const cloudMeta = cloud ? CLOUD_META[cloud] : null;
                 return (
                   <label
                     key={id}
@@ -319,6 +337,15 @@ export function WorkspaceFilter({
                       onChange={() => draftToggle(id)}
                       className="h-3.5 w-3.5 rounded border-gray-300 accent-lava"
                     />
+                    {cloudMeta && (
+                      <img
+                        src={cloudMeta.logo}
+                        alt=""
+                        aria-hidden="true"
+                        title={cloudMeta.name}
+                        className="h-4 w-4 shrink-0 object-contain"
+                      />
+                    )}
                     <span className="flex-1 truncate text-sm text-gray-700">
                       {ws.workspace_name || `Workspace ${id}`}
                     </span>

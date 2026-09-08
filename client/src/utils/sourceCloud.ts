@@ -26,3 +26,17 @@ export function resolveSourceCloud(
   }
   return null;
 }
+
+export function resolveSourceRegion(
+  region: unknown,
+  label = "",
+  catalog = "",
+): string | null {
+  const explicit = String(region ?? "").trim().toLowerCase();
+  if (explicit) return explicit;
+  const hint = `${label} ${catalog}`.toLowerCase().replaceAll("_", " ");
+  const match = hint.match(
+    /\b(us-(?:east|west)-\d|eu-(?:central|west|north)-\d|ap-(?:south|southeast|northeast)-\d|eastus\d*|westus\d*|westeurope|northeurope|(?:west|central|east)\d)\b/,
+  );
+  return match?.[1] ?? null;
+}

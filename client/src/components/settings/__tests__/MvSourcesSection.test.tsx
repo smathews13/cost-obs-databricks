@@ -78,6 +78,7 @@ describe("shared source freshness", () => {
 
     expect(await screen.findByText("2 of 9 shared views")).toBeVisible();
     expect(screen.getByText("Workspace workspace-west")).toBeVisible();
+    expect(screen.getByText("Google Cloud · west4")).toBeVisible();
     expect(screen.getByText("Missing: daily_query_stats, sql_tool_attribution")).toBeVisible();
     expect(screen.getByRole("img", { name: "Google Cloud" })).toBeVisible();
     expect(screen.getByText("west4")).toHaveStyle({ color: "#B3261E" });

@@ -87,6 +87,8 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("function RailBadgeTooltip");
     expect(appSource).toContain('role="tooltip"');
     expect(appSource).toContain("SQL warehouse status:");
+    expect(appSource).toContain('"cost-obs:rail-tooltip-open"');
+    expect(appSource).toContain("(event as CustomEvent<string>).detail === tooltipId");
     expect(appSource).toContain('const maxLength = /^\\d+$/.test(text) ? 7 : 8;');
     expect(appSource).not.toContain('className="max-w-[128px] truncate"');
     expect(appSource).toContain("className={RAIL_STATUS_BADGE_CLASS}");
@@ -112,12 +114,11 @@ describe("account rail health polish", () => {
     expect(styles).toMatch(/button,\s*input,\s*select,\s*textarea\s*\{\s*font: inherit;/);
   });
 
-  it("gives only the healthy app, service-principal, and SQL dots a perceptible pulse", () => {
-    expect(appSource.match(/<CopyableRailBadge/g)).toHaveLength(3);
-    expect(appSource.match(/healthy-status-dot/g)).toHaveLength(2);
-    expect(appSource).toContain(
-      'warehouseStatus.status === "warm" ? "healthy-status-dot " : ""',
-    );
+  it("gives every copyable status badge the shared perceptible pulse", () => {
+    expect(appSource.match(/<CopyableRailBadge/g)).toHaveLength(4);
+    expect(appSource.match(/healthy-status-dot/g)).toHaveLength(1);
+    expect(appSource).toContain('label="SQL warehouse ID"');
+    expect(appSource).toContain("warehouseStatus.warehouse_name?.trim().split(/\\s+/)[0]");
     expect(styles).toMatch(
       /\.healthy-status-dot\s*\{[\s\S]*animation:\s*healthyStatusBlink 11s ease-out infinite/,
     );

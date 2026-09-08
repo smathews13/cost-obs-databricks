@@ -5,7 +5,11 @@ import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure-128.png";
 import gcpLogo from "@/assets/gcp.svg";
 import { Spinner } from "@/components/Spinner";
-import { resolveSourceCloud, type SourceCloud } from "@/utils/sourceCloud";
+import {
+  resolveSourceCloud,
+  resolveSourceRegion,
+  type SourceCloud,
+} from "@/utils/sourceCloud";
 
 interface MvSource {
   label: string;
@@ -16,6 +20,7 @@ interface MvSource {
   missing_tables?: string[];
   shared_view_total?: number;
   cloud?: string;
+  region?: string;
   added_at?: string;
   share_last_updated?: string;
   catalog_explorer_tables?: Array<{ fqn: string; url: string }>;
@@ -298,6 +303,7 @@ export function MvSourcesSection() {
           {sources.map((s) => {
             const sourceCloud = resolveSourceCloud(s.cloud, s.label, s.catalog);
             const meta = sourceCloud ? CLOUD_META[sourceCloud] : null;
+            const sourceRegion = resolveSourceRegion(s.region, s.label, s.catalog);
             const added = fmtTs(s.added_at);
             const shareUpd = fmtTs(s.share_last_updated);
             return (
@@ -316,6 +322,9 @@ export function MvSourcesSection() {
                     </span>
                     {(s.workspace_ids?.length ?? 0) > 0 && (
                       <><span className="text-gray-300">·</span><span>Workspace {s.workspace_ids!.join(", ")}</span></>
+                    )}
+                    {(meta || sourceRegion) && (
+                      <><span className="text-gray-300">·</span><span>{meta?.name || "Cloud"}{sourceRegion ? ` · ${sourceRegion}` : ""}</span></>
                     )}
                     {(s.workspace_ids?.length ?? 0) === 0 && (
                       <><span className="text-gray-300">·</span><span className="text-amber-700">Workspace scope not identified</span></>
