@@ -1837,22 +1837,14 @@ function Dashboard() {
                 label="account ID"
               />
               {authStatus && authStatus.identity !== "user_oauth" && (
-                <>
-                  {authStatus.sp_display_name && (
-                    <CopyableRailBadge
-                      value={authStatus.sp_display_name}
-                      text={authStatus.sp_display_name}
-                      label="service principal display name"
-                    />
-                  )}
-                  {(authStatus.sp_object_id || authStatus.sp_client_id) && (
-                    <CopyableRailBadge
-                      value={authStatus.sp_object_id || authStatus.sp_client_id || ""}
-                      text={authStatus.sp_object_id || authStatus.sp_client_id || ""}
-                      label="service principal ID"
-                    />
-                  )}
-                </>
+                (authStatus.sp_object_id || authStatus.sp_client_id) && (
+                  <CopyableRailBadge
+                    value={authStatus.sp_object_id || authStatus.sp_client_id || ""}
+                    text={authStatus.sp_display_name || authStatus.sp_object_id || authStatus.sp_client_id || ""}
+                    label="service principal ID"
+                    tooltip={`Service principal: ${authStatus.sp_display_name || "Unnamed"}. ID: ${authStatus.sp_object_id || authStatus.sp_client_id}. Click to copy the ID.`}
+                  />
+                )
               )}
               {warehouseStatus && (
                 warehouseStatus.warehouse_id ? (

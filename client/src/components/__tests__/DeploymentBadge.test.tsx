@@ -97,10 +97,10 @@ describe("DeploymentBadge", () => {
     const date = screen.getByTestId("deployment-badge-date");
     expect(trigger).toHaveClass(
       "rail-control-border",
-      "h-[32px]",
-      "rounded-[8px]",
+      "h-[28px]",
+      "rounded-[7px]",
       "bg-white/[.07]",
-      "text-[12px]",
+      "text-[11.5px]",
     );
     expect(trigger).not.toHaveClass("rail-status-badge", "bg-green-500/20");
     expect(screen.queryByTestId("deployment-status-dot")).not.toBeInTheDocument();

@@ -53,7 +53,7 @@ describe("account rail health polish", () => {
     const workspaceFilterIndex = appSource.lastIndexOf("<WorkspaceFilter");
     const builtOnIndex = appSource.lastIndexOf('href="https://www.databricks.com"');
     const servicePrincipalBadgeIndex = appSource.lastIndexOf(
-      'label="service principal display name"',
+      'label="service principal ID"',
     );
 
     expect(badgeIndex).toBeGreaterThan(0);
@@ -115,7 +115,7 @@ describe("account rail health polish", () => {
   });
 
   it("gives every copyable status badge the shared perceptible pulse", () => {
-    expect(appSource.match(/<CopyableRailBadge/g)).toHaveLength(4);
+    expect(appSource.match(/<CopyableRailBadge/g)).toHaveLength(3);
     expect(appSource.match(/healthy-status-dot/g)).toHaveLength(1);
     expect(appSource).toContain('label="SQL warehouse ID"');
     expect(appSource).toContain("warehouseStatus.warehouse_name?.trim().split(/\\s+/)[0]");
@@ -138,6 +138,11 @@ describe("account rail health polish", () => {
     expect(appSource).toContain(
       'value={authStatus.sp_object_id || authStatus.sp_client_id || ""}',
     );
+    expect(appSource).toContain(
+      'text={authStatus.sp_display_name || authStatus.sp_object_id || authStatus.sp_client_id || ""}',
+    );
+    expect(appSource).toContain("Click to copy the ID.");
+    expect(appSource).not.toContain('label="service principal display name"');
     expect(appSource).not.toContain(
       'value={authStatus.sp_user_name || authStatus.sp_client_id || ""}',
     );
