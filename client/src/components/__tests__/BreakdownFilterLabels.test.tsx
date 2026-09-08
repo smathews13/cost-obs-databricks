@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type {
   ProductBreakdownResponse,
@@ -86,5 +86,19 @@ describe("breakdown workspace filter labels", () => {
 
     expect(first.querySelector("svg")).toBeNull();
     expect(second.querySelector("svg")).not.toBeNull();
+  });
+
+  it("sends the selected SKU workspace through the scoped workspace_ids parameter", async () => {
+    const fetchMock = vi.fn(async () => Response.json(skuData));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SKUBreakdown data={skuData} isLoading={false} workspaces={workspaces} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Workspace 1" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const url = new URL(String(fetchMock.mock.calls[0][0]), "https://example.test");
+    expect(url.searchParams.get("workspace_ids")).toBe("2");
+    expect(url.searchParams.has("workspace_id")).toBe(false);
   });
 });

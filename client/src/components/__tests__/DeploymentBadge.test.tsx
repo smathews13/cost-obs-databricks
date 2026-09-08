@@ -68,7 +68,7 @@ describe("DeploymentBadge", () => {
       "h-[22px]",
       "rounded-[4px]",
       "text-[10px]",
-      "w-[88px]",
+      "w-[104px]",
       "rail-status-badge",
       "font-bold",
     );

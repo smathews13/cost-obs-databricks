@@ -15,6 +15,7 @@ import { formatCurrencyCompact as formatCurrency } from "@/utils/formatters";
 import { VirtualizedList } from "./VirtualizedList";
 import { C, seriesColor } from "@/theme";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
+import { buildFilteredUrl } from "@/hooks/useBillingData";
 
 // Hoisted formatters: see SKUBreakdown for rationale.
 const fmtCurrency = (v: unknown) => formatCurrency(v as number);
@@ -130,7 +131,7 @@ export const ProductBreakdown = memo(function ProductBreakdown({ data, isLoading
       if (dateRange?.startDate) params.set("start_date", dateRange.startDate);
       if (dateRange?.endDate) params.set("end_date", dateRange.endDate);
       params.set("workspace_id", wsId);
-      const response = await fetch(`/api/billing/by-product?${params}`);
+      const response = await fetch(buildFilteredUrl("/api/billing/by-product", params, [wsId]));
       if (!response.ok) throw new Error(`Product spend request failed with ${response.status}`);
       return response.json();
     };

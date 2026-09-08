@@ -16,6 +16,7 @@ import { VirtualizedList } from "./VirtualizedList";
 import { C, seriesColor } from "@/theme";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { SourceCapabilityNotice } from "@/components/brand";
+import { buildFilteredUrl } from "@/hooks/useBillingData";
 
 interface SKUBreakdownProps {
   data: SKUBreakdownResponse | undefined;
@@ -90,25 +91,25 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
     fresh.forEach((x) => seen.add(x));
   }, [allWorkspaceIds]);
 
-  // Clear sets the filter to []; length === 1 routes through the scoped endpoint,
-  // otherwise (empty or partial multi-select) we show the account-wide view. So
-  // an empty selection is functionally "all": don't flag it as an active filter.
+  // Empty and complete selections use the already scoped parent payload. Any
+  // partial selection requests exactly those workspace IDs.
   const isWorkspaceFilterActive = workspaceFilters.length > 0 && workspaceFilters.length < allWorkspaceIds.length;
-  // Only route through the workspace-scoped endpoint when exactly one workspace
-  // is selected. All, clear, and partial multi-select use the account-wide payload.
-  const selectedWorkspace = workspaceFilters.length === 1 ? workspaceFilters[0] : "all";
-  const filterKey = `${selectedWorkspace}|${dateRange?.startDate ?? ""}|${dateRange?.endDate ?? ""}`;
+  const selectedWorkspaceScope = useMemo(
+    () => isWorkspaceFilterActive ? [...workspaceFilters].sort() : [],
+    [isWorkspaceFilterActive, workspaceFilters],
+  );
+  const filterKey = `${selectedWorkspaceScope.join(",") || "all"}|${dateRange?.startDate ?? ""}|${dateRange?.endDate ?? ""}`;
 
   useEffect(() => {
-    if (selectedWorkspace === "all") return;
+    if (selectedWorkspaceScope.length === 0) return;
 
     let cancelled = false;
     const params = new URLSearchParams();
     if (dateRange?.startDate) params.set("start_date", dateRange.startDate);
     if (dateRange?.endDate) params.set("end_date", dateRange.endDate);
-    params.set("workspace_id", selectedWorkspace);
+    params.set("workspace_ids", selectedWorkspaceScope.join(","));
 
-    fetch(`/api/billing/sku-breakdown?${params}`)
+    fetch(buildFilteredUrl("/api/billing/sku-breakdown", params, selectedWorkspaceScope))
       .then((res) => {
         if (!res.ok) throw new Error(`SKU spend request failed with ${res.status}`);
         return res.json();
@@ -125,7 +126,7 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
     return () => {
       cancelled = true;
     };
-  }, [selectedWorkspace, dateRange?.startDate, dateRange?.endDate, filterKey]);
+  }, [selectedWorkspaceScope, dateRange?.startDate, dateRange?.endDate, filterKey]);
 
   const closeDropdown = useCallback(() => {
     setDropdownOpen(false);
@@ -144,9 +145,9 @@ export function SKUBreakdown({ data, isLoading, workspaces, dateRange, workspace
   }, [closeDropdown, dropdownOpen]);
 
   const filteredData = filterResult.key === filterKey ? filterResult.data : undefined;
-  const filterLoading = selectedWorkspace !== "all" && filterResult.key !== filterKey;
-  const filterError = selectedWorkspace !== "all" && filterResult.key === filterKey && filterResult.error;
-  const displayData = selectedWorkspace === "all" ? data : filteredData;
+  const filterLoading = selectedWorkspaceScope.length > 0 && filterResult.key !== filterKey;
+  const filterError = selectedWorkspaceScope.length > 0 && filterResult.key === filterKey && filterResult.error;
+  const displayData = selectedWorkspaceScope.length === 0 ? data : filteredData;
   const showLoading = isLoading || filterLoading;
 
   const selectedWorkspaceName = useMemo(() => {

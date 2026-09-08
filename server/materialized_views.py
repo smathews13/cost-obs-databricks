@@ -2288,6 +2288,12 @@ def _rebuild_unified_views_locked(
                 quoted_workspace_ids = ", ".join(
                     "'" + value.replace("'", "''") + "'" for value in workspace_ids
                 )
+                if "workspace_id" in cols and not workspace_ids:
+                    skipped.append({
+                        "label": src["label"],
+                        "reason": "workspace mapping missing",
+                    })
+                    continue
                 workspace_scope = (
                     " WHERE CAST(workspace_id AS STRING) IN "
                     f"({quoted_workspace_ids})"

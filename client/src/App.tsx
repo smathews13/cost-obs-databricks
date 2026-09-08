@@ -37,7 +37,7 @@ import {
   WarehouseGuidanceBanner,
   WarehouseHealthCheckBanner,
 } from "@/components/WarehouseGuidanceBanner";
-import { Building2, Check, Copy, Database, KeyRound, Settings } from "lucide-react";
+import { Bot, Check, Copy, Settings } from "lucide-react";
 import type {
   WarehouseHealthData,
   WarehouseIdleTimeData,
@@ -102,6 +102,7 @@ import { downloadArchitecturePdf } from "@/utils/architectureDownload";
 import { C } from "@/theme";
 import { CostObsLockup, VersionPill, PageHero, Chip, InfoPanel } from "@/components/brand";
 import { LoadingPanels, Spinner } from "@/components/Spinner";
+import sqlWarehouseProductIcon from "@/assets/databricks-sql-icon-full-color.svg";
 import {
   buildExportScopeKey,
   clearTabDemandRefreshPhases,
@@ -326,20 +327,31 @@ interface User {
   role?: "admin" | "consumer";
 }
 
-const RAIL_STATUS_BADGE_CLASS = "rail-status-badge relative inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[10px] font-bold leading-[10px] text-green-200";
+const RAIL_STATUS_BADGE_CLASS = "rail-status-badge relative inline-flex h-[22px] w-[104px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[10px] font-bold leading-[10px] text-green-200";
+
+function DuBoisAccountIcon() {
+  return (
+    <svg className="h-2.5 w-2.5 opacity-70" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path fill="currentColor" d="M4 8.75h8v-1.5H4zM7 5.75H4v-1.5h3zM4 11.75h8v-1.5H4z" />
+      <path fill="currentColor" fillRule="evenodd" d="M1.75 1a.75.75 0 0 0-.75.75v12.5c0 .414.336.75.75.75h12.5a.75.75 0 0 0 .75-.75V5a.75.75 0 0 0-.75-.75H10v-2.5A.75.75 0 0 0 9.25 1zm.75 1.5h6V5c0 .414.336.75.75.75h4.25v7.75h-11z" clipRule="evenodd" />
+    </svg>
+  );
+}
 
 function compactRailBadgeText(value: string): string {
   const text = value.trim();
-  const maxLength = /^\d+$/.test(text) ? 7 : 8;
+  const maxLength = /^\d+$/.test(text) ? 9 : 11;
   return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
 function RailBadgeTooltip({
   text,
   children,
+  align = "center",
 }: {
-  text: string;
+  text: React.ReactNode;
   children: React.ReactNode;
+  align?: "start" | "center" | "end";
 }) {
   const tooltipId = React.useId();
   const [visible, setVisible] = useState(false);
@@ -371,7 +383,7 @@ function RailBadgeTooltip({
       <span
         role="tooltip"
         aria-hidden={!visible}
-        className={`pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-50 w-max max-w-[min(360px,calc(100vw-24px))] -translate-x-1/2 rounded-[5px] bg-[#263238] px-2.5 py-1.5 text-left text-[11px] font-medium leading-4 text-white shadow-lg transition-opacity ${visible ? "opacity-100" : "opacity-0"}`}
+        className={`pointer-events-none absolute top-[calc(100%+8px)] z-50 w-max max-w-[min(360px,calc(100vw-24px))] rounded-[5px] bg-[#263238] px-2.5 py-1.5 text-left text-[11px] font-medium leading-4 text-white shadow-lg transition-opacity ${align === "start" ? "left-0" : align === "end" ? "right-0" : "left-1/2 -translate-x-1/2"} ${visible ? "opacity-100" : "opacity-0"}`}
       >
         {text}
       </span>
@@ -383,14 +395,14 @@ function CopyableRailBadge({
   value,
   text,
   label,
-  tooltip,
   icon,
+  tooltipAlign = "center",
 }: {
   value: string;
   text: string;
   label: string;
-  tooltip?: string;
   icon: React.ReactNode;
+  tooltipAlign?: "start" | "center" | "end";
 }) {
   const [copied, setCopied] = useState(false);
   const copyValue = async () => {
@@ -399,7 +411,12 @@ function CopyableRailBadge({
     window.setTimeout(() => setCopied(false), 1600);
   };
   return (
-    <RailBadgeTooltip text={copied ? `${label} copied` : tooltip || `${label}: ${value}. Click to copy.`}>
+    <RailBadgeTooltip align={tooltipAlign} text={
+      <span className="block space-y-0.5">
+        <span className="block"><strong>Full display name:</strong> {text}</span>
+        <span className="block"><strong>ID:</strong> {value}{copied ? " (copied)" : ""}</span>
+      </span>
+    }>
       <button
         type="button"
         aria-label={copied ? `${label} copied` : `Copy ${label}`}
@@ -1893,7 +1910,8 @@ function Dashboard() {
                 value={accountInfo?.account_id || accountInfo?.account_name || "Databricks account"}
                 text={accountInfo?.account_name || "Databricks account"}
                 label="account ID"
-                icon={<Building2 className="h-2.5 w-2.5 opacity-70" />}
+                icon={<DuBoisAccountIcon />}
+                tooltipAlign="start"
               />
               {authStatus && authStatus.identity !== "user_oauth" && (
                 (authStatus.sp_object_id || authStatus.sp_client_id) && (
@@ -1901,8 +1919,7 @@ function Dashboard() {
                     value={authStatus.sp_object_id || authStatus.sp_client_id || ""}
                     text={authStatus.sp_display_name || authStatus.sp_object_id || authStatus.sp_client_id || ""}
                     label="service principal ID"
-                    tooltip={`Service principal: ${authStatus.sp_display_name || "Unnamed"}. ID: ${authStatus.sp_object_id || authStatus.sp_client_id}. Click to copy the ID.`}
-                    icon={<KeyRound className="h-2.5 w-2.5 opacity-70" />}
+                    icon={<Bot className="h-2.5 w-2.5 opacity-70" aria-label="Service principal" />}
                   />
                 )
               )}
@@ -1910,11 +1927,10 @@ function Dashboard() {
                 warehouseStatus.warehouse_id ? (
                   <CopyableRailBadge
                     value={warehouseStatus.warehouse_id}
-                    text={warehouseStatus.warehouse_name?.trim().split(/\s+/)[0]
+                    text={warehouseStatus.warehouse_name?.trim()
                       || (warehouseStatus.status === "warm" ? "Active" : warehouseStatus.status === "warming_up" ? "Starting" : "Offline")}
                     label="SQL warehouse ID"
-                    tooltip={`SQL warehouse: ${warehouseStatus.warehouse_name || warehouseStatus.warehouse_id}. Status: ${warehouseStatus.state ?? warehouseStatus.status}. Click to copy warehouse ID.`}
-                    icon={<Database className="h-2.5 w-2.5 opacity-70" />}
+                    icon={<img src={sqlWarehouseProductIcon} alt="" className="h-3 w-3 object-contain" />}
                   />
                 ) : (
                   <RailBadgeTooltip text={`SQL warehouse status: ${warehouseStatus.state ?? warehouseStatus.status}.`}>
@@ -1935,7 +1951,7 @@ function Dashboard() {
                   type="button"
                   onClick={openExportDialog}
                   aria-label="Export"
-                  className="rail-control-border inline-flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-[8px] border bg-[#1B5F96] px-0 text-[12.5px] font-semibold text-white transition-colors hover:bg-[#2272B4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4D98D0]/50 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1100px]:w-auto min-[1100px]:gap-1.5 min-[1100px]:px-[11px]"
+                  className="rail-control-border inline-flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-[7px] border bg-[#1B5F96] px-0 text-[11.5px] font-semibold text-white transition-colors hover:bg-[#2272B4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4D98D0]/50 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1100px]:w-auto min-[1100px]:gap-1.5 min-[1100px]:px-[9px]"
                   title="Export"
                 >
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

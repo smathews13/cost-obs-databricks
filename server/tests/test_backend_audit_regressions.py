@@ -25,10 +25,15 @@ def declared_shared_source_tables(monkeypatch):
         db,
         "get_mv_sources",
         lambda: [
-            {"label": label, "tables": tables}
+            {
+                "label": label,
+                "tables": tables,
+                "workspace_ids": ["123", "456", "workspace-west"],
+            }
             for label in ("shared", "shared-west", "shared-east", "shared-central")
         ],
     )
+    monkeypatch.setattr(db, "get_local_source_label", lambda: "local")
 
 
 class _Request:
@@ -970,6 +975,7 @@ def test_users_active_user_trend_matches_billing_identity_workspace_scope():
     source_token = db.set_source_labels([local_label])
     try:
         with (
+            patch.object(billing, "get_local_source_label", return_value=local_label),
             patch.object(billing, "delta_cache_get", return_value=None),
             patch.object(billing, "delta_cache_put"),
             patch.object(billing, "_check_mv_available", return_value=False),

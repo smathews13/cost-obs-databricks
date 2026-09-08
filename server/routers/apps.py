@@ -1560,7 +1560,7 @@ async def get_apps_dashboard_bundle(
         default_end=get_default_end_date(),
     )
     params = {"start_date": validated_start, "end_date": validated_end}
-    id_list = parse_workspace_ids(workspace_ids)
+    id_list = wf.resolve_source_workspace_scope(parse_workspace_ids(workspace_ids))
     _endpoint = f"apps:dashboard-bundle:v5:{'active' if active_only else 'all'}"
     _dkey = bundle_cache_key(_endpoint, params["start_date"], params["end_date"], id_list)
 
@@ -1697,7 +1697,9 @@ async def get_apps_kpi_trend(
         "start_date": start_date or get_default_start_date(),
         "end_date": end_date or get_default_end_date(),
     }
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    id_list = wf.resolve_source_workspace_scope(
+        parse_workspace_ids(workspace_ids if isinstance(workspace_ids, str) else None)
+    )
     cache_endpoint = "trend:apps:kpi"
     _dkey = bundle_cache_key(
         f"{cache_endpoint}:{kpi}:{granularity}",

@@ -30,7 +30,16 @@ interface CommonProps {
 }
 
 // ── General ──────────────────────────────────────────────────────────────────
-export function GeneralSection({ localSettings, updateSetting, tabVisibility, caps }: CommonProps & { tabVisibility: TabVisibility }) {
+export function GeneralSection({
+  localSettings,
+  updateSetting,
+  tabVisibility,
+  toggleTab,
+  caps,
+}: CommonProps & {
+  tabVisibility: TabVisibility;
+  toggleTab?: (k: keyof TabVisibility) => void;
+}) {
   const toast = useToast();
   const qc = useQueryClient();
   const [spCopied, setSpCopied] = useState(false);
@@ -152,6 +161,8 @@ export function GeneralSection({ localSettings, updateSetting, tabVisibility, ca
           </div>
         )}
       </Group>
+
+      {toggleTab && <DashboardTabsSection localVisibility={tabVisibility} toggleTab={toggleTab} />}
     </div>
   );
 }
@@ -164,8 +175,11 @@ export function DashboardTabsSection({ localVisibility, toggleTab }: {
   const keys = TAB_ORDER;
   const visibleCount = keys.filter((k) => localVisibility[k]).length;
   return (
-    <div>
-      <SectionTitle title="Dashboard tabs" subtitle={`Choose which tabs viewers see. At least one tab must remain visible. ${visibleCount} of ${keys.length} visible.`} />
+    <div className="mt-6">
+      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Dashboard tab visibility</div>
+      <p style={{ fontSize: 12, color: T.textSecondary, marginTop: 2, marginBottom: 8 }}>
+        Choose which tabs viewers see. At least one must remain visible. {visibleCount} of {keys.length} visible.
+      </p>
       <Group>
         {keys.map((k, i) => (
           <Row key={k} first={i === 0} label={TAB_LABELS[k]}

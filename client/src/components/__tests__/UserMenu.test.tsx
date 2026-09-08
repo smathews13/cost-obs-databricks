@@ -42,6 +42,7 @@ describe("UserMenu", () => {
     expect(trigger).toHaveClass(
       "rail-user-trigger",
       "rail-control-border",
+      "h-[28px]",
       "min-w-0",
       "border",
       "bg-white/[.07]",

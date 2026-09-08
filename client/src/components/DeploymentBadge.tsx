@@ -27,7 +27,7 @@ export function DeploymentBadge({
   const resolvedTriggerClassName = triggerClassName ?? (
     variant === "control"
       ? "rail-control-border relative inline-flex h-[28px] shrink-0 items-center gap-[5px] rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] transition-colors hover:bg-[#243F49] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139]"
-      : "rail-status-badge inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[10px] font-bold leading-[10px] text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40"
+      : "rail-status-badge inline-flex h-[22px] w-[104px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[10px] font-bold leading-[10px] text-green-200 transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40"
   );
 
   return (

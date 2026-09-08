@@ -44,7 +44,7 @@ describe("chrome filter variants", () => {
     const trigger = screen.getByRole("button", { name: "2 Workspaces" });
     expect(trigger).toHaveClass(
       "rail-workspace-filter",
-      "h-[32px]",
+      "h-[28px]",
       "max-w-[116px]",
       "min-[1280px]:max-w-[190px]",
       "bg-white/[.07]",
@@ -192,7 +192,7 @@ describe("chrome filter variants", () => {
     const trigger = await screen.findByRole("button", { name: "2 Sources" });
     expect(trigger).toHaveClass(
       "rail-source-filter",
-      "h-[32px]",
+      "h-[28px]",
       "max-w-[104px]",
       "min-[1280px]:max-w-[190px]",
       "bg-white/[.07]",

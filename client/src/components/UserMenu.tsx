@@ -280,11 +280,11 @@ export function UserMenu({ name, email, isAdmin, workspaceHost }: UserMenuProps)
             setOpen(true);
           }
         }}
-        className={`rail-user-trigger rail-control-border flex min-w-0 items-center gap-0 rounded-[8px] border py-[4px] px-[5px] text-[12.5px] font-medium text-[#E9EFED] transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[900px]:gap-[9px] min-[900px]:pl-[5px] min-[900px]:pr-[9px] ${open ? "bg-[#294A56] shadow-[0_1px_3px_rgba(4,18,23,.28),inset_0_1px_0_rgba(117,157,170,.12)]" : "bg-white/[.07] hover:bg-[#243F49]"}`}
+        className={`rail-user-trigger rail-control-border flex h-[28px] min-w-0 items-center gap-0 rounded-[7px] border px-[3px] text-[11.5px] font-medium text-[#E9EFED] transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[900px]:gap-[7px] min-[900px]:pl-[3px] min-[900px]:pr-[8px] ${open ? "bg-[#294A56] shadow-[0_1px_3px_rgba(4,18,23,.28),inset_0_1px_0_rgba(117,157,170,.12)]" : "bg-white/[.07] hover:bg-[#243F49]"}`}
       >
         <span
           data-testid="user-menu-domain-icon"
-          className="flex h-[24px] w-[24px] items-center justify-center overflow-hidden rounded-full"
+          className="flex h-[20px] w-[20px] items-center justify-center overflow-hidden rounded-full"
           style={{ backgroundColor: domainIcon.background }}
         >
           <img

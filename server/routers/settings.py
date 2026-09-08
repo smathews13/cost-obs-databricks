@@ -1904,7 +1904,7 @@ def _infer_shared_source_workspace_ids(source: dict[str, Any]) -> list[str]:
             in re.sub(r"[^a-z0-9]", "", workspace_name.lower())
         )
     ]
-    return list(dict.fromkeys(matches)) if len(set(matches)) == 1 else []
+    return list(dict.fromkeys(matches))
 
 
 def _shared_source_grants(catalog: str, schema: str) -> list[str]:
@@ -1934,11 +1934,20 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
     `detail=1` (used by the settings modal, not the top-nav filter) adds each
     source's `share_last_updated` via a DESCRIBE DETAIL probe — kept off the default
     path so the frequently-polled nav filter stays fast."""
-    from server.db import get_local_source_label, get_mv_sources, save_mv_sources
+    from server.db import (
+        get_catalog_schema,
+        get_local_source_label,
+        get_mv_sources,
+        save_mv_sources,
+    )
     sources = get_mv_sources()
     if detail:
         def _enrich():
-            from server.materialized_views import _MV_TABLES, unified_views_rebuild_lock
+            from server.materialized_views import (
+                _MV_TABLES,
+                _rebuild_unified_views_locked,
+                unified_views_rebuild_lock,
+            )
 
             # Back-fill the `cloud` tag for any source missing it — sources added
             # before cloud detection existed (or when it transiently missed at add
@@ -1949,6 +1958,7 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
             with unified_views_rebuild_lock():
                 current_sources = get_mv_sources()
                 changed = False
+                workspace_scope_changed = False
                 for s in current_sources:
                     current_cloud = str(s.get("cloud") or "").strip().lower()
                     if current_cloud not in {"aws", "azure", "gcp"}:
@@ -1961,11 +1971,20 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
                         if workspace_ids:
                             s["workspace_ids"] = workspace_ids
                             changed = True
+                            workspace_scope_changed = True
                 if changed:
                     try:
                         save_mv_sources(current_sources)
+                        if workspace_scope_changed:
+                            catalog, schema = get_catalog_schema()
+                            _rebuild_unified_views_locked(
+                                catalog,
+                                schema,
+                                sources_override=current_sources,
+                                persist_registry=False,
+                            )
                     except Exception as e:
-                        logger.debug("Could not persist back-filled source cloud (non-fatal): %s", e)
+                        logger.debug("Could not persist/rebuild back-filled source metadata (non-fatal): %s", e)
                 for s in current_sources:
                     configured_tables = s.get("tables")
                     s["missing_tables"] = (

@@ -16,8 +16,13 @@ def declared_shared_source_tables(monkeypatch):
     monkeypatch.setattr(
         db,
         "get_mv_sources",
-        lambda: [{"label": "shared-west", "tables": tables}],
+        lambda: [{
+            "label": "shared-west",
+            "tables": tables,
+            "workspace_ids": ["123", "workspace-west"],
+        }],
     )
+    monkeypatch.setattr(db, "get_local_source_label", lambda: "local")
 
 
 def _endpoint(router, path: str):

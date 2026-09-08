@@ -70,9 +70,8 @@ it("renders every settings tab immediately while role verification loads", () =>
 
   for (const label of [
     "General",
-    "Dashboard tabs",
-    "Identity & Permissions",
     "Data & tables",
+    "Identity & Permissions",
     "Alerts & notifications",
     "Resources",
     "Experimental",
@@ -87,7 +86,7 @@ it("animates the save spinner while respecting reduced motion", () => {
   expect(css).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.settings-save-spinner\s*\{[^}]*animation:\s*none/s);
 });
 
-it("places and labels Identity & Permissions as the third settings section", async () => {
+it("places Data & tables above Identity & Permissions", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({ current_role: "admin" }),
@@ -112,16 +111,15 @@ it("places and labels Identity & Permissions as the third settings section", asy
   expect(accessTab.parentElement?.parentElement).toHaveStyle({ width: "232px" });
   for (const label of [
     "General",
-    "Dashboard tabs",
-    "Identity & Permissions",
     "Data & tables",
+    "Identity & Permissions",
     "Alerts & notifications",
     "Resources",
     "Experimental",
   ]) {
     expect(screen.getByRole("button", { name: label }).querySelector("svg")).toBeInTheDocument();
   }
-  const navButtons = ["General", "Dashboard tabs", "Identity & Permissions"].map(
+  const navButtons = ["General", "Data & tables", "Identity & Permissions"].map(
     (label) => screen.getByRole("button", { name: label }),
   );
   expect(navButtons[0].compareDocumentPosition(navButtons[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -166,7 +164,6 @@ it("saves successfully and stays on the same open section", async () => {
     </QueryClientProvider>,
   );
 
-  await userEvent.click(screen.getByRole("button", { name: "Dashboard tabs" }));
   await userEvent.click(screen.getByRole("switch", { name: "Cloud Costs" }));
   expect(screen.getByText("1 unsaved setting")).toBeVisible();
   await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
@@ -174,7 +171,8 @@ it("saves successfully and stays on the same open section", async () => {
   await waitFor(() => expect(screen.getByText("Settings saved")).toBeVisible());
   expect(screen.getByText("1 setting updated")).toBeVisible();
   expect(onClose).not.toHaveBeenCalled();
-  expect(screen.getByRole("heading", { name: "Dashboard tabs" })).toBeVisible();
+  expect(screen.getByRole("heading", { name: "General" })).toBeVisible();
+  expect(screen.getByText("Dashboard tab visibility")).toBeVisible();
   expect(screen.getByRole("switch", { name: "Cloud Costs" })).toHaveAttribute("aria-checked", "false");
   client.setQueryData(["unified-settings"], { tab_visibility: { infra: true } });
   await waitFor(() => expect(screen.getByText("1 setting updated")).toBeVisible());
@@ -515,7 +513,6 @@ it("persists all toggles from the first Save click", async () => {
     </QueryClientProvider>,
   );
 
-  await userEvent.click(screen.getByRole("button", { name: "Dashboard tabs" }));
   await userEvent.click(screen.getByRole("switch", { name: "Cloud Costs" }));
   await userEvent.click(screen.getByRole("switch", { name: "Optimize" }));
   await userEvent.click(await screen.findByRole("button", { name: "Experimental" }));

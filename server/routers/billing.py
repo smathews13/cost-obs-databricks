@@ -82,6 +82,7 @@ from server.queries import (
 )
 from server.queries.pricing import apply_current_list_price_join
 from server.request_limits import default_date_range, parse_workspace_ids, validate_date_range
+from server.workspace_filter import EMPTY_WORKSPACE_SCOPE_ID
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -431,6 +432,8 @@ def _validated_scope(
     start_date: str | None,
     end_date: str | None,
     workspace_ids: str | None = None,
+    *,
+    resolve_source_scope: bool = True,
 ) -> tuple[dict[str, str], list[str] | None]:
     validated_start, validated_end = validate_date_range(
         start_date,
@@ -438,9 +441,14 @@ def _validated_scope(
         default_start=get_default_start_date(),
         default_end=get_default_end_date(),
     )
+    from server import workspace_filter as wf
+
+    id_list = parse_workspace_ids(workspace_ids)
+    if resolve_source_scope:
+        id_list = wf.resolve_source_workspace_scope(id_list)
     return (
         {"start_date": validated_start, "end_date": validated_end},
-        parse_workspace_ids(workspace_ids),
+        id_list,
     )
 
 
@@ -452,8 +460,7 @@ async def get_billing_summary(
 ) -> dict[str, Any]:
     """Get overall billing summary (total spend, DBUs, etc.)."""
     from server import workspace_filter as wf
-    params, _ = _validated_scope(start_date, end_date)
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
     use_mv = await asyncio.to_thread(_check_mv_available)
     if use_mv:
@@ -496,16 +503,48 @@ async def get_billing_by_product(
     start_date: str = Query(default=None, description="Start date (YYYY-MM-DD)"),
     end_date: str = Query(default=None, description="End date (YYYY-MM-DD)"),
     workspace_id: str = Query(default=None, description="Filter by workspace ID"),
+    workspace_ids: str = Query(default=None, description="Validated workspace scope"),
 ) -> dict[str, Any]:
     """Get billing breakdown by product category."""
     params = {
         "start_date": start_date or get_default_start_date(),
         "end_date": end_date or get_default_end_date(),
     }
+    if not _local_source_selected():
+        return {
+            "available": False,
+            "availability": "unavailable",
+            "unavailable_reason": "Product detail is unavailable for the selected shared-only source.",
+            "products": [],
+            "total_spend": 0,
+            **params,
+        }
 
-    if workspace_id:
+    resolved_workspace_id = workspace_id if isinstance(workspace_id, str) else None
+    resolved_workspace_ids = workspace_ids if isinstance(workspace_ids, str) else None
+    scoped_ids = parse_workspace_ids(resolved_workspace_ids)
+    if scoped_ids and EMPTY_WORKSPACE_SCOPE_ID in scoped_ids:
+        return {
+            "available": True,
+            "availability": "available",
+            "products": [],
+            "total_spend": 0,
+            **params,
+        }
+    if resolved_workspace_id and scoped_ids is not None and resolved_workspace_id not in scoped_ids:
+        return {
+            "available": True,
+            "availability": "available",
+            "products": [],
+            "total_spend": 0,
+            **params,
+        }
+    if not resolved_workspace_id and scoped_ids and len(scoped_ids) == 1:
+        resolved_workspace_id = scoped_ids[0]
+
+    if resolved_workspace_id:
         # Add workspace filter to the query
-        params["workspace_id"] = workspace_id
+        params["workspace_id"] = resolved_workspace_id
         results = await asyncio.to_thread(execute_query, BILLING_BY_PRODUCT_WORKSPACE, params)
     else:
         results = await asyncio.to_thread(execute_query, BILLING_BY_PRODUCT, params)
@@ -1207,7 +1246,12 @@ async def get_infra_bundle(
 ) -> dict[str, Any]:
     """Bundled infra endpoint: runs cluster costs, instance families, and timeseries in parallel."""
     from server import workspace_filter as wf
-    params, id_list = _validated_scope(start_date, end_date, workspace_ids)
+    params, id_list = _validated_scope(
+        start_date,
+        end_date,
+        workspace_ids,
+        resolve_source_scope=False,
+    )
 
     # Delta cross-worker cache
     _dkey = bundle_cache_key("billing:infra-bundle:v3", params["start_date"], params["end_date"], id_list)

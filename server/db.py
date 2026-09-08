@@ -2050,7 +2050,16 @@ def source_label_filter_clause(mv_query: str | None = None) -> str:
                 "None of the selected sources publish the managed data "
                 "required by this view."
             )
-        live = _list_existing_source_row_views()
+        local_label = get_local_source_label()
+        mixed_local_selection = (
+            local_label in labels
+            and any(label != local_label for label in labels)
+        )
+        live = (
+            _list_existing_unified_views(force_refresh=True)
+            if mixed_local_selection
+            else _list_existing_source_row_views()
+        )
         explicit = get_mv_table_overrides()
         if (
             not referenced
@@ -2086,9 +2095,19 @@ def apply_mv_overrides(sql: str, catalog: str, schema: str) -> str:
         # Raw system-table queries are already scoped by their workspace clause.
         # They do not need shared-view discovery or managed-table rewriting.
         return sql
+    local_label = get_local_source_label()
+    mixed_local_selection = bool(
+        selected
+        and local_label in selected
+        and any(label != local_label for label in selected)
+    )
     # Selected-source routing is strict: verify physical views now rather than
     # trusting the normal five-minute discovery cache.
-    live = _list_existing_source_row_views() if selected else None
+    live = (
+        _list_existing_unified_views(force_refresh=True)
+        if mixed_local_selection
+        else _list_existing_source_row_views()
+    ) if selected else None
     if selected and live is None:
         raise RuntimeError(
             "Selected shared sources cannot be queried because unified-view "
@@ -2099,7 +2118,11 @@ def apply_mv_overrides(sql: str, catalog: str, schema: str) -> str:
     # missing __unified view). Empty when no sources are configured.
     for t in routable:
         # Don't override a table the user already remapped explicitly.
-        suffix = MV_SOURCE_ROWS_SUFFIX if selected else MV_UNIFIED_SUFFIX
+        suffix = (
+            MV_UNIFIED_SUFFIX
+            if not selected or mixed_local_selection
+            else MV_SOURCE_ROWS_SUFFIX
+        )
         overrides.setdefault(t, f"`{catalog}`.`{schema}`.`{t}{suffix}`")
     if selected:
         live_set = set(live or [])
@@ -2114,9 +2137,12 @@ def apply_mv_overrides(sql: str, catalog: str, schema: str) -> str:
                     f"overridden managed table {table}."
                 )
             if table not in live_set:
+                required_suffix = (
+                    MV_UNIFIED_SUFFIX if mixed_local_selection else MV_SOURCE_ROWS_SUFFIX
+                )
                 raise RuntimeError(
                     f"Selected shared sources cannot be queried because unified "
-                    f"view {table}{MV_SOURCE_ROWS_SUFFIX} does not physically exist."
+                    f"view {table}{required_suffix} does not physically exist."
                 )
             if "source_label" not in sql.lower():
                 raise RuntimeError(

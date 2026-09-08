@@ -85,13 +85,13 @@ describe("account rail health polish", () => {
   it("uses the same direct hover-copy state for the account ID", () => {
     expect(appSource).not.toContain("<InfoPopover");
     expect(appSource).toContain("RAIL_STATUS_BADGE_CLASS");
-    expect(appSource).toContain("h-[22px] w-[88px]");
+    expect(appSource).toContain("h-[22px] w-[104px]");
     expect(appSource).toContain("rounded-[4px]");
     expect(appSource).toContain("rail-status-badge");
     expect(styles).toContain("border: 0 !important;");
     expect(styles).toContain("font-size: 10px !important;");
     expect(styles).toContain("font-weight: 700 !important;");
-    expect(styles).toContain("width: 88px !important;");
+    expect(styles).toContain("width: 104px !important;");
     expect(styles).toContain("height: 22px !important;");
     expect(styles).toContain("padding: 0 6px 0 16px !important;");
     expect(styles).toContain(".rail-status-dot");
@@ -105,15 +105,17 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("SQL warehouse status:");
     expect(appSource).toContain('"cost-obs:rail-tooltip-open"');
     expect(appSource).toContain("(event as CustomEvent<string>).detail === tooltipId");
-    expect(appSource).toContain('const maxLength = /^\\d+$/.test(text) ? 7 : 8;');
+    expect(appSource).toContain('const maxLength = /^\\d+$/.test(text) ? 9 : 11;');
     expect(appSource).not.toContain('className="max-w-[128px] truncate"');
     expect(appSource).toContain("className={RAIL_STATUS_BADGE_CLASS}");
     expect(appSource).toContain(
       'className="hidden h-2.5 w-2.5 opacity-80 group-hover:block group-focus:block"',
     );
-    expect(appSource).toContain("<Building2");
-    expect(appSource).toContain("<KeyRound");
-    expect(appSource).toContain("<Database");
+    expect(appSource).toContain("<DuBoisAccountIcon");
+    expect(appSource).toContain("<Bot");
+    expect(appSource).toContain("sqlWarehouseProductIcon");
+    expect(appSource).toContain("<strong>Full display name:</strong>");
+    expect(appSource).toContain("<strong>ID:</strong>");
     expect(appSource).toContain(
       'value={accountInfo?.account_id || accountInfo?.account_name || "Databricks account"}',
     );
@@ -137,7 +139,7 @@ describe("account rail health polish", () => {
     expect(appSource.match(/<CopyableRailBadge/g)).toHaveLength(3);
     expect(appSource.match(/healthy-status-dot/g)).toHaveLength(1);
     expect(appSource).toContain('label="SQL warehouse ID"');
-    expect(appSource).toContain("warehouseStatus.warehouse_name?.trim().split(/\\s+/)[0]");
+    expect(appSource).toContain("warehouseStatus.warehouse_name?.trim()");
     expect(styles).toMatch(
       /\.healthy-status-dot\s*\{[\s\S]*animation:\s*healthyStatusBlink 11s ease-out infinite/,
     );
@@ -160,7 +162,7 @@ describe("account rail health polish", () => {
     expect(appSource).toContain(
       'text={authStatus.sp_display_name || authStatus.sp_object_id || authStatus.sp_client_id || ""}',
     );
-    expect(appSource).toContain("Click to copy the ID.");
+    expect(appSource).toContain('label="service principal ID"');
     expect(appSource).not.toContain('label="service principal display name"');
     expect(appSource).not.toContain(
       'value={authStatus.sp_user_name || authStatus.sp_client_id || ""}',

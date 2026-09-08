@@ -213,6 +213,7 @@ def test_unified_views_deduplicate_overlapping_sources_by_business_key():
             "label": "west4",
             "catalog": "share",
             "schema": "cost",
+            "workspace_ids": ["workspace-west"],
         }]),
         patch("server.db.get_local_source_label", return_value="local"),
         patch("server.db.get_unified_view_tables", return_value=["daily_usage_summary"]),
@@ -283,6 +284,45 @@ def test_source_rows_scope_each_workspace_label_to_its_workspace_id():
     )
 
 
+def test_source_rows_skip_workspace_tables_without_a_source_mapping():
+    bodies: dict[str, str] = {}
+
+    def replace(_catalog, _schema, _table_name, body, *, existed, view_suffix=None):
+        del existed
+        bodies[view_suffix or db.MV_UNIFIED_SUFFIX] = body
+        return "altered"
+
+    with (
+        patch.object(materialized_views, "_MV_TABLES", ["daily_usage_summary"]),
+        patch("server.db.get_mv_sources", return_value=[{
+            "label": "west4",
+            "catalog": "share",
+            "schema": "cost",
+        }]),
+        patch("server.db.get_local_source_label", return_value="workspace-local"),
+        patch("server.db.get_unified_view_tables", return_value=["daily_usage_summary"]),
+        patch("server.db.save_unified_view_tables"),
+        patch("server.db.clear_query_cache"),
+        patch("server.db.delta_cache_invalidate"),
+        patch.object(materialized_views, "_unified_view_exists", return_value=True),
+        patch.object(
+            materialized_views,
+            "_table_columns",
+            return_value=["usage_date", "workspace_id", "total_spend"],
+        ),
+        patch.object(materialized_views, "_replace_unified_view", side_effect=replace),
+    ):
+        result = materialized_views._rebuild_unified_views_locked("c", "s")
+
+    assert "FROM `share`.`cost`.`daily_usage_summary`" not in bodies[
+        db.MV_SOURCE_ROWS_SUFFIX
+    ]
+    assert result["views"]["daily_usage_summary"]["skipped"] == [{
+        "label": "west4",
+        "reason": "workspace mapping missing",
+    }]
+
+
 def test_selected_source_routes_only_to_verified_physical_view():
     token = db.set_source_labels(["shared"])
     template = (
@@ -330,6 +370,42 @@ def test_selected_source_routes_only_to_verified_physical_view():
         db.reset_source_labels(token)
 
 
+def test_mixed_local_and_shared_sources_use_deduplicated_unified_view():
+    token = db.set_source_labels(["local", "shared"])
+    template = (
+        "SELECT SUM(total_spend) FROM "
+        "`{catalog}`.`{schema}`.`daily_usage_summary` WHERE 1=1 {ws_filter}"
+    )
+    try:
+        with (
+            patch.object(db, "get_local_source_label", return_value="local"),
+            patch.object(
+                db,
+                "_list_existing_unified_views",
+                return_value=["daily_usage_summary"],
+            ),
+            patch.object(
+                db,
+                "get_mv_sources",
+                return_value=[{
+                    "label": "shared",
+                    "tables": ["daily_usage_summary"],
+                    "workspace_ids": ["2"],
+                }],
+            ),
+            patch.object(db, "get_mv_table_overrides", return_value={}),
+        ):
+            clause = db.source_label_filter_clause(template)
+            sql = template.format(catalog="c", schema="s", ws_filter=clause)
+            routed = db.apply_mv_overrides(sql, "c", "s")
+    finally:
+        db.reset_source_labels(token)
+
+    assert "source_label IN ('local', 'shared')" in routed
+    assert "`c`.`s`.`daily_usage_summary__unified`" in routed
+    assert "__source_rows" not in routed
+
+
 def test_selected_source_rejects_views_it_does_not_publish():
     token = db.set_source_labels(["west4"])
     template = (
@@ -373,7 +449,7 @@ def test_mixed_source_scope_keeps_capable_contributors():
             ),
             patch.object(
                 db,
-                "_list_existing_source_row_views",
+                "_list_existing_unified_views",
                 return_value=["daily_apps_summary"],
             ),
         ):

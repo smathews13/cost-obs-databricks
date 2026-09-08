@@ -114,6 +114,10 @@ def validate_request_scope(
     ):
         raise _validation_error("source_labels contains an invalid value.")
     validated_source_labels = list(dict.fromkeys(raw_source_labels))
+    validated_workspace_ids = wf.resolve_source_workspace_scope(
+        validated_workspace_ids,
+        validated_source_labels,
+    )
 
     return (
         validated_start,

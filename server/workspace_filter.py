@@ -92,7 +92,7 @@ def build_ws_filter_clause(
             return "AND 1 = 0"
         valid = [i for i in id_list if _is_safe_id(i)]
         if not valid:
-            return ""
+            return "AND 1 = 0"
         quoted = ", ".join(f"'{i}'" for i in valid)
         return f"AND CAST({col} AS STRING) IN ({quoted})"
     if single_id and _is_safe_id(single_id):
@@ -109,6 +109,51 @@ def build_ws_filter_clause(
             ")"
         )
     return ""
+
+
+def resolve_source_workspace_scope(
+    id_list: list[str] | None,
+    source_labels: list[str] | None = None,
+) -> list[str] | None:
+    """Intersect a request workspace scope with persisted shared-source mappings.
+
+    Local data can honor the caller's workspace scope directly. Shared-only
+    requests fail closed when a source has no mapping, and otherwise use the
+    union of mapped workspaces intersected with any explicit request IDs.
+    """
+    from server.db import get_local_source_label, get_mv_sources, selected_source_labels
+
+    labels = list(dict.fromkeys(source_labels or selected_source_labels()))
+    if not labels:
+        return id_list
+    local_label = get_local_source_label()
+    if local_label in labels:
+        return id_list
+
+    configured = {
+        str(source.get("label") or ""): source
+        for source in get_mv_sources()
+    }
+    mapped_ids: set[str] = set()
+    for label in labels:
+        source = configured.get(label)
+        source_ids = {
+            str(value).strip()
+            for value in ((source or {}).get("workspace_ids") or [])
+            if str(value).strip()
+        }
+        if not source_ids:
+            return [EMPTY_WORKSPACE_SCOPE_ID]
+        mapped_ids.update(source_ids)
+
+    if id_list is None:
+        return sorted(mapped_ids)
+    requested = {
+        value for value in id_list
+        if value != EMPTY_WORKSPACE_SCOPE_ID
+    }
+    intersection = sorted(requested.intersection(mapped_ids))
+    return intersection or [EMPTY_WORKSPACE_SCOPE_ID]
 
 
 def is_workspace_scoped() -> bool:

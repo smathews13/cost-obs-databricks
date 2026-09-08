@@ -9,7 +9,7 @@ import {
 } from "./settings/dubois";
 import { useToast } from "./settings/duboisToast";
 import {
-  GeneralSection, DashboardTabsSection, AlertsSection, DataTablesSection,
+  GeneralSection, AlertsSection, DataTablesSection,
   AccessSection, ResourcesSection, ExperimentalSection,
 } from "./settings/sections";
 import "./settings/settings.css";
@@ -32,7 +32,6 @@ import {
   Boxes,
   Database,
   FlaskConical,
-  LayoutDashboard,
   ShieldCheck,
   SlidersHorizontal,
   type LucideIcon,
@@ -43,7 +42,7 @@ export {
   type TabVisibility,
 };
 
-type NavKey = "general" | "tabs" | "alerts" | "data" | "access" | "resources" | "experimental";
+type NavKey = "general" | "alerts" | "data" | "access" | "resources" | "experimental";
 type Overlay = "setup" | "debugger" | null;
 type SaveStatus =
   | { kind: "idle" }
@@ -340,9 +339,8 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
 
   const navItems: { key: NavKey; label: string; icon: LucideIcon; admin?: boolean }[] = [
     { key: "general", label: "General", icon: SlidersHorizontal },
-    { key: "tabs", label: "Dashboard tabs", icon: LayoutDashboard },
-    { key: "access", label: "Identity & Permissions", icon: ShieldCheck, admin: true },
     { key: "data", label: "Data & tables", icon: Database, admin: true },
+    { key: "access", label: "Identity & Permissions", icon: ShieldCheck, admin: true },
     { key: "alerts", label: "Alerts & notifications", icon: Bell, admin: true },
     { key: "resources", label: "Resources", icon: Boxes },
     { key: "experimental", label: "Experimental", icon: FlaskConical, admin: true },
@@ -423,8 +421,7 @@ function SettingsShell({ onClose, onTabVisibilityChange, onSettingsChange, tabVi
               {overlay === "debugger" && isAdmin && (
                 <SettingsDebugger onGoToConfig={() => { setOverlay(null); setNav("data"); }} />
               )}
-              {!overlay && nav === "general" && <GeneralSection localSettings={localSettings} updateSetting={updateSetting} tabVisibility={localVisibility} caps={caps} />}
-              {!overlay && nav === "tabs" && <DashboardTabsSection localVisibility={localVisibility} toggleTab={toggleTab} />}
+              {!overlay && nav === "general" && <GeneralSection localSettings={localSettings} updateSetting={updateSetting} tabVisibility={localVisibility} toggleTab={toggleTab} caps={caps} />}
               {!overlay && nav === "alerts" && <AlertsSection localSettings={localSettings} updateSetting={updateSetting} caps={caps} />}
               {!overlay && nav === "data" && <DataTablesSection localSettings={localSettings} updateSetting={updateSetting} caps={caps} />}
               {!overlay && nav === "access" && <AccessSection />}

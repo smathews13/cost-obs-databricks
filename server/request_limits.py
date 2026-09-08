@@ -32,7 +32,7 @@ DETAIL_MAX_RESPONSE_BYTES = _env_int(
     64 * 1024,
     8 * 1024 * 1024,
 )
-_WORKSPACE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_WORKSPACE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 

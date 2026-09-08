@@ -45,12 +45,14 @@ function resolveSameAccountWorkspaceIds(
   labels: string[],
   sources: MvSource[],
   localWorkspaces: Array<{ id: string; name?: string | null }>,
+  localLabel?: string,
 ): string[] | null {
-  if (labels.length === 0) return null;
+  const routableLabels = labels.filter((label) => label !== localLabel);
+  if (routableLabels.length === 0) return null;
   const localWorkspaceIds = new Set(
     localWorkspaces.map((workspace) => String(workspace.id)),
   );
-  const groups = labels.map((label) => {
+  const groups = routableLabels.map((label) => {
     const source = sources.find((candidate) => candidate.label === label);
     if (!source) return [];
     const persistedIds = (source.workspace_ids ?? []).map(String);
@@ -70,7 +72,9 @@ function resolveSameAccountWorkspaceIds(
     ));
     return matches.length === 1 ? [String(matches[0].id)] : [];
   });
-  return groups.every((ids) => ids.length > 0) ? groups.flat() : null;
+  return groups.every((ids) => ids.length > 0)
+    ? Array.from(new Set(groups.flat())).sort()
+    : null;
 }
 
 function sameSet(left: Set<string>, right: Set<string>): boolean {
@@ -81,11 +85,12 @@ function reconcileSourceSelection(
   previousLabels: string[],
   nextLabels: string[],
   selected: Set<string>,
+  wasGloballyAll = false,
 ): Set<string> {
   const previous = new Set(previousLabels);
   const next = new Set(nextLabels);
   const wasAll = previous.size > 0 && sameSet(previous, selected);
-  if (wasAll || (previous.size === 0 && selected.size === 0)) return next;
+  if ((wasAll && wasGloballyAll) || (previous.size === 0 && selected.size === 0)) return next;
 
   const intersection = new Set(Array.from(selected).filter((label) => next.has(label)));
   // The UI does not permit an empty selection. If every selected source was
@@ -113,24 +118,39 @@ export function SourceLabelFilter({
     staleTime: 60 * 1000,
   });
 
-  const allLabels = useMemo(() => {
+  const globalLabels = useMemo(() => {
     const local = data?.local_label ? [data.local_label] : [];
-    const extra = (data?.sources ?? [])
-      .filter((source) => {
-        if (workspaceSelection.length === 0) return true;
-        const sourceWorkspaceIds = resolveSameAccountWorkspaceIds(
-          [source.label],
-          [source],
-          localWorkspaces,
-        );
-        return Boolean(
-          sourceWorkspaceIds
-          && workspaceSelection.every((id) => sourceWorkspaceIds.includes(id))
-        );
-      })
-      .map((source) => source.label);
+    const extra = (data?.sources ?? []).map((source) => source.label);
     return Array.from(new Set([...local, ...extra])).filter(Boolean);
-  }, [data, localWorkspaces, workspaceSelection]);
+  }, [data]);
+
+  const allLabels = useMemo(() => {
+    if (workspaceSelection.length === 0) return globalLabels;
+    const selectedWorkspaceSet = new Set(workspaceSelection.map(String));
+    const linkedSources = (data?.sources ?? []).flatMap((source) => {
+      const workspaceIds = resolveSameAccountWorkspaceIds(
+        [source.label],
+        [source],
+        localWorkspaces,
+      );
+      return workspaceIds?.some((id) => selectedWorkspaceSet.has(id))
+        ? [{ label: source.label, workspaceIds }]
+        : [];
+    });
+    const coveredWorkspaceIds = new Set(
+      linkedSources.flatMap((source) => source.workspaceIds),
+    );
+    if (linkedSources.length === 0) {
+      return data?.local_label ? [data.local_label] : globalLabels;
+    }
+    const allSelectedWorkspacesCovered = workspaceSelection.every(
+      (id) => coveredWorkspaceIds.has(String(id)),
+    );
+    return Array.from(new Set([
+      ...(!allSelectedWorkspacesCovered && data?.local_label ? [data.local_label] : []),
+      ...linkedSources.map((source) => source.label),
+    ]));
+  }, [data?.local_label, data?.sources, globalLabels, localWorkspaces, workspaceSelection]);
 
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(
@@ -151,7 +171,10 @@ export function SourceLabelFilter({
   const apply = useCallback(async (next: Set<string>, syncWorkspace = true) => {
     // At least one source is always selected (the toggle enforces it); a full
     // selection means "all" (empty filter = every source).
-    const effective = next.size === 0 || sameSet(next, new Set(allLabels))
+    const effective = next.size === 0 || (
+      workspaceSelection.length === 0
+      && sameSet(next, new Set(globalLabels))
+    )
       ? []
       : Array.from(next).sort();
     // Skip the refetch when the effective selection hasn't changed (e.g. closing
@@ -173,13 +196,20 @@ export function SourceLabelFilter({
       effective,
       data?.sources ?? [],
       localWorkspaces,
+      data?.local_label,
+    );
+    const includesLocalSource = Boolean(
+      data?.local_label && effective.includes(data.local_label),
     );
     const sourceTables = selectedSources.flatMap((source) => source?.tables ?? []);
-    const sourcePublishesAll = selectedSources.some((source) => source?.tables == null);
-    const useWorkspaceRouting = sourceWorkspaceIds !== null;
+    const sourcePublishesAll = effective.includes(data?.local_label ?? "")
+      || selectedSources.some((source) => source?.tables == null);
+    const useWorkspaceRouting = !includesLocalSource && sourceWorkspaceIds !== null;
     setActiveSourceRouting(
-      useWorkspaceRouting && data?.local_label ? [data.local_label] : effective,
-      sourceWorkspaceIds ?? [],
+      (useWorkspaceRouting || includesLocalSource) && data?.local_label
+        ? [data.local_label]
+        : effective,
+      useWorkspaceRouting ? sourceWorkspaceIds ?? [] : [],
     );
     setActiveSourceTables(
       effective.length > 0 && !sourcePublishesAll ? sourceTables : null,
@@ -190,7 +220,9 @@ export function SourceLabelFilter({
       const linkedWorkspaceScope = syncWorkspace
         ? effective.length === 0
           ? []
-          : sourceWorkspaceIds ?? []
+          : useWorkspaceRouting
+            ? sourceWorkspaceIds
+            : null
         : null;
       await onApplied?.(linkedWorkspaceScope);
       lastAppliedRef.current = key;
@@ -219,17 +251,19 @@ export function SourceLabelFilter({
     } finally {
       setApplying(false);
     }
-  }, [allLabels, data?.local_label, data?.sources, err, localWorkspaces, onApplied]);
+  }, [allLabels, data?.local_label, data?.sources, err, globalLabels, localWorkspaces, onApplied, workspaceSelection.length]);
 
   // Source options can arrive before the account workspace list. If an already
   // applied source becomes resolvable after workspace metadata hydrates, switch
   // it from publisher routing to the matching local workspace and refetch.
   useEffect(() => {
     const activeLabels = getActiveSourceLabels();
+    if (data?.local_label && activeLabels.includes(data.local_label)) return;
     const workspaceIds = resolveSameAccountWorkspaceIds(
       activeLabels,
       data?.sources ?? [],
       localWorkspaces,
+      data?.local_label,
     );
     if (!workspaceIds || !data?.local_label) return;
     const current = getActiveSourceRouting();
@@ -240,6 +274,7 @@ export function SourceLabelFilter({
     ) return;
     setActiveSourceRouting([data.local_label], workspaceIds);
     void Promise.resolve(onApplied?.(workspaceIds)).catch(() => {
+      setActiveSourceRouting(current.requestLabels, current.workspaceIds);
       setErr("Source workspace routing could not be refreshed. Retry the source filter.");
     });
   }, [data?.local_label, data?.sources, localWorkspaces, onApplied]);
@@ -251,6 +286,7 @@ export function SourceLabelFilter({
       previousLabelsRef.current,
       allLabels,
       selectedRef.current,
+      getActiveSourceLabels().length === 0,
     );
     previousLabelsRef.current = allLabels;
     if (sameSet(next, selectedRef.current)) return;
@@ -292,7 +328,7 @@ export function SourceLabelFilter({
         onClick={() => setOpen((o) => !o)}
         aria-label={applying ? "Updating sources" : label()}
         className={variant === "rail"
-          ? "rail-source-filter rail-control-border flex h-[32px] max-w-[104px] items-center gap-[6px] whitespace-nowrap rounded-[8px] border bg-white/[.07] px-[8px] text-[12.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[12px]"
+          ? "rail-source-filter rail-control-border flex h-[28px] max-w-[104px] items-center gap-[6px] whitespace-nowrap rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[10px]"
           : "co-filter flex items-center gap-2 whitespace-nowrap px-3"
         }
         title="Filter by data source"

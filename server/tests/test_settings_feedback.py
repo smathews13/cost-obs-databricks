@@ -273,6 +273,7 @@ def test_shared_source_payload_marks_provider_managed_refresh():
     with (
         patch("server.db.get_mv_sources", return_value=sources),
         patch("server.db.get_local_source_label", return_value="local"),
+        patch("server.db.get_catalog_schema", return_value=("catalog", "schema")),
         patch("server.db.save_mv_sources"),
         patch("server.db.get_host_url", return_value="https://dbc.example.com"),
         patch(
@@ -284,6 +285,15 @@ def test_shared_source_payload_marks_provider_managed_refresh():
             "_share_last_updated",
             return_value="2026-08-28T09:00:00Z",
         ),
+        patch.object(
+            settings,
+            "_infer_shared_source_workspace_ids",
+            return_value=["workspace-west"],
+        ),
+        patch(
+            "server.materialized_views._rebuild_unified_views_locked",
+            return_value={"ok": True},
+        ) as rebuild,
     ):
         payload = asyncio.run(settings.get_mv_sources_endpoint(detail=True))
 
@@ -299,6 +309,10 @@ def test_shared_source_payload_marks_provider_managed_refresh():
     assert payload["sources"][0]["catalog_explorer_schema_url"] == (
         "https://dbc.example.com/explore/data/west_share/cost_obs"
     )
+    rebuild.assert_called_once()
+    assert rebuild.call_args.kwargs["sources_override"][0]["workspace_ids"] == [
+        "workspace-west"
+    ]
 
 
 @pytest.mark.parametrize("catalog", ["west4_share", "east1_share", "central1_share"])
@@ -321,6 +335,22 @@ def test_shared_source_workspace_scope_matches_region_label():
         })
 
     assert result == ["west-id"]
+
+
+def test_shared_source_workspace_scope_keeps_multiple_region_matches():
+    rows = [
+        {"workspace_id": "west-a", "workspace_name": "west4-primary"},
+        {"workspace_id": "west-b", "workspace_name": "west4-secondary"},
+        {"workspace_id": "east-id", "workspace_name": "east1-serverless"},
+    ]
+    with patch("server.db.execute_query", return_value=rows):
+        result = settings._infer_shared_source_workspace_ids({
+            "label": "west4",
+            "catalog": "west4_share",
+            "schema": "cost_obs_shared",
+        })
+
+    assert result == ["west-a", "west-b"]
 
 
 def test_current_workspace_cloud_detects_all_provider_hosts():

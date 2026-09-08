@@ -559,7 +559,7 @@ async def get_warehouse_idle_time(
 
     sd = start_date or get_default_start_date()
     ed = end_date or get_default_end_date()
-    id_list = [i.strip() for i in workspace_ids.split(",") if i.strip()] if workspace_ids else None
+    id_list = parse_workspace_ids(workspace_ids if isinstance(workspace_ids, str) else None)
     history_scope = "with-history" if wf.include_historical_workspaces() else "current-only"
     cache_key = f"{sd}:{ed}:{','.join(id_list) if id_list else ''}:{history_scope}"
     if not _local_source_selected():

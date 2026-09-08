@@ -16,6 +16,24 @@ from server.queries import (
 from server.routers import billing, dbsql_base, settings, tagging, users_groups, warehouse_health
 
 
+@pytest.fixture(autouse=True)
+def declared_source_workspace_mappings(monkeypatch):
+    tables = list(db.MV_UNIFIED_TABLE_NAMES)
+    monkeypatch.setattr(db, "get_local_source_label", lambda: "local")
+    monkeypatch.setattr(
+        db,
+        "get_mv_sources",
+        lambda: [
+            {
+                "label": label,
+                "tables": tables,
+                "workspace_ids": ["123", "456", "workspace-west"],
+            }
+            for label in ("shared", "shared-west", "west4")
+        ],
+    )
+
+
 @pytest.mark.parametrize(
     "host",
     [
@@ -41,6 +59,43 @@ def test_mixed_user_source_scope_requires_resolved_workspace_ids():
     assert available is False
     assert detail["reason"] == "identity_workspace_scope_required"
     assert scoped_available is True
+
+
+def test_product_drilldown_refuses_shared_only_source_fallback():
+    source_token = db.set_source_labels(["shared-west"])
+    try:
+        with (
+            patch.object(billing, "get_local_source_label", return_value="local"),
+            patch.object(billing, "execute_query") as execute,
+        ):
+            result = asyncio.run(
+                billing.get_billing_by_product(
+                    start_date="2026-08-01",
+                    end_date="2026-08-30",
+                    workspace_id="2",
+                    workspace_ids="2",
+                )
+            )
+    finally:
+        db.reset_source_labels(source_token)
+
+    assert result["available"] is False
+    execute.assert_not_called()
+
+
+def test_product_drilldown_refuses_conflicting_workspace_scope():
+    with patch.object(billing, "execute_query") as execute:
+        result = asyncio.run(
+            billing.get_billing_by_product(
+                start_date="2026-08-01",
+                end_date="2026-08-30",
+                workspace_id="1",
+                workspace_ids="2",
+            )
+        )
+
+    assert result["products"] == []
+    execute.assert_not_called()
 
 
 def test_numeric_workspace_host_is_not_used_as_account_display_name(monkeypatch):
@@ -134,6 +189,51 @@ def test_empty_source_workspace_intersection_is_an_explicit_empty_scope():
     )
 
     assert clause == "AND 1 = 0"
+
+
+def test_sanitized_empty_workspace_scope_fails_closed():
+    assert workspace_filter.build_ws_filter_clause(id_list=[":"]) == "AND 1 = 0"
+
+
+def test_backend_intersects_shared_source_and_workspace_scope():
+    with (
+        patch.object(db, "get_local_source_label", return_value="local"),
+        patch.object(
+            db,
+            "get_mv_sources",
+            return_value=[
+                {"label": "west4", "workspace_ids": ["2"]},
+                {"label": "central1", "workspace_ids": ["3"]},
+            ],
+        ),
+    ):
+        assert workspace_filter.resolve_source_workspace_scope(
+            None,
+            ["west4", "central1"],
+        ) == ["2", "3"]
+        assert workspace_filter.resolve_source_workspace_scope(
+            ["1", "3"],
+            ["west4", "central1"],
+        ) == ["3"]
+        assert workspace_filter.resolve_source_workspace_scope(
+            ["1"],
+            ["west4"],
+        ) == [workspace_filter.EMPTY_WORKSPACE_SCOPE_ID]
+
+
+def test_backend_fails_closed_for_unmapped_shared_source():
+    with (
+        patch.object(db, "get_local_source_label", return_value="local"),
+        patch.object(
+            db,
+            "get_mv_sources",
+            return_value=[{"label": "west4", "workspace_ids": []}],
+        ),
+    ):
+        assert workspace_filter.resolve_source_workspace_scope(
+            None,
+            ["west4"],
+        ) == [workspace_filter.EMPTY_WORKSPACE_SCOPE_ID]
 
 
 def test_workspace_picker_uses_the_selected_managed_source():

@@ -998,6 +998,7 @@ async def get_top_objects_by_tag(
     id_list = parse_workspace_ids(
         workspace_ids if isinstance(workspace_ids, str) else None
     )
+    id_list = wf.resolve_source_workspace_scope(id_list)
     ws_clause = wf.build_ws_filter_clause(col="u.workspace_id", id_list=id_list)
     results = await asyncio.to_thread(
         execute_query,
@@ -1140,7 +1141,7 @@ async def get_tagging_dashboard_bundle(
         default_end=get_default_end_date(),
     )
     params = {"start_date": validated_start, "end_date": validated_end}
-    id_list = parse_workspace_ids(workspace_ids)
+    id_list = wf.resolve_source_workspace_scope(parse_workspace_ids(workspace_ids))
     _dkey = bundle_cache_key("tagging:dashboard-bundle:v8", params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
