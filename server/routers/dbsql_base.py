@@ -586,11 +586,18 @@ def create_dbsql_router(table_name: str) -> APIRouter:
             # Prefer region-local compute metadata, then classify account-wide
             # billing rows. Missing metadata is never silently labeled Classic.
             wh_type_lookup = {wid: info.get("warehouse_type") for wid, info in wh_meta.items()}
+            query_visible_warehouse_ids = {
+                str(row.get("warehouse_id") or "")
+                for row in (results.get("by_warehouse") or [])
+                if row.get("warehouse_id")
+            }
             wh_ts_by_date: dict[str, dict] = {}
             wh_type_set: set[str] = set()
             for r in (results.get("wh_type_billing") or []):
                 d = str(r.get("date"))
-                wid = r.get("warehouse_id") or ""
+                wid = str(r.get("warehouse_id") or "")
+                if wid not in query_visible_warehouse_ids:
+                    continue
                 wt = _classify_warehouse_type(
                     compute_type=wh_type_lookup.get(wid),
                     is_serverless=r.get("is_serverless"),

@@ -3,9 +3,11 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
+from server import db
 from server.routers import apps
 
 
@@ -184,6 +186,189 @@ def test_running_registered_app_is_active_without_recent_billing():
         registry,
     )
     assert [app["app_name"] for app in active_only["apps"]] == ["cost-obs"]
+
+
+def test_shared_only_processing_does_not_inject_local_registry_apps():
+    registry = {
+        "local-app": {
+            "name": "local-only",
+            "url": "https://local-only.example.databricksapps.com",
+            "metadata": {"app_status": {"state": "RUNNING"}},
+        },
+    }
+
+    result = apps._process_apps(
+        [],
+        False,
+        "2026-08-01",
+        "2026-08-30",
+        registry,
+        include_registry_only=False,
+    )
+
+    assert result["apps"] == []
+    assert result["active_count"] == 0
+
+
+def test_source_filtered_apps_refuse_local_raw_billing_fallback():
+    cache_key = "apps-shared-only"
+    source_token = db.set_source_labels(["west4"])
+
+    def sequential(queries, *_args, **_kwargs):
+        return {name: query() for name, query in queries}
+
+    try:
+        with (
+            patch.object(apps, "local_source_is_selected", return_value=False),
+            patch.object(apps, "_check_mv_available", return_value=False),
+            patch.object(apps, "execute_queries_parallel", side_effect=sequential),
+            patch.object(apps, "execute_query") as execute_query,
+            patch.object(apps, "delta_cache_put", return_value=True) as cache_put,
+        ):
+            apps._compute_apps_bundle(
+                {"start_date": "2026-08-01", "end_date": "2026-08-30"},
+                None,
+                False,
+                cache_key,
+                db.CacheGeneration("apps:dashboard-bundle:v5:all", 0),
+            )
+
+        execute_query.assert_not_called()
+        failure = cache_put.call_args.args[2]
+        assert failure["error_code"] == "SOURCE_SCOPE_UNSUPPORTED"
+        assert failure["reason"] == "shared_scope_unsupported"
+        assert failure["retryable"] is False
+    finally:
+        db.reset_source_labels(source_token)
+        with apps._apps_bundle_status_lock:
+            apps._apps_bundle_status.pop(cache_key, None)
+            apps._apps_bundle_failures.pop(cache_key, None)
+
+
+def test_workspace_filter_excluding_local_workspace_skips_local_registry():
+    cache_key = "apps-remote-workspaces"
+
+    def empty_results(queries, *_args, **_kwargs):
+        return {name: [] for name, _query in queries}
+
+    with (
+        patch.object(apps, "get_current_workspace_id", return_value="workspace-east"),
+        patch.object(apps, "_app_name_cache", {
+            "local-app": {
+                "name": "east-only",
+                "url": "https://east-only.example.databricksapps.com",
+                "metadata": {"app_status": {"state": "RUNNING"}},
+            },
+        }),
+        patch.object(apps, "_app_name_cache_time", time.time()),
+        patch.object(apps, "_app_details_cache", {"local-app": {"resources": []}}),
+        patch.object(apps, "_app_details_cache_time", time.time()),
+        patch.object(apps, "_check_mv_available", return_value=True),
+        patch.object(apps, "execute_queries_parallel", side_effect=empty_results),
+        patch.object(apps, "delta_cache_put", return_value=True) as cache_put,
+    ):
+        apps._compute_apps_bundle(
+            {"start_date": "2026-08-01", "end_date": "2026-08-30"},
+            ["workspace-west", "workspace-central"],
+            False,
+            cache_key,
+            db.CacheGeneration("apps:dashboard-bundle:v5:all", 0),
+        )
+
+    payload = cache_put.call_args.args[2]
+    assert payload["apps"]["apps"] == []
+    assert payload["connected_artifacts"] == []
+    with apps._apps_bundle_status_lock:
+        apps._apps_bundle_status.pop(cache_key, None)
+        apps._apps_bundle_failures.pop(cache_key, None)
+
+
+def test_workspace_filter_including_local_workspace_keeps_local_registry():
+    cache_key = "apps-local-workspace"
+
+    def empty_results(queries, *_args, **_kwargs):
+        return {name: [] for name, _query in queries}
+
+    with (
+        patch.object(apps, "get_current_workspace_id", return_value="workspace-east"),
+        patch.object(apps, "_app_name_cache", {
+            "local-app": {
+                "name": "east-local",
+                "url": "https://east-local.example.databricksapps.com",
+                "metadata": {"app_status": {"state": "RUNNING"}},
+            },
+        }),
+        patch.object(apps, "_app_name_cache_time", time.time()),
+        patch.object(apps, "_app_details_cache", {"local-app": {"resources": []}}),
+        patch.object(apps, "_app_details_cache_time", time.time()),
+        patch.object(apps, "_check_mv_available", return_value=True),
+        patch.object(apps, "execute_queries_parallel", side_effect=empty_results),
+        patch.object(apps, "delta_cache_put", return_value=True) as cache_put,
+    ):
+        apps._compute_apps_bundle(
+            {"start_date": "2026-08-01", "end_date": "2026-08-30"},
+            ["workspace-east"],
+            False,
+            cache_key,
+            db.CacheGeneration("apps:dashboard-bundle:v5:all", 0),
+        )
+
+    payload = cache_put.call_args.args[2]
+    assert [item["app_id"] for item in payload["apps"]["apps"]] == ["local-app"]
+    with apps._apps_bundle_status_lock:
+        apps._apps_bundle_status.pop(cache_key, None)
+        apps._apps_bundle_failures.pop(cache_key, None)
+
+
+def test_shared_only_bundle_does_not_attach_cached_local_app_details():
+    cache_key = "apps-shared-details"
+    source_token = db.set_source_labels(["west4"])
+
+    def shared_results(queries, *_args, **_kwargs):
+        results = {name: [] for name, _query in queries}
+        results["summary"] = [{"total_spend": 2, "total_dbus": 1}]
+        results["apps"] = [{
+            "app_id": "same-app-id",
+            "total_spend": 2,
+            "total_dbus": 1,
+            "workspace_count": 1,
+            "days_active": 1,
+        }]
+        return results
+
+    try:
+        with (
+            patch.object(apps, "local_source_is_selected", return_value=False),
+            patch.object(apps, "get_current_workspace_id", return_value="workspace-east"),
+            patch.object(apps, "_app_details_cache", {
+                "same-app-id": {
+                    "metadata": {"creator": "local-owner@example.com"},
+                    "resources": [{"name": "local-secret-resource"}],
+                },
+            }),
+            patch.object(apps, "_check_mv_available", return_value=True),
+            patch.object(apps, "source_label_filter_clause", return_value=" AND source_label IN ('west4')"),
+            patch.object(apps, "execute_queries_parallel", side_effect=shared_results),
+            patch.object(apps, "delta_cache_put", return_value=True) as cache_put,
+        ):
+            apps._compute_apps_bundle(
+                {"start_date": "2026-08-01", "end_date": "2026-08-30"},
+                None,
+                False,
+                cache_key,
+                db.CacheGeneration("apps:dashboard-bundle:v5:all", 0),
+            )
+
+        payload = cache_put.call_args.args[2]
+        shared_app = payload["apps"]["apps"][0]
+        assert shared_app["resource_bindings"] == []
+        assert shared_app["metadata"]["creator"] == ""
+        assert payload["connected_artifacts"] == []
+    finally:
+        db.reset_source_labels(source_token)
+        with apps._apps_bundle_status_lock:
+            apps._apps_bundle_status.pop(cache_key, None)
+            apps._apps_bundle_failures.pop(cache_key, None)
 
 
 def test_app_status_takes_priority_over_compute_pool_state():

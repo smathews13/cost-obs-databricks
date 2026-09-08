@@ -336,7 +336,7 @@ def test_dbsql_bundle_filters_warehouse_billing_and_region_counts():
         for sql in scoped_live_queries
     )
     response = cache_put.call_args.args[2]
-    assert response["warehouse_type_timeseries"]["timeseries"][0]["SERVERLESS"] == 4
+    assert response["warehouse_type_timeseries"]["timeseries"] == []
     assert response["region_scope"]["billing_workspace_count"] == 2
     assert response["region_scope"]["in_region_workspace_count"] == 0
     assert response["region_scope"]["missing_workspace_count"] == 2

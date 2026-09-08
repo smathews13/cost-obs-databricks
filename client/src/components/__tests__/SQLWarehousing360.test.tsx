@@ -240,7 +240,7 @@ describe("SQLWarehousing360: available=true with zero-value summary renders $0",
 });
 
 describe("SQLWarehousing360: cross-region workspace filters stay truthful", () => {
-  it("uses billing spend and marks unavailable query detail instead of false zeroes", () => {
+  it("reports billing context while marking query detail unavailable", () => {
     renderSQLView({
       ...BASE_BUNDLE_AVAILABLE,
       summary: {
@@ -265,8 +265,9 @@ describe("SQLWarehousing360: cross-region workspace filters stay truthful", () =
     }, { workspaceIds: ["west4", "central1"] });
 
     expect(screen.getByText("Query detail is unavailable for some selected workspaces")).toBeVisible();
-    expect(screen.getByText("$21.25")).toBeVisible();
-    expect(screen.getAllByText("N/A")).toHaveLength(3);
+    expect(screen.getByText(/\$21\.25 in SQL billing spend/)).toBeVisible();
+    expect(screen.getAllByText("N/A")).toHaveLength(4);
+    expect(screen.getByText("Query attribution is not available in these regions")).toBeVisible();
     expect(screen.getAllByText("Query history is not available in these regions")).toHaveLength(3);
   });
 });

@@ -1,6 +1,7 @@
 """Regression coverage for the August dashboard feedback fixes."""
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -13,6 +14,20 @@ from server.queries import (
     LAKEFLOW_JOB_STATS,
 )
 from server.routers import billing, dbsql_base, settings, tagging, warehouse_health
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        "https://" + ("8" * 16) + ".7.gcp.databricks.com",
+        "https://adb-" + ("8" * 16) + ".7.azuredatabricks.net",
+    ],
+)
+def test_current_workspace_id_is_parsed_from_provider_host(monkeypatch, host):
+    monkeypatch.delenv("DATABRICKS_WORKSPACE_ID", raising=False)
+    workspace = SimpleNamespace(config=SimpleNamespace(host=host))
+    with patch.object(db, "get_workspace_client", return_value=workspace):
+        assert db.get_current_workspace_id() == "8" * 16
 
 
 def test_numeric_workspace_host_is_not_used_as_account_display_name(monkeypatch):

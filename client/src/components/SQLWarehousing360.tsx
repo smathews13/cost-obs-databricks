@@ -503,7 +503,7 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
       {regionScope?.limited && (
         <SourceCapabilityNotice
           title="Query detail is unavailable for some selected workspaces"
-          description={`${regionScope.missing_workspace_count} selected workspace${regionScope.missing_workspace_count === 1 ? "" : "s"} with SQL billing spend ${regionScope.missing_workspace_count === 1 ? "is" : "are"} outside this app's metastore region. Spend by warehouse type uses account billing, while query counts, users, and duration cover only ${regionScope.in_region_workspace_count} in-region workspace${regionScope.in_region_workspace_count === 1 ? "" : "s"}.`}
+          description={`${regionScope.missing_workspace_count} selected workspace${regionScope.missing_workspace_count === 1 ? "" : "s"} with ${formatKpiCurrency(regionScope.billing_sql_spend ?? 0)} in SQL billing spend ${regionScope.missing_workspace_count === 1 ? "is" : "are"} outside this app's metastore region. Query spend, counts, users, duration, and warehouse-type detail cover only ${regionScope.in_region_workspace_count} in-region workspace${regionScope.in_region_workspace_count === 1 ? "" : "s"}.`}
           requiredAggregates={["daily_query_stats", "sql_tool_attribution", "dbsql_cost_per_query"]}
         />
       )}
@@ -585,19 +585,16 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
               );
             }
             const availableSummary = summary!;
-            const displayedSqlSpend = regionScope?.limited
-              ? regionScope.billing_sql_spend ?? availableSummary.total_spend ?? 0
-              : availableSummary.total_spend ?? 0;
 
             return (
           <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KPICard
               title="Total Query Spend"
-              value={formatKpiCurrency(displayedSqlSpend)}
-              subtitle={regionScope?.limited
-                ? "Account billing spend; query detail is region-limited"
+              value={queryDetailUnavailable ? "N/A" : formatKpiCurrency(availableSummary.total_spend ?? 0)}
+              subtitle={queryDetailUnavailable
+                ? "Query attribution is not available in these regions"
                 : `${formatNumber(availableSummary.total_dbus ?? 0)} DBUs · over ${startDate && endDate ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1 : "?"} days`}
-              onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "sql_spend", label: "Daily SQL Spend Trend", variant: "billing"}) : undefined}
+              onActivate={!queryDetailUnavailable && startDate && endDate ? () => setSelectedKPI({kpi: "sql_spend", label: "Daily SQL Spend Trend", variant: "billing"}) : undefined}
               ariaLabel="See Total Query Spend trend"
               icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             />

@@ -22,6 +22,7 @@ from server import workspace_filter as wf
 from server.db import (
     BundleOverloadedError,
     CacheGeneration,
+    SourceScopeUnsupportedError,
     SQLExecutionError,
     apply_mv_overrides,
     bundle_cache_key,
@@ -33,7 +34,9 @@ from server.db import (
     execute_query,
     get_bundle_compute_state,
     get_catalog_schema,
+    get_current_workspace_id,
     get_workspace_client,
+    local_source_is_selected,
     recover_optional_bundle_queries,
     selected_source_labels,
     source_label_filter_clause,
@@ -73,12 +76,17 @@ def _apps_failure_payload(
     params: dict[str, str],
     code: str = "APPS_BUNDLE_FAILED",
 ) -> dict[str, Any]:
+    source_unsupported = code == "SOURCE_SCOPE_UNSUPPORTED"
     return {
         "available": False,
         "availability": "unavailable",
-        "retryable": True,
-        "reason": "producer_failed",
-        "reason_detail": "Apps cost data is temporarily unavailable. Retry shortly.",
+        "retryable": not source_unsupported,
+        "reason": "shared_scope_unsupported" if source_unsupported else "producer_failed",
+        "reason_detail": (
+            "The selected shared source does not publish Apps cost detail."
+            if source_unsupported
+            else "Apps cost data is temporarily unavailable. Retry shortly."
+        ),
         "error_code": code,
         "summary": {},
         "apps": {},
@@ -813,6 +821,18 @@ GROUP BY app_id, sku_name
 ORDER BY app_id, total_spend DESC
 """
 
+MV_APPS_WORKSPACES = """
+SELECT
+  app_id,
+  CAST(workspace_id AS STRING) AS workspace_id,
+  CAST(workspace_id AS STRING) AS workspace_name
+FROM `{catalog}`.`{schema}`.`daily_apps_summary`
+WHERE usage_date BETWEEN :start_date AND :end_date
+  {ws_filter}
+GROUP BY app_id, workspace_id
+ORDER BY app_id, workspace_id
+"""
+
 for _query_name, _query_value in list(globals().items()):
     if isinstance(_query_value, str) and "/* TEMPORAL_LIST_PRICE_JOIN */" in _query_value:
         globals()[_query_name] = apply_current_list_price_join(_query_value)
@@ -825,6 +845,7 @@ def _process_apps(
     end_date_str: str,
     registry: dict[str, dict[str, Any]],
     sku_rows: list[dict[str, Any]] | None = None,
+    include_registry_only: bool = True,
 ) -> dict[str, Any]:
     """Split billing rows into registered apps + unregistered bucket.
 
@@ -918,7 +939,7 @@ def _process_apps(
 
     # Registry apps with no billing in the window still belong in the status
     # population. A running app must remain active even before its usage lands.
-    for uid, entry in registry.items():
+    for uid, entry in (registry.items() if include_registry_only else ()):
         if uid in apps_in_list:
             continue
         platform_active = _registry_app_is_running(entry)
@@ -1131,8 +1152,16 @@ def _compute_apps_bundle(
     _set_apps_producer_status(dkey, "running")
 
     try:
+        source_labels = selected_source_labels()
+        shared_only_scope = bool(source_labels) and not local_source_is_selected()
+        local_workspace_id = get_current_workspace_id()
+        selected_workspace_ids = {str(value) for value in (id_list or [])}
+        workspace_scope_includes_local = (
+            not selected_workspace_ids or local_workspace_id in selected_workspace_ids
+        )
+        allow_local_registry = not shared_only_scope and workspace_scope_includes_local
         metadata_thread: threading.Thread | None = None
-        metadata_stale = (
+        metadata_stale = allow_local_registry and (
             not _app_name_cache
             or (time.time() - _app_name_cache_time) >= APP_NAME_CACHE_TTL
             or not _app_details_cache
@@ -1155,7 +1184,7 @@ def _compute_apps_bundle(
 
         # Billing totals are required; live Apps API metadata is optional. Never
         # hold the bundle behind an unbounded SDK list/get call.
-        registry = dict(_app_name_cache)
+        registry = dict(_app_name_cache) if allow_local_registry else {}
         app_filter = _build_app_id_filter(registry)
 
         filtered_timeseries = f"""
@@ -1204,6 +1233,11 @@ def _compute_apps_bundle(
         # falls back to its raw counterpart on any exception so a broken MV
         # never blocks a page load.
         _use_mv = _check_mv_available()
+        if source_labels:
+            if not _use_mv or not source_label_filter_clause(MV_APPS_SUMMARY):
+                raise SourceScopeUnsupportedError(
+                    "Selected Apps sources require a routed daily_apps_summary view."
+                )
         _mv_ws_clause = wf.build_ws_filter_clause(col="workspace_id", id_list=id_list) if _use_mv else ""
         # MV column is bare `app_id`; the raw filter uses `u.usage_metadata.app_id`
         _mv_app_filter = ""
@@ -1229,6 +1263,11 @@ def _compute_apps_bundle(
                     if selected_source_labels():
                         raise
                     logger.warning("apps %s MV path failed (%s); falling back to raw scan", name, type(e).__name__)
+            if selected_source_labels():
+                raise SourceScopeUnsupportedError(
+                    "Selected Apps sources require daily_apps_summary routing; "
+                    "local raw billing fallback is not source-safe."
+                )
             return raw_fallback()
 
         queries = [
@@ -1237,8 +1276,8 @@ def _compute_apps_bundle(
             ("timeseries", lambda: _mv_query("timeseries", MV_APPS_TIMESERIES, lambda: execute_query(filtered_timeseries, params), app_filter="")),
             ("avg_cost_per_app", lambda: _mv_query("avg_cost_per_app", MV_APPS_AVG_COST_PER_APP, lambda: execute_query(avg_cost_per_app_query, params), app_filter=_mv_app_filter)),
             ("sku_breakdown", lambda: _mv_query("sku_breakdown", MV_APPS_BY_APP_SKU, lambda: execute_query(_ws(APPS_BY_APP_SKU), params))),
-            ("workspaces", lambda: _query_app_workspaces(params, ws_clause)),
-            ("service_principals", lambda: execute_query(_ws(APPS_SERVICE_PRINCIPALS), params)),
+            ("workspaces", lambda: _mv_query("workspaces", MV_APPS_WORKSPACES, lambda: _query_app_workspaces(params, ws_clause))),
+            ("service_principals", lambda: [] if shared_only_scope else execute_query(_ws(APPS_SERVICE_PRINCIPALS), params)),
         ]
 
         required_queries = {"summary", "apps", "timeseries"}
@@ -1289,6 +1328,7 @@ def _compute_apps_bundle(
             params["end_date"],
             registry,
             sku_rows,
+            include_registry_only=allow_local_registry,
         )
 
         for app in apps_result["apps"]:
@@ -1322,7 +1362,7 @@ def _compute_apps_bundle(
             key=lambda x: x["date"],
         )
 
-        details_by_app = dict(_app_details_cache)
+        details_by_app = dict(_app_details_cache) if allow_local_registry else {}
         if registry and not details_by_app:
             optional_failures["app_details"] = "METADATA_REFRESH_PENDING"
 
@@ -1361,7 +1401,7 @@ def _compute_apps_bundle(
             ]
 
         connected_artifacts: list[dict[str, Any]] = []
-        for uid, entry in registry.items():
+        for uid, entry in (registry.items() if allow_local_registry else ()):
             app_name = entry.get("name", uid)
             for res in details_by_app.get(uid, {}).get("resources", []):
                 connected_artifacts.append({
@@ -1463,7 +1503,7 @@ def _compute_apps_bundle(
 
         # Refresh optional registry/resource metadata only after required billing
         # data is durable and visible to pollers.
-        if metadata_thread is None and {
+        if allow_local_registry and metadata_thread is None and {
             "app_registry",
             "app_details",
         }.intersection(optional_failures):

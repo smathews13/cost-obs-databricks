@@ -1948,6 +1948,20 @@ def get_local_source_label() -> str:
     return f"workspace {wsid}" if wsid else "This workspace"
 
 
+def get_current_workspace_id() -> str:
+    """Best-effort Databricks workspace ID for local-only metadata scoping."""
+    configured = os.getenv("DATABRICKS_WORKSPACE_ID", "").strip()
+    if configured:
+        return configured
+    try:
+        host = str(get_workspace_client().config.host or "")
+        hostname = host.removeprefix("https://").removeprefix("http://").split("/", 1)[0]
+        match = re.match(r"^(?:adb-)?(\d{6,})(?:\.|$)", hostname, re.IGNORECASE)
+        return match.group(1) if match else ""
+    except Exception:
+        return ""
+
+
 # Request-scoped selection of MV source labels to filter reads by. Set per request
 # by UserAuthMiddleware from the `source_labels` query param. Empty = no filter
 # (all sources shown) — the default. Only meaningful when additional sources are
