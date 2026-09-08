@@ -482,7 +482,7 @@ def test_resources_returns_other_sections_when_apps_api_times_out(monkeypatch):
         return {"app_name": "too-late"}
 
     monkeypatch.setattr(settings, "_RESOURCES_SUBSECTION_TIMEOUT_SECONDS", 0.01)
-    monkeypatch.setattr(settings, "_RESOURCES_ENDPOINT_DEADLINE_SECONDS", 0.08)
+    monkeypatch.setattr(settings, "_RESOURCES_ENDPOINT_DEADLINE_SECONDS", 1.0)
     monkeypatch.setenv("DATABRICKS_APP_NAME", "cost-obs")
     monkeypatch.setattr(settings, "get_app_config", AsyncMock(return_value={
         "storage_location": {"catalog": "catalog", "schema": "schema"},

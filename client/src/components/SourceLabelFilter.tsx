@@ -33,7 +33,8 @@ const CLOUD_LOGOS = {
 interface SourceLabelFilterProps {
   variant?: "header" | "rail";
   localWorkspaces?: Array<{ id: string; name?: string | null }>;
-  onApplied?: () => void | Promise<void>;
+  workspaceSelection?: string[];
+  onApplied?: (sourceWorkspaceIds: string[] | null) => void | Promise<void>;
 }
 
 function normalizedWorkspaceToken(value: unknown): string {
@@ -99,6 +100,7 @@ function reconcileSourceSelection(
 export function SourceLabelFilter({
   variant = "header",
   localWorkspaces = [],
+  workspaceSelection = [],
   onApplied,
 }: SourceLabelFilterProps) {
   const { data } = useQuery<{
@@ -113,9 +115,22 @@ export function SourceLabelFilter({
 
   const allLabels = useMemo(() => {
     const local = data?.local_label ? [data.local_label] : [];
-    const extra = (data?.sources ?? []).map((s) => s.label);
+    const extra = (data?.sources ?? [])
+      .filter((source) => {
+        if (workspaceSelection.length === 0) return true;
+        const sourceWorkspaceIds = resolveSameAccountWorkspaceIds(
+          [source.label],
+          [source],
+          localWorkspaces,
+        );
+        return Boolean(
+          sourceWorkspaceIds
+          && workspaceSelection.every((id) => sourceWorkspaceIds.includes(id))
+        );
+      })
+      .map((source) => source.label);
     return Array.from(new Set([...local, ...extra])).filter(Boolean);
-  }, [data]);
+  }, [data, localWorkspaces, workspaceSelection]);
 
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(
@@ -133,7 +148,7 @@ export function SourceLabelFilter({
 
   const hasSources = (data?.sources?.length ?? 0) > 0;
 
-  const apply = useCallback(async (next: Set<string>) => {
+  const apply = useCallback(async (next: Set<string>, syncWorkspace = true) => {
     // At least one source is always selected (the toggle enforces it); a full
     // selection means "all" (empty filter = every source).
     const effective = next.size === 0 || sameSet(next, new Set(allLabels))
@@ -172,7 +187,12 @@ export function SourceLabelFilter({
     setApplying(true);
     setErr(null);
     try {
-      await onApplied?.();
+      const linkedWorkspaceScope = syncWorkspace
+        ? effective.length === 0
+          ? []
+          : sourceWorkspaceIds ?? []
+        : null;
+      await onApplied?.(linkedWorkspaceScope);
       lastAppliedRef.current = key;
       selectedRef.current = new Set(next);
       setSelected(new Set(next));
@@ -192,7 +212,7 @@ export function SourceLabelFilter({
       setRetrySelection(new Set(next));
       setErr("Source filter was not applied because the refresh failed.");
       try {
-        await onApplied?.();
+        await onApplied?.(null);
       } catch {
         // Keep the original error visible; the Retry action remains available.
       }
@@ -219,7 +239,7 @@ export function SourceLabelFilter({
       && sameSet(new Set(current.workspaceIds), new Set(workspaceIds))
     ) return;
     setActiveSourceRouting([data.local_label], workspaceIds);
-    void Promise.resolve(onApplied?.()).catch(() => {
+    void Promise.resolve(onApplied?.(workspaceIds)).catch(() => {
       setErr("Source workspace routing could not be refreshed. Retry the source filter.");
     });
   }, [data?.local_label, data?.sources, localWorkspaces, onApplied]);
@@ -236,7 +256,7 @@ export function SourceLabelFilter({
     if (sameSet(next, selectedRef.current)) return;
     selectedRef.current = next;
     setSelected(next);
-    void apply(next);
+    void apply(next, false);
   }, [allLabels, apply]);
 
   if (!hasSources || allLabels.length === 0) return null;

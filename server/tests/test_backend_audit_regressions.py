@@ -929,6 +929,42 @@ def test_successful_runs_trend_filters_lakeflow_by_workspace():
     assert cache_put.call_args.args[1] == "trend:sql:platform-kpi"
 
 
+def test_local_source_successful_runs_trend_remains_workspace_sensitive():
+    source_token = db.set_source_labels(["local"])
+    try:
+        with (
+            patch.object(billing, "get_local_source_label", return_value="local"),
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(billing, "_check_mv_available", return_value=True),
+            patch.object(
+                billing,
+                "capture_cache_generation",
+                return_value=db.CacheGeneration("trend:kpis:platform-kpi", 0),
+            ),
+            patch.object(
+                billing,
+                "execute_query",
+                return_value=[{"date": "2026-08-01", "value": 1}],
+            ) as execute,
+        ):
+            result = asyncio.run(
+                billing.get_platform_kpi_trend(
+                    kpi="successful_runs",
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    granularity="daily",
+                    workspace_ids="workspace-west",
+                    tab="kpis",
+                )
+            )
+    finally:
+        db.reset_source_labels(source_token)
+
+    assert result.get("available", True) is not False
+    assert "CAST(workspace_id AS STRING) IN ('workspace-west')" in execute.call_args.args[0]
+
+
 def test_billing_trend_combines_workspace_and_source_scope():
     source_token = db.set_source_labels(["shared-west"])
     try:

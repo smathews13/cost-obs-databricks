@@ -72,6 +72,20 @@ describe("chrome filter variants", () => {
     expect(screen.getByTitle("AWS")).toHaveAttribute("src", expect.stringContaining("aws"));
   });
 
+  it("keeps a single source-linked workspace selectable", async () => {
+    renderWithQueryClient(
+      <WorkspaceFilter
+        workspaces={[workspaces[0]]}
+        selectedIds={["1"]}
+        onChange={vi.fn()}
+        showSingleOption
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Workspace one" }));
+    expect(screen.getByRole("checkbox", { name: "Workspace one" })).toBeVisible();
+  });
+
   it("keeps the applied Clear action outside the trigger", async () => {
     const onChange = vi.fn();
     renderWithQueryClient(

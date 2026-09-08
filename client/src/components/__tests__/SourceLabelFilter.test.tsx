@@ -128,6 +128,7 @@ describe("source label reconciliation", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(["mv-sources"], current);
     const urls: string[] = [];
+    const linkedWorkspaceScopes: Array<string[] | null> = [];
 
     render(
       <QueryClientProvider client={client}>
@@ -136,7 +137,10 @@ describe("source label reconciliation", () => {
             { id: "1", name: "east1-serverless" },
             { id: "2", name: "west4-serverless" },
           ]}
-          onApplied={() => { urls.push(buildFilteredUrl("/api/test")); }}
+          onApplied={(workspaceIds) => {
+            linkedWorkspaceScopes.push(workspaceIds);
+            urls.push(buildFilteredUrl("/api/test"));
+          }}
         />
       </QueryClientProvider>,
     );
@@ -154,6 +158,40 @@ describe("source label reconciliation", () => {
       workspaceIds: ["2"],
       tables: ["daily_usage_summary"],
     });
+    expect(linkedWorkspaceScopes).toEqual([["2"]]);
+  });
+
+  it("shows only sources that contain every selected workspace", async () => {
+    const current = {
+      local_label: "local",
+      sources: [
+        { label: "west4", catalog: "west", schema: "cost" },
+        { label: "central1", catalog: "central", schema: "cost" },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => current,
+    })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["mv-sources"], current);
+
+    render(
+      <QueryClientProvider client={client}>
+        <SourceLabelFilter
+          localWorkspaces={[
+            { id: "1", name: "east1-serverless" },
+            { id: "2", name: "west4-serverless" },
+            { id: "3", name: "central1-serverless" },
+          ]}
+          workspaceSelection={["2"]}
+        />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "2 Sources" }));
+    expect(screen.getByRole("checkbox", { name: /west4/i })).toBeVisible();
+    expect(screen.queryByRole("checkbox", { name: /central1/i })).not.toBeInTheDocument();
   });
 
   it("repairs publisher routing when workspace names hydrate after Apply", async () => {
@@ -173,7 +211,11 @@ describe("source label reconciliation", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(["mv-sources"], current);
     const urls: string[] = [];
-    const onApplied = () => { urls.push(buildFilteredUrl("/api/test")); };
+    const linkedScopes: Array<string[] | null> = [];
+    const onApplied = (workspaceIds: string[] | null) => {
+      linkedScopes.push(workspaceIds);
+      urls.push(buildFilteredUrl("/api/test"));
+    };
     const view = render(
       <QueryClientProvider client={client}>
         <SourceLabelFilter localWorkspaces={[]} onApplied={onApplied} />
@@ -185,6 +227,7 @@ describe("source label reconciliation", () => {
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(urls).toHaveLength(1));
     expect(urls[0]).toContain("source_labels=west4");
+    expect(linkedScopes[0]).toEqual([]);
 
     view.rerender(
       <QueryClientProvider client={client}>
@@ -201,6 +244,7 @@ describe("source label reconciliation", () => {
     await waitFor(() => expect(urls).toHaveLength(2));
     expect(urls[1]).toContain("source_labels=local");
     expect(urls[1]).toContain("workspace_ids=workspace-west");
+    expect(linkedScopes[1]).toEqual(["workspace-west"]);
   });
 
   it("falls back to an exact workspace ID when names do not match", async () => {

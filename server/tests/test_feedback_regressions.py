@@ -334,6 +334,37 @@ def test_lakeflow_kpi_query_reports_result_state_availability():
     assert "COUNT(result_state) > 0 as result_state_available" in LAKEFLOW_JOB_STATS
 
 
+def test_kpi_workspace_denominator_uses_the_selected_scope():
+    captured: list[str] = []
+
+    def execute(sql, *_args, **_kwargs):
+        captured.append(sql)
+        return []
+
+    def sequential(queries, **_kwargs):
+        return {name: query() for name, query in queries}, {}
+
+    with (
+        patch.object(billing, "delta_cache_get", return_value=None),
+        patch.object(billing, "delta_cache_put"),
+        patch.object(billing, "_check_mv_available", return_value=False),
+        patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+        patch.object(billing, "execute_query", side_effect=execute),
+        patch.object(billing, "_run_bundle_parallel", side_effect=sequential),
+    ):
+        asyncio.run(billing.get_kpis_bundle(
+            start_date="2026-08-01",
+            end_date="2026-08-28",
+            workspace_ids="workspace-west",
+        ))
+
+    denominator_sql = next(
+        sql for sql in captured
+        if "as total_workspaces" in sql
+    )
+    assert "CAST(workspace_id AS STRING) IN ('workspace-west')" in denominator_sql
+
+
 def test_kpis_bundle_preserves_true_zero_successful_runs():
     query_results = {
         "billing_kpis": [{
@@ -373,6 +404,41 @@ def test_kpis_bundle_preserves_true_zero_successful_runs():
 
     assert result["kpis"]["successful_runs"] == 0
     assert result["kpis"]["successful_runs_available"] is True
+
+
+def test_kpis_mark_query_metrics_unavailable_when_scoped_sql_usage_has_no_history():
+    query_results = {
+        "billing_kpis": [{
+            "sql_dbus": 8,
+            "active_workspaces": 1,
+        }],
+        "lakeflow_kpis": [],
+        "anomalies": [],
+        "delta_query_stats": [{"total_queries": 0}],
+        "user_count": [],
+        "total_workspaces": [{"total_workspaces": 1}],
+        "avg_daily_models": [],
+        "stickiness_pct": [],
+    }
+    with (
+        patch.object(billing, "delta_cache_get", return_value=None),
+        patch.object(billing, "delta_cache_put"),
+        patch.object(billing, "_check_mv_available", return_value=False),
+        patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+        patch.dict(
+            billing.get_kpis_bundle.__globals__,
+            {"_get_mv_query": lambda sql, *_args: sql},
+        ),
+        patch.object(billing, "execute_queries_parallel", return_value=query_results),
+    ):
+        result = asyncio.run(billing.get_kpis_bundle(
+            start_date="2026-08-01",
+            end_date="2026-08-28",
+            workspace_ids="workspace-west",
+        ))
+
+    assert result["kpis"]["query_metrics_available"] is False
+    assert result["kpis"]["total_queries"] == 0
 
 
 def test_kpis_bundle_marks_missing_result_state_data_unavailable():

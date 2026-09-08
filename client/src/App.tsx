@@ -37,7 +37,7 @@ import {
   WarehouseGuidanceBanner,
   WarehouseHealthCheckBanner,
 } from "@/components/WarehouseGuidanceBanner";
-import { Check, Copy, Settings } from "lucide-react";
+import { Building2, Check, Copy, Database, KeyRound, Settings } from "lucide-react";
 import type {
   WarehouseHealthData,
   WarehouseIdleTimeData,
@@ -91,6 +91,7 @@ import {
   useUsersGroupsBundle,
   buildFilteredUrl,
   getActiveSourceLabels,
+  getActiveSourceRouting,
   getActiveSourceScopeKey,
   responsePayloadIssue,
   setIncludeHistoricalWorkspaceData,
@@ -383,11 +384,13 @@ function CopyableRailBadge({
   text,
   label,
   tooltip,
+  icon,
 }: {
   value: string;
   text: string;
   label: string;
   tooltip?: string;
+  icon: React.ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   const copyValue = async () => {
@@ -409,7 +412,10 @@ function CopyableRailBadge({
           <Check className="h-2.5 w-2.5" aria-hidden="true" />
         ) : (
           <span className="relative inline-flex h-2.5 w-2.5 shrink-0 items-center justify-center">
-            <Copy className="h-2.5 w-2.5 opacity-60 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+            <span className="inline-flex group-hover:hidden group-focus:hidden" aria-hidden="true">
+              {icon}
+            </span>
+            <Copy className="hidden h-2.5 w-2.5 opacity-80 group-hover:block group-focus:block" aria-hidden="true" />
           </span>
         )}
       </button>
@@ -720,13 +726,18 @@ function Dashboard() {
     }
   };
 
-  const handleSourceApplied = useCallback(async () => {
+  const handleSourceApplied = useCallback(async (
+    linkedWorkspaceIds: string[] | null,
+  ) => {
     const tab = activeTab;
     const nextSourceVersion = sourceScopeVersion + 1;
+    const nextWorkspaceIds = linkedWorkspaceIds === null
+      ? selectedWorkspaceIds
+      : linkedWorkspaceIds;
     const nextScopeKey = JSON.stringify([
       dateRange.startDate,
       dateRange.endDate,
-      [...selectedWorkspaceIds].sort(),
+      [...nextWorkspaceIds].sort(),
       includeHistoricalWorkspaces,
       nextSourceVersion,
       [...visibleDashboardTabs].sort(),
@@ -741,6 +752,9 @@ function Dashboard() {
         // Other tabs pick up the new scope lazily when the user opens them.
         setDemandRefreshPhase({ [tab]: "waiting" });
         setTabDemand(createTabDemandState(nextScopeKey, tab));
+        if (linkedWorkspaceIds !== null) {
+          setSelectedWorkspaceIds(linkedWorkspaceIds);
+        }
         setSourceScopeVersion(nextSourceVersion);
       });
       removeInactiveDashboardScopeData(rqClient);
@@ -1560,6 +1574,17 @@ function Dashboard() {
       })),
     [wsFilterList],
   );
+  const sourceLinkedWorkspaceIds = new Set(
+    getActiveSourceRouting().workspaceIds,
+  );
+  const sourceFilteredWorkspaceList = sourceLinkedWorkspaceIds.size > 0
+    ? wsFilterList.filter((workspace) =>
+        Boolean(
+          workspace.workspace_id
+          && sourceLinkedWorkspaceIds.has(workspace.workspace_id)
+        )
+      )
+    : wsFilterList;
   const workspaceScopeCount = wsListData && !wsListData.error
     ? wsFilterList.filter((workspace) => includeHistoricalWorkspaces || !workspace.historical).length
     : undefined;
@@ -1842,7 +1867,7 @@ function Dashboard() {
 
           <div className="order-last flex w-full min-w-0 items-center gap-[8px] sm:order-none sm:w-auto sm:flex-1">
             <WorkspaceFilter
-              workspaces={wsFilterList}
+              workspaces={sourceFilteredWorkspaceList}
               currentWorkspaceId={accountInfo?.workspace_id}
               selectedIds={selectedWorkspaceIds}
               onChange={setSelectedWorkspaceIds}
@@ -1850,10 +1875,12 @@ function Dashboard() {
               onIncludeHistoricalChange={setIncludeHistoricalWorkspaces}
               isLoading={wsListLoading}
               variant="rail"
+              showSingleOption={sourceLinkedWorkspaceIds.size > 0}
             />
             <SourceLabelFilter
               variant="rail"
               localWorkspaces={sourceRoutingWorkspaces}
+              workspaceSelection={selectedWorkspaceIds}
               onApplied={handleSourceApplied}
             />
           </div>
@@ -1866,6 +1893,7 @@ function Dashboard() {
                 value={accountInfo?.account_id || accountInfo?.account_name || "Databricks account"}
                 text={accountInfo?.account_name || "Databricks account"}
                 label="account ID"
+                icon={<Building2 className="h-2.5 w-2.5 opacity-70" />}
               />
               {authStatus && authStatus.identity !== "user_oauth" && (
                 (authStatus.sp_object_id || authStatus.sp_client_id) && (
@@ -1874,6 +1902,7 @@ function Dashboard() {
                     text={authStatus.sp_display_name || authStatus.sp_object_id || authStatus.sp_client_id || ""}
                     label="service principal ID"
                     tooltip={`Service principal: ${authStatus.sp_display_name || "Unnamed"}. ID: ${authStatus.sp_object_id || authStatus.sp_client_id}. Click to copy the ID.`}
+                    icon={<KeyRound className="h-2.5 w-2.5 opacity-70" />}
                   />
                 )
               )}
@@ -1885,6 +1914,7 @@ function Dashboard() {
                       || (warehouseStatus.status === "warm" ? "Active" : warehouseStatus.status === "warming_up" ? "Starting" : "Offline")}
                     label="SQL warehouse ID"
                     tooltip={`SQL warehouse: ${warehouseStatus.warehouse_name || warehouseStatus.warehouse_id}. Status: ${warehouseStatus.state ?? warehouseStatus.status}. Click to copy warehouse ID.`}
+                    icon={<Database className="h-2.5 w-2.5 opacity-70" />}
                   />
                 ) : (
                   <RailBadgeTooltip text={`SQL warehouse status: ${warehouseStatus.state ?? warehouseStatus.status}.`}>

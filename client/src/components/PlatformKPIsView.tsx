@@ -78,7 +78,11 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
   // Only suppress a card when the dependency is **explicitly** denied, not when unknown.
   const jobsUnavailable       = lakeflowGranted === false    ? "lakeflow grants required: run SP grants to fix" : undefined;
   const servingUnavailable    = servingGranted === false     ? "serving.served_entities grant required" : undefined;
-  const queryHistUnavailable  = queryHistoryGranted === false ? "query.history grant required" : undefined;
+  const queryHistUnavailable = queryHistoryGranted === false
+    ? "query.history grant required"
+    : data?.query_metrics_available === false
+      ? "query history is unavailable for the selected workspace/source"
+      : undefined;
   const queryUsersUnavailable = data?.query_users_available === false
     ? "managed query-user data is unavailable for this scope"
     : undefined;

@@ -123,6 +123,24 @@ describe("PlatformKPIsView: denied dependency renders unavailable, not 0", () =>
     });
   });
 
+  it("shows selected-scope query metrics as unavailable instead of zero", () => {
+    renderView(
+      { "system.query.history": true },
+      {
+        ...SAMPLE_DATA,
+        total_queries: 0,
+        total_rows_read: 0,
+        total_bytes_read: 0,
+        total_compute_seconds: 0,
+        query_metrics_available: false,
+      },
+    );
+
+    expect(
+      screen.getAllByText(/query history is unavailable for the selected workspace\/source/i),
+    ).toHaveLength(4);
+  });
+
   it("shows unavailable state for lakeflow KPIs when grant is false", () => {
     renderView({ "system.lakeflow.pipelines": false });
 

@@ -39,6 +39,7 @@ interface WorkspaceFilterProps {
   onIncludeHistoricalChange?: (include: boolean) => void;
   isLoading?: boolean;
   variant?: "header" | "rail";
+  showSingleOption?: boolean;
 }
 
 export function WorkspaceFilter({
@@ -50,6 +51,7 @@ export function WorkspaceFilter({
   onIncludeHistoricalChange,
   isLoading,
   variant = "header",
+  showSingleOption = false,
 }: WorkspaceFilterProps) {
   const { updating, arm } = useUpdatingIndicator();
   const [isOpen, setIsOpen] = useState(false);
@@ -96,7 +98,9 @@ export function WorkspaceFilter({
     );
   }
 
-  if (validWorkspaces.length <= 1) return null;
+  if (validWorkspaces.length === 0 || (
+    validWorkspaces.length === 1 && !showSingleOption
+  )) return null;
 
   const allSelected = selectedIds.length === 0;
   const applyEnabled = draftAll || draftIds.length > 0;

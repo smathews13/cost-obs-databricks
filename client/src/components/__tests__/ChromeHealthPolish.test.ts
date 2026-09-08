@@ -18,6 +18,13 @@ describe("account rail health polish", () => {
     );
   });
 
+  it("links source scope to workspace selection and available options", () => {
+    expect(appSource).toContain("linkedWorkspaceIds: string[] | null");
+    expect(appSource).toContain("setSelectedWorkspaceIds(linkedWorkspaceIds)");
+    expect(appSource).toContain("workspaces={sourceFilteredWorkspaceList}");
+    expect(appSource).toContain("workspaceSelection={selectedWorkspaceIds}");
+  });
+
   it("removes Optimize after successful checks find no warehouse data", () => {
     expect(appSource).toContain("const optimizeChecksSettled");
     expect(appSource).toContain("const optimizeHasData");
@@ -102,8 +109,11 @@ describe("account rail health polish", () => {
     expect(appSource).not.toContain('className="max-w-[128px] truncate"');
     expect(appSource).toContain("className={RAIL_STATUS_BADGE_CLASS}");
     expect(appSource).toContain(
-      'className="h-2.5 w-2.5 opacity-60 transition-opacity group-hover:opacity-100"',
+      'className="hidden h-2.5 w-2.5 opacity-80 group-hover:block group-focus:block"',
     );
+    expect(appSource).toContain("<Building2");
+    expect(appSource).toContain("<KeyRound");
+    expect(appSource).toContain("<Database");
     expect(appSource).toContain(
       'value={accountInfo?.account_id || accountInfo?.account_name || "Databricks account"}',
     );

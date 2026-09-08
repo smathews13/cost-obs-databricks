@@ -24,6 +24,22 @@ def _endpoint(router, path: str):
     return next(route.endpoint for route in router.routes if route.path == path)
 
 
+def test_every_users_bundle_query_applies_workspace_scope():
+    templates = (
+        users_groups.USERS_SUMMARY,
+        users_groups.USERS_TOP_SPEND,
+        users_groups.USERS_PRODUCT_BREAKDOWN,
+        users_groups.USERS_TIMESERIES,
+        users_groups.USERS_BY_WORKSPACE,
+        users_groups.USERS_SPEND_GROWTH,
+        users_groups.USERS_GROWTH,
+    )
+
+    for template in templates:
+        scoped = users_groups._scope_user_sql(template, ["workspace-west"])
+        assert "CAST(u.workspace_id AS STRING) IN ('workspace-west')" in scoped
+
+
 def test_request_scope_rejects_invalid_reversed_future_and_oversized_ranges():
     utc_today = datetime.now(timezone.utc).date()
     yesterday = utc_today - timedelta(days=1)

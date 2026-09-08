@@ -3512,7 +3512,14 @@ async def get_kpis_bundle(
         logger.warning("Managed query-user count is unavailable: %s", exc)
     # Workspace count (all-time) and avg daily model endpoints — fast billing scans
     if _local_source_selected():
-        parallel_queries.append(("total_workspaces", lambda: execute_query(TOTAL_WORKSPACES_ALLTIME, {})))
+        total_workspaces_sql = (
+            f"{TOTAL_WORKSPACES_ALLTIME.rstrip()}\n"
+            f"WHERE 1 = 1\n  {billing_ws_clause}"
+        )
+        parallel_queries.append((
+            "total_workspaces",
+            lambda: execute_query(total_workspaces_sql, {}),
+        ))
         avg_daily_models_sql = _inject_ws_filter(AVG_DAILY_MODELS, billing_ws_clause)
         parallel_queries.append(("avg_daily_models", lambda: execute_query(avg_daily_models_sql, params)))
     # Stickiness uses the same query-level MV as the unique-user card and trend.
@@ -3557,6 +3564,7 @@ async def get_kpis_bundle(
     # --- Build KPIs response ---
     kpis_response = {
         "total_queries": 0, "unique_query_users": 0, "query_users_available": False,
+        "query_metrics_available": True,
         "total_rows_read": 0, "total_bytes_read": 0, "total_compute_seconds": 0,
         "total_jobs": 0, "total_job_runs": 0, "successful_runs": 0, "successful_runs_available": False, "total_job_run_hours": 0,
         "unique_job_owners": 0, "active_workspaces": 0, "avg_daily_workspaces": 0,
@@ -3601,6 +3609,11 @@ async def get_kpis_bundle(
         kpis_response["active_notebooks"] = total_clusters + sql_warehouses
         kpis_response["models_served"] = int(row.get("models_served") or 0)
         kpis_response["total_serving_dbus"] = float(row.get("total_serving_dbus") or 0)
+        if (
+            float(row.get("sql_dbus") or 0) > 0
+            and kpis_response["total_queries"] == 0
+        ):
+            kpis_response["query_metrics_available"] = False
 
     scoped_workspace_results = query_results.get("active_workspaces")
     if scoped_workspace_results:
@@ -3750,7 +3763,7 @@ async def get_kpi_trend(
     use_mv = await asyncio.to_thread(_check_mv_available)
 
     unavailable_reason = None
-    if selected_source_labels() and kpi not in {
+    if selected_source_labels() and not _local_source_selected() and kpi not in {
         "total_spend",
         "avg_daily_spend",
         "total_dbus",
@@ -4608,7 +4621,12 @@ async def get_platform_kpi_trend(
 
     use_mv = await asyncio.to_thread(_check_mv_available)
 
-    if selected_source_labels() and not (
+    selected_labels = selected_source_labels()
+    shared_labels_selected = any(
+        label != get_local_source_label()
+        for label in selected_labels
+    )
+    if shared_labels_selected and not (
         granularity == "daily"
         and kpi in {
             "total_queries",
