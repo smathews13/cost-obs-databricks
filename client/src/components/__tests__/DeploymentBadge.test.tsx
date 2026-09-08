@@ -75,7 +75,7 @@ describe("DeploymentBadge", () => {
     expect(trigger.className).not.toContain("border-");
     expect(screen.getByTestId("deployment-badge")).toHaveClass(
       "h-[22px]",
-      "w-[88px]",
+      "w-[104px]",
       "items-center",
     );
     const dot = screen.getByTestId("deployment-status-dot");

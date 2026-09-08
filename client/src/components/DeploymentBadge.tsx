@@ -35,7 +35,7 @@ export function DeploymentBadge({
       data-testid="deployment-badge"
       className={variant === "control"
         ? "inline-flex h-[28px] shrink-0 items-center align-middle"
-        : "inline-flex h-[22px] w-[88px] shrink-0 items-center align-middle leading-none"}
+        : "inline-flex h-[22px] w-[104px] shrink-0 items-center align-middle leading-none"}
     >
       <InfoPopover
         label={`Deployment information: ${triggerText}`}
