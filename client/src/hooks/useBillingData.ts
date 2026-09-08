@@ -519,14 +519,6 @@ export interface UserGrowthPoint {
   new_users: number;
 }
 
-export function useUserGrowth() {
-  return useQuery<{ data: UserGrowthPoint[] }>({
-    queryKey: ["users-groups", "growth"],
-    queryFn: () => fetchJson("/api/users-groups/user-growth"),
-    staleTime: STALE_TIME,
-  });
-}
-
 export interface ReportConfig {
   weekly_reports: Array<{
     id: string;

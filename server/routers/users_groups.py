@@ -328,7 +328,10 @@ def _scope_user_sql(sql: str, workspace_ids: list[str] | None) -> str:
     return scoped
 
 
-def _identity_scope(labels: list[str]) -> tuple[bool, dict[str, Any]]:
+def _identity_scope(
+    labels: list[str],
+    workspace_ids: list[str] | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Describe which identity detail is safe for the selected source scope."""
     if not labels:
         return True, {"available": True, "availability": "available"}
@@ -341,6 +344,16 @@ def _identity_scope(labels: list[str]) -> tuple[bool, dict[str, Any]]:
             "reason": "identity_detail_unavailable_for_shared_sources",
             "reason_detail": (
                 "User and group identities are not included in shared cost sources."
+            ),
+        }
+    if shared_labels and not workspace_ids:
+        return False, {
+            "available": False,
+            "availability": "unavailable",
+            "reason": "identity_workspace_scope_required",
+            "reason_detail": (
+                "User identities for a mixed source selection require resolved "
+                "workspace IDs; account-wide fallback is disabled."
             ),
         }
     if shared_labels:
@@ -545,7 +558,7 @@ async def _compute_users_groups_bundle(
     start_date, end_date, id_list, labels = validate_request_scope(
         start_date, end_date, workspace_ids, source_labels
     )
-    identity_available, availability = _identity_scope(labels)
+    identity_available, availability = _identity_scope(labels, id_list)
     if not identity_available:
         return {
             **availability,
@@ -751,7 +764,7 @@ async def get_users_groups_bundle(
     validated_start, validated_end, id_list, labels = validate_request_scope(
         start_date, end_date, workspace_ids, source_labels
     )
-    identity_available, availability = _identity_scope(labels)
+    identity_available, availability = _identity_scope(labels, id_list)
     if not identity_available:
         return {
             **availability,
@@ -857,7 +870,7 @@ async def get_user_growth(
     _, _, id_list, labels = validate_request_scope(
         start_date, end_date, workspace_ids, source_labels
     )
-    identity_available, availability = _identity_scope(labels)
+    identity_available, availability = _identity_scope(labels, id_list)
     if not identity_available:
         return {**availability, "data": []}
 
@@ -959,7 +972,7 @@ async def get_groups_bundle(
     start_date, end_date, id_list, labels = validate_request_scope(
         start_date, end_date, workspace_ids, source_labels
     )
-    identity_available, availability = _identity_scope(labels)
+    identity_available, availability = _identity_scope(labels, id_list)
     if not identity_available:
         return {
             **availability,
@@ -1238,7 +1251,7 @@ async def send_test_report(
         source_labels,
         default_days=7,
     )
-    identity_available, availability = _identity_scope(labels)
+    identity_available, availability = _identity_scope(labels, id_list)
     if not identity_available:
         return {"success": False, **availability}
 

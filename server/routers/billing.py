@@ -3565,6 +3565,7 @@ async def get_kpis_bundle(
     kpis_response = {
         "total_queries": 0, "unique_query_users": 0, "query_users_available": False,
         "query_metrics_available": True,
+        "local_billing_available": _local_source_selected(),
         "total_rows_read": 0, "total_bytes_read": 0, "total_compute_seconds": 0,
         "total_jobs": 0, "total_job_runs": 0, "successful_runs": 0, "successful_runs_available": False, "total_job_run_hours": 0,
         "unique_job_owners": 0, "active_workspaces": 0, "avg_daily_workspaces": 0,
@@ -4234,6 +4235,30 @@ async def get_kpi_trend(
         GROUP BY DATE(start_time)
         ORDER BY date
         """
+    elif kpi == "active_users":
+        active_user_ws_clause = wf.build_ws_filter_clause(
+            col="u.workspace_id",
+            id_list=id_list,
+        )
+        query = f"""
+        SELECT
+          u.usage_date AS date,
+          COUNT(DISTINCT COALESCE(
+            u.identity_metadata.run_as,
+            u.identity_metadata.created_by
+          )) AS value
+        FROM system.billing.usage u
+        WHERE u.usage_date BETWEEN :start_date AND :end_date
+          AND u.usage_quantity > 0
+          {active_user_ws_clause}
+          AND (
+            u.identity_metadata.run_as IS NOT NULL
+            OR u.identity_metadata.created_by IS NOT NULL
+          )
+        GROUP BY u.usage_date
+        ORDER BY u.usage_date
+        """
+        ws_clause = ""  # already embedded above; prevent double-injection
     elif kpi == "user_spend":
         if use_mv:
             catalog, schema = get_catalog_schema()
@@ -4701,7 +4726,15 @@ async def get_platform_kpi_trend(
         "active_notebooks", "models_served",
     }
     if kpi in local_only_kpis and not _local_source_selected():
-        return _resp(_build_platform_kpi_response(kpi, granularity, []))
+        unavailable = _build_platform_kpi_response(kpi, granularity, [])
+        unavailable.update({
+            "available": False,
+            "unavailable_reason": (
+                "This KPI uses local billing or Lakeflow data that is unavailable "
+                "for the selected shared-only source."
+            ),
+        })
+        return _resp(unavailable)
 
     # For DISTINCT COUNT KPIs, monthly/weekly rollup must be done in SQL — summing
     # daily distinct counts in Python overcounts (user active 30 days = 30x, not 1x).

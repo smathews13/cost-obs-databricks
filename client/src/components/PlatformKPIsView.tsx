@@ -71,17 +71,28 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
   // Per-feature availability from the shared hook (caches under READINESS_QUERY_KEY).
   const { tableGranted } = useFeatureAvailability();
 
-  const lakeflowGranted     = tableGranted("system.lakeflow.pipelines");
   const servingGranted      = tableGranted("system.serving.served_entities");
   const queryHistoryGranted = tableGranted("system.query.history");
 
   // Only suppress a card when the dependency is **explicitly** denied, not when unknown.
-  const jobsUnavailable       = lakeflowGranted === false    ? "lakeflow grants required: run SP grants to fix" : undefined;
-  const servingUnavailable    = servingGranted === false     ? "serving.served_entities grant required" : undefined;
-  const queryHistUnavailable = queryHistoryGranted === false
-    ? "query.history grant required"
-    : data?.query_metrics_available === false
-      ? "query history is unavailable for the selected workspace/source"
+  const localBillingUnavailable = data?.local_billing_available === false
+    ? "local billing metrics are unavailable for the selected source"
+    : undefined;
+  const jobsUnavailable = localBillingUnavailable;
+  const servingUnavailable = localBillingUnavailable
+    || (servingGranted === false ? "serving.served_entities grant required" : undefined);
+  const queryMetricsHaveData = Boolean(
+    data && (
+      data.total_queries > 0
+      || data.total_rows_read > 0
+      || data.total_bytes_read > 0
+      || data.total_compute_seconds > 0
+    )
+  );
+  const queryHistUnavailable = data?.query_metrics_available === false
+    ? "query history is unavailable for the selected workspace/source"
+    : queryHistoryGranted === false && !queryMetricsHaveData
+      ? "query.history grant required"
       : undefined;
   const queryUsersUnavailable = data?.query_users_available === false
     ? "managed query-user data is unavailable for this scope"
@@ -357,7 +368,8 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
             infoTooltip="Distinct clusters plus SQL warehouses with billing usage across the selected period. This includes serverless SQL warehouses, which do not appear as compute clusters."
             color="bg-orange-100"
             isLoading={isLoading || isFetching}
-            onClick={startDate && endDate ? () => handleKPIClick("active_notebooks", "Daily Active Compute Resources") : undefined}
+            unavailableReason={localBillingUnavailable}
+            onClick={!localBillingUnavailable && startDate && endDate ? () => handleKPIClick("active_notebooks", "Daily Active Compute Resources") : undefined}
             icon={
               <svg className="h-6 w-6 text-lava" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
@@ -407,7 +419,9 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
           <KPICard
             title="Unique Active Users"
             value={formatNumber(data.unique_query_users)}
-            subtitle={`${formatNumber(data.unique_job_owners ?? 0)} job owners`}
+            subtitle={data.local_billing_available === false
+              ? "SQL query executors in selected source"
+              : `${formatNumber(data.unique_job_owners ?? 0)} job owners`}
             isLoading={isLoading || isFetching}
             infoTooltip="Distinct SQL query executors in the selected period (matches the daily trend). Job owners shown separately: some users may appear in both groups."
             color="bg-orange-100"

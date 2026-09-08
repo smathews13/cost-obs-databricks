@@ -965,6 +965,45 @@ def test_local_source_successful_runs_trend_remains_workspace_sensitive():
     assert "CAST(workspace_id AS STRING) IN ('workspace-west')" in execute.call_args.args[0]
 
 
+def test_users_active_user_trend_matches_billing_identity_workspace_scope():
+    local_label = db.get_local_source_label()
+    source_token = db.set_source_labels([local_label])
+    try:
+        with (
+            patch.object(billing, "delta_cache_get", return_value=None),
+            patch.object(billing, "delta_cache_put"),
+            patch.object(billing, "_check_mv_available", return_value=False),
+            patch.object(billing, "get_catalog_schema", return_value=("catalog", "schema")),
+            patch.object(
+                billing,
+                "capture_cache_generation",
+                return_value=db.CacheGeneration("trend:users-groups:billing-kpi", 0),
+            ),
+            patch.object(
+                billing,
+                "execute_query",
+                return_value=[{"date": "2026-08-01", "value": 2}],
+            ) as execute,
+        ):
+            result = asyncio.run(
+                billing.get_kpi_trend(
+                    kpi="active_users",
+                    start_date="2026-08-01",
+                    end_date="2026-08-28",
+                    granularity="daily",
+                    workspace_ids="456",
+                    tab="users-groups",
+                )
+            )
+    finally:
+        db.reset_source_labels(source_token)
+
+    assert result["data_points"] == [{"date": "2026-08-01", "value": 2.0}]
+    sql = execute.call_args.args[0]
+    assert "identity_metadata.run_as" in sql
+    assert "CAST(u.workspace_id AS STRING) IN ('456')" in sql
+
+
 def test_billing_trend_combines_workspace_and_source_scope():
     source_token = db.set_source_labels(["shared-west"])
     try:

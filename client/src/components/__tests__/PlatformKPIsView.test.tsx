@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PlatformKPIsView } from "../PlatformKPIsView";
+import { SpendAnomalies } from "../SpendAnomalies";
 import type { PlatformKPIsResponse } from "@/types/billing";
 
 // ---------------------------------------------------------------------------
@@ -101,8 +102,17 @@ describe("PlatformKPIsView: denied dependency renders unavailable, not 0", () =>
     vi.mocked(useFeatureAvailability).mockReset();
   });
 
-  it("shows unavailable state for query.history KPIs when grant is false", () => {
-    renderView({ "system.query.history": false });
+  it("shows unavailable state when direct query history is denied and no managed data exists", () => {
+    renderView(
+      { "system.query.history": false },
+      {
+        ...SAMPLE_DATA,
+        total_queries: 0,
+        total_rows_read: 0,
+        total_bytes_read: 0,
+        total_compute_seconds: 0,
+      },
+    );
 
     // All query.history-dependent KPI cards must show the unavailable text
     const unavailableEls = screen.getAllByText(/Unavailable/i);
@@ -110,10 +120,6 @@ describe("PlatformKPIsView: denied dependency renders unavailable, not 0", () =>
 
     // The reason text must be present (grant hint)
     expect(screen.getAllByText(/query\.history grant required/i).length).toBeGreaterThan(0);
-  });
-
-  it("does NOT show 0 for query.history KPIs when grant is false", () => {
-    renderView({ "system.query.history": false });
 
     // The KPI value "0" must not appear as a standalone text node in unavailable cards
     const cards = screen.getAllByTitle(/query\.history grant required/i);
@@ -141,10 +147,19 @@ describe("PlatformKPIsView: denied dependency renders unavailable, not 0", () =>
     ).toHaveLength(4);
   });
 
-  it("shows unavailable state for lakeflow KPIs when grant is false", () => {
+  it("keeps managed query KPI data visible when direct query history is denied", () => {
+    renderView({ "system.query.history": false });
+
+    expect(screen.getByText("100")).toBeVisible();
+    expect(screen.queryByText(/query\.history grant required/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps billing-backed Jobs KPIs available when lakeflow is denied", () => {
     renderView({ "system.lakeflow.pipelines": false });
 
-    expect(screen.getAllByText(/lakeflow grants required/i).length).toBeGreaterThan(0);
+    expect(screen.getByText("Total Active Jobs")).toBeVisible();
+    expect(screen.getByText("Job Runs")).toBeVisible();
+    expect(screen.queryByText(/lakeflow grants required/i)).not.toBeInTheDocument();
   });
 
   it("keeps the billing-backed compute resource KPI available when compute metadata is denied", () => {
@@ -157,6 +172,24 @@ describe("PlatformKPIsView: denied dependency renders unavailable, not 0", () =>
     expect(card?.querySelector(".co-kpi-card__icon")).not.toBeNull();
     expect(screen.getByText("5 clusters · 2 SQL warehouses")).toBeInTheDocument();
     expect(screen.queryByText(/compute\.clusters grant required/i)).not.toBeInTheDocument();
+  });
+
+  it("marks local billing KPIs unavailable for a shared-only source", () => {
+    renderView({}, {
+      ...SAMPLE_DATA,
+      total_jobs: 0,
+      total_job_runs: 0,
+      active_notebooks: 0,
+      total_clusters: 0,
+      sql_warehouses: 0,
+      models_served: 0,
+      local_billing_available: false,
+    });
+
+    expect(
+      screen.getAllByText(/local billing metrics are unavailable for the selected source/i),
+    ).toHaveLength(4);
+    expect(screen.getByText("SQL query executors in selected source")).toBeVisible();
   });
 
   it("shows unavailable state for serving.served_entities KPI when grant is false", () => {
@@ -183,6 +216,27 @@ describe("PlatformKPIsView: denied dependency renders unavailable, not 0", () =>
 
     expect(screen.queryAllByText(/grant required/i)).toHaveLength(0);
     expect(screen.queryAllByText(/Unavailable/i)).toHaveLength(0);
+  });
+});
+
+describe("SpendAnomalies unavailable state", () => {
+  it("does not call unavailable data stable spending", () => {
+    render(
+      <SpendAnomalies
+        data={{
+          anomalies: [],
+          available: false,
+          unavailable_reason: "Selected source has no anomaly aggregate.",
+          start_date: "2026-01-01",
+          end_date: "2026-01-31",
+        }}
+        isLoading={false}
+      />,
+    );
+
+    expect(screen.getByText("Spend change data is unavailable")).toBeVisible();
+    expect(screen.getByText("Selected source has no anomaly aggregate.")).toBeVisible();
+    expect(screen.queryByText(/This is good news/)).not.toBeInTheDocument();
   });
 });
 

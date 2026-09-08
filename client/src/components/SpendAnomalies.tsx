@@ -171,6 +171,20 @@ export function SpendAnomalies({ data, isLoading }: SpendAnomaliesProps) {
     );
   }
 
+  if (data?.available === false) {
+    return (
+      <div className="rounded-lg border bg-white p-6" style={{ borderColor: C.hairline }}>
+        <h3 className="mb-4 text-lg font-semibold text-gray-900">Largest Spend Changes</h3>
+        <div className="flex h-40 flex-col items-center justify-center gap-2 text-gray-500">
+          <p className="text-base font-medium">Spend change data is unavailable</p>
+          <p className="text-sm">
+            {data.unavailable_reason || "The selected workspace or source does not provide this data."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!data || data.anomalies.length === 0) {
     return (
       <div className="rounded-lg bg-white p-6 border" style={{ borderColor: C.hairline }}>

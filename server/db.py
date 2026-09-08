@@ -2078,6 +2078,14 @@ def apply_mv_overrides(sql: str, catalog: str, schema: str) -> str:
     """
     overrides = dict(get_mv_table_overrides())
     selected = selected_source_labels()
+    if selected and not any(
+        f"`{catalog}`.`{schema}`.`{table}`" in sql
+        or f"{catalog}.{schema}.{table}" in sql
+        for table in MV_UNIFIED_TABLE_NAMES
+    ):
+        # Raw system-table queries are already scoped by their workspace clause.
+        # They do not need shared-view discovery or managed-table rewriting.
+        return sql
     # Selected-source routing is strict: verify physical views now rather than
     # trusting the normal five-minute discovery cache.
     live = _list_existing_source_row_views() if selected else None

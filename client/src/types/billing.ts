@@ -330,6 +330,7 @@ export interface PlatformKPIsResponse {
   unique_query_users: number;
   query_users_available?: boolean;
   query_metrics_available?: boolean;
+  local_billing_available?: boolean;
   total_rows_read: number;
   total_bytes_read: number;
   total_compute_seconds: number;

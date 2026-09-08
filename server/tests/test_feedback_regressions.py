@@ -13,7 +13,7 @@ from server.queries import (
     INFRA_COST_TIMESERIES,
     LAKEFLOW_JOB_STATS,
 )
-from server.routers import billing, dbsql_base, settings, tagging, warehouse_health
+from server.routers import billing, dbsql_base, settings, tagging, users_groups, warehouse_health
 
 
 @pytest.mark.parametrize(
@@ -28,6 +28,19 @@ def test_current_workspace_id_is_parsed_from_provider_host(monkeypatch, host):
     workspace = SimpleNamespace(config=SimpleNamespace(host=host))
     with patch.object(db, "get_workspace_client", return_value=workspace):
         assert db.get_current_workspace_id() == "8" * 16
+
+
+def test_mixed_user_source_scope_requires_resolved_workspace_ids():
+    with patch.object(users_groups, "get_local_source_label", return_value="local"):
+        available, detail = users_groups._identity_scope(["local", "shared-west"])
+        scoped_available, _ = users_groups._identity_scope(
+            ["local", "shared-west"],
+            ["workspace-west"],
+        )
+
+    assert available is False
+    assert detail["reason"] == "identity_workspace_scope_required"
+    assert scoped_available is True
 
 
 def test_numeric_workspace_host_is_not_used_as_account_display_name(monkeypatch):

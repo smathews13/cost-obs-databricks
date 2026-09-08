@@ -219,7 +219,7 @@ export function SourceLabelFilter({
     } finally {
       setApplying(false);
     }
-  }, [allLabels, data?.sources, err, localWorkspaces, onApplied]);
+  }, [allLabels, data?.local_label, data?.sources, err, localWorkspaces, onApplied]);
 
   // Source options can arrive before the account workspace list. If an already
   // applied source becomes resolvable after workspace metadata hydrates, switch
