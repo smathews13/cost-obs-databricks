@@ -30,6 +30,7 @@ from server.db import (
     delta_cache_put,
     execute_queries_parallel,
     get_catalog_schema,
+    get_current_workspace_id,
     get_host_url,
     get_local_source_label,
     get_workspace_client,
@@ -350,6 +351,7 @@ async def get_account_info() -> dict[str, Any]:
     result: dict[str, Any] = {
         "account_id": None,
         "account_name": None,
+        "workspace_id": get_current_workspace_id() or None,
         "cloud": None,
         "host": None,
     }

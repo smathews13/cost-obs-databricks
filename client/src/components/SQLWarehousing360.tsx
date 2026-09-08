@@ -503,7 +503,7 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
       {regionScope?.limited && (
         <SourceCapabilityNotice
           title="Query detail is unavailable for some selected workspaces"
-          description={`${regionScope.missing_workspace_count} selected workspace${regionScope.missing_workspace_count === 1 ? "" : "s"} with ${formatKpiCurrency(regionScope.billing_sql_spend ?? 0)} in SQL billing spend ${regionScope.missing_workspace_count === 1 ? "is" : "are"} outside this app's metastore region. Query spend, counts, users, duration, and warehouse-type detail cover only ${regionScope.in_region_workspace_count} in-region workspace${regionScope.in_region_workspace_count === 1 ? "" : "s"}.`}
+          description={`${regionScope.missing_workspace_count} selected workspace${regionScope.missing_workspace_count === 1 ? "" : "s"} with ${formatKpiCurrency(regionScope.missing_region_sql_spend ?? 0)} in SQL billing spend ${regionScope.missing_workspace_count === 1 ? "is" : "are"} outside this app's metastore region. The billing-spend chart includes those workspaces; query attribution, counts, users, and duration cover only ${regionScope.in_region_workspace_count} in-region workspace${regionScope.in_region_workspace_count === 1 ? "" : "s"}.`}
           requiredAggregates={["daily_query_stats", "sql_tool_attribution", "dbsql_cost_per_query"]}
         />
       )}
@@ -589,13 +589,15 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
             return (
           <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KPICard
-              title="Total Query Spend"
-              value={queryDetailUnavailable ? "N/A" : formatKpiCurrency(availableSummary.total_spend ?? 0)}
+              title={queryDetailUnavailable ? "SQL Billing Spend" : "Total Query Spend"}
+              value={queryDetailUnavailable
+                ? formatKpiCurrency(regionScope?.billing_sql_spend ?? 0)
+                : formatKpiCurrency(availableSummary.total_spend ?? 0)}
               subtitle={queryDetailUnavailable
-                ? "Query attribution is not available in these regions"
+                ? "Account billing total; query attribution is unavailable"
                 : `${formatNumber(availableSummary.total_dbus ?? 0)} DBUs · over ${startDate && endDate ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1 : "?"} days`}
-              onActivate={!queryDetailUnavailable && startDate && endDate ? () => setSelectedKPI({kpi: "sql_spend", label: "Daily SQL Spend Trend", variant: "billing"}) : undefined}
-              ariaLabel="See Total Query Spend trend"
+              onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "sql_spend", label: queryDetailUnavailable ? "Daily SQL Billing Spend" : "Daily SQL Spend Trend", variant: "billing"}) : undefined}
+              ariaLabel={queryDetailUnavailable ? "See SQL Billing Spend trend" : "See Total Query Spend trend"}
               icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             />
             <KPICard
@@ -748,7 +750,12 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
           <div className={`grid grid-cols-1 gap-6 ${(warehouseTypeTimeseries?.timeseries?.length ?? 0) > 0 && hasWarehouseSizeData ? "lg:grid-cols-2" : ""}`}>
           {(warehouseTypeTimeseries?.timeseries?.length ?? 0) > 0 && (
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
-              <h3 className="mb-4 text-lg font-semibold text-gray-900">Warehouse Spend by Type</h3>
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">SQL Billing Spend by Warehouse Type</h3>
+                {regionScope?.limited && (
+                  <p className="mt-1 text-xs text-gray-500">Includes billing from selected workspaces outside this app&apos;s query-history region.</p>
+                )}
+              </div>
               {(() => {
                 const whTypeTs = warehouseTypeTimeseries;
                 const tsData = whTypeTs?.timeseries || [];

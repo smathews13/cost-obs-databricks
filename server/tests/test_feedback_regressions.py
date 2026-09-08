@@ -33,14 +33,22 @@ def test_current_workspace_id_is_parsed_from_provider_host(monkeypatch, host):
 def test_numeric_workspace_host_is_not_used_as_account_display_name(monkeypatch):
     monkeypatch.delenv("DATABRICKS_ACCOUNT_NAME", raising=False)
     numeric_workspace_id = "8" * 16
-    with patch.object(
-        billing,
-        "get_host_url",
-        return_value=f"https://{numeric_workspace_id}.gcp.databricks.com",
+    with (
+        patch.object(
+            billing,
+            "get_host_url",
+            return_value=f"https://{numeric_workspace_id}.gcp.databricks.com",
+        ),
+        patch.object(
+            billing,
+            "get_current_workspace_id",
+            return_value=numeric_workspace_id,
+        ),
     ):
         result = asyncio.run(billing.get_account_info())
 
     assert result["account_name"] is None
+    assert result["workspace_id"] == numeric_workspace_id
 
 
 def test_account_details_resolve_the_current_workspace_display_name(monkeypatch):
@@ -105,6 +113,14 @@ def test_explicit_workspace_selection_takes_precedence_over_history_scope():
         workspace_filter.reset_include_historical_workspaces(token)
 
     assert clause == "AND CAST(workspace_id AS STRING) IN ('historical-123')"
+
+
+def test_empty_source_workspace_intersection_is_an_explicit_empty_scope():
+    clause = workspace_filter.build_ws_filter_clause(
+        id_list=[workspace_filter.EMPTY_WORKSPACE_SCOPE_ID],
+    )
+
+    assert clause == "AND 1 = 0"
 
 
 def test_workspace_picker_uses_the_selected_managed_source():

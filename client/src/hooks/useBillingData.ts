@@ -163,13 +163,49 @@ async function fetchJson<T>(
 // means "all sources" (no filter). Appended to every data URL so the backend can
 // narrow MV reads by source; changing it invalidates queries to force a refetch.
 let _activeSourceLabels: string[] = [];
+let _activeSourceRequestLabels: string[] = [];
+let _activeSourceWorkspaceIds: string[] = [];
+let _activeSourceTables: string[] | null = null;
 let _includeHistoricalWorkspaces = true;
 export function setActiveSourceLabels(labels: string[]): void {
   _activeSourceLabels = Array.from(new Set(labels ?? [])).filter(Boolean).sort();
+  _activeSourceRequestLabels = [..._activeSourceLabels];
+  _activeSourceWorkspaceIds = [];
+  _activeSourceTables = null;
 }
 
 export function getActiveSourceLabels(): string[] {
   return [..._activeSourceLabels];
+}
+
+export function setActiveSourceRouting(
+  requestLabels: string[],
+  workspaceIds: string[],
+): void {
+  _activeSourceRequestLabels = Array.from(new Set(requestLabels ?? [])).filter(Boolean).sort();
+  _activeSourceWorkspaceIds = Array.from(new Set(workspaceIds ?? [])).filter(Boolean).sort();
+}
+
+export function getActiveSourceRouting(): {
+  requestLabels: string[];
+  workspaceIds: string[];
+  tables: string[] | null;
+} {
+  return {
+    requestLabels: [..._activeSourceRequestLabels],
+    workspaceIds: [..._activeSourceWorkspaceIds],
+    tables: _activeSourceTables ? [..._activeSourceTables] : null,
+  };
+}
+
+export function setActiveSourceTables(tables: string[] | null): void {
+  _activeSourceTables = tables
+    ? Array.from(new Set(tables)).filter(Boolean).sort()
+    : null;
+}
+
+export function getActiveSourceTables(): string[] | null {
+  return _activeSourceTables ? [..._activeSourceTables] : null;
 }
 
 export function getActiveSourceScopeKey(): string {
@@ -203,14 +239,30 @@ export function buildFilteredUrl(
   workspaceIds?: string[],
 ): string {
   const scoped = new URLSearchParams(params);
-  for (const label of _activeSourceLabels) {
+  for (const label of _activeSourceRequestLabels) {
     scoped.append("source_labels", label);
   }
   if (!_includeHistoricalWorkspaces && !scoped.has("include_historical_workspaces")) {
     scoped.set("include_historical_workspaces", "false");
   }
-  const wsKey = getWorkspaceScopeKey(workspaceIds);
-  if (wsKey) scoped.set("workspace_ids", wsKey);
+  const explicitWorkspaceIds = (
+    getWorkspaceScopeKey(workspaceIds)
+    || scoped.get("workspace_ids")
+    || ""
+  )
+    .split(",")
+    .filter(Boolean);
+  const sourceWorkspaceSet = new Set(_activeSourceWorkspaceIds);
+  const effectiveWorkspaceIds = sourceWorkspaceSet.size === 0
+    ? explicitWorkspaceIds
+    : explicitWorkspaceIds.length === 0
+      ? [...sourceWorkspaceSet]
+      : explicitWorkspaceIds.filter((id) => sourceWorkspaceSet.has(id));
+  if (sourceWorkspaceSet.size > 0 && effectiveWorkspaceIds.length === 0) {
+    scoped.set("workspace_ids", "source-scope-no-overlap");
+  } else if (effectiveWorkspaceIds.length > 0) {
+    scoped.set("workspace_ids", effectiveWorkspaceIds.sort().join(","));
+  }
   const queryString = scoped.toString();
   return queryString ? `${endpoint}?${queryString}` : endpoint;
 }

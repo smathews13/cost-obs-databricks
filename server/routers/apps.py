@@ -1297,7 +1297,7 @@ def _compute_apps_bundle(
         if metadata_thread is not None:
             metadata_thread.join(timeout=2.0)
             registry = dict(_app_name_cache)
-        if not registry:
+        if allow_local_registry and not registry:
             optional_failures["app_registry"] = "METADATA_REFRESH_PENDING"
 
         # Build workspace lookup per app_id
@@ -1441,6 +1441,12 @@ def _compute_apps_bundle(
             "apps": apps_result,
             "timeseries": {"timeseries": timeseries, "categories": ["Total"]},
             "connected_artifacts": connected_artifacts,
+            "connected_resources_available": allow_local_registry,
+            "connected_resources_reason": (
+                None
+                if allow_local_registry
+                else "Connected resources come from this workspace's Apps API and are unavailable for the selected remote workspace or shared-only source."
+            ),
             "workspaces": [{"id": ws_id, "name": ws_name} for ws_id, ws_name in sorted(all_workspaces.items(), key=lambda x: x[1])],
             "active_only": active_only,
             "start_date": params["start_date"],

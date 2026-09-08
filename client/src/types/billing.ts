@@ -81,6 +81,7 @@ export interface DateRange {
 export interface AccountInfo {
   account_id: string | null;
   account_name: string | null;
+  workspace_id?: string | null;
   cloud: string | null;
   host: string | null;
   error?: string;
@@ -657,6 +658,8 @@ export interface AppsDashboardBundle {
   apps: AppsAppsResponse;
   timeseries: TimeseriesResponse;
   connected_artifacts: AppsConnectedArtifact[];
+  connected_resources_available?: boolean;
+  connected_resources_reason?: string | null;
   workspaces?: { id: string; name: string }[];
   active_only: boolean;
   start_date: string;
@@ -1136,6 +1139,7 @@ export interface RegionScope {
   in_region_workspace_count: number;
   missing_workspace_count: number;
   billing_sql_spend?: number;
+  missing_region_sql_spend?: number;
   limited: boolean;
 }
 

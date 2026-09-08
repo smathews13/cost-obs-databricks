@@ -278,6 +278,8 @@ def test_workspace_filter_excluding_local_workspace_skips_local_registry():
     payload = cache_put.call_args.args[2]
     assert payload["apps"]["apps"] == []
     assert payload["connected_artifacts"] == []
+    assert payload["connected_resources_available"] is False
+    assert "app_registry" not in payload["partial_reasons"]
     with apps._apps_bundle_status_lock:
         apps._apps_bundle_status.pop(cache_key, None)
         apps._apps_bundle_failures.pop(cache_key, None)
@@ -315,6 +317,7 @@ def test_workspace_filter_including_local_workspace_keeps_local_registry():
 
     payload = cache_put.call_args.args[2]
     assert [item["app_id"] for item in payload["apps"]["apps"]] == ["local-app"]
+    assert payload["connected_resources_available"] is True
     with apps._apps_bundle_status_lock:
         apps._apps_bundle_status.pop(cache_key, None)
         apps._apps_bundle_failures.pop(cache_key, None)
@@ -364,6 +367,8 @@ def test_shared_only_bundle_does_not_attach_cached_local_app_details():
         assert shared_app["resource_bindings"] == []
         assert shared_app["metadata"]["creator"] == ""
         assert payload["connected_artifacts"] == []
+        assert payload["connected_resources_available"] is False
+        assert "app_registry" not in payload["partial_reasons"]
     finally:
         db.reset_source_labels(source_token)
         with apps._apps_bundle_status_lock:

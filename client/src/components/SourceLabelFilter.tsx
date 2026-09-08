@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   getActiveSourceLabels,
-  getActiveSourceScopeKey,
+  getActiveSourceRouting,
   setActiveSourceLabels,
+  setActiveSourceRouting,
+  setActiveSourceTables,
 } from "@/hooks/useBillingData";
 import { C } from "@/theme";
 import { Spinner } from "@/components/Spinner";
@@ -18,6 +20,7 @@ interface MvSource {
   catalog: string;
   schema: string;
   tables?: string[];
+  workspace_ids?: string[];
   cloud?: string;
 }
 
@@ -29,6 +32,7 @@ const CLOUD_LOGOS = {
 
 interface SourceLabelFilterProps {
   variant?: "header" | "rail";
+  localWorkspaceIds?: string[];
   onApplied?: () => void | Promise<void>;
 }
 
@@ -56,7 +60,11 @@ function reconcileSourceSelection(
 // rendered when additional MV sources are configured (otherwise there's a single
 // local label and nothing to filter). Default is all sources (combined); the
 // selection is pushed to the data layer and queries are invalidated to refetch.
-export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabelFilterProps) {
+export function SourceLabelFilter({
+  variant = "header",
+  localWorkspaceIds = [],
+  onApplied,
+}: SourceLabelFilterProps) {
   const { data } = useQuery<{
     sources: MvSource[];
     local_label: string;
@@ -81,7 +89,9 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
   const [err, setErr] = useState<string | null>(null);
   const [retrySelection, setRetrySelection] = useState<Set<string> | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const lastAppliedRef = useRef<string>(getActiveSourceScopeKey());
+  const lastAppliedRef = useRef<string>(
+    getActiveSourceLabels().sort().join("\u0001"),
+  );
   const previousLabelsRef = useRef<string[]>([]);
   const selectedRef = useRef(selected);
 
@@ -98,12 +108,32 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
     const key = [...effective].sort().join("");
     if (key === lastAppliedRef.current && !err) return;
     const previousEffective = getActiveSourceLabels();
+    const previousRouting = getActiveSourceRouting();
     const previousVisible = previousEffective.length
       ? new Set(previousEffective)
       : new Set(allLabels);
     // The shared module scope must change before the App invalidates/refetches.
     // Query functions read this value when they build their scoped API URL.
     setActiveSourceLabels(effective);
+    const selectedSources = effective.map((label) =>
+      data?.sources?.find((source) => source.label === label)
+    );
+    const sourceWorkspaceIds = selectedSources.flatMap(
+      (source) => source?.workspace_ids ?? [],
+    );
+    const sourceTables = selectedSources.flatMap((source) => source?.tables ?? []);
+    const sourcePublishesAll = selectedSources.some((source) => source?.tables == null);
+    const localWorkspaceSet = new Set(localWorkspaceIds);
+    const useWorkspaceRouting = effective.length > 0
+      && selectedSources.every((source) => (source?.workspace_ids?.length ?? 0) > 0)
+      && sourceWorkspaceIds.every((id) => localWorkspaceSet.has(id));
+    setActiveSourceRouting(
+      useWorkspaceRouting && data?.local_label ? [data.local_label] : effective,
+      useWorkspaceRouting ? sourceWorkspaceIds : [],
+    );
+    setActiveSourceTables(
+      effective.length > 0 && !sourcePublishesAll ? sourceTables : null,
+    );
     setApplying(true);
     setErr(null);
     try {
@@ -117,6 +147,11 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
       // visible selection, then refetch the prior scope so stale data is never
       // presented as if the new filter succeeded.
       setActiveSourceLabels(previousEffective);
+      setActiveSourceRouting(
+        previousRouting.requestLabels,
+        previousRouting.workspaceIds,
+      );
+      setActiveSourceTables(previousRouting.tables);
       selectedRef.current = previousVisible;
       setSelected(previousVisible);
       setRetrySelection(new Set(next));
@@ -129,7 +164,7 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
     } finally {
       setApplying(false);
     }
-  }, [allLabels, err, onApplied]);
+  }, [allLabels, data?.sources, err, localWorkspaceIds, onApplied]);
 
   // Keep the visible selection and the module-level applied scope synchronized
   // when shared sources are added or removed while the dashboard is open.

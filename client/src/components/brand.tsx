@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
 import { APP_VERSION, C, FONT_MONO, FONT_SANS } from "@/theme";
 import { cn } from "@/lib/utils";
-import { getActiveSourceLabels } from "@/hooks/useBillingData";
+import {
+  getActiveSourceLabels,
+  getActiveSourceTables,
+} from "@/hooks/useBillingData";
 
 export function CostObsMark({ className, whiteOrbit = false }: { className?: string; whiteOrbit?: boolean }) {
   const orbit = whiteOrbit ? C.white : C.ink;
@@ -154,6 +157,15 @@ export function SourceCapabilityNotice({
   requiredAggregates?: string[];
   onRetry?: () => void;
 }) {
+  const sourceLabels = getActiveSourceLabels();
+  const activeSourceTables = getActiveSourceTables();
+  const displayedAggregates = sourceLabels.length > 0 && activeSourceTables
+    ? requiredAggregates.filter((aggregate) => !activeSourceTables.includes(aggregate))
+    : requiredAggregates;
+  const aggregateLabel = sourceLabels.length > 0 && activeSourceTables
+    ? "Missing from selected source"
+    : `Required shared ${displayedAggregates.length === 1 ? "aggregate" : "aggregates"}`;
+
   return (
     <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-gray-700">
       <div className="flex items-start gap-3">
@@ -163,10 +175,10 @@ export function SourceCapabilityNotice({
         <div>
           <p className="text-sm font-semibold">{title}</p>
           <p className="mt-1 text-sm text-gray-500">{description}</p>
-          {requiredAggregates.length > 0 && (
+          {displayedAggregates.length > 0 && (
             <p className="mt-2 text-xs text-gray-500">
-              Required shared {requiredAggregates.length === 1 ? "aggregate" : "aggregates"}:{" "}
-              {requiredAggregates.map((aggregate, index) => (
+              {aggregateLabel}:{" "}
+              {displayedAggregates.map((aggregate, index) => (
                 <span key={aggregate}>
                   {index > 0 && ", "}
                   <code className="rounded bg-gray-200 px-1 py-0.5 text-[11px] text-gray-700">{aggregate}</code>

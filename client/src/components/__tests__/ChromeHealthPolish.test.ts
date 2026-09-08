@@ -47,18 +47,20 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("overflow-x-auto overflow-y-hidden");
   });
 
-  it("places deployment provenance with the equal-sized status badges", () => {
+  it("places deployment provenance beside Built on Databricks", () => {
     const badgeIndex = appSource.lastIndexOf("<DeploymentBadgeFromApi");
     const accountIndex = appSource.lastIndexOf('label="account ID"');
     const workspaceFilterIndex = appSource.lastIndexOf("<WorkspaceFilter");
+    const builtOnIndex = appSource.lastIndexOf('href="https://www.databricks.com"');
     const servicePrincipalBadgeIndex = appSource.lastIndexOf(
       'label="service principal display name"',
     );
 
     expect(badgeIndex).toBeGreaterThan(0);
+    expect(badgeIndex).toBeGreaterThan(builtOnIndex);
+    expect(badgeIndex).toBeLessThan(workspaceFilterIndex);
     expect(badgeIndex).toBeLessThan(accountIndex);
     expect(workspaceFilterIndex).toBeLessThan(accountIndex);
-    expect(workspaceFilterIndex).toBeLessThan(badgeIndex);
     expect(accountIndex).toBeLessThan(servicePrincipalBadgeIndex);
     expect(appSource).not.toContain(">ACCOUNT</span>");
     expect(appSource).toContain('className="flex shrink-0 items-center gap-[4px]"');
@@ -82,6 +84,9 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("text-[10px]");
     expect(appSource).toContain("font-bold");
     expect(appSource).toContain("compactRailBadgeText(text)");
+    expect(appSource).toContain("function RailBadgeTooltip");
+    expect(appSource).toContain('role="tooltip"');
+    expect(appSource).toContain("SQL warehouse status:");
     expect(appSource).toContain('const maxLength = /^\\d+$/.test(text) ? 7 : 8;');
     expect(appSource).not.toContain('className="max-w-[128px] truncate"');
     expect(appSource).toContain("className={RAIL_STATUS_BADGE_CLASS}");

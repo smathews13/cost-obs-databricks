@@ -1951,7 +1951,7 @@ def get_local_source_label() -> str:
 def get_current_workspace_id() -> str:
     """Best-effort Databricks workspace ID for local-only metadata scoping."""
     configured = os.getenv("DATABRICKS_WORKSPACE_ID", "").strip()
-    if configured:
+    if configured.isdigit():
         return configured
     try:
         host = str(get_workspace_client().config.host or "")

@@ -55,6 +55,21 @@ describe("chrome filter variants", () => {
     expect(trigger).not.toHaveClass("co-filter");
   });
 
+  it("labels the workspace where this app is deployed", async () => {
+    renderWithQueryClient(
+      <WorkspaceFilter
+        workspaces={workspaces}
+        currentWorkspaceId="1"
+        selectedIds={[]}
+        onChange={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "2 Workspaces" }));
+    expect(screen.getByText("this app")).toBeVisible();
+    expect(screen.getByText("this app").closest("label")).toHaveTextContent("Workspace one");
+  });
+
   it("keeps the applied Clear action outside the trigger", async () => {
     const onChange = vi.fn();
     renderWithQueryClient(

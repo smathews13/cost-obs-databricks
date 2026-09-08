@@ -333,6 +333,26 @@ function compactRailBadgeText(value: string): string {
   return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
+function RailBadgeTooltip({
+  text,
+  children,
+}: {
+  text: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="group relative inline-flex shrink-0">
+      {children}
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-50 w-max max-w-[min(360px,calc(100vw-24px))] -translate-x-1/2 rounded-[5px] bg-[#263238] px-2.5 py-1.5 text-left text-[11px] font-medium leading-4 text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
 function CopyableRailBadge({
   value,
   text,
@@ -349,23 +369,24 @@ function CopyableRailBadge({
     window.setTimeout(() => setCopied(false), 1600);
   };
   return (
-    <button
-      type="button"
-      aria-label={copied ? `${label} copied` : `Copy ${label}`}
-      title={copied ? "Copied" : `${label}: ${value}`}
-      onClick={() => { void copyValue(); }}
-      className={`group ${RAIL_STATUS_BADGE_CLASS} appearance-none transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
-    >
-      <span className="rail-status-dot healthy-status-dot h-[5px] w-[5px] rounded-full bg-green-400" />
-      <span className="min-w-0 overflow-hidden whitespace-nowrap">{compactRailBadgeText(text)}</span>
-      {copied ? (
-        <Check className="h-2.5 w-2.5" aria-hidden="true" />
-      ) : (
-        <span className="relative inline-flex h-2.5 w-2.5 shrink-0 items-center justify-center">
-          <Copy className="h-2.5 w-2.5 opacity-60 transition-opacity group-hover:opacity-100" aria-hidden="true" />
-        </span>
-      )}
-    </button>
+    <RailBadgeTooltip text={copied ? `${label} copied` : `${label}: ${value}. Click to copy.`}>
+      <button
+        type="button"
+        aria-label={copied ? `${label} copied` : `Copy ${label}`}
+        onClick={() => { void copyValue(); }}
+        className={`group ${RAIL_STATUS_BADGE_CLASS} appearance-none transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
+      >
+        <span className="rail-status-dot healthy-status-dot h-[5px] w-[5px] rounded-full bg-green-400" />
+        <span className="min-w-0 overflow-hidden whitespace-nowrap">{compactRailBadgeText(text)}</span>
+        {copied ? (
+          <Check className="h-2.5 w-2.5" aria-hidden="true" />
+        ) : (
+          <span className="relative inline-flex h-2.5 w-2.5 shrink-0 items-center justify-center">
+            <Copy className="h-2.5 w-2.5 opacity-60 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+          </span>
+        )}
+      </button>
+    </RailBadgeTooltip>
   );
 }
 
@@ -1464,6 +1485,12 @@ function Dashboard() {
     }),
     [wsListData?.workspaces, workspaceNameMap],
   );
+  const wsFilterIds = useMemo(
+    () => wsFilterList
+      .map((workspace) => workspace.workspace_id)
+      .filter((id): id is string => Boolean(id)),
+    [wsFilterList],
+  );
   const workspaceScopeCount = wsListData && !wsListData.error
     ? wsFilterList.filter((workspace) => includeHistoricalWorkspaces || !workspace.historical).length
     : undefined;
@@ -1740,11 +1767,16 @@ function Dashboard() {
             </span>
           </a>
 
+          <DeploymentBadgeFromApi
+            triggerClassName={`${RAIL_STATUS_BADGE_CLASS} transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
+          />
+
           <span className="hidden h-[22px] w-px shrink-0 bg-white/[.16] min-[1180px]:block" aria-hidden="true" />
 
           <div className="order-last flex w-full min-w-0 items-center gap-[8px] sm:order-none sm:w-auto sm:flex-1">
             <WorkspaceFilter
               workspaces={wsFilterList}
+              currentWorkspaceId={accountInfo?.workspace_id}
               selectedIds={selectedWorkspaceIds}
               onChange={setSelectedWorkspaceIds}
               includeHistorical={includeHistoricalWorkspaces}
@@ -1752,16 +1784,17 @@ function Dashboard() {
               isLoading={wsListLoading}
               variant="rail"
             />
-            <SourceLabelFilter variant="rail" onApplied={handleSourceApplied} />
+            <SourceLabelFilter
+              variant="rail"
+              localWorkspaceIds={wsFilterIds}
+              onApplied={handleSourceApplied}
+            />
           </div>
 
           <div className="min-w-[2px] flex-1 sm:hidden" />
 
           {user && (
             <>
-              <DeploymentBadgeFromApi
-                triggerClassName={`${RAIL_STATUS_BADGE_CLASS} transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
-              />
               <CopyableRailBadge
                 value={accountInfo?.account_id || accountInfo?.account_name || "Databricks account"}
                 text={accountInfo?.account_name || "Databricks account"}
@@ -1786,19 +1819,20 @@ function Dashboard() {
                 </>
               )}
               {warehouseStatus && (
-                <span
-                  className={RAIL_STATUS_BADGE_CLASS}
-                  title={`SQL Warehouse: ${warehouseStatus.state ?? warehouseStatus.status}`}
-                >
+                <RailBadgeTooltip text={`SQL warehouse status: ${warehouseStatus.state ?? warehouseStatus.status}.`}>
                   <span
-                    className={`rail-status-dot ${warehouseStatus.status === "warm" ? "healthy-status-dot " : ""}h-[5px] w-[5px] rounded-full`}
-                    style={{ background: warehouseStatus.status === "warm" ? "var(--status-dot)" : warehouseStatus.status === "warming_up" ? "var(--amber)" : "var(--maroon)" }}
-                  />
-                  <span className="hidden min-[1280px]:inline">
-                    {warehouseStatus.status === "warm" ? "Active" : warehouseStatus.status === "warming_up" ? "Starting" : "Offline"}
+                    className={RAIL_STATUS_BADGE_CLASS}
+                  >
+                    <span
+                      className={`rail-status-dot ${warehouseStatus.status === "warm" ? "healthy-status-dot " : ""}h-[5px] w-[5px] rounded-full`}
+                      style={{ background: warehouseStatus.status === "warm" ? "var(--status-dot)" : warehouseStatus.status === "warming_up" ? "var(--amber)" : "var(--maroon)" }}
+                    />
+                    <span className="hidden min-[1280px]:inline">
+                      {warehouseStatus.status === "warm" ? "Active" : warehouseStatus.status === "warming_up" ? "Starting" : "Offline"}
+                    </span>
+                    <span className="hidden opacity-60 min-[1536px]:inline">SQL</span>
                   </span>
-                  <span className="hidden opacity-60 min-[1536px]:inline">SQL</span>
-                </span>
+                </RailBadgeTooltip>
               )}
               <UserMenu
                 name={user.name}

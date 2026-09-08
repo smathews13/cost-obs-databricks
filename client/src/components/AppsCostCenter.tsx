@@ -1490,7 +1490,10 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
         <div className="rounded-lg border bg-white p-6" style={{ borderColor: C.hairline }}>
           <h3 className="text-lg font-semibold text-gray-900">Connected Resources</h3>
           <p className="mt-3 text-sm text-gray-500">
-            {data?.partial_reasons?.app_details || data?.partial_reasons?.app_registry
+            {data?.connected_resources_available === false
+              ? data.connected_resources_reason
+                || "Connected resources are unavailable for the selected remote workspace or shared source."
+              : data?.partial_reasons?.app_details || data?.partial_reasons?.app_registry
               ? "Connected resource metadata is still loading. Refresh this tab shortly."
               : "No connected resources were reported by the Databricks Apps API."}
           </p>

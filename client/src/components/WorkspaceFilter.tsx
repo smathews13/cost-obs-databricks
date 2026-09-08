@@ -20,6 +20,7 @@ function isValidWorkspaceId(id: string | null | undefined): id is string {
 
 interface WorkspaceFilterProps {
   workspaces: Workspace[];
+  currentWorkspaceId?: string | null;
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   includeHistorical?: boolean;
@@ -30,6 +31,7 @@ interface WorkspaceFilterProps {
 
 export function WorkspaceFilter({
   workspaces,
+  currentWorkspaceId,
   selectedIds,
   onChange,
   includeHistorical = true,
@@ -320,6 +322,11 @@ export function WorkspaceFilter({
                     <span className="flex-1 truncate text-sm text-gray-700">
                       {ws.workspace_name || `Workspace ${id}`}
                     </span>
+                    {id === currentWorkspaceId && (
+                      <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                        this app
+                      </span>
+                    )}
                     {ws.historical && (
                       <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600" title="This workspace no longer exists in the account. Its data is historical.">
                         historical

@@ -18,7 +18,10 @@ import {
   WarehouseRightsizingView,
 } from "../SQLWarehousing360";
 import type { DBSQLDashboardBundle } from "@/types/billing";
-import { setActiveSourceLabels } from "@/hooks/useBillingData";
+import {
+  getActiveSourceScopeKey,
+  setActiveSourceLabels,
+} from "@/hooks/useBillingData";
 
 // ---------------------------------------------------------------------------
 // Mock useFeatureAvailability: tests control grant state without a server
@@ -260,14 +263,17 @@ describe("SQLWarehousing360: cross-region workspace filters stay truthful", () =
         in_region_workspace_count: 0,
         missing_workspace_count: 2,
         billing_sql_spend: 21.25,
+        missing_region_sql_spend: 21.25,
         limited: true,
       },
     }, { workspaceIds: ["west4", "central1"] });
 
     expect(screen.getByText("Query detail is unavailable for some selected workspaces")).toBeVisible();
     expect(screen.getByText(/\$21\.25 in SQL billing spend/)).toBeVisible();
-    expect(screen.getAllByText("N/A")).toHaveLength(4);
-    expect(screen.getByText("Query attribution is not available in these regions")).toBeVisible();
+    expect(screen.getByText("SQL Billing Spend")).toBeVisible();
+    expect(screen.getByText("$21.25")).toBeVisible();
+    expect(screen.getAllByText("N/A")).toHaveLength(3);
+    expect(screen.getByText("Account billing total; query attribution is unavailable")).toBeVisible();
     expect(screen.getAllByText("Query history is not available in these regions")).toHaveLength(3);
   });
 });
@@ -399,7 +405,7 @@ describe("SQLWarehousing360: dashboard polish", () => {
           "2026-01-01",
           "2026-01-31",
           "1,2",
-          "shared-west",
+          getActiveSourceScopeKey(),
         ],
       }),
     ).toBeDefined();

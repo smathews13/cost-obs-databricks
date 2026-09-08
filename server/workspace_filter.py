@@ -21,6 +21,7 @@ _SETTINGS_FILE = os.path.join(
 )
 
 _SAFE_ID_RE = re.compile(r'^[a-zA-Z0-9_\-\.]+$')
+EMPTY_WORKSPACE_SCOPE_ID = "source-scope-no-overlap"
 _include_historical_workspaces: ContextVar[bool] = ContextVar(
     "include_historical_workspaces",
     default=True,
@@ -87,6 +88,8 @@ def build_ws_filter_clause(
     Uses STRING comparison so both numeric and UUID-format workspace IDs are handled correctly.
     """
     if id_list is not None:
+        if EMPTY_WORKSPACE_SCOPE_ID in id_list:
+            return "AND 1 = 0"
         valid = [i for i in id_list if _is_safe_id(i)]
         if not valid:
             return ""

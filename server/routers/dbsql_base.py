@@ -596,8 +596,6 @@ def create_dbsql_router(table_name: str) -> APIRouter:
             for r in (results.get("wh_type_billing") or []):
                 d = str(r.get("date"))
                 wid = str(r.get("warehouse_id") or "")
-                if wid not in query_visible_warehouse_ids:
-                    continue
                 wt = _classify_warehouse_type(
                     compute_type=wh_type_lookup.get(wid),
                     is_serverless=r.get("is_serverless"),
@@ -649,12 +647,22 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 float(row.get("daily_spend") or 0)
                 for row in (results.get("wh_type_billing") or [])
             )
+            query_visible_sql_billing_spend = sum(
+                float(row.get("daily_spend") or 0)
+                for row in (results.get("wh_type_billing") or [])
+                if str(row.get("warehouse_id") or "") in query_visible_warehouse_ids
+            )
+            missing_region_sql_spend = max(
+                billing_sql_spend - query_visible_sql_billing_spend,
+                0,
+            )
             region_scope = {
                 "billing_workspace_count": billing_ws,
                 "in_region_workspace_count": compute_ws,
                 "missing_workspace_count": missing_ws,
                 "billing_sql_spend": billing_sql_spend,
-                "limited": missing_ws > 0 and billing_sql_spend > 0,
+                "missing_region_sql_spend": missing_region_sql_spend,
+                "limited": missing_ws > 0 and missing_region_sql_spend > 0,
                 "available": local_metadata_allowed,
             }
 
