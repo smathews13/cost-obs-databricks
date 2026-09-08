@@ -28,6 +28,7 @@ describe("source label reconciliation", () => {
       sources: [
         { label: "shared-aws", catalog: "aws_share", schema: "cost_obs", cloud: "aws" as const },
         { label: "shared-azure", catalog: "azure_share", schema: "cost_obs", cloud: "azure" as const },
+        { label: "west4", catalog: "west4_share", schema: "cost_obs", cloud: "google" },
       ],
     };
     vi.stubGlobal("fetch", vi.fn(async () => ({
@@ -42,12 +43,12 @@ describe("source label reconciliation", () => {
         <SourceLabelFilter />
       </QueryClientProvider>,
     );
-    await userEvent.click(await screen.findByRole("button", { name: "3 Sources" }));
+    await userEvent.click(await screen.findByRole("button", { name: "4 Sources" }));
 
-    expect(screen.getByTitle("Google Cloud")).toHaveAttribute(
-      "src",
-      expect.stringContaining("gcp.svg"),
-    );
+    expect(screen.getAllByTitle("Google Cloud")).toHaveLength(2);
+    for (const emblem of screen.getAllByTitle("Google Cloud")) {
+      expect(emblem).toHaveAttribute("src", expect.stringContaining("gcp.svg"));
+    }
     expect(screen.getByTitle("AWS")).toHaveAttribute(
       "src",
       expect.stringContaining("aws"),

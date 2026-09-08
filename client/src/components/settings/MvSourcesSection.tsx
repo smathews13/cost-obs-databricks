@@ -5,15 +5,17 @@ import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure-128.png";
 import gcpLogo from "@/assets/gcp.svg";
 import { Spinner } from "@/components/Spinner";
-
-type Cloud = "gcp" | "aws" | "azure";
+import { resolveSourceCloud, type SourceCloud } from "@/utils/sourceCloud";
 
 interface MvSource {
   label: string;
   catalog: string;
   schema: string;
   tables?: string[];
-  cloud?: Cloud;
+  workspace_ids?: string[];
+  missing_tables?: string[];
+  shared_view_total?: number;
+  cloud?: string;
   added_at?: string;
   share_last_updated?: string;
   catalog_explorer_tables?: Array<{ fqn: string; url: string }>;
@@ -21,7 +23,7 @@ interface MvSource {
 }
 
 // Cloud → { logo, label font color } per spec: Google red, AWS gold, Azure light green.
-const CLOUD_META: Record<Cloud, { logo: string; color: string; name: string }> = {
+const CLOUD_META: Record<SourceCloud, { logo: string; color: string; name: string }> = {
   gcp: { logo: gcpLogo, color: "#B3261E", name: "Google Cloud" },
   aws: { logo: awsLogo, color: "#B8860B", name: "AWS" },
   azure: { logo: azureLogo, color: "#3E9C3E", name: "Azure" },
@@ -243,11 +245,7 @@ export function MvSourcesSection() {
         : (Array.isArray(body.tables)
           ? body.tables.filter((table: PreviewTable) => table.status !== "match").map((table: PreviewTable) => table.table)
           : []);
-      if (failedTables.length > 0 || (
-        typeof body.total === "number"
-        && typeof body.matched === "number"
-        && body.matched !== body.total
-      )) {
+      if (failedTables.length > 0) {
         throw new Error(`Freshness check failed for: ${failedTables.join(", ") || "configured views"}`);
       }
       setLastChecked((current) => ({ ...current, [lbl]: body.checked_at || new Date().toISOString() }));
@@ -298,7 +296,8 @@ export function MvSourcesSection() {
       ) : sources.length > 0 ? (
         <div className="space-y-1.5">
           {sources.map((s) => {
-            const meta = s.cloud ? CLOUD_META[s.cloud] : null;
+            const sourceCloud = resolveSourceCloud(s.cloud, s.label, s.catalog);
+            const meta = sourceCloud ? CLOUD_META[sourceCloud] : null;
             const added = fmtTs(s.added_at);
             const shareUpd = fmtTs(s.share_last_updated);
             return (
@@ -312,12 +311,21 @@ export function MvSourcesSection() {
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-gray-500">
                     <span>
                       {s.tables
-                        ? `${s.tables.length} shared view${s.tables.length === 1 ? "" : "s"}`
+                        ? `${s.tables.length}${s.shared_view_total ? ` of ${s.shared_view_total}` : ""} shared view${s.tables.length === 1 ? "" : "s"}`
                         : "All shared views"}
                     </span>
+                    {(s.workspace_ids?.length ?? 0) > 0 && (
+                      <><span className="text-gray-300">·</span><span>Workspace {s.workspace_ids!.join(", ")}</span></>
+                    )}
+                    {(s.workspace_ids?.length ?? 0) === 0 && (
+                      <><span className="text-gray-300">·</span><span className="text-amber-700">Workspace scope not identified</span></>
+                    )}
+                    {(s.missing_tables?.length ?? 0) > 0 && (
+                      <><span className="text-gray-300">·</span><span className="text-amber-700">Missing: {s.missing_tables!.join(", ")}</span></>
+                    )}
                     {added && <><span className="text-gray-300">·</span><span>Added {added}</span></>}
                     {shareUpd && <><span className="text-gray-300">·</span><span>Share updated {shareUpd}</span></>}
-                    {lastChecked[s.label] && <><span className="text-gray-300">·</span><span className="text-green-700">Checked just now</span></>}
+                    {lastChecked[s.label] && checkingLabel !== s.label && <><span className="text-gray-300">·</span><span className="text-green-700">Checked just now</span></>}
                     {(s.tables?.length ?? 0) > 1 && s.catalog_explorer_schema_url ? (
                       <span className="inline-flex items-center gap-1">
                         <span className="text-gray-300">·</span>

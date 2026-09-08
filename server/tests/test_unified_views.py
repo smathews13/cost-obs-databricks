@@ -244,6 +244,45 @@ def test_unified_views_deduplicate_overlapping_sources_by_business_key():
     invalidate_payloads.assert_called_once_with(remote_cleanup=False)
 
 
+def test_source_rows_scope_each_workspace_label_to_its_workspace_id():
+    bodies: dict[str, str] = {}
+
+    def replace(_catalog, _schema, _table_name, body, *, existed, view_suffix=None):
+        del existed
+        bodies[view_suffix or db.MV_UNIFIED_SUFFIX] = body
+        return "altered"
+
+    with (
+        patch.object(materialized_views, "_MV_TABLES", ["daily_usage_summary"]),
+        patch("server.db.get_mv_sources", return_value=[{
+            "label": "west4",
+            "catalog": "share",
+            "schema": "cost",
+            "workspace_ids": ["workspace-west"],
+        }]),
+        patch("server.db.get_local_source_label", return_value="workspace-local"),
+        patch("server.db.get_unified_view_tables", return_value=["daily_usage_summary"]),
+        patch("server.db.save_unified_view_tables"),
+        patch("server.db.clear_query_cache"),
+        patch("server.db.delta_cache_invalidate"),
+        patch.object(materialized_views, "_unified_view_exists", return_value=True),
+        patch.object(
+            materialized_views,
+            "_table_columns",
+            return_value=["usage_date", "workspace_id", "total_spend"],
+        ),
+        patch.object(materialized_views, "_replace_unified_view", side_effect=replace),
+    ):
+        materialized_views._rebuild_unified_views_locked("c", "s")
+
+    source_rows = bodies[db.MV_SOURCE_ROWS_SUFFIX]
+    assert "FROM `c`.`s`.`daily_usage_summary`" in source_rows
+    assert (
+        "FROM `share`.`cost`.`daily_usage_summary` WHERE CAST(workspace_id AS STRING) "
+        "IN ('workspace-west')" in source_rows
+    )
+
+
 def test_selected_source_routes_only_to_verified_physical_view():
     token = db.set_source_labels(["shared"])
     template = (

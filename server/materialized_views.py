@@ -2237,7 +2237,9 @@ def _rebuild_unified_views_locked(
         if not local_cols:
             summary[t] = {"built": False, "reason": "local table missing"}
             continue
-        selects = [f"SELECT *, '{local_label}' AS source_label FROM {local_full}"]
+        selects = [
+            f"SELECT *, '{local_label}' AS source_label FROM {local_full}"
+        ]
         included, skipped = [get_local_source_label()], []
         for src in sources:
             # A source may restrict which views it contributes (chosen via the
@@ -2254,7 +2256,23 @@ def _rebuild_unified_views_locked(
                 skipped.append({"label": src["label"], "reason": "column mismatch"})
             else:
                 slabel = src["label"].replace("'", "''")
-                selects.append(f"SELECT *, '{slabel}' AS source_label FROM {full}")
+                workspace_ids = [
+                    str(value).strip()
+                    for value in (src.get("workspace_ids") or [])
+                    if str(value).strip()
+                ]
+                quoted_workspace_ids = ", ".join(
+                    "'" + value.replace("'", "''") + "'" for value in workspace_ids
+                )
+                workspace_scope = (
+                    " WHERE CAST(workspace_id AS STRING) IN "
+                    f"({quoted_workspace_ids})"
+                    if "workspace_id" in cols and workspace_ids
+                    else ""
+                )
+                selects.append(
+                    f"SELECT *, '{slabel}' AS source_label FROM {full}{workspace_scope}"
+                )
                 included.append(src["label"])
         source_rows_sql = "\nUNION ALL\n".join(selects)
         dedupe_keys = [

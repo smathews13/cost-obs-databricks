@@ -301,9 +301,26 @@ def test_shared_source_payload_marks_provider_managed_refresh():
     )
 
 
-def test_shared_source_cloud_falls_back_to_gcp_region_name():
+@pytest.mark.parametrize("catalog", ["west4_share", "east1_share", "central1_share"])
+def test_shared_source_cloud_falls_back_to_gcp_region_name(catalog):
     with patch("server.db.get_workspace_client", side_effect=PermissionError("hidden")):
-        assert settings._detect_source_cloud("west4_share") == "gcp"
+        assert settings._detect_source_cloud(catalog) == "gcp"
+
+
+def test_shared_source_workspace_scope_matches_region_label():
+    rows = [
+        {"workspace_id": "east-id", "workspace_name": "east1-serverless"},
+        {"workspace_id": "west-id", "workspace_name": "west4-serverless"},
+        {"workspace_id": "central-id", "workspace_name": "central1-serverless"},
+    ]
+    with patch("server.db.execute_query", return_value=rows):
+        result = settings._infer_shared_source_workspace_ids({
+            "label": "west4",
+            "catalog": "west4_share",
+            "schema": "cost_obs_shared",
+        })
+
+    assert result == ["west-id"]
 
 
 def test_current_workspace_cloud_detects_all_provider_hosts():

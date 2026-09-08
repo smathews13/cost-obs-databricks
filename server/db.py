@@ -1744,6 +1744,14 @@ def save_mv_sources(sources: list[dict]) -> None:
             picked = [str(t).strip() for t in s["tables"] if str(t).strip()]
             if picked:
                 entry["tables"] = picked
+        if isinstance(s.get("workspace_ids"), list):
+            workspace_ids = [
+                str(value).strip()
+                for value in s["workspace_ids"]
+                if str(value).strip()
+            ]
+            if workspace_ids:
+                entry["workspace_ids"] = workspace_ids
         if s.get("cloud"):
             entry["cloud"] = str(s["cloud"]).strip().lower()
         if s.get("added_at"):
@@ -1790,11 +1798,12 @@ def _ensure_mv_sources_table() -> None:
     execute_write(
         f"CREATE TABLE IF NOT EXISTS {table} "
         f"(label STRING NOT NULL, catalog STRING NOT NULL, schema STRING NOT NULL, "
-        f"tables STRING, cloud STRING, added_at STRING, updated_at TIMESTAMP) USING DELTA",
+        f"tables STRING, workspace_ids STRING, cloud STRING, added_at STRING, "
+        f"updated_at TIMESTAMP) USING DELTA",
         None,
     )
     # Best-effort column adds for tables created before cloud/added_at existed.
-    for col in ("cloud STRING", "added_at STRING"):
+    for col in ("workspace_ids STRING", "cloud STRING", "added_at STRING"):
         try:
             execute_write(f"ALTER TABLE {table} ADD COLUMNS ({col})", None)
         except Exception:
@@ -1808,7 +1817,12 @@ def read_delta_mv_sources() -> list[dict]:
         if not table:
             return []
         _ensure_mv_sources_table()
-        rows = execute_query(f"SELECT label, catalog, schema, tables, cloud, added_at FROM {table}", None, no_cache=True)
+        rows = execute_query(
+            f"SELECT label, catalog, schema, tables, workspace_ids, cloud, added_at "
+            f"FROM {table}",
+            None,
+            no_cache=True,
+        )
         out: list[dict] = []
         for r in (rows or []):
             entry = {"label": r.get("label"), "catalog": r.get("catalog"), "schema": r.get("schema")}
@@ -1818,6 +1832,16 @@ def read_delta_mv_sources() -> list[dict]:
                     parsed = json.loads(raw)
                     if isinstance(parsed, list) and parsed:
                         entry["tables"] = [str(x) for x in parsed]
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            raw_workspace_ids = r.get("workspace_ids")
+            if raw_workspace_ids:
+                try:
+                    parsed_workspace_ids = json.loads(raw_workspace_ids)
+                    if isinstance(parsed_workspace_ids, list) and parsed_workspace_ids:
+                        entry["workspace_ids"] = [
+                            str(x) for x in parsed_workspace_ids
+                        ]
                 except (json.JSONDecodeError, TypeError):
                     pass
             if r.get("cloud"):
@@ -1846,7 +1870,8 @@ def write_delta_mv_sources(sources: list[dict]) -> None:
             f"INSERT OVERWRITE {table} "
             "SELECT CAST(NULL AS STRING) AS label, CAST(NULL AS STRING) AS catalog, "
             "CAST(NULL AS STRING) AS schema, CAST(NULL AS STRING) AS tables, "
-            "CAST(NULL AS STRING) AS cloud, CAST(NULL AS STRING) AS added_at, "
+            "CAST(NULL AS STRING) AS workspace_ids, CAST(NULL AS STRING) AS cloud, "
+            "CAST(NULL AS STRING) AS added_at, "
             "CAST(NULL AS TIMESTAMP) AS updated_at WHERE FALSE",
             None,
         )
@@ -1856,7 +1881,8 @@ def write_delta_mv_sources(sources: list[dict]) -> None:
         for index, source in enumerate(sources):
             value_rows.append(
                 f"(:label_{index}, :catalog_{index}, :schema_{index}, "
-                f":tables_{index}, :cloud_{index}, :added_at_{index})"
+                f":tables_{index}, :workspace_ids_{index}, :cloud_{index}, "
+                f":added_at_{index})"
             )
             params.update({
                 f"label_{index}": source["label"],
@@ -1865,15 +1891,19 @@ def write_delta_mv_sources(sources: list[dict]) -> None:
                 f"tables_{index}": json.dumps(source["tables"])
                 if isinstance(source.get("tables"), list)
                 else None,
+                f"workspace_ids_{index}": json.dumps(source["workspace_ids"])
+                if isinstance(source.get("workspace_ids"), list)
+                else None,
                 f"cloud_{index}": source.get("cloud"),
                 f"added_at_{index}": source.get("added_at"),
             })
         execute_write(
             f"INSERT OVERWRITE {table} "
             "SELECT source.label, source.catalog, source.schema, source.tables, "
+            "source.workspace_ids, "
             "source.cloud, source.added_at, current_timestamp() AS updated_at "
             f"FROM VALUES {', '.join(value_rows)} "
-            "AS source(label, catalog, schema, tables, cloud, added_at)",
+            "AS source(label, catalog, schema, tables, workspace_ids, cloud, added_at)",
             params,
         )
     logger.info("MV sources persisted to Delta table (%d source(s))", len(sources))

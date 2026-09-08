@@ -66,7 +66,11 @@ export function WarehouseGuidanceBanner({
   }
 
   const manageHref = warehouseManagementHref(workspaceHost, warehouseId);
+  const warehouseName = warehouse.warehouse_name?.trim();
   const typeLabel = warehouse.warehouse_type?.trim().toLowerCase();
+  const warehouseLabel = warehouseName
+    ? `${warehouseName} · ${warehouseId}`
+    : warehouseId;
 
   const dismiss = () => {
     localStorage.setItem(dismissalKey, "1");
@@ -92,8 +96,14 @@ export function WarehouseGuidanceBanner({
             The recommended warehouse size is Medium, otherwise query latency may be volatile.
           </span>
         </span>
-        <span className="hidden shrink-0 rounded-[5px] border border-[#EAA18E] bg-[#FFE1D8] px-2 py-0.5 font-mono text-[10px] font-medium text-[#8F3426] min-[1100px]:inline">
-          {warehouse.warehouse_size}{typeLabel ? ` · ${typeLabel}` : ""}
+        <span
+          className="hidden min-w-0 max-w-[36rem] shrink items-center rounded-[5px] border border-[#EAA18E] bg-[#FFE1D8] px-2 py-0.5 font-mono text-[10px] font-medium text-[#8F3426] min-[1100px]:inline-flex"
+          title={`${warehouseLabel} · ${warehouse.warehouse_size}${typeLabel ? ` · ${typeLabel}` : ""}`}
+        >
+          <span className="truncate">{warehouseLabel}</span>
+          <span className="whitespace-nowrap">
+            {" · "}{warehouse.warehouse_size}{typeLabel ? ` · ${typeLabel}` : ""}
+          </span>
         </span>
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-2">

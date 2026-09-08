@@ -408,7 +408,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
                           src={cloudMeta.logo}
                           alt={cloudMeta.name}
                           title={cloudMeta.name}
-                          className="mt-0.5 h-4 w-4 shrink-0 object-contain"
+                          className="mt-1 h-4 w-4 shrink-0 object-contain"
                         />
                       )}
                       <div className="flex min-w-0 flex-col gap-0.5">
@@ -430,7 +430,7 @@ export const WorkspaceTable = memo(function WorkspaceTable({ data, isLoading, ho
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-gray-500">{ws.workspace_id}</span>
                           {ws.region && (
-                            <span className="inline-flex rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                            <span className="relative -top-0.5 inline-flex rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
                               {ws.region}
                             </span>
                           )}

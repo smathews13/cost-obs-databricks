@@ -240,6 +240,7 @@ textarea {
 }
 
 .rail-status-badge {
+  position: relative !important;
   box-sizing: border-box !important;
   display: inline-flex !important;
   width: 88px !important;
@@ -252,7 +253,7 @@ textarea {
   align-self: center !important;
   align-items: center !important;
   justify-content: center !important;
-  padding: 0 6px !important;
+  padding: 0 6px 0 16px !important;
   border: 0 !important;
   font-size: 10px !important;
   line-height: 10px !important;

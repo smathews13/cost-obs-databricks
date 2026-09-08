@@ -410,6 +410,7 @@ async def get_sql_warehouse_status(
         state: raw warehouse state, REST_UNVERIFIED, or SQL_PROBE_SUCCEEDED
         latency_ms: SQL probe latency when one succeeds, otherwise None
         warehouse_id: warehouse ID being checked (or None if not configured)
+        warehouse_name: configured warehouse display name
         warehouse_size: configured cluster size (for example Small or Medium)
         warehouse_type: SERVERLESS or the configured classic warehouse type
     """
@@ -444,11 +445,13 @@ async def get_sql_warehouse_status(
             "state": "NOT_CONFIGURED",
             "latency_ms": None,
             "warehouse_id": None,
+            "warehouse_name": None,
             "warehouse_size": None,
             "warehouse_type": None,
         }
 
     warehouse_metadata: dict[str, Any] = {
+        "warehouse_name": None,
         "warehouse_size": None,
         "warehouse_type": None,
     }
@@ -476,6 +479,7 @@ async def get_sql_warehouse_status(
             else "CLASSIC"
         )
         warehouse_metadata = {
+            "warehouse_name": getattr(wh, "name", None),
             "warehouse_size": getattr(wh, "cluster_size", None),
             "warehouse_type": warehouse_type,
         }

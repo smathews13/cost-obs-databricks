@@ -9,6 +9,7 @@ import {
 const smallWarehouse = {
   status: "warm" as const,
   warehouse_id: "warehouse-123",
+  warehouse_name: "Cost Observability",
   warehouse_size: "X-Small",
   warehouse_type: "SERVERLESS",
 };
@@ -47,6 +48,7 @@ describe("WarehouseGuidanceBanner", () => {
     expect(manage).toHaveClass("border", "bg-[#C94632]", "text-white");
     expect(manage.className).not.toContain("underline");
     expect(manage.querySelector("svg")).toBeInTheDocument();
+    expect(screen.getByText("Cost Observability · warehouse-123")).toBeInTheDocument();
     expect(screen.getByText(/X-Small · serverless/i)).toBeInTheDocument();
   });
 

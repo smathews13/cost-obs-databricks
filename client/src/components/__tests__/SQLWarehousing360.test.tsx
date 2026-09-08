@@ -239,6 +239,38 @@ describe("SQLWarehousing360: available=true with zero-value summary renders $0",
   });
 });
 
+describe("SQLWarehousing360: cross-region workspace filters stay truthful", () => {
+  it("uses billing spend and marks unavailable query detail instead of false zeroes", () => {
+    renderSQLView({
+      ...BASE_BUNDLE_AVAILABLE,
+      summary: {
+        available: true,
+        total_spend: 0,
+        total_dbus: 0,
+        total_queries: 0,
+        unique_users: 0,
+        unique_warehouses: 0,
+        avg_cost_per_query: 0,
+        avg_duration_seconds: 0,
+        start_date: "2026-01-01",
+        end_date: "2026-01-31",
+      },
+      region_scope: {
+        billing_workspace_count: 2,
+        in_region_workspace_count: 0,
+        missing_workspace_count: 2,
+        billing_sql_spend: 21.25,
+        limited: true,
+      },
+    }, { workspaceIds: ["west4", "central1"] });
+
+    expect(screen.getByText("Query detail is unavailable for some selected workspaces")).toBeVisible();
+    expect(screen.getByText("$21.25")).toBeVisible();
+    expect(screen.getAllByText("N/A")).toHaveLength(3);
+    expect(screen.getAllByText("Query history is not available in these regions")).toHaveLength(3);
+  });
+});
+
 describe("SQLWarehousing360: magnitude-aware KPI formatting", () => {
   it("compacts million-dollar query spend into a single KPI value", () => {
     renderSQLView({

@@ -1135,6 +1135,7 @@ export interface RegionScope {
   billing_workspace_count: number;
   in_region_workspace_count: number;
   missing_workspace_count: number;
+  billing_sql_spend?: number;
   limited: boolean;
 }
 

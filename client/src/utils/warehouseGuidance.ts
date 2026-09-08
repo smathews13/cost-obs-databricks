@@ -4,6 +4,7 @@ export interface WarehouseHealth {
   status: WarehouseHealthStatus;
   state?: string | null;
   warehouse_id?: string | null;
+  warehouse_name?: string | null;
   warehouse_size?: string | null;
   warehouse_type?: string | null;
 }

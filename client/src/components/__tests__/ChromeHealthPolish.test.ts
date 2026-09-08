@@ -7,6 +7,17 @@ const styles = readFileSync(resolve(process.cwd(), "src/index.css"), "utf8");
 const html = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
 
 describe("account rail health polish", () => {
+  it("keeps manual and source-scope refreshes on the visible tab", () => {
+    expect(appSource).toContain("await refreshTabData(rqClient, tab);");
+    expect(appSource).not.toContain(
+      "await requeueDemandTabs([tab]);\n      await refreshTabData(rqClient, tab);",
+    );
+    expect(appSource).toContain("setTabDemand(createTabDemandState(nextScopeKey, tab));");
+    expect(appSource).not.toContain(
+      "visibleDashboardTabs.forEach((visibleTab) => {\n            next[visibleTab] = \"waiting\";",
+    );
+  });
+
   it("uses one dark slate border token for rail controls and Export", () => {
     expect(styles).toContain("--rail-control-border: #315F70;");
     expect(styles).toContain(".rail-control-border");
@@ -64,11 +75,15 @@ describe("account rail health polish", () => {
     expect(styles).toContain("font-weight: 700 !important;");
     expect(styles).toContain("width: 88px !important;");
     expect(styles).toContain("height: 22px !important;");
+    expect(styles).toContain("padding: 0 6px 0 16px !important;");
     expect(styles).toContain(".rail-status-dot");
     expect(styles).toContain("left: 7px;");
     expect(appSource).toContain("bg-green-500/20");
     expect(appSource).toContain("text-[10px]");
     expect(appSource).toContain("font-bold");
+    expect(appSource).toContain("compactRailBadgeText(text)");
+    expect(appSource).toContain('const maxLength = /^\\d+$/.test(text) ? 7 : 8;');
+    expect(appSource).not.toContain('className="max-w-[128px] truncate"');
     expect(appSource).toContain("className={RAIL_STATUS_BADGE_CLASS}");
     expect(appSource).toContain(
       'className="h-2.5 w-2.5 opacity-60 transition-opacity group-hover:opacity-100"',

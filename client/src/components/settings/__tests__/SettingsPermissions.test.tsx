@@ -380,6 +380,7 @@ describe("SettingsPermissions: polished access controls", () => {
 
     expect(users.compareDocumentPosition(roleCapabilities) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(usersTable.nextElementSibling).toBe(roleCapabilities);
+    expect(roleCapabilities).toHaveStyle({ marginTop: "20px", marginBottom: "20px" });
     expect(roleCapabilities.nextElementSibling).toBe(metastore);
     expect(roleCapabilities.compareDocumentPosition(metastore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(metastore.compareDocumentPosition(servicePrincipal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

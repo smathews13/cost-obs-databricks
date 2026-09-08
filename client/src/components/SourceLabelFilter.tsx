@@ -11,13 +11,14 @@ import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import awsLogo from "@/assets/aws.png";
 import azureLogo from "@/assets/azure-128.png";
 import gcpLogo from "@/assets/gcp.svg";
+import { resolveSourceCloud } from "@/utils/sourceCloud";
 
 interface MvSource {
   label: string;
   catalog: string;
   schema: string;
   tables?: string[];
-  cloud?: "aws" | "azure" | "gcp";
+  cloud?: string;
 }
 
 const CLOUD_LOGOS = {
@@ -59,7 +60,7 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
   const { data } = useQuery<{
     sources: MvSource[];
     local_label: string;
-    local_cloud?: "aws" | "azure" | "gcp";
+    local_cloud?: string;
   }>({
     queryKey: ["mv-sources"],
     queryFn: () => fetch("/api/settings/mv-sources").then((r) => r.json()).catch(() => ({ sources: [], local_label: "" })),
@@ -231,7 +232,11 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
               const checked = selected.has(lbl);
               const isLocal = lbl === data?.local_label;
               const source = data?.sources?.find((item) => item.label === lbl);
-              const sourceCloud = isLocal ? data?.local_cloud : source?.cloud;
+              const sourceCloud = resolveSourceCloud(
+                isLocal ? data?.local_cloud : source?.cloud,
+                lbl,
+                source?.catalog,
+              );
               const summaryOnly = !isLocal
                 && source?.tables?.length === 1
                 && source.tables[0] === "daily_usage_summary";
@@ -248,7 +253,7 @@ export function SourceLabelFilter({ variant = "header", onApplied }: SourceLabel
                     />
                   )}
                   <span className="flex-1 truncate text-sm text-gray-700">{lbl}</span>
-                  {isLocal && <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">this workspace</span>}
+                  {isLocal && <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">this account</span>}
                   {summaryOnly && <span className="shrink-0 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">summary only</span>}
                 </label>
               );

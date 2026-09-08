@@ -628,27 +628,26 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                     return int(rows[0].get("ws_count") or 0) if rows else 0
                 except (ValueError, TypeError, AttributeError):
                     return 0
+            billing_scope_rows = results.get("region_billing_ws") or []
+            compute_scope_rows = results.get("region_compute_ws") or []
             billing_ws = _first_count("region_billing_ws")
             compute_ws = _first_count("region_compute_ws")
-            # Only claim a gap when both counts are trustworthy (>0) and billing exceeds
-            # compute. If either query failed/returned 0, stay silent rather than alarm.
-            missing_ws = max(billing_ws - compute_ws, 0) if (billing_ws > 0 and compute_ws > 0) else 0
-            # Gate the banner on the region-scoped SQL detail actually being present.
-            # On a fresh deploy the region-scoped system tables (system.compute /
-            # system.query) can read back partial/empty while the warehouse is still
-            # cold, which briefly undercounts in-region workspaces and flashes a false
-            # "region-limited" banner that clears on the next refresh. There is no detail
-            # to caveat until real query/warehouse rows exist, so hold the banner until
-            # then — the whole point of the banner is to explain limited *detail below*.
-            detail_ready = (
-                bool((by_warehouse or {}).get("warehouses"))
-                or int((summary or {}).get("total_queries") or 0) > 0
+            scope_counts_available = bool(billing_scope_rows) and bool(compute_scope_rows)
+            missing_ws = (
+                max(billing_ws - compute_ws, 0)
+                if scope_counts_available and billing_ws > 0
+                else 0
+            )
+            billing_sql_spend = sum(
+                float(row.get("daily_spend") or 0)
+                for row in (results.get("wh_type_billing") or [])
             )
             region_scope = {
                 "billing_workspace_count": billing_ws,
                 "in_region_workspace_count": compute_ws,
                 "missing_workspace_count": missing_ws,
-                "limited": missing_ws > 0 and detail_ready,
+                "billing_sql_spend": billing_sql_spend,
+                "limited": missing_ws > 0 and billing_sql_spend > 0,
                 "available": local_metadata_allowed,
             }
 

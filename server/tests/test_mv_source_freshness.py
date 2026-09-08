@@ -19,7 +19,15 @@ def test_shared_source_freshness_check_reprobes_and_rebuilds_views():
         patch.object(settings, "_require_admin"),
         patch("server.db.get_mv_sources", return_value=sources),
         patch("server.db.get_catalog_schema", return_value=("local_catalog", "cost_obs")),
-        patch("server.materialized_views._table_columns", return_value=["usage_date", "total_spend"]),
+        patch("server.materialized_views._MV_TABLES", ["daily_usage_summary", "daily_query_stats"]),
+        patch(
+            "server.materialized_views._table_columns",
+            side_effect=lambda table: (
+                ["usage_date", "total_spend"]
+                if "daily_usage_summary" in table
+                else None
+            ),
+        ),
         patch("server.materialized_views._rebuild_unified_views_locked", return_value={"ok": True, "views": {}}) as rebuild,
         patch("server.materialized_views.unified_views_rebuild_lock"),
         patch.object(settings, "_visible_shared_tables", return_value={"daily_usage_summary"}),
@@ -30,7 +38,8 @@ def test_shared_source_freshness_check_reprobes_and_rebuilds_views():
 
     assert result["ok"] is True
     assert result["matched"] == 1
-    assert result["total"] == 1
+    assert result["total"] == 2
+    assert result["missing_tables"] == ["daily_query_stats"]
     assert result["share_last_updated"] == "2026-08-28T12:00:00Z"
     assert result["required_grants"] == []
     rebuild.assert_called_once()

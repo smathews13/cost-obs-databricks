@@ -559,7 +559,7 @@ GRANT SELECT ON SCHEMA \`${cat}\`.\`${sch}\` TO \`${spName}\`;`;
         </div>
       </div>
       {/* ── Role capabilities ── */}
-      <div data-testid="settings-role-capabilities" style={{ margin: "0 0 20px" }}>
+      <div data-testid="settings-role-capabilities" style={{ margin: "20px 0" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 7 }}>Permission roles</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 8 }}>
           {([

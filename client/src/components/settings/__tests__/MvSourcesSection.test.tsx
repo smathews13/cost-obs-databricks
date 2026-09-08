@@ -55,8 +55,11 @@ describe("shared source freshness", () => {
           label: "west4",
           catalog: "west4_share",
           schema: "cost_obs_shared",
-          cloud: "gcp",
+          cloud: "google",
           tables: ["daily_usage_summary", "daily_apps_summary"],
+          workspace_ids: ["workspace-west"],
+          shared_view_total: 9,
+          missing_tables: ["daily_query_stats", "sql_tool_attribution"],
           catalog_explorer_schema_url: "https://dbc.example.com/explore/data/west4_share/cost_obs_shared",
           catalog_explorer_tables: [
             { fqn: "west4_share.cost_obs_shared.daily_usage_summary", url: "https://dbc.example.com/table-1" },
@@ -73,7 +76,9 @@ describe("shared source freshness", () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByText("2 shared views")).toBeVisible();
+    expect(await screen.findByText("2 of 9 shared views")).toBeVisible();
+    expect(screen.getByText("Workspace workspace-west")).toBeVisible();
+    expect(screen.getByText("Missing: daily_query_stats, sql_tool_attribution")).toBeVisible();
     expect(screen.getByRole("img", { name: "Google Cloud" })).toBeVisible();
     expect(screen.getByText("west4")).toHaveStyle({ color: "#B3261E" });
     expect(screen.getByRole("link", {
@@ -120,9 +125,13 @@ describe("shared source freshness", () => {
   });
 
   it("checks freshness and keeps refresh/remove actions aligned", async () => {
+    let checkCount = 0;
+    const pendingCheck = new Promise<never>(() => {});
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/mv-sources/check")) {
+        checkCount += 1;
+        if (checkCount === 2) return pendingCheck;
         return {
           ok: true,
           json: async () => ({
@@ -192,6 +201,10 @@ describe("shared source freshness", () => {
       { method: "POST" },
     ));
     expect(await screen.findByText("Checked just now")).toBeInTheDocument();
+
+    await user.click(check);
+    expect(await screen.findByText("Checking…")).toBeVisible();
+    expect(screen.queryByText("Checked just now")).not.toBeInTheDocument();
   });
 
   it.each([

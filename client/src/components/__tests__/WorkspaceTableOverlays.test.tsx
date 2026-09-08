@@ -96,7 +96,8 @@ describe("WorkspaceTable floating controls", () => {
       "src",
       expect.stringContaining("azure"),
     );
-    expect(screen.getByText("west4")).toBeVisible();
+    expect(screen.getByRole("img", { name: "Google Cloud" })).toHaveClass("mt-1");
+    expect(screen.getByText("west4")).toHaveClass("-top-0.5");
     expect(screen.getByText("eastus2")).toBeVisible();
   });
 });

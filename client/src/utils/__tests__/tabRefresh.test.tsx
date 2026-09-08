@@ -210,6 +210,7 @@ describe("per-tab manual refresh", () => {
         isRefreshing
         loadingSections={TAB_LOADING_SECTIONS.optimizer}
         onRefresh={vi.fn()}
+        onDismissRefreshError={vi.fn()}
       >
         <div>Stale optimizer content</div>
       </TabRefreshRegion>,
@@ -228,6 +229,7 @@ describe("per-tab manual refresh", () => {
         isRefreshing={false}
         loadingSections={[]}
         onRefresh={vi.fn()}
+        onDismissRefreshError={vi.fn()}
       >
         <div>Current content</div>
       </TabRefreshRegion>,
@@ -239,12 +241,14 @@ describe("per-tab manual refresh", () => {
 
   it("keeps refresh failures visible and directly retryable", async () => {
     const onRefresh = vi.fn().mockResolvedValue(undefined);
+    const onDismissRefreshError = vi.fn();
     render(
       <TabRefreshRegion
         isLoading={false}
         isRefreshing={false}
         loadingSections={[]}
         onRefresh={onRefresh}
+        onDismissRefreshError={onDismissRefreshError}
         refreshError="This tab could not be refreshed: warehouse unavailable"
       >
         <div>Current content</div>
@@ -254,5 +258,8 @@ describe("per-tab manual refresh", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("warehouse unavailable");
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(onRefresh).toHaveBeenCalledOnce();
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss refresh error" }));
+    expect(onDismissRefreshError).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alert")).toHaveClass("mr-11");
   });
 });

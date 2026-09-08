@@ -327,6 +327,12 @@ interface User {
 
 const RAIL_STATUS_BADGE_CLASS = "rail-status-badge relative inline-flex h-[22px] w-[88px] min-w-0 shrink-0 items-center justify-center gap-[3px] overflow-hidden rounded-[4px] bg-green-500/20 px-[6px] text-[10px] font-bold leading-[10px] text-green-200";
 
+function compactRailBadgeText(value: string): string {
+  const text = value.trim();
+  const maxLength = /^\d+$/.test(text) ? 7 : 8;
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
+}
+
 function CopyableRailBadge({
   value,
   text,
@@ -351,7 +357,7 @@ function CopyableRailBadge({
       className={`group ${RAIL_STATUS_BADGE_CLASS} appearance-none transition-colors hover:bg-green-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-300/40`}
     >
       <span className="rail-status-dot healthy-status-dot h-[5px] w-[5px] rounded-full bg-green-400" />
-      <span className="max-w-[128px] truncate">{text}</span>
+      <span className="min-w-0 overflow-hidden whitespace-nowrap">{compactRailBadgeText(text)}</span>
       {copied ? (
         <Check className="h-2.5 w-2.5" aria-hidden="true" />
       ) : (
@@ -653,7 +659,6 @@ function Dashboard() {
     setExplicitRefreshingTab(tab);
     setRefreshErrors((current) => ({ ...current, [tab]: undefined }));
     try {
-      await requeueDemandTabs([tab]);
       await refreshTabData(rqClient, tab);
     } catch (error) {
       console.error(`Failed to refresh ${tab} tab`, error);
@@ -683,17 +688,11 @@ function Dashboard() {
       // hooks with the new module-level source selection.
       await refreshSourceScopeData(rqClient);
       flushSync(() => {
-        setDemandRefreshPhase((current) => {
-          const next = { ...current };
-          visibleDashboardTabs.forEach((visibleTab) => {
-            next[visibleTab] = "waiting";
-          });
-          return next;
-        });
-        setTabDemand((current) => ({
-          ...requeueTabDemand(current, visibleDashboardTabs, tab),
-          scopeKey: nextScopeKey,
-        }));
+        setRefreshErrors({});
+        // A source filter is global, but only the visible tab should fetch now.
+        // Other tabs pick up the new scope lazily when the user opens them.
+        setDemandRefreshPhase({ [tab]: "waiting" });
+        setTabDemand(createTabDemandState(nextScopeKey, tab));
         setSourceScopeVersion(nextSourceVersion);
       });
       removeInactiveDashboardScopeData(rqClient);
@@ -1773,14 +1772,14 @@ function Dashboard() {
                   {authStatus.sp_display_name && (
                     <CopyableRailBadge
                       value={authStatus.sp_display_name}
-                      text={authStatus.sp_display_name.slice(0, 8)}
+                      text={authStatus.sp_display_name}
                       label="service principal display name"
                     />
                   )}
                   {(authStatus.sp_object_id || authStatus.sp_client_id) && (
                     <CopyableRailBadge
                       value={authStatus.sp_object_id || authStatus.sp_client_id || ""}
-                      text={(authStatus.sp_object_id || authStatus.sp_client_id || "").slice(0, 8)}
+                      text={authStatus.sp_object_id || authStatus.sp_client_id || ""}
                       label="service principal ID"
                     />
                   )}
@@ -1910,6 +1909,9 @@ function Dashboard() {
           isRefreshing={explicitRefreshingTab !== null}
           loadingSections={TAB_LOADING_SECTIONS[activeTab]}
           onRefresh={handleTabRefresh}
+          onDismissRefreshError={() => {
+            setRefreshErrors((current) => ({ ...current, [activeTab]: undefined }));
+          }}
           refreshError={refreshErrors[activeTab]}
         >
         <Suspense fallback={

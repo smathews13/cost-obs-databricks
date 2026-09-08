@@ -124,6 +124,7 @@ async def test_sql_warehouse_status_probe_recovers_after_rest_failure():
 async def test_sql_warehouse_status_probe_wakes_a_stopped_warehouse():
     warehouse = SimpleNamespace(
         state=SimpleNamespace(value="STOPPED"),
+        name="Cost Observability",
         cluster_size="Medium",
         enable_serverless_compute=True,
     )
@@ -140,6 +141,7 @@ async def test_sql_warehouse_status_probe_wakes_a_stopped_warehouse():
 
     assert result["status"] == "warm"
     assert result["state"] == "SQL_PROBE_SUCCEEDED"
+    assert result["warehouse_name"] == "Cost Observability"
     assert result["warehouse_size"] == "Medium"
 
 

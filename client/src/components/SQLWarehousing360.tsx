@@ -490,35 +490,22 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
   const hasWarehouseSizeData = warehouseRows.some(
     (warehouse) => warehouse.warehouse_size && warehouse.warehouse_size !== "UNKNOWN",
   );
-
-  // Detection logic (queryData.region_scope) is retained server-side and above; the
-  // banner itself is suppressed for now. Flip to true to re-enable the UI callout.
-  const SHOW_REGION_SCOPE_BANNER = false;
+  const regionScope = queryData.region_scope;
+  const queryDetailUnavailable = Boolean(
+    regionScope?.limited && regionScope.in_region_workspace_count === 0,
+  );
 
   return (
     <div className="space-y-6">
       {/* Region-scope banner: system.compute / system.query are region-scoped, so
           SQL/warehouse detail only covers workspaces in this metastore's region even
           though account-wide billing (spend totals) spans all regions. */}
-      {SHOW_REGION_SCOPE_BANNER && queryData?.region_scope?.limited && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <div className="flex items-start gap-3">
-            <svg className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <div>
-              <p className="text-sm font-medium text-amber-800">
-                SQL &amp; warehouse detail is limited to this region
-              </p>
-              <p className="mt-1 text-sm text-amber-700">
-                {queryData.region_scope.missing_workspace_count} workspace{queryData.region_scope.missing_workspace_count === 1 ? "" : "s"} with SQL spend {queryData.region_scope.missing_workspace_count === 1 ? "is" : "are"} outside this metastore&apos;s cloud region.
-                Databricks scopes <code className="rounded bg-amber-100 px-1">system.compute</code> and <code className="rounded bg-amber-100 px-1">system.query</code> per region,
-                so per-warehouse and per-query detail below covers only the {queryData.region_scope.in_region_workspace_count} in-region workspace{queryData.region_scope.in_region_workspace_count === 1 ? "" : "s"}.
-                Account-wide spend totals are unaffected. To see full detail for the other regions, deploy Cost Observability in a workspace in each region.
-              </p>
-            </div>
-          </div>
-        </div>
+      {regionScope?.limited && (
+        <SourceCapabilityNotice
+          title="Query detail is unavailable for some selected workspaces"
+          description={`${regionScope.missing_workspace_count} selected workspace${regionScope.missing_workspace_count === 1 ? "" : "s"} with SQL billing spend ${regionScope.missing_workspace_count === 1 ? "is" : "are"} outside this app's metastore region. Spend by warehouse type uses account billing, while query counts, users, and duration cover only ${regionScope.in_region_workspace_count} in-region workspace${regionScope.in_region_workspace_count === 1 ? "" : "s"}.`}
+          requiredAggregates={["daily_query_stats", "sql_tool_attribution", "dbsql_cost_per_query"]}
+        />
       )}
 
       {/* Query-level Cost Attribution */}
@@ -598,42 +585,47 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
               );
             }
             const availableSummary = summary!;
+            const displayedSqlSpend = regionScope?.limited
+              ? regionScope.billing_sql_spend ?? availableSummary.total_spend ?? 0
+              : availableSummary.total_spend ?? 0;
 
             return (
           <div className="co-kpi-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KPICard
               title="Total Query Spend"
-              value={formatKpiCurrency(availableSummary.total_spend ?? 0)}
-              subtitle={`${formatNumber(availableSummary.total_dbus ?? 0)} DBUs · over ${startDate && endDate ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1 : "?"} days`}
+              value={formatKpiCurrency(displayedSqlSpend)}
+              subtitle={regionScope?.limited
+                ? "Account billing spend; query detail is region-limited"
+                : `${formatNumber(availableSummary.total_dbus ?? 0)} DBUs · over ${startDate && endDate ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1 : "?"} days`}
               onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "sql_spend", label: "Daily SQL Spend Trend", variant: "billing"}) : undefined}
               ariaLabel="See Total Query Spend trend"
               icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             />
             <KPICard
               title="Total Queries"
-              value={formatNumber(availableSummary.total_queries ?? 0)}
-              subtitle={(() => {
+              value={queryDetailUnavailable ? "N/A" : formatNumber(availableSummary.total_queries ?? 0)}
+              subtitle={queryDetailUnavailable ? "Query history is not available in these regions" : (() => {
                 const days = startDate && endDate ? Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86400000) + 1 : null;
                 const avgPerDay = days ? Math.round((availableSummary.total_queries ?? 0) / days) : null;
                 return `${avgPerDay != null ? formatNumber(avgPerDay) + " avg/day · " : ""}${formatCurrency(availableSummary.avg_cost_per_query ?? 0)}/query`;
               })()}
-              onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "sql_queries", label: "Daily SQL Queries", variant: "platform"}) : undefined}
+              onActivate={!queryDetailUnavailable && startDate && endDate ? () => setSelectedKPI({kpi: "sql_queries", label: "Daily SQL Queries", variant: "platform"}) : undefined}
               ariaLabel="See Total Queries trend"
               icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>}
             />
             <KPICard
               title="Unique SQL Users"
-              value={formatNumber(availableSummary.unique_users ?? 0)}
-              subtitle={`across ${formatNumber(availableSummary.unique_warehouses ?? 0)} SQL warehouses`}
-              onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "sql_users", label: "Daily SQL Users", variant: "platform"}) : undefined}
+              value={queryDetailUnavailable ? "N/A" : formatNumber(availableSummary.unique_users ?? 0)}
+              subtitle={queryDetailUnavailable ? "Query history is not available in these regions" : `across ${formatNumber(availableSummary.unique_warehouses ?? 0)} SQL warehouses`}
+              onActivate={!queryDetailUnavailable && startDate && endDate ? () => setSelectedKPI({kpi: "sql_users", label: "Daily SQL Users", variant: "platform"}) : undefined}
               ariaLabel="See Unique SQL Users trend"
               icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
             />
             <KPICard
               title="Query Duration"
-              value={formatDuration(availableSummary.avg_duration_seconds ?? 0)}
-              subtitle="average per query"
-              onActivate={startDate && endDate ? () => setSelectedKPI({kpi: "avg_query_duration", label: "Query Duration"}) : undefined}
+              value={queryDetailUnavailable ? "N/A" : formatDuration(availableSummary.avg_duration_seconds ?? 0)}
+              subtitle={queryDetailUnavailable ? "Query history is not available in these regions" : "average per query"}
+              onActivate={!queryDetailUnavailable && startDate && endDate ? () => setSelectedKPI({kpi: "avg_query_duration", label: "Query Duration"}) : undefined}
               ariaLabel="See Query Duration trend"
               icon={<svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
             />

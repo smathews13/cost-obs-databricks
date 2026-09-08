@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -1314,7 +1315,7 @@ def _resource_shared_source_metadata(limit: int = 100) -> list[dict[str, Any]]:
         if not catalog or not schema:
             return []
         rows = execute_query(
-            f"SELECT label, catalog, schema, tables, cloud, added_at "
+            f"SELECT label, catalog, schema, tables, workspace_ids, cloud, added_at "
             f"FROM `{catalog}`.`{schema}`.`app_mv_sources` LIMIT {int(limit)}",
             None,
             no_cache=True,
@@ -1338,6 +1339,14 @@ def _resource_shared_source_metadata(limit: int = 100) -> list[dict[str, Any]]:
         }
         if isinstance(tables, list):
             source["tables"] = [str(table) for table in tables[:100]]
+        workspace_ids = row.get("workspace_ids")
+        if isinstance(workspace_ids, str):
+            try:
+                workspace_ids = json.loads(workspace_ids)
+            except (TypeError, json.JSONDecodeError):
+                workspace_ids = None
+        if isinstance(workspace_ids, list):
+            source["workspace_ids"] = [str(value) for value in workspace_ids[:100]]
         sources.append(source)
     return sources
 
@@ -1742,7 +1751,7 @@ def _detect_source_cloud(catalog: str) -> str | None:
     # catalog itself is readable. Preserve common cloud/region hints in the
     # catalog name so a source does not lose its icon after being re-saved.
     name_hint = (catalog or "").lower().replace("-", "").replace("_", "")
-    if any(marker in name_hint for marker in ("gcp", "google", "west4", "central1", "east4")):
+    if any(marker in name_hint for marker in ("gcp", "google", "west4", "central1", "east1", "east4")):
         return "gcp"
     if any(marker in name_hint for marker in ("azure", "eastus", "westus", "westeurope")):
         return "azure"
@@ -1851,6 +1860,57 @@ def _visible_shared_tables(catalog: str, schema: str) -> set[str]:
         return set()
 
 
+def _infer_shared_source_workspace_ids(source: dict[str, Any]) -> list[str]:
+    """Resolve a workspace-labelled shared source to its actual workspace id."""
+    from server.db import execute_query
+
+    catalog = str(source.get("catalog") or "").strip()
+    schema = str(source.get("schema") or "").strip()
+    label = str(source.get("label") or "").strip()
+    if not catalog or not schema or not label:
+        return []
+    try:
+        rows = execute_query(
+            "SELECT DISTINCT CAST(workspace_id AS STRING) AS workspace_id, "
+            "workspace_name "
+            f"FROM `{catalog}`.`{schema}`.`daily_workspace_breakdown` "
+            "WHERE workspace_id IS NOT NULL",
+            None,
+            no_cache=True,
+        )
+    except Exception as exc:
+        logger.debug(
+            "Could not infer workspace scope for shared source %s (non-fatal): %s",
+            label,
+            exc,
+        )
+        return []
+
+    candidates = [
+        (
+            str(row.get("workspace_id") or "").strip(),
+            str(row.get("workspace_name") or "").strip(),
+        )
+        for row in (rows or [])
+        if str(row.get("workspace_id") or "").strip()
+    ]
+    if len(candidates) == 1:
+        return [candidates[0][0]]
+
+    normalized_label = re.sub(r"[^a-z0-9]", "", label.lower())
+    matches = [
+        workspace_id
+        for workspace_id, workspace_name in candidates
+        if normalized_label
+        and (
+            normalized_label == re.sub(r"[^a-z0-9]", "", workspace_id.lower())
+            or normalized_label
+            in re.sub(r"[^a-z0-9]", "", workspace_name.lower())
+        )
+    ]
+    return list(dict.fromkeys(matches)) if len(set(matches)) == 1 else []
+
+
 def _shared_source_grants(catalog: str, schema: str) -> list[str]:
     principal = os.getenv("DATABRICKS_CLIENT_ID", "").strip()
     if not principal:
@@ -1882,7 +1942,7 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
     sources = get_mv_sources()
     if detail:
         def _enrich():
-            from server.materialized_views import unified_views_rebuild_lock
+            from server.materialized_views import _MV_TABLES, unified_views_rebuild_lock
 
             # Back-fill the `cloud` tag for any source missing it — sources added
             # before cloud detection existed (or when it transiently missed at add
@@ -1894,10 +1954,16 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
                 current_sources = get_mv_sources()
                 changed = False
                 for s in current_sources:
-                    if not s.get("cloud"):
-                        c = _detect_source_cloud(s.get("catalog"))
-                        if c:
-                            s["cloud"] = c
+                    current_cloud = str(s.get("cloud") or "").strip().lower()
+                    if current_cloud not in {"aws", "azure", "gcp"}:
+                        detected_cloud = _detect_source_cloud(s.get("catalog"))
+                        if detected_cloud:
+                            s["cloud"] = detected_cloud
+                            changed = True
+                    if not s.get("workspace_ids"):
+                        workspace_ids = _infer_shared_source_workspace_ids(s)
+                        if workspace_ids:
+                            s["workspace_ids"] = workspace_ids
                             changed = True
                 if changed:
                     try:
@@ -1905,6 +1971,17 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
                     except Exception as e:
                         logger.debug("Could not persist back-filled source cloud (non-fatal): %s", e)
                 for s in current_sources:
+                    configured_tables = s.get("tables")
+                    s["missing_tables"] = (
+                        [
+                            table_name
+                            for table_name in _MV_TABLES
+                            if table_name not in configured_tables
+                        ]
+                        if isinstance(configured_tables, list)
+                        else []
+                    )
+                    s["shared_view_total"] = len(_MV_TABLES)
                     s["share_last_updated"] = _share_last_updated(
                         s.get("catalog"), s.get("schema"), s.get("tables")
                     )
@@ -1974,7 +2051,7 @@ async def check_mv_source_freshness(request: Request, label: str) -> dict:
     await _require_admin_async(request)
     from datetime import datetime, timezone
 
-    from server.db import get_catalog_schema, get_mv_sources
+    from server.db import get_catalog_schema, get_mv_sources, save_mv_sources
     from server.materialized_views import (
         _MV_TABLES,
         _rebuild_unified_views_locked,
@@ -1984,17 +2061,23 @@ async def check_mv_source_freshness(request: Request, label: str) -> dict:
 
     def _check() -> dict:
         with unified_views_rebuild_lock():
+            sources = get_mv_sources()
             source = next(
-                (item for item in get_mv_sources() if item.get("label") == label),
+                (item for item in sources if item.get("label") == label),
                 None,
             )
             if source is None:
                 raise HTTPException(status_code=404, detail="Shared source not found")
+            if not source.get("workspace_ids"):
+                workspace_ids = _infer_shared_source_workspace_ids(source)
+                if workspace_ids:
+                    source["workspace_ids"] = workspace_ids
+                    save_mv_sources(sources)
             local_catalog, local_schema = get_catalog_schema()
             selected_tables = source.get("tables") or _MV_TABLES
             visible_tables = _visible_shared_tables(source["catalog"], source["schema"])
             statuses = []
-            for table_name in selected_tables:
+            for table_name in _MV_TABLES:
                 local_cols = _table_columns(f"`{local_catalog}`.`{local_schema}`.`{table_name}`")
                 source_cols = _table_columns(f"`{source['catalog']}`.`{source['schema']}`.`{table_name}`")
                 status = (
@@ -2018,6 +2101,10 @@ async def check_mv_source_freshness(request: Request, label: str) -> dict:
                 "matched": sum(1 for item in statuses if item["status"] == "match"),
                 "total": len(statuses),
                 "tables": statuses,
+                "missing_tables": [
+                    item["table"] for item in statuses if item["status"] != "match"
+                ],
+                "workspace_ids": source.get("workspace_ids") or [],
                 "build": build,
                 "required_grants": (
                     _shared_source_grants(source["catalog"], source["schema"])
@@ -2087,6 +2174,17 @@ async def add_mv_source(request: Request, body: dict) -> dict:
             }
             if tables is not None:
                 entry["tables"] = tables
+            requested_workspace_ids = body.get("workspace_ids")
+            if isinstance(requested_workspace_ids, list):
+                entry["workspace_ids"] = [
+                    str(value).strip()
+                    for value in requested_workspace_ids
+                    if str(value).strip()
+                ]
+            if not entry.get("workspace_ids"):
+                inferred_workspace_ids = _infer_shared_source_workspace_ids(entry)
+                if inferred_workspace_ids:
+                    entry["workspace_ids"] = inferred_workspace_ids
             cloud = _detect_source_cloud(catalog)
             if not cloud:
                 prior = next(

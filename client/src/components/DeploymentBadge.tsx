@@ -24,7 +24,10 @@ export function DeploymentBadge({
   const processStartApproximation = metadata?.source?.includes("process_start") ?? false;
 
   return (
-    <span data-testid="deployment-badge" className="shrink-0">
+    <span
+      data-testid="deployment-badge"
+      className="inline-flex h-[22px] w-[88px] shrink-0 items-center align-middle leading-none"
+    >
       <InfoPopover
         label={`Deployment information: ${triggerText}`}
         className=""

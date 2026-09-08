@@ -221,6 +221,7 @@ it("renders, toggles, saves, and reloads user anonymization", async () => {
   const first = renderDialog();
   await userEvent.click(await screen.findByRole("button", { name: "Experimental" }));
   expect(screen.getByText(/Replace human email addresses with User 1/)).toBeInTheDocument();
+  expect(screen.queryByText("Preview")).not.toBeInTheDocument();
   const runbook = screen.getByRole("link", { name: "Download notebook" });
   expect(runbook).toHaveAttribute("href", "/api/settings/materialized-view-runbook");
   expect(runbook).toHaveAttribute("download", "cost_obs_mv_share_publisher.py");

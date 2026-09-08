@@ -294,7 +294,7 @@ def test_dbsql_bundle_filters_warehouse_billing_and_region_counts():
         if "COUNT(DISTINCT u.workspace_id) AS ws_count" in sql:
             return [{"ws_count": 2}]
         if "COUNT(DISTINCT workspace_id) AS ws_count" in sql:
-            return [{"ws_count": 1}]
+            return [{"ws_count": 0}]
         if "u.product_features.is_serverless" in sql:
             return [{
                 "date": "2026-08-01",
@@ -338,7 +338,10 @@ def test_dbsql_bundle_filters_warehouse_billing_and_region_counts():
     response = cache_put.call_args.args[2]
     assert response["warehouse_type_timeseries"]["timeseries"][0]["SERVERLESS"] == 4
     assert response["region_scope"]["billing_workspace_count"] == 2
-    assert response["region_scope"]["in_region_workspace_count"] == 1
+    assert response["region_scope"]["in_region_workspace_count"] == 0
+    assert response["region_scope"]["missing_workspace_count"] == 2
+    assert response["region_scope"]["billing_sql_spend"] == 4
+    assert response["region_scope"]["limited"] is True
 
 
 def _reset_delta_l1():
