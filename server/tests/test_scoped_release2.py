@@ -40,6 +40,18 @@ def test_every_users_bundle_query_applies_workspace_scope():
         assert "CAST(u.workspace_id AS STRING) IN ('workspace-west')" in scoped
 
 
+def test_user_growth_compares_against_lifetime_first_seen_in_selected_workspace():
+    scoped = users_groups._scope_user_sql(
+        users_groups.USERS_GROWTH,
+        ["workspace-west"],
+    )
+
+    assert scoped.index("MIN(date_trunc('month', u.usage_date))") < scoped.index(
+        "u.usage_date BETWEEN :start_date AND :end_date"
+    )
+    assert scoped.count("CAST(u.workspace_id AS STRING) IN ('workspace-west')") == 2
+
+
 def test_request_scope_rejects_invalid_reversed_future_and_oversized_ranges():
     utc_today = datetime.now(timezone.utc).date()
     yesterday = utc_today - timedelta(days=1)

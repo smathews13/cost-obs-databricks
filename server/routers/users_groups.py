@@ -288,7 +288,17 @@ GROUP BY CASE WHEN usage_date <= :mid_date THEN 'first_half' ELSE 'second_half' 
 """
 
 USERS_GROWTH = """
-WITH base AS (
+WITH first_seen AS (
+  SELECT
+    u.identity_metadata.run_as AS user_id,
+    MIN(date_trunc('month', u.usage_date)) AS first_month
+  FROM system.billing.usage u
+  WHERE 1 = 1
+    AND u.usage_quantity > 0
+    AND u.identity_metadata.run_as IS NOT NULL
+  GROUP BY u.identity_metadata.run_as
+),
+base AS (
   SELECT
     date_trunc('month', u.usage_date) AS month,
     u.identity_metadata.run_as AS user_id
@@ -296,16 +306,13 @@ WITH base AS (
   WHERE u.usage_date BETWEEN :start_date AND :end_date
     AND u.usage_quantity > 0
     AND u.identity_metadata.run_as IS NOT NULL
-),
-user_first AS (
-  SELECT user_id, MIN(month) AS first_month FROM base GROUP BY user_id
 )
 SELECT
   date_format(b.month, 'yyyy-MM') AS month,
   COUNT(DISTINCT b.user_id) AS active_users,
   COUNT(DISTINCT CASE WHEN b.month = f.first_month THEN b.user_id END) AS new_users
 FROM base b
-JOIN user_first f ON b.user_id = f.user_id
+JOIN first_seen f ON b.user_id = f.user_id
 GROUP BY b.month
 ORDER BY month
 """
