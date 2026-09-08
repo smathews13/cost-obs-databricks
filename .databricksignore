@@ -1,5 +1,9 @@
 .venv/
 .git/
+.github/
+.settings/
+.ai-dev-kit/
+.claude/
 node_modules/
 client/
 *.pyc
@@ -13,7 +17,13 @@ docs/
 scripts/
 notebooks/
 tests/
+server/tests/
+mirror/
+jobs/
+thumbnails/
+thumbnail.png
 databricks.yml
+resources/
 app.yaml.template
 deploy_bundle.sh
 dba_deploy.sh

@@ -33,6 +33,7 @@ Built on FastAPI + React, deployed as a [Databricks App](https://docs.databricks
 - [Feature guide](#features)
 - [Architecture and data lineage](#architecture)
 - [Detailed deployment guide](#detailed-deployment)
+- [Backup DAB deployment](#backup-dab-deployment)
 - [Cloud cost integration](#cloud-cost-integration)
 - [Cross-workspace aggregate sharing](#cross-workspace-sharing)
 - [Security](#security)
@@ -65,7 +66,7 @@ Optional grants enable richer SQL, compute, Lakeflow, model-serving, and workspa
 5. Apply the service-principal grants and build the managed aggregate tables from the wizard.
 6. Confirm the DBU Overview loads; then enable optional source grants or cloud billing exports as needed.
 
-Deploy from Git is the supported path. See the [detailed deployment guide](#detailed-deployment) for screenshots-equivalent navigation, environment overrides, first-run checks, and troubleshooting.
+Deploy from Git is the primary and recommended path. A [backup DAB path](#backup-dab-deployment) is included for workspaces where Git deployment is unavailable.
 
 ---
 
@@ -134,7 +135,7 @@ Upgrades from v1.0 or v1.1 require no new environment variables or manual backfi
 
 - **Diagnostics surface actionable next steps.** Instead of raw error details, the app maps failures to specific actions — **Grant SQL**, **Rebuild**, or **Configure** — so customers can move directly to the fix.
 
-**Deploy from Git is the only supported deployment path.** The app's first-run flow is built around an environment check, permissions check, and table creation step — the in-app setup wizard handles all onboarding, so no script- or CLI-based deploy is needed or supported.
+**Deploy from Git remains the primary deployment path.** The backup DAB packages the same committed runtime artifact and is intentionally separate; it does not replace or modify the Git setup flow.
 
 ---
 
@@ -309,6 +310,35 @@ Use **Settings → Permissions & Access** to manage who can administer or view t
 
 ---
 
+<a id="backup-dab-deployment"></a>
+## Backup DAB deployment
+
+Use this only when the primary **Deploy from Git** flow is unavailable. The
+`backup` target deploys the same committed `static/`, FastAPI server, `app.yaml`
+contract, and SQL warehouse binding. Its default app name,
+`cost-observability-backup`, is deliberately separate from the Git-managed app.
+
+From a clean checkout of the commit you want to deploy:
+
+```bash
+databricks bundle validate --strict -t backup --profile <profile> \
+  --var "warehouse_id=<warehouse-id>,catalog=<catalog>,schema=<schema>"
+
+databricks bundle deploy -t backup --profile <profile> \
+  --var "warehouse_id=<warehouse-id>,catalog=<catalog>,schema=<schema>"
+
+databricks bundle run cost_obs_backup -t backup --profile <profile> \
+  --var "warehouse_id=<warehouse-id>,catalog=<catalog>,schema=<schema>"
+```
+
+Use the same dedicated catalog/schema as the primary app if the backup should
+reuse its managed tables. A new backup app receives a new service principal, so
+apply the catalog/schema and system-table grants shown by its setup wizard.
+Override `app_name` only when you intentionally want another name; do not point
+the backup target at the primary app during normal operation.
+
+---
+
 <a id="features"></a>
 ## Feature guide
 
@@ -430,6 +460,10 @@ All SQL—including dashboard queries, setup operations, managed-table writes, a
 
 The catalog and schema created during setup are owned by the SP. The installing user receives `USE CATALOG`, `USE SCHEMA`, `SELECT`, and `MANAGE` grants automatically — giving them full visibility in the Unity Catalog browser and the ability to re-grant the SP on future redeploys.
 
+All nine aggregate tables and all durable app state/cache tables resolve through
+the same `COST_OBS_CATALOG` + `COST_OBS_SCHEMA` pair. Shared-source catalogs are
+read-only inputs and remain separate; the app never writes state into them.
+
 ### Data Sources
 
 All billing and compute data is **account-level** — queries run against Unity Catalog system tables which span all workspaces in the account.
@@ -494,7 +528,7 @@ The canonical `cost-obs-arch-1.2.pdf` architecture report maps every visible tab
 
 | Optimization | Detail |
 |---|---|
-| **Pre-aggregated Tables** | 8 Delta tables for sub-second dashboard loads (Tagging + Apps MV paths new in 1.1) |
+| **Pre-aggregated Tables** | 9 Delta tables for sub-second dashboard loads, including Tagging and Apps fast paths |
 | **Parallel Query Execution** | `ThreadPoolExecutor` (10 workers per uvicorn worker) runs 6–8 queries concurrently per bundle endpoint |
 | **2-Hour Query Cache** | `TTLCache` with 200 entries — cost data changes at most once per day |
 | **SDK Call Caching** | Pipeline names, group membership, and app registry cached for 1 hour |

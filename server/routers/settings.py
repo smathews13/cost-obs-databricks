@@ -48,6 +48,19 @@ _APP_STATE_TABLES = (
     "app_workspace_filter",
 )
 
+_APP_RESPONSE_CACHE_TABLE = "app_response_cache"
+
+
+def _managed_table_inventory() -> tuple[str, ...]:
+    """Canonical aggregate + durable state inventory for one app storage schema."""
+    from server.db import MV_UNIFIED_TABLE_NAMES
+
+    return tuple(dict.fromkeys((
+        *MV_UNIFIED_TABLE_NAMES,
+        *_APP_STATE_TABLES,
+        _APP_RESPONSE_CACHE_TABLE,
+    )))
+
 
 def _require_admin(request: Request) -> str:
     """Synchronous compatibility wrapper around the centralized fail-closed policy."""
@@ -931,20 +944,7 @@ async def _get_tables_status_inner(request: Request):
         or _user_token.get()
     )
 
-    MV_TABLES = [
-        "daily_usage_summary",
-        "daily_product_breakdown",
-        "daily_workspace_breakdown",
-        "sql_tool_attribution",
-        "daily_query_stats",
-        "dbsql_cost_per_query",
-        "daily_tag_summary",
-        "daily_tag_coverage_summary",
-        "daily_apps_summary",
-        "app_user_permissions",
-        "app_refresh_log",
-        "app_settings",
-    ]
+    MV_TABLES = list(_managed_table_inventory())
     # Which tables are conceptually "materialized views" (rebuilt on schedule)
     # vs persistent managed tables
     MV_SET = {
@@ -980,11 +980,7 @@ async def _get_tables_status_inner(request: Request):
     date_expr_overrides = {
         "dbsql_cost_per_query": "CAST(MAX(start_time) AS DATE)",
     }
-    no_date_tables = {
-        "app_user_permissions",
-        "app_refresh_log",
-        "app_settings",
-    }
+    no_date_tables = set(_APP_STATE_TABLES) | {_APP_RESPONSE_CACHE_TABLE}
 
     min_date_expr_overrides = {
         "dbsql_cost_per_query": "CAST(MIN(start_time) AS DATE)",
@@ -1055,7 +1051,7 @@ async def _get_tables_status_inner(request: Request):
             return {"name": table_name, "table_type": table_type, "exists": True, "row_count": None, "min_date": None, "max_date": None, "days_behind": None, "owner": None, "error": err[:200]}
 
     # Config tables are created lazily on first save — not existing yet is expected
-    CONFIG_TABLES: set[str] = {"app_settings"}
+    CONFIG_TABLES: set[str] = set(no_date_tables)
 
     # Build task list: (table_name, fqn, table_type)
     tasks = [

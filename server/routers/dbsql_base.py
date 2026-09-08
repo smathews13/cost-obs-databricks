@@ -593,6 +593,7 @@ def create_dbsql_router(table_name: str) -> APIRouter:
             }
             wh_ts_by_date: dict[str, dict] = {}
             wh_type_set: set[str] = set()
+            sql_sku_totals: dict[str, float] = {}
             for r in (results.get("wh_type_billing") or []):
                 d = str(r.get("date"))
                 wid = str(r.get("warehouse_id") or "")
@@ -604,6 +605,8 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                     warehouse_id=wid,
                 )
                 spend = float(r.get("daily_spend") or 0)
+                sku_name = str(r.get("sku_name") or "Unknown")
+                sql_sku_totals[sku_name] = sql_sku_totals.get(sku_name, 0) + spend
                 wh_type_set.add(wt)
                 if d not in wh_ts_by_date:
                     wh_ts_by_date[d] = {"date": d}
@@ -619,6 +622,14 @@ def create_dbsql_router(table_name: str) -> APIRouter:
                 "available": local_metadata_allowed,
                 "timeseries": wh_ts_list,
                 "warehouse_types": wh_types_list,
+                "sku_breakdown": [
+                    {"sku_name": sku_name, "total_spend": total_spend}
+                    for sku_name, total_spend in sorted(
+                        sql_sku_totals.items(),
+                        key=lambda item: item[1],
+                        reverse=True,
+                    )[:10]
+                ],
                 **({} if local_metadata_allowed else {
                     "unavailable_reason": "Warehouse type billing is local-only for this shared-source scope."
                 }),

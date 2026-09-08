@@ -1,0 +1,33 @@
+resources:
+  apps:
+    cost_obs_backup:
+      name: ${var.app_name}
+      description: Backup deployment path for Cost Observability; Git remains primary.
+      source_code_path: ..
+      lifecycle:
+        started: true
+      resources:
+        - name: sql-warehouse
+          description: SQL warehouse for cost observability queries
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+      config:
+        command:
+          - uvicorn
+          - server.app:app
+          - --host
+          - "0.0.0.0"
+          - --port
+          - "8000"
+          - --workers
+          - "2"
+          - --timeout-graceful-shutdown
+          - "10"
+        env:
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: COST_OBS_CATALOG
+            value: ${var.catalog}
+          - name: COST_OBS_SCHEMA
+            value: ${var.schema}

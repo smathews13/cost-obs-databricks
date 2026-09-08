@@ -1154,6 +1154,13 @@ export interface DBSQLDashboardBundle {
   by_warehouse?: QueryCostByWarehouseResponse;
   top_queries?: TopQueriesResponse;
   timeseries?: QueryCostTimeseriesResponse;
+  warehouse_type_timeseries?: {
+    available?: boolean;
+    timeseries?: Array<Record<string, string | number>>;
+    warehouse_types?: string[];
+    sku_breakdown?: Array<{ sku_name: string; total_spend: number }>;
+    unavailable_reason?: string;
+  };
   region_scope?: RegionScope;
   start_date: string;
   end_date: string;

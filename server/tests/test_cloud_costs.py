@@ -772,6 +772,31 @@ def test_sku_breakdown_has_a_bounded_optional_query_deadline():
     assert execute.call_args.kwargs["max_rows"] == 100
 
 
+def test_sku_breakdown_applies_the_selected_workspace_scope():
+    captured: list[str] = []
+
+    def execute(sql, *_args, **_kwargs):
+        captured.append(sql)
+        return []
+
+    with (
+        patch.object(billing, "delta_cache_get", return_value=None),
+        patch.object(billing, "delta_cache_put"),
+        patch.object(billing, "capture_cache_generation", return_value=1),
+        patch.object(billing, "execute_query", side_effect=execute),
+    ):
+        asyncio.run(
+            billing.get_sku_breakdown(
+                start_date="2026-08-01",
+                end_date="2026-08-30",
+                workspace_ids="workspace-west",
+            )
+        )
+
+    assert len(captured) == 1
+    assert "CAST(u.workspace_id AS STRING) IN ('workspace-west')" in captured[0]
+
+
 def test_cloud_producer_failure_returns_safe_typed_retryable_error(
     caplog,
 ):

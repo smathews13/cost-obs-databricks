@@ -484,8 +484,13 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
   const summary = queryData.summary;
   const sourceTypes = queryData.timeseries?.source_types || [];
   const warehouseTypeTimeseries = (queryData as typeof queryData & {
-    warehouse_type_timeseries?: { timeseries?: unknown[]; warehouse_types?: string[] };
+    warehouse_type_timeseries?: {
+      timeseries?: unknown[];
+      warehouse_types?: string[];
+      sku_breakdown?: Array<{ sku_name: string; total_spend: number }>;
+    };
   }).warehouse_type_timeseries;
+  const sqlSkuBreakdown = warehouseTypeTimeseries?.sku_breakdown ?? [];
   const warehouseRows = queryData.by_warehouse?.warehouses ?? [];
   const hasWarehouseSizeData = warehouseRows.some(
     (warehouse) => warehouse.warehouse_size && warehouse.warehouse_size !== "UNKNOWN",
@@ -745,9 +750,9 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
           </div>
           )}
 
-          {/* Warehouse Spend by Type + Warehouse Count by Size: side by side */}
-          {((warehouseTypeTimeseries?.timeseries?.length ?? 0) > 0 || hasWarehouseSizeData) && (
-          <div className={`grid grid-cols-1 gap-6 ${(warehouseTypeTimeseries?.timeseries?.length ?? 0) > 0 && hasWarehouseSizeData ? "lg:grid-cols-2" : ""}`}>
+          {/* Billing spend and warehouse inventory charts */}
+          {((warehouseTypeTimeseries?.timeseries?.length ?? 0) > 0 || sqlSkuBreakdown.length > 0 || hasWarehouseSizeData) && (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {(warehouseTypeTimeseries?.timeseries?.length ?? 0) > 0 && (
           <div className="rounded-lg bg-white p-6 border " style={{ borderColor: C.hairline }}>
               <div className="mb-4">
@@ -801,6 +806,33 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
                 );
               })()}
           </div>
+          )}
+
+          {sqlSkuBreakdown.length > 0 && (
+            <div className="rounded-lg border bg-white p-6" style={{ borderColor: C.hairline }}>
+              <h3 className="mb-1 text-lg font-semibold text-gray-900">SQL Billing Spend by SKU</h3>
+              <p className="mb-4 text-xs text-gray-500">Billing-derived and available even when regional query history is not.</p>
+              <ResponsiveContainer width="100%" height={Math.max(260, sqlSkuBreakdown.length * 34)}>
+                <BarChart data={sqlSkuBreakdown} layout="vertical" margin={{ left: 10, right: 56 }}>
+                  <XAxis type="number" tickFormatter={(value) => formatCurrency(value)} stroke={C.muted} fontSize={11} />
+                  <YAxis
+                    type="category"
+                    dataKey="sku_name"
+                    width={120}
+                    stroke={C.muted}
+                    fontSize={10}
+                    tickFormatter={(value) => value.length > 20 ? `${value.slice(0, 18)}…` : value}
+                  />
+                  <Tooltip
+                    formatter={(value: number | undefined) => formatCurrency(value ?? 0)}
+                    contentStyle={{ backgroundColor: C.card, border: `1px solid ${C.hairline}`, borderRadius: "8px" }}
+                  />
+                  <Bar dataKey="total_spend" name="SQL Billing Spend" fill={C.s3} radius={[0, 4, 4, 0]}>
+                    <LabelList dataKey="total_spend" position="right" formatter={(value) => formatCurrency(Number(value ?? 0))} style={{ fontSize: 10, fill: C.slate }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           )}
 
           {/* Warehouse Count by Size */}

@@ -266,6 +266,14 @@ describe("SQLWarehousing360: cross-region workspace filters stay truthful", () =
         missing_region_sql_spend: 21.25,
         limited: true,
       },
+      warehouse_type_timeseries: {
+        timeseries: [{ date: "2026-01-15", SERVERLESS: 21.25 }],
+        warehouse_types: ["SERVERLESS"],
+        sku_breakdown: [{
+          sku_name: "PREMIUM_SQL_SERVERLESS",
+          total_spend: 21.25,
+        }],
+      },
     }, { workspaceIds: ["west4", "central1"] });
 
     expect(screen.getByText("Query detail is unavailable for some selected workspaces")).toBeVisible();
@@ -275,6 +283,7 @@ describe("SQLWarehousing360: cross-region workspace filters stay truthful", () =
     expect(screen.getAllByText("N/A")).toHaveLength(3);
     expect(screen.getByText("Account billing total; query attribution is unavailable")).toBeVisible();
     expect(screen.getAllByText("Query history is not available in these regions")).toHaveLength(3);
+    expect(screen.getByText("SQL Billing Spend by SKU")).toBeVisible();
   });
 });
 

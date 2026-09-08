@@ -8,6 +8,7 @@ import {
   getDefaultDateRange,
   responsePayloadIssue,
   setActiveSourceLabels,
+  setActiveSourceRouting,
   setIncludeHistoricalWorkspaceData,
   useAccountInfo,
   useAppsDashboardBundle,
@@ -16,6 +17,7 @@ import {
   useDBSQLQueryCosts,
   useDBSQLTopQueries,
   useKPIsBundle,
+  useSKUBreakdown,
   useUsersGroupsBundle,
 } from "./useBillingData";
 
@@ -451,6 +453,32 @@ describe("dashboard source scope", () => {
 
     east.unmount();
     west.unmount();
+  });
+
+  it("routes SKU requests through a same-account source workspace", async () => {
+    setActiveSourceLabels(["west4"]);
+    setActiveSourceRouting(["local"], ["workspace-west"]);
+    const request = vi.fn(async () => jsonResponse(200, { skus: [] }));
+    vi.stubGlobal("fetch", request);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    const { result } = renderHook(
+      () => useSKUBreakdown(
+        { startDate: "2026-08-01", endDate: "2026-08-28" },
+        undefined,
+        true,
+      ),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const url = new URL(String(request.mock.calls[0][0]), "https://example.test");
+    expect(url.searchParams.getAll("source_labels")).toEqual(["local"]);
+    expect(url.searchParams.get("workspace_ids")).toBe("workspace-west");
   });
 });
 

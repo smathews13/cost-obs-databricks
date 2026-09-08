@@ -1,0 +1,22 @@
+bundle:
+  name: cost-obs-backup
+
+include:
+  - resources/*.yml
+
+variables:
+  app_name:
+    description: Backup Databricks App name; keep separate from the primary Git-managed app.
+    default: cost-observability-backup
+  warehouse_id:
+    description: Existing SQL warehouse ID to bind with CAN_USE.
+  catalog:
+    description: Dedicated Unity Catalog catalog for all app-managed tables.
+  schema:
+    description: Dedicated schema for all app-managed tables.
+
+targets:
+  backup:
+    mode: production
+    workspace:
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}

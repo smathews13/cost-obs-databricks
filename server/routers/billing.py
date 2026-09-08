@@ -3011,10 +3011,11 @@ async def get_sku_breakdown(
             params,
             SourceScopeUnsupportedError("SKU detail is local-only."),
         )
-    _dkey = bundle_cache_key("billing:sku-breakdown", params["start_date"], params["end_date"], id_list)
+    cache_endpoint = "billing:sku-breakdown:v2"
+    _dkey = bundle_cache_key(cache_endpoint, params["start_date"], params["end_date"], id_list)
     if (_dcached := await asyncio.to_thread(delta_cache_get, _dkey)) is not None:
         return _dcached
-    _cache_generation = capture_cache_generation("billing:sku-breakdown")
+    _cache_generation = capture_cache_generation(cache_endpoint)
     ws_clause = wf.build_ws_filter_clause(id_list=id_list)
     try:
         results = await asyncio.to_thread(
@@ -3049,7 +3050,13 @@ async def get_sku_breakdown(
         "start_date": params["start_date"],
         "end_date": params["end_date"],
     }
-    delta_cache_put(_dkey, "billing:sku-breakdown", _resp, ttl_seconds=cache_ttls.BUNDLE, generation=_cache_generation)
+    delta_cache_put(
+        _dkey,
+        cache_endpoint,
+        _resp,
+        ttl_seconds=cache_ttls.BUNDLE,
+        generation=_cache_generation,
+    )
     return _resp
 
 
