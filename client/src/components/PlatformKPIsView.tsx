@@ -6,7 +6,7 @@ import { KPITrendModal } from "@/components/KPITrendModal";
 import { formatNumber, formatBytesNoDecimal, formatRowCount, formatDurationSeconds } from "@/utils/formatters";
 import { useFeatureAvailability } from "@/hooks/useFeatureAvailability";
 import { C } from "@/theme";
-import { PageHero, Chip, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
+import { PageHero, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
 import { LoadingPanels } from "@/components/Spinner";
 import { KPICard as SharedKPICard } from "@/components/ui/KPICard";
 import {
@@ -226,16 +226,12 @@ export function PlatformKPIsView({ data, isLoading, isFetching, spendAnomalies, 
           </svg>
         }
         title="Platform KPIs & Trends"
-        subtitle={
-          <>
-            Platform health, usage metrics, and adoption tracking
-            {workspaceIds && workspaceIds.length > 0 && (
-              <Chip kind="workspace" label="Workspace(s)">
-                {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
-              </Chip>
-            )}
-          </>
-        }
+        subtitle="Platform health, usage metrics, and adoption tracking"
+        workspaceScope={workspaceIds && workspaceIds.length > 0
+          ? workspaceIds.length === 1
+            ? workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]
+            : `${workspaceIds.length} workspaces`
+          : undefined}
       />
 
       {data.data_stale && (

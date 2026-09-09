@@ -45,8 +45,8 @@ describe("chrome filter variants", () => {
     expect(trigger).toHaveClass(
       "rail-workspace-filter",
       "h-[28px]",
-      "max-w-[116px]",
-      "min-[1280px]:max-w-[190px]",
+      "w-[116px]",
+      "min-[1280px]:w-[190px]",
       "bg-white/[.07]",
       "rail-control-border",
     );
@@ -169,7 +169,7 @@ describe("chrome filter variants", () => {
       />,
     );
 
-    const loading = screen.getByText("Workspaces…").closest(".rail-workspace-filter");
+    const loading = screen.getByText("Updating…").closest(".rail-workspace-filter");
     expect(loading).toHaveClass("rail-control-border");
     expect(loading?.className).not.toContain("border-white");
   });
@@ -193,8 +193,8 @@ describe("chrome filter variants", () => {
     expect(trigger).toHaveClass(
       "rail-source-filter",
       "h-[28px]",
-      "max-w-[104px]",
-      "min-[1280px]:max-w-[190px]",
+      "w-[116px]",
+      "min-[1280px]:w-[190px]",
       "bg-white/[.07]",
       "rail-control-border",
     );

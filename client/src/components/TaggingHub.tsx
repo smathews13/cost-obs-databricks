@@ -20,7 +20,7 @@ import type { KPITrendResponse } from "@/hooks/useKPITrend";
 import { VirtualizedList } from "./VirtualizedList";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
-import { PageHero, Chip, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
+import { PageHero, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
 import { Dialog } from "@/components/ui/Dialog";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { KPICard } from "@/components/ui/KPICard";
@@ -447,16 +447,12 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           </svg>
         }
         title="Tagging"
-        subtitle={
-          <>
-            Cost attribution through resource tagging coverage
-            {workspaceIds && workspaceIds.length > 0 && (
-              <Chip kind="workspace" label="Workspace(s)">
-                {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
-              </Chip>
-            )}
-          </>
-        }
+        subtitle="Cost attribution through resource tagging coverage"
+        workspaceScope={workspaceIds && workspaceIds.length > 0
+          ? workspaceIds.length === 1
+            ? workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]
+            : `${workspaceIds.length} workspaces`
+          : undefined}
       />
 
       {/* Summary Cards */}

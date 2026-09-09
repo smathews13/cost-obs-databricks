@@ -54,12 +54,14 @@ export function PageHero({
   subtitle,
   action,
   dateRange,
+  workspaceScope,
 }: {
   icon: ReactNode;
   title: string;
   subtitle?: ReactNode;
   action?: ReactNode;
   dateRange?: { startDate?: string; endDate?: string };
+  workspaceScope?: ReactNode;
 }) {
   const sourceLabels = getActiveSourceLabels();
   const formatDate = (value?: string) => value
@@ -90,26 +92,33 @@ export function PageHero({
           <h2 className="text-2xl font-bold leading-tight" style={{ color: C.ink, fontFamily: FONT_SANS }}>
             {title}
           </h2>
-          {(subtitle || dateLabel || sourceLabels.length > 0) && (
+          {subtitle && (
             <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm" style={{ color: C.slate }}>
               {subtitle}
-              {dateLabel && (
-                <Chip kind="filter" label="Date range">
-                  {dateLabel}
-                </Chip>
-              )}
-              {sourceLabels.length > 0 && (
-                <Chip kind="filter" label="Source(s)">
-                  {sourceLabels.length === 1
-                    ? sourceLabels[0]
-                    : `${sourceLabels.length} sources`}
-                </Chip>
-              )}
             </div>
           )}
         </div>
       </div>
-      {action}
+      <div className="ml-auto flex shrink-0 items-start justify-end gap-2">
+        {workspaceScope && (
+          <Chip kind="workspace" label="Workspace(s)">
+            {workspaceScope}
+          </Chip>
+        )}
+        {sourceLabels.length > 0 && (
+          <Chip kind="filter" label="Source(s)">
+            {sourceLabels.length === 1
+              ? sourceLabels[0]
+              : `${sourceLabels.length} sources`}
+          </Chip>
+        )}
+        {dateLabel && (
+          <Chip kind="filter" label="Date range">
+            {dateLabel}
+          </Chip>
+        )}
+        {action}
+      </div>
     </div>
   );
 }

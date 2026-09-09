@@ -68,6 +68,33 @@ describe("shared accessibility primitives", () => {
     expect(screen.getByText("Jun 10, 2026 to Sep 7, 2026")).toBeVisible();
   });
 
+  it("right-aligns scope badges in workspace, source, date order", () => {
+    setActiveSourceLabels(["west4"]);
+    try {
+      render(
+        <PageHero
+          icon={<span>Icon</span>}
+          title="SQL"
+          subtitle="Analytics"
+          workspaceScope="west4-serverless"
+          dateRange={{ startDate: "2026-06-10", endDate: "2026-09-07" }}
+        />,
+      );
+      const workspace = screen.getByText("Workspace(s)");
+      const source = screen.getByText("Source(s)");
+      const date = screen.getByText("Date range");
+      expect(workspace.compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(source.compareDocumentPosition(date) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(workspace.parentElement?.parentElement).toHaveClass(
+        "ml-auto",
+        "justify-end",
+        "items-start",
+      );
+    } finally {
+      setActiveSourceLabels([]);
+    }
+  });
+
   it("labels, traps, closes, and returns focus for dialogs", async () => {
     const user = userEvent.setup();
     render(<DialogHarness />);

@@ -21,7 +21,7 @@ describe("account rail health polish", () => {
   it("links source scope to workspace selection and available options", () => {
     expect(appSource).toContain("linkedWorkspaceIds: string[] | null");
     expect(appSource).toContain("setSelectedWorkspaceIds(linkedWorkspaceIds)");
-    expect(appSource).toContain("workspaces={sourceFilteredWorkspaceList}");
+    expect(appSource).toContain('workspaces={scopeOwner === "source" ? sourceFilteredWorkspaceList : wsFilterList}');
     expect(appSource).toContain("workspaceSelection={selectedWorkspaceIds}");
   });
 
@@ -93,7 +93,7 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("h-[22px] w-[104px]");
     expect(appSource).toContain("rounded-[4px]");
     expect(appSource).toContain("rail-status-badge");
-    expect(styles).toContain("border: 0 !important;");
+    expect(styles).toContain("border: 1px solid rgba(74, 222, 128, 0.28) !important;");
     expect(styles).toContain("font-size: 10px !important;");
     expect(styles).toContain("font-weight: 700 !important;");
     expect(styles).toContain("width: 104px !important;");
@@ -110,7 +110,7 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("SQL warehouse status:");
     expect(appSource).toContain('"cost-obs:rail-tooltip-open"');
     expect(appSource).toContain("(event as CustomEvent<string>).detail === tooltipId");
-    expect(appSource).toContain('const maxLength = /^\\d+$/.test(text) ? 8 : 11;');
+    expect(appSource).toContain('const maxLength = /^\\d/.test(text) ? 8 : 11;');
     expect(appSource).not.toContain('className="max-w-[128px] truncate"');
     expect(appSource).toContain("className={RAIL_STATUS_BADGE_CLASS}");
     expect(appSource).toContain(
@@ -168,11 +168,14 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("setActiveSourceRouting([], [])");
     expect(appSource).toContain('scopeOwner === "source"');
     expect(appSource).toContain('scopeOwner === "workspace"');
+    expect(appSource).toContain('scopeOwner === "source" ? sourceFilteredWorkspaceList : wsFilterList');
+    expect(appSource).toContain('controlling={scopeOwner === "source"}');
     expect(appSource).toContain('setScopeOwner(null)');
     expect(appSource).toContain('origin === "rollback"');
     expect(appSource).toContain('selectedWorkspaceIds.length > 0');
+    expect(appSource).toContain("if (workspaceIds.length === 0)");
     expect(appSource).toContain("isLoading={wsListLoading}");
-    expect(appSource).toContain("isRefreshing={showActiveTabLoading}");
+    expect(appSource).not.toContain("isRefreshing={showActiveTabLoading}");
   });
 
   it("labels the SP name correctly and copies the same ID used by Settings", () => {

@@ -103,7 +103,7 @@ import type { DateRange, WorkspaceBreakdown } from "@/types/billing";
 import { generateCostCSV } from "@/utils/csvExport";
 import { downloadArchitecturePdf } from "@/utils/architectureDownload";
 import { C } from "@/theme";
-import { CostObsLockup, VersionPill, PageHero, Chip, InfoPanel } from "@/components/brand";
+import { CostObsLockup, VersionPill, PageHero, InfoPanel } from "@/components/brand";
 import { LoadingPanels, Spinner } from "@/components/Spinner";
 import {
   buildExportScopeKey,
@@ -351,7 +351,7 @@ function DatabricksSqlProductIcon() {
 
 function compactRailBadgeText(value: string): string {
   const text = value.trim();
-  const maxLength = /^\d+$/.test(text) ? 8 : 11;
+  const maxLength = /^\d/.test(text) ? 8 : 11;
   return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
@@ -823,9 +823,19 @@ function Dashboard() {
   ]);
 
   const handleWorkspaceChange = useCallback((workspaceIds: string[]) => {
+    if (workspaceIds.length === 0) {
+      setActiveSourceLabels([]);
+      setActiveSourceRouting([], []);
+      setActiveSourceTables(null);
+      setSelectedWorkspaceIds([]);
+      setScopeOwner(null);
+      setScopeResetVersion((version) => version + 1);
+      void handleSourceApplied([]);
+      return;
+    }
     setSelectedWorkspaceIds(workspaceIds);
-    setScopeOwner(workspaceIds.length > 0 ? "workspace" : null);
-  }, []);
+    setScopeOwner("workspace");
+  }, [handleSourceApplied]);
 
   const resetAllScopeFilters = useCallback(async () => {
     setActiveSourceLabels([]);
@@ -1940,7 +1950,7 @@ function Dashboard() {
 
           <div className="order-last flex w-full min-w-0 items-center gap-[8px] sm:order-none sm:w-auto sm:flex-1">
             <WorkspaceFilter
-              workspaces={sourceFilteredWorkspaceList}
+              workspaces={scopeOwner === "source" ? sourceFilteredWorkspaceList : wsFilterList}
               currentWorkspaceId={accountInfo?.workspace_id}
               selectedIds={selectedWorkspaceIds}
               onChange={handleWorkspaceChange}
@@ -1959,7 +1969,7 @@ function Dashboard() {
               onApplied={handleSourceApplied}
               resetVersion={scopeResetVersion}
               disabled={scopeOwner === "workspace"}
-              isRefreshing={showActiveTabLoading}
+              controlling={scopeOwner === "source"}
             />
             {(selectedWorkspaceIds.length > 0 || getActiveSourceLabels().length > 0) && (
               <button
@@ -2150,16 +2160,12 @@ function Dashboard() {
               icon={<span className="font-mono text-xl font-bold">$</span>}
               title="DBU Overview"
               dateRange={dateRange}
-              subtitle={
-                <>
-                  Databricks Unit consumption and cost breakdown
-                  {_wsIds && _wsIds.length > 0 && (
-                    <Chip kind="workspace" label="Workspace(s)">
-                      {_wsIds.length === 1 ? (workspaceNameMap[_wsIds[0]] || _wsIds[0]) : `${_wsIds.length} workspaces`}
-                    </Chip>
-                  )}
-                </>
-              }
+              subtitle="Databricks Unit consumption and cost breakdown"
+              workspaceScope={_wsIds && _wsIds.length > 0
+                ? _wsIds.length === 1
+                  ? workspaceNameMap[_wsIds[0]] || _wsIds[0]
+                  : `${_wsIds.length} workspaces`
+                : undefined}
             />
 
 
@@ -2228,6 +2234,11 @@ function Dashboard() {
               }
               title="Optimize"
               subtitle="Rightsizing recommendations and cost optimization insights"
+              workspaceScope={_wsIds && _wsIds.length > 0
+                ? _wsIds.length === 1
+                  ? workspaceNameMap[_wsIds[0]] || _wsIds[0]
+                  : `${_wsIds.length} workspaces`
+                : undefined}
             />
             <WarehouseIdleTimeView
               host={accountInfo?.host}

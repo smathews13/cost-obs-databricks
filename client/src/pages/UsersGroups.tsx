@@ -334,16 +334,12 @@ export default function UsersGroups({
           </svg>
         }
         title="Users"
-        subtitle={
-          <>
-            User spend attribution and top consumers by product
-            {workspaceIds && workspaceIds.length > 0 && (
-              <Chip kind="workspace" label="Workspace(s)">
-                {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
-              </Chip>
-            )}
-          </>
-        }
+        subtitle="User spend attribution and top consumers by product"
+        workspaceScope={workspaceIds && workspaceIds.length > 0
+          ? workspaceIds.length === 1
+            ? workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]
+            : `${workspaceIds.length} workspaces`
+          : undefined}
       />
 
       {<>

@@ -532,16 +532,12 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
           </svg>
         }
         title="Apps"
-        subtitle={
-          <>
-            Databricks Apps compute cost attribution and trends
-            {workspaceIds && workspaceIds.length > 0 && (
-              <Chip kind="workspace" label="Workspace(s)">
-                {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
-              </Chip>
-            )}
-          </>
-        }
+        subtitle="Databricks Apps compute cost attribution and trends"
+        workspaceScope={workspaceIds && workspaceIds.length > 0
+          ? workspaceIds.length === 1
+            ? workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]
+            : `${workspaceIds.length} workspaces`
+          : undefined}
       />
 
       {/* Summary Cards with click-to-trend */}

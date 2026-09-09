@@ -22,7 +22,7 @@ import { KPITrendModal } from "./KPITrendModal";
 import { LoadingPanels, Spinner } from "./Spinner";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
-import { PageHero, Chip, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
+import { PageHero, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
 import { Dialog } from "@/components/ui/Dialog";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
@@ -535,16 +535,12 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
               </svg>
             }
             title="SQL"
-            subtitle={
-              <>
-                SQL-level cost attribution and warehouse analytics
-                {workspaceIds && workspaceIds.length > 0 && (
-                  <Chip kind="workspace" label="Workspace(s)">
-                    {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
-                  </Chip>
-                )}
-              </>
-            }
+            subtitle="SQL-level cost attribution and warehouse analytics"
+            workspaceScope={workspaceIds && workspaceIds.length > 0
+              ? workspaceIds.length === 1
+                ? workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]
+                : `${workspaceIds.length} workspaces`
+              : undefined}
           />
 
           {/* Stale data warning: shown when MV exists but has no data in the selected range */}

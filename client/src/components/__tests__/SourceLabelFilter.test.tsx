@@ -190,7 +190,7 @@ describe("source label reconciliation", () => {
     );
 
     await waitFor(() => expect(getActiveSourceLabels()).toEqual(["west4"]));
-    await userEvent.click(await screen.findByRole("button", { name: "1 Source" }));
+    await userEvent.click(await screen.findByRole("button", { name: "west4" }));
     expect(screen.getByRole("checkbox", { name: /west4/i })).toBeVisible();
     expect(screen.queryByRole("checkbox", { name: /local/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: /central1/i })).not.toBeInTheDocument();
@@ -632,6 +632,73 @@ describe("source label reconciliation", () => {
     const trigger = await screen.findByRole("button", { name: "Updating sources" });
     expect(trigger).toBeDisabled();
     expect(screen.getByText("Updating…")).toBeVisible();
+  });
+
+  it("keeps every source option available while source is the controlling filter", async () => {
+    const current = sourceData(["local", "west4", "east1"]);
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => current,
+    })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["mv-sources"], current);
+    setActiveSourceLabels(["west4"]);
+    setActiveSourceRouting(["local"], ["2"]);
+
+    render(
+      <QueryClientProvider client={client}>
+        <SourceLabelFilter
+          controlling
+          workspaceSelection={["2"]}
+          localWorkspaces={[
+            { id: "1", name: "east1-serverless" },
+            { id: "2", name: "west4-serverless" },
+          ]}
+        />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "west4" }));
+    expect(screen.getByRole("checkbox", { name: /local/i })).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: /west4/i })).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: /east1/i })).toBeVisible();
+  });
+
+  it("clears the mapped workspace scope when the controlling source returns to All", async () => {
+    const current = sourceData(["local", "west4"]);
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => current,
+    })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["mv-sources"], current);
+    setActiveSourceLabels(["west4"]);
+    setActiveSourceRouting(["local"], ["2"]);
+    const applied: Array<{ workspaceIds: string[] | null; origin?: string }> = [];
+
+    render(
+      <QueryClientProvider client={client}>
+        <SourceLabelFilter
+          controlling
+          workspaceSelection={["2"]}
+          localWorkspaces={[{ id: "2", name: "west4-serverless" }]}
+          onApplied={(workspaceIds, origin) => {
+            applied.push({ workspaceIds, origin });
+          }}
+        />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: "west4" }));
+    await userEvent.click(screen.getByRole("button", { name: "All" }));
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => expect(applied).toEqual([{
+      workspaceIds: [],
+      origin: "source",
+    }]));
+    expect(getActiveSourceLabels()).toEqual([]);
+    expect(getActiveSourceRouting().workspaceIds).toEqual([]);
   });
 
   it("intersects a partial applied scope when selected labels disappear", async () => {

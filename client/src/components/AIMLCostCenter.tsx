@@ -21,7 +21,7 @@ import { KPITrendModal } from "./KPITrendModal";
 import { formatIdentity, useSpNameMap } from "@/utils/identity";
 import { formatCurrency, formatKpiCurrency, formatNumber } from "@/utils/formatters";
 import { C, seriesColor } from "@/theme";
-import { PageHero, Chip, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
+import { PageHero, InfoPanel, SourceCapabilityNotice } from "@/components/brand";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { KPICard } from "@/components/ui/KPICard";
@@ -433,16 +433,12 @@ export function AIMLCostCenter({ data, isLoading, isError, onRetry, startDate, e
           </svg>
         }
         title="AI/ML"
-        subtitle={
-          <>
-            AI and machine learning cost attribution and trends
-            {workspaceIds && workspaceIds.length > 0 && (
-              <Chip kind="workspace" label="Workspace(s)">
-                {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
-              </Chip>
-            )}
-          </>
-        }
+        subtitle="AI and machine learning cost attribution and trends"
+        workspaceScope={workspaceIds && workspaceIds.length > 0
+          ? workspaceIds.length === 1
+            ? workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]
+            : `${workspaceIds.length} workspaces`
+          : undefined}
       />
 
       {/* Summary Cards */}

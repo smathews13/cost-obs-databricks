@@ -90,13 +90,12 @@ export function WorkspaceFilter({
   if (isLoading) {
     return (
       <div className={variant === "rail"
-        ? "rail-workspace-filter rail-control-border flex h-[28px] max-w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] min-[1280px]:max-w-none min-[1280px]:gap-[8px] min-[1280px]:px-[10px]"
+        ? "rail-workspace-filter rail-control-border flex h-[28px] w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] min-[1280px]:w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[10px]"
         : "flex items-center gap-2 whitespace-nowrap rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-500"
       }>
         <Spinner size="sm" />
         <span className="truncate">
-          <span className="min-[1180px]:hidden">Workspaces…</span>
-          <span className="hidden min-[1180px]:inline">Loading workspaces…</span>
+          <span>Updating…</span>
         </span>
       </div>
     );
@@ -164,6 +163,10 @@ export function WorkspaceFilter({
   }
 
   function label() {
+    if (allScopeCount === 1) {
+      const onlyWorkspace = visibleWorkspaces[0];
+      return onlyWorkspace?.workspace_name || `Workspace ${onlyWorkspace?.workspace_id ?? ""}`.trim();
+    }
     if (allSelected) {
       return `${allScopeCount} ${allScopeCount === 1 ? "Workspace" : "Workspaces"}`;
     }
@@ -201,7 +204,7 @@ export function WorkspaceFilter({
         aria-controls={menuId}
         title={disabled ? "Controlled by the source filter. Clear both filters to edit workspaces." : undefined}
         className={variant === "rail"
-          ? `rail-workspace-filter rail-control-border flex h-[28px] max-w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[10px] ${disabled ? "cursor-not-allowed opacity-55" : "hover:bg-white/[.12]"}`
+          ? `rail-workspace-filter rail-control-border flex h-[28px] w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[10px] ${disabled ? "cursor-not-allowed opacity-55" : "hover:bg-white/[.12]"}`
           : "co-filter flex items-center gap-2 whitespace-nowrap px-3"
         }
       >
@@ -216,7 +219,9 @@ export function WorkspaceFilter({
           {updating ? "Updating…" : (
             <>
               <span className="min-[1180px]:hidden">
-                {allSelected
+                {allScopeCount === 1
+                  ? label()
+                  : allSelected
                   ? `${allScopeCount} ${allScopeCount === 1 ? "workspace" : "workspaces"}`
                   : selectedIds.length === 1 ? "1 workspace" : `${selectedIds.length} workspaces`}
               </span>

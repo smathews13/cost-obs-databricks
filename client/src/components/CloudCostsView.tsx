@@ -37,7 +37,7 @@ import { AWSActualView } from "./AWSActualView";
 import { CloudIntegrationWizard } from "./CloudIntegrationWizard";
 import type { CloudIntegration } from "./CloudIntegrationWizard";
 import { C } from "@/theme";
-import { PageHero, Chip, InfoPanel } from "@/components/brand";
+import { PageHero, InfoPanel } from "@/components/brand";
 import { InfoPopover as InfoTooltip } from "@/components/ui/InfoPopover";
 import { FloatingMenu } from "@/components/ui/FloatingMenu";
 import { SortableHeader } from "@/components/ui/SortableHeader";
@@ -848,18 +848,12 @@ export function CloudCostsView({
           </svg>
         }
         title="Cloud Costs"
-        subtitle={
-          <>
-            Classic cluster usage, Databricks spend, and cloud instance metadata
-            {workspaceIds && workspaceIds.length > 0 ? (
-              <Chip kind="workspace" label="Workspace(s)">
-                {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
-              </Chip>
-            ) : (
-              <Chip>Account-wide</Chip>
-            )}
-          </>
-        }
+        subtitle="Classic cluster usage, Databricks spend, and cloud instance metadata"
+        workspaceScope={workspaceIds && workspaceIds.length > 0
+          ? workspaceIds.length === 1
+            ? workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]
+            : `${workspaceIds.length} workspaces`
+          : "Account-wide"}
       />
       {ModeToggle}
       {CurSetupBanner}

@@ -41,6 +41,7 @@ interface SourceLabelFilterProps {
   resetVersion?: number;
   disabled?: boolean;
   isRefreshing?: boolean;
+  controlling?: boolean;
 }
 
 function normalizedWorkspaceToken(value: unknown): string {
@@ -124,6 +125,7 @@ export function SourceLabelFilter({
   resetVersion = 0,
   disabled = false,
   isRefreshing = false,
+  controlling = false,
 }: SourceLabelFilterProps) {
   const { data } = useQuery<{
     sources: MvSource[];
@@ -142,7 +144,7 @@ export function SourceLabelFilter({
   }, [data]);
 
   const allLabels = useMemo(() => {
-    if (workspaceSelection.length === 0) return globalLabels;
+    if (controlling || workspaceSelection.length === 0) return globalLabels;
     const selectedWorkspaceSet = new Set(workspaceSelection.map(String));
     const linkedSources = (data?.sources ?? []).flatMap((source) => {
       const workspaceIds = resolveSameAccountWorkspaceIds(
@@ -167,7 +169,7 @@ export function SourceLabelFilter({
       ...(!allSelectedWorkspacesCovered && data?.local_label ? [data.local_label] : []),
       ...linkedSources.map((source) => source.label),
     ]));
-  }, [data?.local_label, data?.sources, globalLabels, localWorkspaces, workspaceSelection]);
+  }, [controlling, data?.local_label, data?.sources, globalLabels, localWorkspaces, workspaceSelection]);
 
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(
@@ -201,7 +203,7 @@ export function SourceLabelFilter({
     // At least one source is always selected (the toggle enforces it); a full
     // selection means "all" (empty filter = every source).
     const effective = next.size === 0 || (
-      workspaceSelection.length === 0
+      (controlling || workspaceSelection.length === 0)
       && sameSet(next, new Set(globalLabels))
     )
       ? []
@@ -280,7 +282,7 @@ export function SourceLabelFilter({
     } finally {
       setApplying(false);
     }
-  }, [allLabels, data?.local_label, data?.sources, err, globalLabels, localWorkspaces, onApplied, workspaceSelection.length]);
+  }, [allLabels, controlling, data?.local_label, data?.sources, err, globalLabels, localWorkspaces, onApplied, workspaceSelection.length]);
 
   // Source options can arrive before the account workspace list. If an already
   // applied source becomes resolvable after workspace metadata hydrates, switch
@@ -344,6 +346,7 @@ export function SourceLabelFilter({
   };
 
   const label = () => {
+    if (allLabels.length === 1) return allLabels[0];
     if (allSelected) return `${allLabels.length} ${allLabels.length === 1 ? "Source" : "Sources"}`;
     if (selected.size === 1) return Array.from(selected)[0];
     return `${selected.size} sources`;
@@ -360,7 +363,7 @@ export function SourceLabelFilter({
         }}
         aria-label={updating ? "Updating sources" : label()}
         className={variant === "rail"
-          ? `rail-source-filter rail-control-border flex h-[28px] max-w-[104px] items-center gap-[6px] whitespace-nowrap rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[10px] ${disabled ? "cursor-not-allowed opacity-55" : "hover:bg-white/[.12]"}`
+          ? `rail-source-filter rail-control-border flex h-[28px] w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[10px] ${disabled && !isRefreshing ? "cursor-not-allowed opacity-55" : "hover:bg-white/[.12]"}`
           : "co-filter flex items-center gap-2 whitespace-nowrap px-3"
         }
         title={disabled
@@ -374,11 +377,13 @@ export function SourceLabelFilter({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M6 12h12M9 17h6" />
           </svg>
         )}
-        <span className="max-w-[58px] truncate min-[1280px]:max-w-[140px]">
+        <span className="max-w-[68px] truncate min-[1280px]:max-w-[140px]">
           {updating ? "Updating…" : (
             <>
               <span className="min-[1180px]:hidden">
-                {allSelected
+                {allLabels.length === 1
+                  ? allLabels[0]
+                  : allSelected
                   ? `${allLabels.length} ${allLabels.length === 1 ? "source" : "sources"}`
                   : selected.size === 1 ? "1 source" : `${selected.size} sources`}
               </span>
