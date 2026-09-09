@@ -29,6 +29,8 @@ async def test_dbu_cache_clear_is_scoped_to_dbu_patterns():
         result = await health.clear_cache(_request(), "dbu")
 
     assert result["tab"] == "dbu"
+    assert result["durable_response_cache_invalidated"] is True
+    assert "shared response caches were invalidated" in result["message"]
     cleared_patterns = [call.args[0] for call in clear_query_cache.call_args_list]
     assert "tab:dbu" in cleared_patterns
     assert "dashboard-bundle-fast" in cleared_patterns

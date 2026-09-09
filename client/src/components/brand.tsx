@@ -82,7 +82,7 @@ export function PageHero({
             <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm" style={{ color: C.slate }}>
               {subtitle}
               {sourceLabels.length > 0 && (
-                <Chip kind="filter">
+                <Chip kind="filter" label="Source(s)">
                   {sourceLabels.length === 1
                     ? sourceLabels[0]
                     : `${sourceLabels.length} sources`}
@@ -212,14 +212,23 @@ const CHIP: Record<ChipKind, { bg: string; fg: string; border?: string }> = {
   workspace: { bg: C.oatMed, fg: C.slate, border: C.hairline },
 };
 
-export function Chip({ kind = "neutral", children, className }: { kind?: ChipKind; children: ReactNode; className?: string }) {
+export function Chip({ kind = "neutral", children, className, label }: { kind?: ChipKind; children: ReactNode; className?: string; label?: string }) {
   const t = CHIP[kind];
-  return (
+  const chip = (
     <span
       className={cn("inline-flex h-6 items-center rounded-(--r-chip) px-2 text-xs font-medium", className)}
       style={{ background: t.bg, color: t.fg, border: t.border ? `1px solid ${t.border}` : undefined }}
     >
       {children}
+    </span>
+  );
+  if (!label) return chip;
+  return (
+    <span className="inline-flex flex-col items-start gap-0.5">
+      <span className="text-[9px] font-semibold uppercase leading-none tracking-wide text-gray-500">
+        {label}
+      </span>
+      {chip}
     </span>
   );
 }

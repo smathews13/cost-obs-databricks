@@ -538,7 +538,7 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
               <>
                 SQL-level cost attribution and warehouse analytics
                 {workspaceIds && workspaceIds.length > 0 && (
-                  <Chip kind="workspace">
+                  <Chip kind="workspace" label="Workspace(s)">
                     {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
                   </Chip>
                 )}

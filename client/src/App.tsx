@@ -93,6 +93,9 @@ import {
   getActiveSourceLabels,
   getActiveSourceRouting,
   getActiveSourceScopeKey,
+  setActiveSourceLabels,
+  setActiveSourceRouting,
+  setActiveSourceTables,
   responsePayloadIssue,
   setIncludeHistoricalWorkspaceData,
 } from "@/hooks/useBillingData";
@@ -102,7 +105,6 @@ import { downloadArchitecturePdf } from "@/utils/architectureDownload";
 import { C } from "@/theme";
 import { CostObsLockup, VersionPill, PageHero, Chip, InfoPanel } from "@/components/brand";
 import { LoadingPanels, Spinner } from "@/components/Spinner";
-import sqlWarehouseProductIcon from "@/assets/databricks-sql-icon-full-color.svg";
 import {
   buildExportScopeKey,
   clearTabDemandRefreshPhases,
@@ -338,9 +340,18 @@ function DuBoisAccountIcon() {
   );
 }
 
+function DatabricksSqlProductIcon() {
+  return (
+    <svg className="h-3 w-3 opacity-70" viewBox="0 0 512 512" fill="none" aria-hidden="true">
+      <path fill="currentColor" fillRule="evenodd" d="M152 448h296V272H152c-48.601 0-88 39.399-88 88s39.399 88 88 88m0-48c22.091 0 40-17.909 40-40s-17.909-40-40-40-40 17.909-40 40 17.909 40 40 40" clipRule="evenodd" />
+      <path fill="currentColor" fillRule="evenodd" d="M360 240c48.601 0 88-39.399 88-88s-39.399-88-88-88H64v176zm0-48c22.091 0 40-17.909 40-40s-17.909-40-40-40-40 17.909-40 40 17.909 40 40 40" clipRule="evenodd" />
+    </svg>
+  );
+}
+
 function compactRailBadgeText(value: string): string {
   const text = value.trim();
-  const maxLength = /^\d+$/.test(text) ? 9 : 11;
+  const maxLength = /^\d+$/.test(text) ? 8 : 11;
   return text.length > maxLength ? text.slice(0, maxLength) : text;
 }
 
@@ -413,8 +424,15 @@ function CopyableRailBadge({
   return (
     <RailBadgeTooltip align={tooltipAlign} text={
       <span className="block space-y-0.5">
-        <span className="block"><strong>Full display name:</strong> {text}</span>
-        <span className="block"><strong>ID:</strong> {value}{copied ? " (copied)" : ""}</span>
+        <span className="block">
+          <strong>Display name:</strong>{" "}
+          <code className="font-mono text-[10.5px]">{text}</code>
+        </span>
+        <span className="block">
+          <strong>ID:</strong>{" "}
+          <code className="font-mono text-[10.5px]">{value}</code>
+          {copied ? " (copied)" : ""}
+        </span>
       </span>
     }>
       <button
@@ -572,6 +590,7 @@ function Dashboard() {
   const [exportPreparationArmed, setExportPreparationArmed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
+  const [scopeResetVersion, setScopeResetVersion] = useState(0);
   const [includeHistoricalWorkspaces, setIncludeHistoricalWorkspaces] = useState(false);
   setIncludeHistoricalWorkspaceData(includeHistoricalWorkspaces);
   const [tabVisibility, setTabVisibility] = useState<TabVisibility>(loadTabVisibility);
@@ -789,6 +808,15 @@ function Dashboard() {
     sourceScopeVersion,
     visibleDashboardTabs,
   ]);
+
+  const resetAllScopeFilters = useCallback(async () => {
+    setActiveSourceLabels([]);
+    setActiveSourceRouting([], []);
+    setActiveSourceTables(null);
+    setSelectedWorkspaceIds([]);
+    setScopeResetVersion((version) => version + 1);
+    await handleSourceApplied([]);
+  }, [handleSourceApplied]);
 
   // On every load, verify setup status with the server.
   // 60s timeout: allows for cold App pod start.
@@ -1222,19 +1250,28 @@ function Dashboard() {
       && optimizeIdleData.warehouses.length > 0
     )
   );
+  const cloudCostsOnlyServerless = Boolean(
+    !infraBundleLoading
+    && !infraBundleError
+    && infraCosts?.reason === "serverless_only"
+  );
   const runtimeTabVisibility = useMemo(
     () => ({
       ...tabVisibility,
+      infra: tabVisibility.infra && !cloudCostsOnlyServerless,
       optimizer: tabVisibility.optimizer
         && !(optimizeChecksSettled && !optimizeHasData),
     }),
-    [optimizeChecksSettled, optimizeHasData, tabVisibility],
+    [cloudCostsOnlyServerless, optimizeChecksSettled, optimizeHasData, tabVisibility],
   );
   useEffect(() => {
-    if (activeTab === "optimizer" && !runtimeTabVisibility.optimizer) {
+    if (
+      (activeTab === "optimizer" && !runtimeTabVisibility.optimizer)
+      || (activeTab === "infra" && !runtimeTabVisibility.infra)
+    ) {
       setActiveTab("dbu");
     }
-  }, [activeTab, runtimeTabVisibility.optimizer]);
+  }, [activeTab, runtimeTabVisibility.infra, runtimeTabVisibility.optimizer]);
   const retryScheduledTab = useCallback(
     async (tab: ViewTab, refetch: () => Promise<unknown>) => {
       await requeueDemandTabs([tab]);
@@ -1893,13 +1930,28 @@ function Dashboard() {
               isLoading={wsListLoading}
               variant="rail"
               showSingleOption={sourceLinkedWorkspaceIds.size > 0}
+              showClearButton={false}
             />
             <SourceLabelFilter
               variant="rail"
               localWorkspaces={sourceRoutingWorkspaces}
               workspaceSelection={selectedWorkspaceIds}
               onApplied={handleSourceApplied}
+              resetVersion={scopeResetVersion}
             />
+            {(selectedWorkspaceIds.length > 0 || getActiveSourceLabels().length > 0) && (
+              <button
+                type="button"
+                onClick={() => { void resetAllScopeFilters(); }}
+                aria-label="Clear workspace and source filters"
+                title="Show all workspaces and all sources"
+                className="flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-full bg-white/[.14] text-[#E9EFED] opacity-80 transition-colors hover:bg-white/[.22] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
           </div>
 
           <div className="min-w-[2px] flex-1 sm:hidden" />
@@ -1930,7 +1982,7 @@ function Dashboard() {
                     text={warehouseStatus.warehouse_name?.trim()
                       || (warehouseStatus.status === "warm" ? "Active" : warehouseStatus.status === "warming_up" ? "Starting" : "Offline")}
                     label="SQL warehouse ID"
-                    icon={<img src={sqlWarehouseProductIcon} alt="" className="h-3 w-3 object-contain" />}
+                    icon={<DatabricksSqlProductIcon />}
                   />
                 ) : (
                   <RailBadgeTooltip text={`SQL warehouse status: ${warehouseStatus.state ?? warehouseStatus.status}.`}>
@@ -2079,7 +2131,7 @@ function Dashboard() {
                 <>
                   Databricks Unit consumption and cost breakdown
                   {_wsIds && _wsIds.length > 0 && (
-                    <Chip kind="workspace">
+                    <Chip kind="workspace" label="Workspace(s)">
                       {_wsIds.length === 1 ? (workspaceNameMap[_wsIds[0]] || _wsIds[0]) : `${_wsIds.length} workspaces`}
                     </Chip>
                   )}

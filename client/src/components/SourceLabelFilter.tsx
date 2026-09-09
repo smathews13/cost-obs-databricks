@@ -35,6 +35,7 @@ interface SourceLabelFilterProps {
   localWorkspaces?: Array<{ id: string; name?: string | null }>;
   workspaceSelection?: string[];
   onApplied?: (sourceWorkspaceIds: string[] | null) => void | Promise<void>;
+  resetVersion?: number;
 }
 
 function normalizedWorkspaceToken(value: unknown): string {
@@ -107,6 +108,7 @@ export function SourceLabelFilter({
   localWorkspaces = [],
   workspaceSelection = [],
   onApplied,
+  resetVersion = 0,
 }: SourceLabelFilterProps) {
   const { data } = useQuery<{
     sources: MvSource[];
@@ -167,6 +169,17 @@ export function SourceLabelFilter({
   const selectedRef = useRef(selected);
 
   const hasSources = (data?.sources?.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (resetVersion === 0) return;
+    const next = new Set(globalLabels);
+    selectedRef.current = next;
+    previousLabelsRef.current = globalLabels;
+    lastAppliedRef.current = "";
+    setSelected(next);
+    setRetrySelection(null);
+    setErr(null);
+  }, [globalLabels, resetVersion]);
 
   const apply = useCallback(async (next: Set<string>, syncWorkspace = true) => {
     // At least one source is always selected (the toggle enforces it); a full

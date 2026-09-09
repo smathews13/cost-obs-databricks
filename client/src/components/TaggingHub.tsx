@@ -450,7 +450,7 @@ export function TaggingHub({ data, isLoading, host, startDate, endDate, workspac
           <>
             Cost attribution through resource tagging coverage
             {workspaceIds && workspaceIds.length > 0 && (
-              <Chip kind="workspace">
+              <Chip kind="workspace" label="Workspace(s)">
                 {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
               </Chip>
             )}

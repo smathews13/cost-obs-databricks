@@ -779,7 +779,17 @@ async def clear_cache(request: Request, tab: str | None = None) -> dict[str, Any
             warehouse_health._health_cache_ts = 0.0
             warehouse_health._idle_time_cache = None
             warehouse_health._idle_time_cache_ts = 0.0
-        return {"status": "ok", "tab": tab, "cleared": cleared}
+        return {
+            "status": "ok",
+            "tab": tab,
+            "cleared": cleared,
+            "durable_response_cache_invalidated": True,
+            "message": (
+                f"Cleared {cleared} in-memory cache "
+                f"{'entry' if cleared == 1 else 'entries'} for {tab}; "
+                "shared response caches were invalidated."
+            ),
+        }
     else:
         cleared = clear_query_cache()
         delta_cache_invalidate()
@@ -795,7 +805,17 @@ async def clear_cache(request: Request, tab: str | None = None) -> dict[str, Any
             _mv_status_cache.clear()
         except Exception:
             pass
-        return {"status": "ok", "tab": "all", "cleared": cleared}
+        return {
+            "status": "ok",
+            "tab": "all",
+            "cleared": cleared,
+            "durable_response_cache_invalidated": True,
+            "message": (
+                f"Cleared {cleared} in-memory cache "
+                f"{'entry' if cleared == 1 else 'entries'} across all tabs; "
+                "shared response caches were invalidated."
+            ),
+        }
 
 
 @router.get("/query-diag")

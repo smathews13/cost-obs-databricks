@@ -535,7 +535,7 @@ export function AppsCostCenter({ data, isLoading, isError, onRetry, host, startD
           <>
             Databricks Apps compute cost attribution and trends
             {workspaceIds && workspaceIds.length > 0 && (
-              <Chip kind="workspace">
+              <Chip kind="workspace" label="Workspace(s)">
                 {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
               </Chip>
             )}

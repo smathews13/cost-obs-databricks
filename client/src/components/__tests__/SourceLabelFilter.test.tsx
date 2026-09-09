@@ -522,6 +522,32 @@ describe("source label reconciliation", () => {
     expect(onApplied).not.toHaveBeenCalled();
   });
 
+  it("shows all sources after the combined scope reset", async () => {
+    const current = sourceData(["local", "west4"]);
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => current,
+    })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["mv-sources"], current);
+    setActiveSourceLabels(["west4"]);
+    const view = render(
+      <QueryClientProvider client={client}>
+        <SourceLabelFilter resetVersion={0} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("button", { name: "west4" })).toBeVisible();
+    setActiveSourceLabels([]);
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <SourceLabelFilter resetVersion={1} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("button", { name: "2 Sources" })).toBeVisible();
+  });
+
   it("intersects a partial applied scope when selected labels disappear", async () => {
     setActiveSourceLabels(["local", "west"]);
     let current = sourceData(["local", "west", "east"]);

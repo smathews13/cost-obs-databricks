@@ -40,6 +40,7 @@ interface WorkspaceFilterProps {
   isLoading?: boolean;
   variant?: "header" | "rail";
   showSingleOption?: boolean;
+  showClearButton?: boolean;
 }
 
 export function WorkspaceFilter({
@@ -52,6 +53,7 @@ export function WorkspaceFilter({
   isLoading,
   variant = "header",
   showSingleOption = false,
+  showClearButton = true,
 }: WorkspaceFilterProps) {
   const { updating, arm } = useUpdatingIndicator();
   const [isOpen, setIsOpen] = useState(false);
@@ -225,7 +227,7 @@ export function WorkspaceFilter({
         </svg>
       </button>
 
-      {!allSelected && (
+      {showClearButton && !allSelected && (
         <button
           type="button"
           onClick={handleClearApplied}

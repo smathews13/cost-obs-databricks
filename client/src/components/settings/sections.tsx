@@ -269,9 +269,6 @@ export function ResourcesSection() {
 
 // ── Experimental (admin-only) ─────────────────────────────────────────────────
 export function ExperimentalSection({ localSettings, updateSetting }: CommonProps) {
-  const toast = useToast();
-  const qc = useQueryClient();
-  const [clearing, setClearing] = useState(false);
   return (
     <div>
       <SectionTitle title="Experimental" badge={<Badge>Admin only</Badge>} subtitle="Early features. Off by default; may change or be removed in a future version." />
@@ -301,13 +298,6 @@ export function ExperimentalSection({ localSettings, updateSetting }: CommonProp
             </a>
           )}
         />
-        <Row label="Clear query cache" helper="Next loads re-query the warehouse."
-          control={<SecondaryButton disabled={clearing} onClick={async () => {
-            setClearing(true);
-            try { await fetch("/api/cache/clear", { method: "POST" }); await qc.invalidateQueries(); toast("Query cache cleared: next loads re-query the warehouse"); }
-            catch { toast("Could not clear cache"); }
-            finally { setClearing(false); }
-          }}>{clearing ? "Clearing…" : "Clear cache"}</SecondaryButton>} />
       </Group>
     </div>
   );
@@ -388,10 +378,32 @@ export function ScheduleGroup() {
 
 // ── Data & tables ─────────────────────────────────────────────────────────────
 export function DataTablesSection({ localSettings, updateSetting, caps }: CommonProps) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [cacheStatus, setCacheStatus] = useState<
+    { kind: "idle" | "clearing" | "success" | "error"; message?: string }
+  >({ kind: "idle" });
   const { data: appConfig } = useQuery<AppConfigInfo | undefined>({
     queryKey: ["app-config"], queryFn: () => fetch("/api/settings/config").then(r => r.json()).catch(() => undefined),
   });
   const loc = appConfig?.storage_location;
+  const clearQueryCache = async () => {
+    setCacheStatus({ kind: "clearing", message: "Clearing cached dashboard responses…" });
+    try {
+      const response = await fetch("/api/cache/clear", { method: "POST" });
+      if (!response.ok) throw new Error(`Server returned ${response.status}`);
+      const result = await response.json() as { cleared?: number };
+      await qc.invalidateQueries();
+      const cleared = Number(result.cleared ?? 0);
+      const message = `Cache cleared successfully. ${cleared} in-memory ${cleared === 1 ? "entry" : "entries"} removed; dashboard tabs will run fresh warehouse queries as they are opened.`;
+      setCacheStatus({ kind: "success", message });
+      toast("Query cache cleared");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown error";
+      setCacheStatus({ kind: "error", message: `Cache could not be cleared: ${detail}. Try again.` });
+      toast("Could not clear query cache");
+    }
+  };
   return (
     <div>
       <SectionTitle title="Data & tables" subtitle="Where the app stores its managed tables and how they refresh." />
@@ -407,6 +419,32 @@ export function DataTablesSection({ localSettings, updateSetting, caps }: Common
           control={<Toggle checked={localSettings.showWorkspaceNames} disabled={caps ? !caps.workspace_names_available : false} onChange={(v) => updateSetting("showWorkspaceNames", v)} />} />
       </Group>
       <ScheduleGroup />
+      <Group label="Query cache">
+        <Row
+          first
+          label="Clear cached dashboard results"
+          helper="Removes server and shared response-cache entries for every dashboard tab. It does not delete managed tables, settings, or source configuration. Each tab runs fresh warehouse queries the next time it opens."
+          control={(
+            <SecondaryButton
+              disabled={cacheStatus.kind === "clearing"}
+              onClick={() => { void clearQueryCache(); }}
+            >
+              {cacheStatus.kind === "clearing" ? "Clearing cache…" : "Clear query cache"}
+            </SecondaryButton>
+          )}
+        />
+        {cacheStatus.kind !== "idle" && (
+          <div
+            role={cacheStatus.kind === "error" ? "alert" : "status"}
+            aria-live="polite"
+            style={{ padding: "0 16px 12px" }}
+          >
+            <Callout tone={cacheStatus.kind === "error" ? "danger" : cacheStatus.kind === "success" ? "success" : "warning"}>
+              {cacheStatus.message}
+            </Callout>
+          </div>
+        )}
+      </Group>
       {/* Shared Delta-Sharing sources + managed-tables status/rebuild/history/danger :
           DuBois-styled, self-contained (owns the table-status polling + rebuild + drop). */}
       <SettingsConfig />

@@ -29,9 +29,14 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("const optimizeChecksSettled");
     expect(appSource).toContain("const optimizeHasData");
     expect(appSource).toContain("visibility={runtimeTabVisibility}");
-    expect(appSource).toContain(
-      'if (activeTab === "optimizer" && !runtimeTabVisibility.optimizer)',
-    );
+    expect(appSource).toContain('activeTab === "optimizer" && !runtimeTabVisibility.optimizer');
+  });
+
+  it("hides Cloud Costs when the selected scope contains only serverless usage", () => {
+    expect(appSource).toContain("const cloudCostsOnlyServerless");
+    expect(appSource).toContain('infraCosts?.reason === "serverless_only"');
+    expect(appSource).toContain("infra: tabVisibility.infra && !cloudCostsOnlyServerless");
+    expect(appSource).toContain('activeTab === "infra" && !runtimeTabVisibility.infra');
   });
 
   it("uses one dark slate border token for rail controls and Export", () => {
@@ -105,7 +110,7 @@ describe("account rail health polish", () => {
     expect(appSource).toContain("SQL warehouse status:");
     expect(appSource).toContain('"cost-obs:rail-tooltip-open"');
     expect(appSource).toContain("(event as CustomEvent<string>).detail === tooltipId");
-    expect(appSource).toContain('const maxLength = /^\\d+$/.test(text) ? 9 : 11;');
+    expect(appSource).toContain('const maxLength = /^\\d+$/.test(text) ? 8 : 11;');
     expect(appSource).not.toContain('className="max-w-[128px] truncate"');
     expect(appSource).toContain("className={RAIL_STATUS_BADGE_CLASS}");
     expect(appSource).toContain(
@@ -113,9 +118,10 @@ describe("account rail health polish", () => {
     );
     expect(appSource).toContain("<DuBoisAccountIcon");
     expect(appSource).toContain("<Bot");
-    expect(appSource).toContain("sqlWarehouseProductIcon");
-    expect(appSource).toContain("<strong>Full display name:</strong>");
+    expect(appSource).toContain("<DatabricksSqlProductIcon");
+    expect(appSource).toContain("<strong>Display name:</strong>");
     expect(appSource).toContain("<strong>ID:</strong>");
+    expect(appSource).toContain('className="font-mono text-[10.5px]"');
     expect(appSource).toContain(
       'value={accountInfo?.account_id || accountInfo?.account_name || "Databricks account"}',
     );
@@ -149,6 +155,17 @@ describe("account rail health polish", () => {
     expect(styles).toMatch(
       /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.healthy-status-dot[\s\S]*animation: none !important/,
     );
+  });
+
+  it("places one combined scope reset after both filter dropdowns", () => {
+    expect(appSource).toContain("showClearButton={false}");
+    expect(appSource).toContain("resetVersion={scopeResetVersion}");
+    expect(appSource).toContain('aria-label="Clear workspace and source filters"');
+    expect(appSource.indexOf("<SourceLabelFilter")).toBeLessThan(
+      appSource.indexOf('aria-label="Clear workspace and source filters"'),
+    );
+    expect(appSource).toContain("setActiveSourceLabels([])");
+    expect(appSource).toContain("setActiveSourceRouting([], [])");
   });
 
   it("labels the SP name correctly and copies the same ID used by Settings", () => {

@@ -851,7 +851,7 @@ export function CloudCostsView({
           <>
             Classic cluster usage, Databricks spend, and cloud instance metadata
             {workspaceIds && workspaceIds.length > 0 ? (
-              <Chip kind="workspace">
+              <Chip kind="workspace" label="Workspace(s)">
                 {workspaceIds.length === 1 ? (workspaceNameMap?.[workspaceIds[0]] || workspaceIds[0]) : `${workspaceIds.length} workspaces`}
               </Chip>
             ) : (

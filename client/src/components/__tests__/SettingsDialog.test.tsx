@@ -129,6 +129,35 @@ it("places Data & tables above Identity & Permissions", async () => {
   expect(screen.queryByRole("button", { name: "Access" })).not.toBeInTheDocument();
 });
 
+it("explains query-cache clearing and reports completion under Data & tables", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/api/cache/clear") && init?.method === "POST") {
+      return Response.json({ status: "ok", cleared: 7 });
+    }
+    return Response.json({ current_role: "admin" });
+  }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <SettingsDialog
+        isOpen
+        onClose={vi.fn()}
+        onTabVisibilityChange={vi.fn()}
+        onSettingsChange={vi.fn()}
+        tabVisibility={loadTabVisibility()}
+        appSettings={loadAppSettings()}
+      />
+    </QueryClientProvider>,
+  );
+
+  await userEvent.click(await screen.findByRole("button", { name: "Data & tables" }));
+  expect(screen.getByText(/does not delete managed tables, settings, or source configuration/i)).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Clear query cache" }));
+  expect(await screen.findByRole("status")).toHaveTextContent(
+    "Cache cleared successfully. 7 in-memory entries removed",
+  );
+});
+
 it("discards saved settings for the removed Use Cases feature", () => {
   localStorage.setItem("coc-tab-visibility", JSON.stringify({ "use-cases": true }));
   localStorage.setItem("coc-app-settings", JSON.stringify({
