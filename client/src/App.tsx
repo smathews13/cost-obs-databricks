@@ -591,6 +591,7 @@ function Dashboard() {
   const [showSettings, setShowSettings] = useState(false);
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
   const [scopeResetVersion, setScopeResetVersion] = useState(0);
+  const [scopeOwner, setScopeOwner] = useState<"workspace" | "source" | null>(null);
   const [includeHistoricalWorkspaces, setIncludeHistoricalWorkspaces] = useState(false);
   setIncludeHistoricalWorkspaceData(includeHistoricalWorkspaces);
   const [tabVisibility, setTabVisibility] = useState<TabVisibility>(loadTabVisibility);
@@ -764,8 +765,20 @@ function Dashboard() {
 
   const handleSourceApplied = useCallback(async (
     linkedWorkspaceIds: string[] | null,
+    origin: "source" | "sync" | "rollback" = "sync",
   ) => {
     const tab = activeTab;
+    if (origin === "source") {
+      setScopeOwner(getActiveSourceLabels().length > 0 ? "source" : null);
+    } else if (origin === "rollback") {
+      setScopeOwner(
+        selectedWorkspaceIds.length > 0
+          ? "workspace"
+          : getActiveSourceLabels().length > 0
+            ? "source"
+            : null,
+      );
+    }
     const nextSourceVersion = sourceScopeVersion + 1;
     const nextWorkspaceIds = linkedWorkspaceIds === null
       ? selectedWorkspaceIds
@@ -809,11 +822,17 @@ function Dashboard() {
     visibleDashboardTabs,
   ]);
 
+  const handleWorkspaceChange = useCallback((workspaceIds: string[]) => {
+    setSelectedWorkspaceIds(workspaceIds);
+    setScopeOwner(workspaceIds.length > 0 ? "workspace" : null);
+  }, []);
+
   const resetAllScopeFilters = useCallback(async () => {
     setActiveSourceLabels([]);
     setActiveSourceRouting([], []);
     setActiveSourceTables(null);
     setSelectedWorkspaceIds([]);
+    setScopeOwner(null);
     setScopeResetVersion((version) => version + 1);
     await handleSourceApplied([]);
   }, [handleSourceApplied]);
@@ -1924,13 +1943,14 @@ function Dashboard() {
               workspaces={sourceFilteredWorkspaceList}
               currentWorkspaceId={accountInfo?.workspace_id}
               selectedIds={selectedWorkspaceIds}
-              onChange={setSelectedWorkspaceIds}
+              onChange={handleWorkspaceChange}
               includeHistorical={includeHistoricalWorkspaces}
               onIncludeHistoricalChange={setIncludeHistoricalWorkspaces}
               isLoading={wsListLoading}
               variant="rail"
               showSingleOption={sourceLinkedWorkspaceIds.size > 0}
               showClearButton={false}
+              disabled={scopeOwner === "source"}
             />
             <SourceLabelFilter
               variant="rail"
@@ -1938,6 +1958,8 @@ function Dashboard() {
               workspaceSelection={selectedWorkspaceIds}
               onApplied={handleSourceApplied}
               resetVersion={scopeResetVersion}
+              disabled={scopeOwner === "workspace"}
+              isRefreshing={showActiveTabLoading}
             />
             {(selectedWorkspaceIds.length > 0 || getActiveSourceLabels().length > 0) && (
               <button
@@ -2127,6 +2149,7 @@ function Dashboard() {
             <PageHero
               icon={<span className="font-mono text-xl font-bold">$</span>}
               title="DBU Overview"
+              dateRange={dateRange}
               subtitle={
                 <>
                   Databricks Unit consumption and cost breakdown
@@ -2197,6 +2220,7 @@ function Dashboard() {
           <div className="space-y-6">
             <OptimizeMethodologyPanel />
             <PageHero
+              dateRange={dateRange}
               icon={
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />

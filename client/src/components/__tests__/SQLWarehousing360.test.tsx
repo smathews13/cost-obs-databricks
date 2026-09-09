@@ -504,4 +504,41 @@ describe("Optimize table pagination", () => {
     expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
+
+  it("suppresses classic idle metrics and shows warm hold for serverless", () => {
+    renderOptimizeView(
+      <WarehouseIdleTimeView
+        data={{
+          available: true,
+          serverless_detected: true,
+          warehouses: [{
+            warehouse_id: "serverless-1",
+            warehouse_name: "Serverless Starter Warehouse",
+            warehouse_size: "SMALL",
+            warehouse_type: "SERVERLESS",
+            workspace_id: "2",
+            uptime_source: "events",
+            total_running_minutes: null,
+            busy_union_minutes: 178,
+            idle_minutes: null,
+            idle_pct: null,
+            warm_hold_minutes: 43,
+            keep_alive_score: 19.5,
+            auto_stop_mins: 10,
+            max_num_clusters: 1,
+            total_spend: 468,
+            estimated_idle_spend: null,
+            low_confidence: false,
+          }],
+        }}
+        isLoading={false}
+        isError={false}
+      />,
+    );
+
+    expect(screen.getByText("Warehouse Utilization and Warm Hold")).toBeVisible();
+    expect(screen.getByText("43m")).toBeVisible();
+    expect(screen.queryByText("91.5%")).not.toBeInTheDocument();
+    expect(screen.getAllByText("N/A").length).toBeGreaterThanOrEqual(4);
+  });
 });

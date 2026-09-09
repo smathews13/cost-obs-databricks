@@ -53,13 +53,25 @@ export function PageHero({
   title,
   subtitle,
   action,
+  dateRange,
 }: {
   icon: ReactNode;
   title: string;
   subtitle?: ReactNode;
   action?: ReactNode;
+  dateRange?: { startDate?: string; endDate?: string };
 }) {
   const sourceLabels = getActiveSourceLabels();
+  const formatDate = (value?: string) => value
+    ? new Date(`${value}T00:00:00`).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "";
+  const dateLabel = dateRange?.startDate && dateRange?.endDate
+    ? `${formatDate(dateRange.startDate)} to ${formatDate(dateRange.endDate)}`
+    : null;
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="flex items-start gap-3">
@@ -78,9 +90,14 @@ export function PageHero({
           <h2 className="text-2xl font-bold leading-tight" style={{ color: C.ink, fontFamily: FONT_SANS }}>
             {title}
           </h2>
-          {(subtitle || sourceLabels.length > 0) && (
+          {(subtitle || dateLabel || sourceLabels.length > 0) && (
             <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm" style={{ color: C.slate }}>
               {subtitle}
+              {dateLabel && (
+                <Chip kind="filter" label="Date range">
+                  {dateLabel}
+                </Chip>
+              )}
               {sourceLabels.length > 0 && (
                 <Chip kind="filter" label="Source(s)">
                   {sourceLabels.length === 1

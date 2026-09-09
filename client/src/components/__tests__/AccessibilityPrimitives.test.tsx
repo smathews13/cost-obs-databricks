@@ -54,6 +54,20 @@ describe("shared accessibility primitives", () => {
     }
   });
 
+  it("shows the active date range as a labeled scope badge", () => {
+    render(
+      <PageHero
+        icon={<span>Icon</span>}
+        title="SQL"
+        subtitle="Analytics"
+        dateRange={{ startDate: "2026-06-10", endDate: "2026-09-07" }}
+      />,
+    );
+
+    expect(screen.getByText("Date range")).toBeVisible();
+    expect(screen.getByText("Jun 10, 2026 to Sep 7, 2026")).toBeVisible();
+  });
+
   it("labels, traps, closes, and returns focus for dialogs", async () => {
     const user = userEvent.setup();
     render(<DialogHarness />);

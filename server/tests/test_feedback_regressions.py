@@ -98,6 +98,50 @@ def test_product_drilldown_refuses_conflicting_workspace_scope():
     execute.assert_not_called()
 
 
+def test_serverless_idle_time_suppresses_classic_wall_clock_metrics():
+    warehouse_health._idle_time_cache = None
+    warehouse_health._idle_time_cache_ts = 0.0
+    row = {
+        "warehouse_id": "serverless-1",
+        "warehouse_name": "Serverless Starter Warehouse",
+        "warehouse_size": "SMALL",
+        "warehouse_type": "SERVERLESS",
+        "workspace_id": "2",
+        "uptime_source": "events",
+        "total_running_minutes": 2099,
+        "busy_union_minutes": 178,
+        "idle_minutes": 1921,
+        "idle_pct": 91.5,
+        "warm_hold_minutes": 43,
+        "keep_alive_score": 19.5,
+        "auto_stop_mins": 10,
+        "max_num_clusters": 1,
+        "total_spend": 468,
+        "estimated_idle_spend": None,
+        "low_confidence": False,
+    }
+    with (
+        patch.object(warehouse_health, "_local_source_selected", return_value=True),
+        patch.object(warehouse_health, "execute_query", return_value=[row]),
+    ):
+        result = asyncio.run(
+            warehouse_health.get_warehouse_idle_time(
+                start_date="2026-08-01",
+                end_date="2026-08-30",
+                workspace_ids="2",
+            )
+        )
+
+    serverless = result["warehouses"][0]
+    assert serverless["total_running_minutes"] is None
+    assert serverless["idle_minutes"] is None
+    assert serverless["idle_pct"] is None
+    assert serverless["warm_hold_minutes"] == 43
+    assert serverless["estimated_idle_spend"] is None
+    warehouse_health._idle_time_cache = None
+    warehouse_health._idle_time_cache_ts = 0.0
+
+
 def test_numeric_workspace_host_is_not_used_as_account_display_name(monkeypatch):
     monkeypatch.delenv("DATABRICKS_ACCOUNT_NAME", raising=False)
     numeric_workspace_id = "8" * 16

@@ -476,10 +476,15 @@ SELECT
   CASE WHEN i.warehouse_type = 'SERVERLESS' THEN 'SERVERLESS' ELSE 'CLASSIC' END AS warehouse_type,
   i.workspace_id,
   u.uptime_source,
-  ROUND(u.total_running_minutes) AS total_running_minutes,
+  CASE WHEN i.warehouse_type = 'SERVERLESS'
+    THEN NULL ELSE ROUND(u.total_running_minutes) END AS total_running_minutes,
   ROUND(COALESCE(bu.busy_union_minutes, 0)) AS busy_union_minutes,
-  ROUND(GREATEST(u.total_running_minutes - COALESCE(bu.busy_union_minutes, 0), 0)) AS idle_minutes,
+  CASE WHEN i.warehouse_type = 'SERVERLESS'
+    THEN NULL
+    ELSE ROUND(GREATEST(u.total_running_minutes - COALESCE(bu.busy_union_minutes, 0), 0))
+  END AS idle_minutes,
   CASE
+    WHEN i.warehouse_type = 'SERVERLESS' THEN NULL
     WHEN u.total_running_minutes > 0
     THEN ROUND(100.0 * GREATEST(u.total_running_minutes - COALESCE(bu.busy_union_minutes, 0), 0)
          / u.total_running_minutes, 1)
@@ -600,19 +605,21 @@ async def get_warehouse_idle_time(
     warehouses = []
     for row in rows:
         _est_idle = row.get("estimated_idle_spend")
+        warehouse_type = row.get("warehouse_type") or "CLASSIC"
+        is_serverless = warehouse_type == "SERVERLESS"
         warehouses.append({
             "warehouse_id": row.get("warehouse_id"),
             "warehouse_name": row.get("warehouse_name"),
             "warehouse_size": row.get("warehouse_size"),
-            "warehouse_type": row.get("warehouse_type") or "CLASSIC",
+            "warehouse_type": warehouse_type,
             "workspace_id": str(row.get("workspace_id") or ""),
             "uptime_source": row.get("uptime_source") or "events",
-            "total_running_minutes": int(row.get("total_running_minutes") or 0),
+            "total_running_minutes": None if is_serverless else int(row.get("total_running_minutes") or 0),
             # Renamed from total_query_minutes — busy time is now union-of-query-windows
             # so it's bounded by wall-clock even under high concurrency.
             "busy_union_minutes": int(row.get("busy_union_minutes") or 0),
-            "idle_minutes": int(row.get("idle_minutes") or 0),
-            "idle_pct": float(row.get("idle_pct") or 0),
+            "idle_minutes": None if is_serverless else int(row.get("idle_minutes") or 0),
+            "idle_pct": None if is_serverless else float(row.get("idle_pct") or 0),
             "warm_hold_minutes": int(row.get("warm_hold_minutes") or 0),
             "keep_alive_score": float(row.get("keep_alive_score") or 0),
             "auto_stop_mins": int(row.get("auto_stop_mins") or 10),

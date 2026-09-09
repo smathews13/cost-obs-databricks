@@ -528,6 +528,7 @@ export function SQLWarehousing360({ queryData, isLoading, isError, topQueriesDat
           </InfoPanel>
 
           <PageHero
+            dateRange={{ startDate, endDate }}
             icon={
               <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
@@ -1330,11 +1331,11 @@ export function OptimizeMethodologyPanel() {
     <InfoPanel title="Optimize tab methodology" minimized={minimized} onToggle={toggle}>
       <p className="mb-2 font-medium">Idle Time</p>
       <ul className="list-inside list-disc space-y-1">
-        <li><strong>Uptime</strong>: Derived from <code className="rounded bg-white/60 px-1 text-xs">system.compute.warehouse_events</code> using the time between START and STOP lifecycle events</li>
+        <li><strong>Uptime</strong>: For classic warehouses, derived from <code className="rounded bg-white/60 px-1 text-xs">system.compute.warehouse_events</code> using the time between START and STOP lifecycle events</li>
         <li><strong>Active query time</strong>: Sum of query durations from <code className="rounded bg-white/60 px-1 text-xs">system.query.history</code> for the same warehouse and window</li>
         <li><strong>Idle time</strong>: Uptime minus active query time, floored at zero</li>
-        <li><strong>Estimated idle spend</strong>: Billed spend prorated by the idle share of uptime</li>
-        <li>Serverless warehouses are excluded because they scale per query and do not emit start and stop events</li>
+        <li><strong>Estimated idle spend</strong>: Classic single-cluster spend prorated by the idle share of uptime</li>
+        <li><strong>Serverless</strong>: Uptime, raw idle time, idle percentage, and idle spend are suppressed because wall-clock lifecycle time is not a valid waste measure. Use Warm Hold and auto-stop instead.</li>
       </ul>
       <p className="mb-2 mt-3 font-medium">Rightsizing</p>
       <ul className="list-inside list-disc space-y-1">
@@ -1591,10 +1592,10 @@ export interface WarehouseIdleTimeData {
     warehouse_type: string;
     workspace_id: string;
     uptime_source?: string;
-    total_running_minutes: number;
+    total_running_minutes: number | null;
     busy_union_minutes: number;
-    idle_minutes: number;
-    idle_pct: number;
+    idle_minutes: number | null;
+    idle_pct: number | null;
     warm_hold_minutes: number;
     keep_alive_score: number;
     auto_stop_mins: number;
@@ -1687,8 +1688,8 @@ export function WarehouseIdleTimeView({
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <h3 className="text-base font-semibold text-gray-900 flex items-center">
-            Top Warehouses by Idle Time
-            <InfoTooltip text="Idle time = warehouse uptime minus busy time (union of query intervals: bounded by wall-clock even under concurrency). Est. Idle Spend is only computed for CLASSIC single-cluster warehouses because serverless bills per-query with warm-hold at a reduced rate, and multi-cluster warehouses have concurrent cluster billing that wall-clock uptime can't reconstruct. For serverless rows, look at Warm-Hold (minutes held ready between queries, capped at auto_stop_mins) and the 'low conf.' badge: the actionable knob is auto_stop_mins, not raw idle %." />
+            Warehouse Utilization and Warm Hold
+            <InfoTooltip text="Classic idle time is warehouse uptime minus busy time. Serverless wall-clock uptime and idle percentage are suppressed because they are not valid waste measures; use Warm Hold (gaps between queries capped at auto_stop_mins) instead. Estimated idle spend is only computed for classic single-cluster warehouses." />
           </h3>
         </div>
         {data?.available && data.warehouses.length > 0 && (() => {
@@ -1823,6 +1824,7 @@ export function WarehouseIdleTimeView({
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Uptime</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Idle Time</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Idle %</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Warm Hold</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Total Spend</th>
                     <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Est. Idle Spend</th>
                   </tr>
@@ -1830,7 +1832,7 @@ export function WarehouseIdleTimeView({
                 <tbody className="divide-y divide-gray-200 bg-white">
                   {pageWarehouses.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
+                      <td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-500">
                         No warehouses match the current filters.
                       </td>
                     </tr>
@@ -1851,8 +1853,11 @@ export function WarehouseIdleTimeView({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right text-gray-700">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <span>{fmtHours(wh.total_running_minutes)}</span>
+                        {wh.warehouse_type === "SERVERLESS" ? (
+                          <span className="text-gray-400" title="Serverless wall-clock uptime is not a valid utilization measure.">N/A</span>
+                        ) : (
+                          <div className="flex items-center justify-end gap-1.5">
+                            <span>{fmtHours(wh.total_running_minutes ?? 0)}</span>
                           {wh.uptime_source === "billing" && (
                             <span
                               className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
@@ -1861,26 +1866,28 @@ export function WarehouseIdleTimeView({
                               est.
                             </span>
                           )}
-                        </div>
+                          </div>
+                        )}
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-700">{fmtHours(wh.idle_minutes)}</td>
+                      <td className="px-4 py-3 text-right text-gray-700">
+                        {wh.warehouse_type === "SERVERLESS"
+                          ? <span className="text-gray-400" title="Use Warm Hold for serverless warehouses.">N/A</span>
+                          : fmtHours(wh.idle_minutes ?? 0)}
+                      </td>
                       <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                        {wh.warehouse_type === "SERVERLESS" ? (
+                          <span className="text-gray-400" title="Use Warm Hold for serverless warehouses.">N/A</span>
+                        ) : (
                           <span
                             className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
-                            style={wh.idle_pct >= 80 ? { background: C.maroonTint, color: C.maroon } : wh.idle_pct >= 50 ? { background: C.amberTint, color: C.amberInk } : { background: C.oatMed, color: C.slate }}
+                            style={(wh.idle_pct ?? 0) >= 80 ? { background: C.maroonTint, color: C.maroon } : (wh.idle_pct ?? 0) >= 50 ? { background: C.amberTint, color: C.amberInk } : { background: C.oatMed, color: C.slate }}
                           >
-                            {wh.idle_pct.toFixed(1)}%
+                            {(wh.idle_pct ?? 0).toFixed(1)}%
                           </span>
-                          {wh.low_confidence && (
-                            <span
-                              className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
-                              title="Low confidence: serverless with wall-clock uptime above 95% of the window. Almost certainly a keep-alive probe firing under auto_stop_mins, not literal continuous compute. Look at Warm-Hold instead."
-                            >
-                              low conf.
-                            </span>
-                          )}
-                        </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-gray-700">
+                        {fmtHours(wh.warm_hold_minutes)}
                       </td>
                       <td className="px-4 py-3 text-right text-gray-700">{fmt$(wh.total_spend)}</td>
                       <td className={`px-4 py-3 text-right ${wh.estimated_idle_spend == null ? "text-gray-400" : wh.uptime_source === "billing" ? "text-red-500" : "font-medium text-red-600"}`}>

@@ -1890,18 +1890,18 @@ def _infer_shared_source_workspace_ids(source: dict[str, Any]) -> list[str]:
         for row in (rows or [])
         if str(row.get("workspace_id") or "").strip()
     ]
-    if len(candidates) == 1:
-        return [candidates[0][0]]
-
     normalized_label = re.sub(r"[^a-z0-9]", "", label.lower())
+    label_token = label.lower()
     matches = [
         workspace_id
         for workspace_id, workspace_name in candidates
         if normalized_label
         and (
             normalized_label == re.sub(r"[^a-z0-9]", "", workspace_id.lower())
-            or normalized_label
-            in re.sub(r"[^a-z0-9]", "", workspace_name.lower())
+            or label_token in [
+                token for token in re.split(r"[^a-z0-9]+", workspace_name.lower())
+                if token
+            ]
         )
     ]
     return list(dict.fromkeys(matches))
@@ -1966,12 +1966,19 @@ async def get_mv_sources_endpoint(detail: bool = False) -> dict:
                         if detected_cloud:
                             s["cloud"] = detected_cloud
                             changed = True
-                    if not s.get("workspace_ids"):
-                        workspace_ids = _infer_shared_source_workspace_ids(s)
-                        if workspace_ids:
-                            s["workspace_ids"] = workspace_ids
-                            changed = True
-                            workspace_scope_changed = True
+                    inferred_workspace_ids = _infer_shared_source_workspace_ids(s)
+                    current_workspace_ids = [
+                        str(value).strip()
+                        for value in (s.get("workspace_ids") or [])
+                        if str(value).strip()
+                    ]
+                    if (
+                        inferred_workspace_ids
+                        and set(inferred_workspace_ids) != set(current_workspace_ids)
+                    ):
+                        s["workspace_ids"] = inferred_workspace_ids
+                        changed = True
+                        workspace_scope_changed = True
                 if changed:
                     try:
                         save_mv_sources(current_sources)

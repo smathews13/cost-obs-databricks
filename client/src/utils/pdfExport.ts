@@ -65,8 +65,9 @@ export interface OptimizeExport {
       warehouse_size: string;
       warehouse_type: string;
       workspace_id: string;
-      idle_minutes: number;
-      idle_pct: number;
+      idle_minutes: number | null;
+      idle_pct: number | null;
+      warm_hold_minutes?: number;
       total_spend: number;
       estimated_idle_spend: number | null;
     }>;
@@ -1656,7 +1657,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
         doc.setFontSize(12);
         doc.setFont("helvetica", "bold");
         doc.setTextColor(DB_HEADER[0], DB_HEADER[1], DB_HEADER[2]);
-        doc.text("Top 10 Warehouses by Idle Time", 14, yPos);
+        doc.text("Warehouse Utilization and Warm Hold", 14, yPos);
         doc.setTextColor(0, 0, 0);
         yPos += 6;
 
@@ -1669,8 +1670,9 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
             w.warehouse_name || w.warehouse_id,
             w.warehouse_size || "N/A",
             w.warehouse_type || "N/A",
-            `${(w.idle_minutes / 60).toFixed(1)} h`,
-            `${w.idle_pct.toFixed(1)}%`,
+            w.idle_minutes == null ? "N/A" : `${(w.idle_minutes / 60).toFixed(1)} h`,
+            w.idle_pct == null ? "N/A" : `${w.idle_pct.toFixed(1)}%`,
+            `${((w.warm_hold_minutes ?? 0) / 60).toFixed(1)} h`,
             w.estimated_idle_spend == null
               ? "N/A"
               : formatCurrency(w.estimated_idle_spend),
@@ -1678,7 +1680,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
 
         autoTable(doc, {
           startY: yPos,
-          head: [["Warehouse", "Size", "Type", "Idle", "Idle %", "Est. Idle Spend"]],
+          head: [["Warehouse", "Size", "Type", "Idle", "Idle %", "Warm Hold", "Est. Idle Spend"]],
           body: rows,
           theme: "striped",
           headStyles: { fillColor: DB_HEADER, fontSize: 9 },
@@ -1691,7 +1693,7 @@ export async function generateCostReport(data: ExportData, sections?: ExportSect
         doc.setFontSize(8);
         doc.setTextColor(107, 114, 128);
         doc.text(
-          "Idle time = warehouse uptime (from lifecycle events) minus active query time.",
+          "Serverless raw idle is suppressed; use Warm Hold and auto-stop. Classic idle = lifecycle uptime minus active query time.",
           14,
           yPos,
         );

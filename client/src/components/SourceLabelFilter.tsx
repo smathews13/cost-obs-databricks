@@ -34,8 +34,13 @@ interface SourceLabelFilterProps {
   variant?: "header" | "rail";
   localWorkspaces?: Array<{ id: string; name?: string | null }>;
   workspaceSelection?: string[];
-  onApplied?: (sourceWorkspaceIds: string[] | null) => void | Promise<void>;
+  onApplied?: (
+    sourceWorkspaceIds: string[] | null,
+    origin?: "source" | "sync" | "rollback",
+  ) => void | Promise<void>;
   resetVersion?: number;
+  disabled?: boolean;
+  isRefreshing?: boolean;
 }
 
 function normalizedWorkspaceToken(value: unknown): string {
@@ -56,6 +61,22 @@ function resolveSameAccountWorkspaceIds(
   const groups = routableLabels.map((label) => {
     const source = sources.find((candidate) => candidate.label === label);
     if (!source) return [];
+    const normalizedLabel = normalizedWorkspaceToken(label);
+    const labelToken = String(label).trim().toLowerCase();
+    const labelMatches = localWorkspaces.filter((workspace) => (
+      normalizedLabel
+      && (
+        normalizedWorkspaceToken(workspace.id) === normalizedLabel
+        || String(workspace.name ?? "")
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter(Boolean)
+          .includes(labelToken)
+      )
+    ));
+    if (labelMatches.length > 0) {
+      return labelMatches.map((workspace) => String(workspace.id));
+    }
     const persistedIds = (source.workspace_ids ?? []).map(String);
     if (
       persistedIds.length > 0
@@ -63,15 +84,7 @@ function resolveSameAccountWorkspaceIds(
     ) {
       return persistedIds;
     }
-    const normalizedLabel = normalizedWorkspaceToken(label);
-    const matches = localWorkspaces.filter((workspace) => (
-      normalizedLabel
-      && (
-        normalizedWorkspaceToken(workspace.id) === normalizedLabel
-        || normalizedWorkspaceToken(workspace.name).includes(normalizedLabel)
-      )
-    ));
-    return matches.length === 1 ? [String(matches[0].id)] : [];
+    return [];
   });
   return groups.every((ids) => ids.length > 0)
     ? Array.from(new Set(groups.flat())).sort()
@@ -109,6 +122,8 @@ export function SourceLabelFilter({
   workspaceSelection = [],
   onApplied,
   resetVersion = 0,
+  disabled = false,
+  isRefreshing = false,
 }: SourceLabelFilterProps) {
   const { data } = useQuery<{
     sources: MvSource[];
@@ -169,6 +184,7 @@ export function SourceLabelFilter({
   const selectedRef = useRef(selected);
 
   const hasSources = (data?.sources?.length ?? 0) > 0;
+  const updating = applying || isRefreshing;
 
   useEffect(() => {
     if (resetVersion === 0) return;
@@ -237,7 +253,7 @@ export function SourceLabelFilter({
             ? sourceWorkspaceIds
             : null
         : null;
-      await onApplied?.(linkedWorkspaceScope);
+      await onApplied?.(linkedWorkspaceScope, syncWorkspace ? "source" : "sync");
       lastAppliedRef.current = key;
       selectedRef.current = new Set(next);
       setSelected(new Set(next));
@@ -257,7 +273,7 @@ export function SourceLabelFilter({
       setRetrySelection(new Set(next));
       setErr("Source filter was not applied because the refresh failed.");
       try {
-        await onApplied?.(null);
+        await onApplied?.(null, "rollback");
       } catch {
         // Keep the original error visible; the Retry action remains available.
       }
@@ -286,7 +302,7 @@ export function SourceLabelFilter({
       && sameSet(new Set(current.workspaceIds), new Set(workspaceIds))
     ) return;
     setActiveSourceRouting([data.local_label], workspaceIds);
-    void Promise.resolve(onApplied?.(workspaceIds)).catch(() => {
+    void Promise.resolve(onApplied?.(workspaceIds, "sync")).catch(() => {
       setActiveSourceRouting(current.requestLabels, current.workspaceIds);
       setErr("Source workspace routing could not be refreshed. Retry the source filter.");
     });
@@ -338,15 +354,20 @@ export function SourceLabelFilter({
       {open && <div className="fixed inset-0 z-10" onClick={() => { setOpen(false); apply(selected); }} />}
       <button
         ref={triggerRef}
-        onClick={() => setOpen((o) => !o)}
-        aria-label={applying ? "Updating sources" : label()}
+        disabled={disabled || isRefreshing}
+        onClick={() => {
+          if (!disabled) setOpen((o) => !o);
+        }}
+        aria-label={updating ? "Updating sources" : label()}
         className={variant === "rail"
-          ? "rail-source-filter rail-control-border flex h-[28px] max-w-[104px] items-center gap-[6px] whitespace-nowrap rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[10px]"
+          ? `rail-source-filter rail-control-border flex h-[28px] max-w-[104px] items-center gap-[6px] whitespace-nowrap rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[10px] ${disabled ? "cursor-not-allowed opacity-55" : "hover:bg-white/[.12]"}`
           : "co-filter flex items-center gap-2 whitespace-nowrap px-3"
         }
-        title="Filter by data source"
+        title={disabled
+          ? "Controlled by the workspace filter. Clear both filters to edit sources."
+          : "Filter by data source"}
       >
-        {applying ? (
+        {updating ? (
           <Spinner size="sm" />
         ) : (
           <svg className={variant === "rail" ? "h-[14px] w-[14px] shrink-0 opacity-70" : "h-4 w-4 shrink-0 text-gray-500"} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -354,7 +375,7 @@ export function SourceLabelFilter({
           </svg>
         )}
         <span className="max-w-[58px] truncate min-[1280px]:max-w-[140px]">
-          {applying ? "Updating…" : (
+          {updating ? "Updating…" : (
             <>
               <span className="min-[1180px]:hidden">
                 {allSelected

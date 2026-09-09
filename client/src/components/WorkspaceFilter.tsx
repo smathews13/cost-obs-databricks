@@ -41,6 +41,7 @@ interface WorkspaceFilterProps {
   variant?: "header" | "rail";
   showSingleOption?: boolean;
   showClearButton?: boolean;
+  disabled?: boolean;
 }
 
 export function WorkspaceFilter({
@@ -54,6 +55,7 @@ export function WorkspaceFilter({
   variant = "header",
   showSingleOption = false,
   showClearButton = true,
+  disabled = false,
 }: WorkspaceFilterProps) {
   const { updating, arm } = useUpdatingIndicator();
   const [isOpen, setIsOpen] = useState(false);
@@ -181,7 +183,9 @@ export function WorkspaceFilter({
       <button
         ref={triggerRef}
         type="button"
+        disabled={disabled}
         onClick={() => {
+          if (disabled) return;
           if (isOpen) setIsOpen(false);
           else openMenu();
         }}
@@ -195,8 +199,9 @@ export function WorkspaceFilter({
         aria-haspopup="dialog"
         aria-expanded={isOpen}
         aria-controls={menuId}
+        title={disabled ? "Controlled by the source filter. Clear both filters to edit workspaces." : undefined}
         className={variant === "rail"
-          ? "rail-workspace-filter rail-control-border flex h-[28px] max-w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] transition-colors hover:bg-white/[.12] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[10px]"
+          ? `rail-workspace-filter rail-control-border flex h-[28px] max-w-[116px] items-center gap-[6px] whitespace-nowrap rounded-[7px] border bg-white/[.07] px-[8px] text-[11.5px] font-medium text-[#E9EFED] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3621]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#1B3139] min-[1280px]:max-w-[190px] min-[1280px]:gap-[8px] min-[1280px]:px-[10px] ${disabled ? "cursor-not-allowed opacity-55" : "hover:bg-white/[.12]"}`
           : "co-filter flex items-center gap-2 whitespace-nowrap px-3"
         }
       >

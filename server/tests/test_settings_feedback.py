@@ -353,6 +353,34 @@ def test_shared_source_workspace_scope_keeps_multiple_region_matches():
     assert result == ["west-a", "west-b"]
 
 
+def test_shared_source_workspace_scope_rejects_a_mismatched_single_candidate():
+    rows = [
+        {"workspace_id": "east-id", "workspace_name": "east1-serverless"},
+    ]
+    with patch("server.db.execute_query", return_value=rows):
+        result = settings._infer_shared_source_workspace_ids({
+            "label": "west4",
+            "catalog": "west4_share",
+            "schema": "cost_obs_shared",
+        })
+
+    assert result == []
+
+
+def test_shared_source_workspace_scope_rejects_embedded_region_substrings():
+    rows = [
+        {"workspace_id": "north-id", "workspace_name": "northeast1-serverless"},
+    ]
+    with patch("server.db.execute_query", return_value=rows):
+        result = settings._infer_shared_source_workspace_ids({
+            "label": "east1",
+            "catalog": "east1_share",
+            "schema": "cost_obs_shared",
+        })
+
+    assert result == []
+
+
 def test_current_workspace_cloud_detects_all_provider_hosts():
     cases = {
         "https://123.7.gcp.databricks.com": "gcp",

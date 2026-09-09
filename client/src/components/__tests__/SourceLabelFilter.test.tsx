@@ -200,6 +200,73 @@ describe("source label reconciliation", () => {
     });
   });
 
+  it("uses the workspace name to repair swapped persisted region mappings", async () => {
+    const current = {
+      local_label: "local",
+      sources: [
+        { label: "west4", catalog: "west", schema: "cost", workspace_ids: ["1"] },
+        { label: "east1", catalog: "east", schema: "cost", workspace_ids: ["2"] },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => current,
+    })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["mv-sources"], current);
+
+    render(
+      <QueryClientProvider client={client}>
+        <SourceLabelFilter
+          localWorkspaces={[
+            { id: "1", name: "east1-serverless" },
+            { id: "2", name: "west4-serverless" },
+          ]}
+          workspaceSelection={["2"]}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(getActiveSourceLabels()).toEqual(["west4"]));
+    expect(getActiveSourceRouting()).toMatchObject({
+      requestLabels: ["local"],
+      workspaceIds: ["2"],
+    });
+  });
+
+  it("does not let an embedded region substring override a persisted mapping", async () => {
+    const current = {
+      local_label: "local",
+      sources: [{
+        label: "east1",
+        catalog: "east",
+        schema: "cost",
+        workspace_ids: ["1"],
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => current,
+    })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["mv-sources"], current);
+
+    render(
+      <QueryClientProvider client={client}>
+        <SourceLabelFilter
+          localWorkspaces={[
+            { id: "1", name: "Primary" },
+            { id: "2", name: "northeast1-serverless" },
+          ]}
+          workspaceSelection={["1"]}
+        />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(getActiveSourceLabels()).toEqual(["east1"]));
+    expect(getActiveSourceRouting().workspaceIds).toEqual(["1"]);
+  });
+
   it("preserves the linked source when the explicit workspace selection is cleared", async () => {
     const current = {
       local_label: "local",
@@ -546,6 +613,25 @@ describe("source label reconciliation", () => {
     );
 
     expect(await screen.findByRole("button", { name: "2 Sources" })).toBeVisible();
+  });
+
+  it("shows source refresh while a date-scope update is running", async () => {
+    const current = sourceData(["local", "west4"]);
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => current,
+    })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["mv-sources"], current);
+    render(
+      <QueryClientProvider client={client}>
+        <SourceLabelFilter isRefreshing />
+      </QueryClientProvider>,
+    );
+
+    const trigger = await screen.findByRole("button", { name: "Updating sources" });
+    expect(trigger).toBeDisabled();
+    expect(screen.getByText("Updating…")).toBeVisible();
   });
 
   it("intersects a partial applied scope when selected labels disappear", async () => {

@@ -166,6 +166,13 @@ describe("account rail health polish", () => {
     );
     expect(appSource).toContain("setActiveSourceLabels([])");
     expect(appSource).toContain("setActiveSourceRouting([], [])");
+    expect(appSource).toContain('scopeOwner === "source"');
+    expect(appSource).toContain('scopeOwner === "workspace"');
+    expect(appSource).toContain('setScopeOwner(null)');
+    expect(appSource).toContain('origin === "rollback"');
+    expect(appSource).toContain('selectedWorkspaceIds.length > 0');
+    expect(appSource).toContain("isLoading={wsListLoading}");
+    expect(appSource).toContain("isRefreshing={showActiveTabLoading}");
   });
 
   it("labels the SP name correctly and copies the same ID used by Settings", () => {
